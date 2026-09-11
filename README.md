@@ -3,6 +3,15 @@
 Native Android client for JARVIS, built per `android-separate-pc-parallel-execution-plan-v1.md`.
 This is the **client-development lane**: it consumes shared contracts, never redefines them.
 
+
+## PC-B current execution guide
+
+For the current Android ↔ PC-A integration phase, read first:
+
+- [PC-B-INTEGRATION-RUNBOOK.md](PC-B-INTEGRATION-RUNBOOK.md)
+
+Current instruction: do **not** redo AND-W0/W1/W2. Reconcile the existing Android mobile-shaped protocol to PC-A Web V1 through `PCB-R0 → PCB-R1 → PCB-R2 → PCB-R3`, then stop live integration unless PC-A reports `PA-1 = PASS`.
+
 ## Status
 
 - **Wave AND-W0**: reproducible debug build — done (`gradlew :app:assembleDebug`)
