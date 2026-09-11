@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+.kotlin/
+.tools/
+captures/
+.externalNativeBuild/
+.cxx/
+*.aab
+*.keystore
+!debug.keystore
+# Keep one installable debug APK in dist/ so the repo can be sideloaded
+!dist/*.apk

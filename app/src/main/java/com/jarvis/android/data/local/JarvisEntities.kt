@@ -1,0 +1,114 @@
+package com.jarvis.android.data.local
+
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
+import androidx.room.Query
+import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
+
+@Entity(
+    tableName = "conversations",
+    indices = [Index("updatedAtMs", unique = false)],
+)
+data class ConversationEntity(
+    @PrimaryKey val conversationId: String,
+    val title: String,
+    val createdAtMs: Long,
+    val updatedAtMs: Long,
+    /** Last event cursor persisted so replay can resume after process death. */
+    val lastCursor: Long = 0,
+)
+
+@Entity(
+    tableName = "messages",
+    foreignKeys = [
+        ForeignKey(
+            entity = ConversationEntity::class,
+            parentColumns = ["conversationId"],
+            childColumns = ["conversationId"],
+            onDelete = ForeignKey.CASCADE,
+        )
+    ],
+    indices = [Index("conversationId"), Index("clientRequestId", unique = false)],
+)
+data class MessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val conversationId: String,
+    /** Client idempotency key; assistant messages reuse the originating request's key. */
+    val clientRequestId: String,
+    val role: String, // "user" | "assistant"
+    val text: String,
+    val status: String, // RequestStatus name — drives pending/streaming/failed bubble
+    val createdAtMs: Long,
+    val attachmentIds: String = "", // comma-joined
+)
+
+/**
+ * Outbound messages not yet confirmed ACCEPTED by the server. Persisting these
+ * is what lets a kill/recreate restore the conversation *without duplicating*
+ * the outgoing message (plan AND-W2 gate).
+ */
+@Entity(tableName = "pending_outbound")
+data class PendingOutboundEntity(
+    @PrimaryKey val clientRequestId: String,
+    val conversationId: String,
+    val text: String,
+    val createdAtMs: Long,
+    val attempts: Int = 0,
+    val attachmentIds: String = "",
+)
+
+@Dao
+interface JarvisDao {
+
+    @Query("SELECT * FROM conversations ORDER BY updatedAtMs DESC")
+    fun observeConversations(): Flow<List<ConversationEntity>>
+
+    @Query("SELECT * FROM conversations WHERE conversationId = :id")
+    suspend fun conversation(id: String): ConversationEntity?
+
+    @Upsert
+    suspend fun upsertConversation(conversation: ConversationEntity)
+
+    @Query("SELECT * FROM messages WHERE conversationId = :id ORDER BY createdAtMs ASC, id ASC")
+    fun observeMessages(id: String): Flow<List<MessageEntity>>
+
+    @Query("SELECT * FROM messages WHERE conversationId = :id ORDER BY createdAtMs ASC, id ASC")
+    suspend fun messages(id: String): List<MessageEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessage(message: MessageEntity): Long
+
+    @Upsert
+    suspend fun upsertMessage(message: MessageEntity)
+
+    @Query("UPDATE messages SET text = :text, status = :status WHERE clientRequestId = :rid AND role = 'assistant'")
+    suspend fun updateAssistantMessage(rid: String, text: String, status: String)
+
+    @Query("SELECT * FROM messages WHERE clientRequestId = :rid AND role = 'assistant' LIMIT 1")
+    suspend fun assistantMessage(rid: String): MessageEntity?
+
+    @Query("DELETE FROM messages WHERE clientRequestId = :rid AND role = 'assistant'")
+    suspend fun deleteAssistantMessage(rid: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPending(pending: PendingOutboundEntity)
+
+    @Query("SELECT * FROM pending_outbound ORDER BY createdAtMs ASC")
+    suspend fun pendingOutbound(): List<PendingOutboundEntity>
+
+    @Query("DELETE FROM pending_outbound WHERE clientRequestId = :rid")
+    suspend fun deletePending(rid: String)
+
+    @Query("SELECT * FROM pending_outbound WHERE clientRequestId = :rid")
+    suspend fun pending(rid: String): PendingOutboundEntity?
+
+    @Query("UPDATE conversations SET lastCursor = :cursor WHERE conversationId = :id")
+    suspend fun setCursor(id: String, cursor: Long)
+}
