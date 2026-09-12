@@ -1,34 +1,190 @@
 {
-  "protocol": "jarvis.web.v1",
-  "protocol_version": "1.0",
-  "contract_fingerprint": "web-v1-1.0",
-  "operations": ["submit", "resume", "cancel", "action"],
-  "endpoints": {
-    "health": "/api/v1/health",
-    "capabilities": "/api/v1/capabilities",
-    "requests": "/api/v1/requests",
-    "events": "/api/v1/events"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "jarvis.web.v1.spine.v1",
+  "title": "JARVIS Web V1 shared spine",
+  "protocol": {
+    "name": "jarvis.web.v1",
+    "version": "1.0",
+    "major": 1,
+    "minor": 0,
+    "min_compatible_minor": 0,
+    "max_compatible_minor": 0,
+    "mismatch_behavior": "fail_visible",
+    "contract_fingerprint_field": "contract_fingerprint",
+    "contract_fingerprint_algorithm": "sha256_utf8_lf"
   },
-  "event_types": [
-    "connection.ready",
-    "connection.degraded",
-    "state.changed",
-    "message.accepted",
-    "message.delta",
-    "message.completed",
-    "message.failed",
-    "router.decision",
-    "task.started",
-    "task.progress",
-    "task.completed",
-    "task.failed",
-    "tool.started",
-    "tool.completed",
-    "action.proposed",
-    "action.started",
-    "action.completed",
-    "approval.required",
-    "approval.resolved",
-    "error"
-  ]
+  "api": {
+    "base_path": "/api/v1",
+    "capabilities_path": "/api/v1/capabilities",
+    "health_path": "/api/v1/health",
+    "requests_path": "/api/v1/requests",
+    "events_path": "/api/v1/events"
+  },
+  "identity_fields": [
+    "user_id",
+    "device_id",
+    "session_id",
+    "conversation_id",
+    "request_id",
+    "trace_id",
+    "task_id",
+    "run_id"
+  ],
+  "optional_identity_fields": ["action_id"],
+  "request": {
+    "schema": "jarvis.web.request.v1",
+    "required": [
+      "schema",
+      "protocol_version",
+      "contract_fingerprint",
+      "request_id",
+      "trace_id",
+      "user_id",
+      "device_id",
+      "session_id",
+      "conversation_id",
+      "task_id",
+      "run_id",
+      "operation"
+    ],
+    "operations": ["submit", "resume", "cancel", "action"],
+    "side_effecting_operations": ["action"],
+    "max_payload_bytes": 65536,
+    "max_id_length": 128
+  },
+  "event": {
+    "schema": "jarvis.web.event.v1",
+    "required": [
+      "schema",
+      "protocol_version",
+      "contract_fingerprint",
+      "event_id",
+      "sequence",
+      "cursor",
+      "type",
+      "timestamp_utc",
+      "user_id",
+      "device_id",
+      "session_id",
+      "conversation_id",
+      "request_id",
+      "trace_id",
+      "task_id",
+      "run_id",
+      "action_id",
+      "payload",
+      "optional"
+    ],
+    "known_types": [
+      "connection.ready",
+      "connection.degraded",
+      "state.changed",
+      "message.accepted",
+      "message.delta",
+      "message.completed",
+      "message.failed",
+      "router.decision",
+      "task.started",
+      "task.progress",
+      "task.completed",
+      "task.failed",
+      "tool.started",
+      "tool.completed",
+      "action.proposed",
+      "action.started",
+      "action.completed",
+      "approval.required",
+      "approval.resolved",
+      "error"
+    ],
+    "unknown_event_policy": "ignore_if_optional_true",
+    "sequence": "monotonic_per_stream",
+    "cursor": "opaque_replay_position"
+  },
+  "states": {
+    "request": [
+      "PENDING_LOCAL",
+      "SUBMITTED",
+      "ACCEPTED",
+      "STREAMING",
+      "COMPLETED",
+      "AWAITING_APPROVAL",
+      "CANCELLING",
+      "CANCELLED",
+      "FAILED_RETRYABLE",
+      "FAILED_FINAL",
+      "UNKNOWN_REMOTE_STATE"
+    ],
+    "connection": [
+      "CONNECTING",
+      "AUTHENTICATING",
+      "ONLINE",
+      "DEGRADED",
+      "OFFLINE",
+      "REAUTH_REQUIRED",
+      "UPDATE_REQUIRED"
+    ]
+  },
+  "approval": {
+    "schema": "jarvis.web.approval.v1",
+    "required": [
+      "schema",
+      "protocol_version",
+      "contract_fingerprint",
+      "approval_id",
+      "request_id",
+      "trace_id",
+      "action_id",
+      "status",
+      "expires_at"
+    ],
+    "statuses": ["required", "approved", "denied", "expired"]
+  },
+  "error_codes": [
+    "protocol_version_mismatch",
+    "invalid_request",
+    "invalid_event",
+    "duplicate_request",
+    "replay_ignored",
+    "cancelled",
+    "executor_unavailable",
+    "gateway_unavailable",
+    "approval_required",
+    "unknown_remote_state"
+  ],
+  "semantics": {
+    "event_identity": "event_id",
+    "request_identity": "request_id",
+    "side_effect_idempotency": "user_id/session_id/idempotency_key",
+    "dedupe_scope": "session_id",
+    "cancel": "idempotent_by_target_request_id",
+    "reconnect": "replay_after_cursor_then_dedupe_by_event_id",
+    "unknown_additive_event": "ignore_when_optional_true",
+    "raw_payload_persistence": "forbidden_in_evidence"
+  },
+  "capabilities": {
+    "schema": "jarvis.web.capabilities.v1",
+    "required_fields": ["protocol_version", "server_version", "capabilities"],
+    "capabilities": [
+      "conversation",
+      "streaming",
+      "cancel",
+      "replay",
+      "approvals",
+      "action_proposals"
+    ],
+    "disabled_capabilities": [
+      "action_gateway",
+      "pc_read",
+      "pc_safe_action"
+    ]
+  },
+  "execution_boundary": {
+    "fixture_only": true,
+    "provider_calls": false,
+    "model_loading": false,
+    "tool_execution": false,
+    "action_gateway_execution": false,
+    "pc_side_effects": false
+  }
 }

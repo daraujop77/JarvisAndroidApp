@@ -1,0 +1,11 @@
+{
+  "schema": "jarvis.web.approval.v1",
+  "protocol_version": "1.0",
+  "contract_fingerprint": "445e4013df96ad986232eaecec6c58c01bab472e2a55c5ec11c54536de552021",
+  "approval_id": "approval-spine-001",
+  "request_id": "req-spine-idempotent-001",
+  "trace_id": "trace-spine-idempotent-001",
+  "action_id": "action-spine-001",
+  "status": "required",
+  "expires_at": "2026-09-10T09:00:00Z"
+}

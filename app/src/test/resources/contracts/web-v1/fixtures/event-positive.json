@@ -1,0 +1,23 @@
+{
+  "schema": "jarvis.web.event.v1",
+  "protocol_version": "1.0",
+  "contract_fingerprint": "445e4013df96ad986232eaecec6c58c01bab472e2a55c5ec11c54536de552021",
+  "event_id": "event-spine-positive-001",
+  "sequence": 1,
+  "cursor": "cursor-spine-001",
+  "type": "message.accepted",
+  "timestamp_utc": "2026-09-10T08:00:00Z",
+  "user_id": "owner-001",
+  "device_id": "device-001",
+  "session_id": "session-spine-001",
+  "conversation_id": "conversation-spine-001",
+  "request_id": "req-spine-positive-001",
+  "trace_id": "trace-spine-positive-001",
+  "task_id": "task-spine-001",
+  "run_id": "run-spine-001",
+  "action_id": null,
+  "optional": false,
+  "payload": {
+    "state": "ACCEPTED"
+  }
+}

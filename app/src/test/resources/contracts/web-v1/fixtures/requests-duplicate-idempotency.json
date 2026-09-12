@@ -1,0 +1,38 @@
+[
+  {
+    "schema": "jarvis.web.request.v1",
+    "protocol_version": "1.0",
+    "contract_fingerprint": "445e4013df96ad986232eaecec6c58c01bab472e2a55c5ec11c54536de552021",
+    "request_id": "req-spine-idempotent-001",
+    "trace_id": "trace-spine-idempotent-001",
+    "user_id": "owner-001",
+    "device_id": "device-001",
+    "session_id": "session-spine-001",
+    "conversation_id": "conversation-spine-001",
+    "task_id": "task-spine-001",
+    "run_id": "run-spine-001",
+    "operation": "action",
+    "action_id": "action-spine-001",
+    "idempotency_key": "idem-spine-001",
+    "side_effecting": true,
+    "payload": {"action": "open_test_app"}
+  },
+  {
+    "schema": "jarvis.web.request.v1",
+    "protocol_version": "1.0",
+    "contract_fingerprint": "445e4013df96ad986232eaecec6c58c01bab472e2a55c5ec11c54536de552021",
+    "request_id": "req-spine-idempotent-002",
+    "trace_id": "trace-spine-idempotent-002",
+    "user_id": "owner-001",
+    "device_id": "device-001",
+    "session_id": "session-spine-001",
+    "conversation_id": "conversation-spine-001",
+    "task_id": "task-spine-002",
+    "run_id": "run-spine-002",
+    "operation": "action",
+    "action_id": "action-spine-002",
+    "idempotency_key": "idem-spine-001",
+    "side_effecting": true,
+    "payload": {"action": "open_test_app"}
+  }
+]
