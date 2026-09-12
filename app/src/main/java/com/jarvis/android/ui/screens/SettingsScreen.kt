@@ -164,7 +164,7 @@ fun SettingsScreen(vm: JarvisViewModel) {
             SettingsCard("CONNECTION") {
                 SwitchRow(
                     title = "Use Fake Gateway",
-                    subtitle = "Deterministic local scenarios — no network traffic",
+                    subtitle = "Deterministic local scenarios — no network. Off = HTTP /api/v1",
                     checked = settings.useFakeGateway,
                     onChange = vm::setUseFake,
                 )

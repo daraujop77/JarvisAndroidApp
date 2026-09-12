@@ -92,6 +92,11 @@ class FakeGatewaySessionTest {
         awaitRequest(cid) { it == RequestStatus.Completed }
         val req = repo.snapshot.value.session.requests[cid]!!
         assertEquals("word0 word1 word2 word3 word4 word5 word6 word7 ", req.text)
+        val frame = fake.emittedFrames.first { it.contains("message.delta") }
+        assertTrue(frame.contains("\"event_id\""))
+        assertTrue(frame.contains("\"protocol_version\":\"1.0\""))
+        assertTrue(frame.contains("\"cursor\":\"tok_"))
+        assertTrue(!frame.contains("\"event\":{"))
     }
 
     @Test
@@ -130,6 +135,22 @@ class FakeGatewaySessionTest {
         val req = repo.snapshot.value.session.requests[cid]!!
         // full text, no scrambled order, no duplication:
         assertEquals("w0 w1 w2 w3 w4 w5 ", req.text)
+    }
+
+    @Test
+    fun optionalUnknownEventIsSafeAndStreamCompletes() {
+        awaitConnection(ConnectionState.ONLINE)
+        fake.config = FakeConfig(emitOptionalUnknown = true, replyWords = List(2) { "w$it " })
+        val cid = repo.send("c1", "hello")
+        awaitRequest(cid) { it == RequestStatus.Completed }
+        assertEquals("w0 w1 ", repo.snapshot.value.session.requests[cid]!!.text)
+        assertTrue(
+            repo.snapshot.value.session.diagnostics.any {
+                it.kind == com.jarvis.android.data.state.DiagnosticEntry.Kind.UNKNOWN_EVENT &&
+                    it.detail.contains("hologram.started")
+            },
+        )
+        assertEquals(ConnectionState.ONLINE, repo.snapshot.value.session.connection)
     }
 
     @Test
@@ -220,10 +241,9 @@ class FakeGatewaySessionTest {
 
         // Ask for a full replay from cursor 0: everything redelivered with same
         // eventIds -> reducer dedupes all of it.
-        repo.snapshot.value.session.lastCursor.let { cursor0 ->
-            runBlockingShort { fake.send(com.jarvis.android.contract.MobileRequest.Replay(0)) }
-            check(cursor0 >= 0)
-        }
+        val token = repo.snapshot.value.session.lastCursorToken
+        runBlockingShort { fake.send(com.jarvis.android.contract.MobileRequest.Replay("")) }
+        check(token.isNotBlank())
         // give frames time to flow
         runBlockingShort { delay(200) }
         assertEquals(before, repo.snapshot.value.session.requests[cid]!!.text)

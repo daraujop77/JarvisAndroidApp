@@ -12,6 +12,13 @@ For the current Android ↔ PC-A integration phase, read first:
 
 Current instruction: do **not** redo AND-W0/W1/W2. Reconcile the existing Android mobile-shaped protocol to PC-A Web V1 through `PCB-R0 → PCB-R1 → PCB-R2 → PCB-R3`, then stop live integration unless PC-A reports `PA-1 = PASS`.
 
+- **PCB-R0**: Web V1 wire adapter — done (strategy B). Tests consume `contracts/web-v1` fixtures without rewriting them. See `PCB-R0-REPORT.md`.
+- **PCB-R1**: Fake Gateway emits Web V1 envelopes — done. See `PCB-R1-REPORT.md`.
+- **PCB-R2**: Room v3 opaque-cursor migration + process-death tests — done. See `PCB-R2-REPORT.md`.
+- **PCB-R3**: HTTP `/api/v1/*` adapter + `AuthProvider` seam — done, no live PC-A calls. See `PCB-R3-REPORT.md`.
+
+**Stop gate:** `PC_B_READY_FOR_LIVE_GATEWAY_WAITING_FOR_PA1`
+
 ## Status
 
 - **Wave AND-W0**: reproducible debug build — done (`gradlew :app:assembleDebug`)
@@ -69,13 +76,13 @@ Gradle wrapper 8.13, AGP 8.11.1, Kotlin 2.1.21, compile/target SDK 36, min SDK 2
 
 ```
 com.jarvis.android
-├── contract/         # §6 shared mobile-facing schemas: EventEnvelope, GatewayEvent union,
+├── contract/         # internal domain events + Web V1 wire adapter (PCB-R0)
 │                     #   MobileRequest, ErrorEnvelope, approval/task payloads. Additive-tolerant
 │                     #   JSON (ignoreUnknownKeys), unknown event types decode to Unknown.
 ├── transport/        # GatewayTransport seam (§23 PrivateLinkProvider abstraction)
-│   ├── fake/         # §7 Fake Gateway: deterministic scripted scenario matrix (18 presets),
-│   │                 #   journal-based cursor replay, drop/resume during streaming
-│   └── wss/          # AND-W4 WSS/HTTPS adapter skeleton (blocked on live contract)
+│   ├── fake/         # §7 Fake Gateway: Web V1 envelopes, scenario matrix, opaque-cursor replay
+│   ├── http/         # PCB-R3 HTTP /api/v1 health|capabilities|requests|events
+│   └── wss/          # legacy WSS skeleton (not a production requirement)
 ├── data/
 │   ├── state/        # Reducer: pure deterministic state machine (dup/stale/out-of-order/
 │   │                 #   cancel-idempotency/protocol-mismatch); SessionReducer frame wrapper
@@ -122,9 +129,8 @@ floats), so ambient motion never triggers recomposition of the surrounding UI.
 
 ## Known debt
 
-- **Room migrations**: schemas are now exported to `app/schemas/`, but the DB still uses
-  destructive fallback. A real `Migration(1,2)` + migration test is owed before any build
-  that users keep data in (plan Lane C "migration tests").
+- **Room**: v3 opaque `lastCursorToken` with `Migration(2,3)` and a JVM migration test.
+  No destructive fallback. v1→v2 still has no explicit migration (fresh installs only).
 - **Transport switch needs an app restart** (mode resolved once at startup).
 - **No foreground service**: the socket lives only while the app is alive; server-side tasks
   continue independently, which is the intended V1 behavior (AND-W8 full scope not done).

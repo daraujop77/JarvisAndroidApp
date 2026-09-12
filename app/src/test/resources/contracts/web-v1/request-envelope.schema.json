@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis.local/contracts/web-v1/request-envelope.schema.json",
+  "title": "jarvis.web.v1 request envelope",
+  "type": "object",
+  "required": ["operation", "protocol_version"],
+  "properties": {
+    "operation": { "type": "string", "enum": ["submit", "resume", "cancel", "action"] },
+    "protocol_version": { "type": "string" },
+    "contract_fingerprint": { "type": "string" },
+    "payload": { "type": "object" },
+    "after": { "type": "string", "description": "opaque cursor for resume" },
+    "user_id": { "type": "string" },
+    "device_id": { "type": "string" },
+    "session_id": { "type": "string" },
+    "conversation_id": { "type": "string" },
+    "request_id": { "type": "string" },
+    "trace_id": { "type": "string" }
+  },
+  "additionalProperties": true
+}

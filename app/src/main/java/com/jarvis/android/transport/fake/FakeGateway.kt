@@ -7,14 +7,15 @@ import com.jarvis.android.contract.AttachmentPayload
 import com.jarvis.android.contract.ConnectionPayload
 import com.jarvis.android.contract.ContractVersion
 import com.jarvis.android.contract.ErrorEnvelope
-import com.jarvis.android.contract.EventEnvelope
 import com.jarvis.android.contract.GatewayEvent
 import com.jarvis.android.contract.HealthResponse
-import com.jarvis.android.contract.JarvisJson
 import com.jarvis.android.contract.MobileRequest
 import com.jarvis.android.contract.ServerConnectionState
 import com.jarvis.android.contract.TaskStatus
 import com.jarvis.android.contract.TaskUpdatedPayload
+import com.jarvis.android.contract.webv1.WebV1Adapter
+import com.jarvis.android.contract.webv1.WebV1Codec
+import com.jarvis.android.contract.webv1.WebV1Event
 import com.jarvis.android.transport.GatewayTransport
 import com.jarvis.android.transport.LinkState
 import com.jarvis.android.transport.TransportException
@@ -34,12 +35,12 @@ import kotlinx.coroutines.launch
 /**
  * Deterministic, production-shaped fake transport (plan §7 / AND-0002).
  *
- * Behavior derives from the frozen contract models, never from a competing
- * backend: it emits real serialized [EventEnvelope] frames through the same
- * interface the WSS adapter implements. Per-request stream drivers PAUSE while
- * the link is down and resume on reconnect, and cursor replay re-emits journal
- * frames (same eventIds) so the reducer can dedupe — exercising the AND-W2
- * "reconnect fixture resumes stream from cursor" gate.
+ * Behavior derives from the frozen Web V1 contract, never from a competing
+ * backend: it emits serialized [WebV1Event] frames through the same
+ * [GatewayTransport] seam the HTTP adapter implements. Per-request stream
+ * drivers PAUSE while the link is down and resume on reconnect, and opaque
+ * cursor replay re-emits journal frames (same event_id) so the reducer can
+ * dedupe.
  *
  * Scripted knobs cover the §7 scenario matrix: streaming cadence, failure mode,
  * cancel handling, duplicate/out-of-order injection, reconnect, approvals, tasks,
@@ -56,9 +57,9 @@ class FakeGateway(
     private val _linkState = MutableStateFlow(LinkState.IDLE)
     override val linkState: StateFlow<LinkState> = _linkState.asStateFlow()
 
-    /** Journal of every envelope produced this session, for cursor replay. */
-    private val journal = ArrayDeque<EventEnvelope>()
-    private var cursor = 0L
+    /** Journal of every Web V1 envelope produced this session, for opaque-cursor replay. */
+    private val journal = ArrayDeque<WebV1Event>()
+    private var cursorSeq = 0L
     private var eventSeq = 0L
     private val streamJobs = mutableMapOf<String, Job>()
     private val progressByReq = mutableMapOf<String, StreamProgress>()
@@ -66,6 +67,8 @@ class FakeGateway(
 
     /** Requests that reached the fake, for assertions. Written from many coroutines. */
     val receivedRequests: MutableList<MobileRequest> =
+        java.util.Collections.synchronizedList(mutableListOf())
+    val emittedFrames: MutableList<String> =
         java.util.Collections.synchronizedList(mutableListOf())
 
     var healthResponse: HealthResponse = HealthResponse(
@@ -150,10 +153,16 @@ class FakeGateway(
             if (!p.timersArmed) {
                 p.timersArmed = true
                 if (config.emitProtocolMismatchFirst) {
-                    // hand-written frame: Unknown events aren't serializable
                     emitRaw(
-                        """{"cursor":${nextCursor()},"eventId":"evt_${eventSeq++}",""" +
-                            """"version":"2.0","event":{"type":"capability.bump"}}""",
+                        WebV1Codec.encodeEvent(
+                            WebV1Event(
+                                cursor = nextCursorToken(),
+                                eventId = "evt_${eventSeq++}",
+                                type = "capability.bump",
+                                protocolVersion = "2.0",
+                                contractFingerprint = "web-v2-0.1",
+                            ),
+                        ),
                     )
                     p.settled = true
                     return@launch
@@ -170,6 +179,18 @@ class FakeGateway(
             if (!p.acceptedSent) {
                 if (!config.dropBeforeAccepted) emit(GatewayEvent.MessageAccepted(rid, req.conversationId, mid))
                 p.acceptedSent = true
+                if (config.emitOptionalUnknown) {
+                    emitRaw(
+                        WebV1Codec.encodeEvent(
+                            WebV1Event(
+                                cursor = nextCursorToken(),
+                                eventId = "evt_opt_${eventSeq++}",
+                                type = "hologram.started",
+                                optional = true,
+                            ),
+                        ),
+                    )
+                }
             }
 
             if (isCancelled(rid)) {
@@ -267,9 +288,8 @@ class FakeGateway(
                     )
                 }
                 if (config.injectDuplicates) {
-                    // re-emit the last event with a NEW cursor but SAME eventId -> reducer must drop
                     journal.lastOrNull()?.let { dup ->
-                        emitRaw(envelopeJson(nextCursor(), dup.eventId) { dup.event })
+                        emitRaw(WebV1Codec.encodeEvent(dup.copy(cursor = nextCursorToken())))
                     }
                 }
             }
@@ -373,11 +393,16 @@ class FakeGateway(
 
     private fun handleReplay(req: MobileRequest.Replay) {
         scope.launch {
-            // Re-emit journal entries after the cursor with fresh cursors but original
-            // eventIds: the reducer dedupes anything already applied, so replay resumes
-            // a stream without duplicating delivered text (plan §6 replay cursor fields).
-            journal.filter { it.cursor > req.sinceCursor }.forEach { env ->
-                emitRaw(JarvisJson.default.encodeToString(EventEnvelope.serializer(), env.copy(cursor = nextCursor())))
+            val after = req.sinceCursor
+            val start = when {
+                after.isBlank() || after == "0" -> 0
+                else -> {
+                    val i = journal.indexOfFirst { it.cursor == after }
+                    if (i < 0) 0 else i + 1
+                }
+            }
+            journal.drop(start).toList().forEach { env ->
+                emitRaw(WebV1Codec.encodeEvent(env.copy(cursor = nextCursorToken())))
             }
         }
     }
@@ -385,40 +410,24 @@ class FakeGateway(
     // ---- frame production -----------------------------------------------------
 
     private suspend fun emit(event: GatewayEvent) {
-        emitRaw(JarvisJson.default.encodeToString(EventEnvelope.serializer(), nextEnvelope(event)))
+        val wire = WebV1Adapter.domainToWire(
+            event = event,
+            cursor = nextCursorToken(),
+            eventId = "evt_${eventSeq++}",
+        )
+        journal.addLast(wire)
+        emitRaw(WebV1Codec.encodeEvent(wire))
     }
 
     private suspend fun emitDelta(mid: String, rid: String, seq: Int, text: String) {
         emit(GatewayEvent.MessageDelta(rid, mid, seq, text))
     }
 
-    private fun nextCursor(): Long = ++cursor
-
-    private fun nextEnvelope(event: GatewayEvent): EventEnvelope {
-        val env = EventEnvelope(
-            cursor = nextCursor(),
-            eventId = "evt_${eventSeq++}",
-            version = ContractVersion.SUPPORTED,
-            timestampMs = System.currentTimeMillis(),
-            event = event,
-        )
-        journal.addLast(env)
-        return env
-    }
+    private fun nextCursorToken(): String = "tok_${++cursorSeq}"
 
     private suspend fun emitRaw(json: String) {
+        emittedFrames += json
         _frames.trySend(json)
-    }
-
-    private fun envelopeJson(
-        cursor: Long,
-        eventId: String,
-        version: String = ContractVersion.SUPPORTED,
-        event: () -> GatewayEvent,
-    ): String {
-        val env = EventEnvelope(cursor, eventId, version, System.currentTimeMillis(), event())
-        journal.addLast(env)
-        return JarvisJson.default.encodeToString(EventEnvelope.serializer(), env)
     }
 }
 
@@ -445,6 +454,7 @@ enum class FakeScenario(val label: String, val config: FakeConfig) {
     UPLOAD("attachment.upload -> ready", FakeConfig()),
     UPLOAD_FAIL("attachment.upload -> rejected", FakeConfig(failUploads = true)),
     PROTOCOL_MISMATCH("Protocol mismatch (major bump)", FakeConfig(emitProtocolMismatchFirst = true)),
+    OPTIONAL_UNKNOWN("Additive optional event is ignored", FakeConfig(emitOptionalUnknown = true)),
     DEGRADED("Gateway degraded", FakeConfig(pushState = ServerConnectionState.DEGRADED)),
     OFFLINE_RECOVER("Gateway offline -> recovered", FakeConfig(pushState = ServerConnectionState.OFFLINE)),
     AUTH_EXPIRED("Auth expiry", FakeConfig(pushState = ServerConnectionState.AUTH_EXPIRED)),
@@ -478,6 +488,7 @@ data class FakeConfig(
     val uploadDelayMs: Long = 300,
     val postReconnectServerState: ServerConnectionState? = null,
     /** Auto-drop the link N ms after a send starts (reconnect-during-streaming demo). */
+    val emitOptionalUnknown: Boolean = false,
     val dropAfterMs: Long? = null,
     /** Push a connection.state event N ms after a send starts (auth/revoked/degraded demo). */
     val pushState: ServerConnectionState? = null,

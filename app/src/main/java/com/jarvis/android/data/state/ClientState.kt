@@ -122,6 +122,9 @@ data class DiagnosticEntry(
  */
 data class SessionState(
     val connection: ConnectionState = ConnectionState.DISCONNECTED,
+    /** Opaque Web V1 replay token. Empty means "from the beginning". */
+    val lastCursorToken: String = "",
+    /** Legacy numeric cursor used only by the in-process Fake Gateway path. */
     val lastCursor: Long = 0,
     val seenEventIds: Set<String> = emptySet(),
     val seenOrder: List<String> = emptyList(),

@@ -1,0 +1,55 @@
+[
+  {
+    "cursor": "tok_0001",
+    "event_id": "evt_ready",
+    "type": "connection.ready",
+    "protocol_version": "1.0",
+    "contract_fingerprint": "web-v1-1.0",
+    "timestamp_utc": "2026-09-11T00:00:00Z",
+    "session_id": "ses_1",
+    "device_id": "dev_1",
+    "user_id": "owner",
+    "payload": {}
+  },
+  {
+    "cursor": "tok_0002",
+    "event_id": "evt_accepted",
+    "type": "message.accepted",
+    "protocol_version": "1.0",
+    "contract_fingerprint": "web-v1-1.0",
+    "timestamp_utc": "2026-09-11T00:00:01Z",
+    "conversation_id": "c1",
+    "request_id": "r1",
+    "payload": { "message_id": "m1" }
+  },
+  {
+    "cursor": "tok_0003",
+    "event_id": "evt_d0",
+    "type": "message.delta",
+    "protocol_version": "1.0",
+    "contract_fingerprint": "web-v1-1.0",
+    "conversation_id": "c1",
+    "request_id": "r1",
+    "payload": { "message_id": "m1", "seq": 0, "text": "Hello " }
+  },
+  {
+    "cursor": "tok_0004",
+    "event_id": "evt_d1",
+    "type": "message.delta",
+    "protocol_version": "1.0",
+    "contract_fingerprint": "web-v1-1.0",
+    "conversation_id": "c1",
+    "request_id": "r1",
+    "payload": { "message_id": "m1", "seq": 1, "text": "world" }
+  },
+  {
+    "cursor": "tok_0005",
+    "event_id": "evt_done",
+    "type": "message.completed",
+    "protocol_version": "1.0",
+    "contract_fingerprint": "web-v1-1.0",
+    "conversation_id": "c1",
+    "request_id": "r1",
+    "payload": { "message_id": "m1", "full_text": "Hello world" }
+  }
+]

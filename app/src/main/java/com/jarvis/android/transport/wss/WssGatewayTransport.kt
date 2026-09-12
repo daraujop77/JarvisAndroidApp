@@ -32,12 +32,9 @@ import kotlin.coroutines.resumeWithException
 /**
  * Production-shaped WSS/HTTPS transport adapter (plan AND-W4 skeleton).
  *
- * NOTE (plan §11): live Gateway integration is blocked until PC-A freezes the
- * base URL, auth exchange, and event envelope. This adapter implements the
- * transport mechanics (connect, frames, send, reconnect trigger) but must be
- * validated against the real Gateway in AND-W4. Kept behind the same
- * [GatewayTransport] interface the Fake implements, so no UI/semantics change
- * is required when the Gateway becomes reachable.
+ * PCB-R3: Web V1 production path is HTTP (`HttpGatewayTransport`). This WSS
+ * adapter stays behind [GatewayTransport] for a future PC-A socket, but
+ * `/mobile/events` is **not** a production requirement. Auth remains fail-closed.
  */
 class WssGatewayTransport(
     private val context: Context,

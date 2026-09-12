@@ -46,7 +46,8 @@ sealed interface MobileRequest {
     @Serializable
     @SerialName("replay")
     data class Replay(
-        val sinceCursor: Long,
+        /** Opaque Web V1 replay token. Empty / "0" means from the beginning. */
+        val sinceCursor: String = "",
     ) : MobileRequest
 
     /**

@@ -1,0 +1,34 @@
+{
+  "protocol": "jarvis.web.v1",
+  "protocol_version": "1.0",
+  "contract_fingerprint": "web-v1-1.0",
+  "operations": ["submit", "resume", "cancel", "action"],
+  "endpoints": {
+    "health": "/api/v1/health",
+    "capabilities": "/api/v1/capabilities",
+    "requests": "/api/v1/requests",
+    "events": "/api/v1/events"
+  },
+  "event_types": [
+    "connection.ready",
+    "connection.degraded",
+    "state.changed",
+    "message.accepted",
+    "message.delta",
+    "message.completed",
+    "message.failed",
+    "router.decision",
+    "task.started",
+    "task.progress",
+    "task.completed",
+    "task.failed",
+    "tool.started",
+    "tool.completed",
+    "action.proposed",
+    "action.started",
+    "action.completed",
+    "approval.required",
+    "approval.resolved",
+    "error"
+  ]
+}

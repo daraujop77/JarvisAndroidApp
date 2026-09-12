@@ -21,8 +21,8 @@ data class ConversationEntity(
     val title: String,
     val createdAtMs: Long,
     val updatedAtMs: Long,
-    /** Last event cursor persisted so replay can resume after process death. */
-    val lastCursor: Long = 0,
+    /** Opaque Web V1 replay token persisted so replay can resume after process death. */
+    val lastCursorToken: String = "",
 )
 
 @Entity(
@@ -109,6 +109,6 @@ interface JarvisDao {
     @Query("SELECT * FROM pending_outbound WHERE clientRequestId = :rid")
     suspend fun pending(rid: String): PendingOutboundEntity?
 
-    @Query("UPDATE conversations SET lastCursor = :cursor WHERE conversationId = :id")
-    suspend fun setCursor(id: String, cursor: Long)
+    @Query("UPDATE conversations SET lastCursorToken = :cursor WHERE conversationId = :id")
+    suspend fun setCursor(id: String, cursor: String)
 }

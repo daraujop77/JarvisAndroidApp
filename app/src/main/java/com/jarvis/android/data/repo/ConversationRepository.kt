@@ -54,6 +54,20 @@ class ConversationRepository(
 
     private val _live = session.snapshot
 
+    init {
+        scope.launch {
+            var lastToken = ""
+            _live.collect { snap ->
+                val token = snap.session.lastCursorToken
+                if (token.isBlank() || token == lastToken) return@collect
+                lastToken = token
+                val cid = snap.session.requests.values.maxByOrNull { it.startedAtMs }?.conversationId
+                    ?: return@collect
+                runCatching { dao.setCursor(cid, token) }
+            }
+        }
+    }
+
     fun observeConversations(): Flow<List<ConversationSummary>> =
         dao.observeConversations().map { list ->
             list.map { ConversationSummary(it.conversationId, it.title, it.updatedAtMs) }
@@ -147,12 +161,17 @@ class ConversationRepository(
      * session has no live/terminal state for it, re-issue with the SAME key.
      */
     suspend fun recover() {
+        val storedCursor = dao.observeConversations().first()
+            .maxByOrNull { it.updatedAtMs }
+            ?.lastCursorToken
+            .orEmpty()
+        if (storedCursor.isNotBlank()) session.restoreCursor(storedCursor)
         val pendings = dao.pendingOutbound()
-        if (pendings.isEmpty()) return
-        // Wait (bounded) for the link so resends don't instantly fail as not_connected.
         kotlinx.coroutines.withTimeoutOrNull(5_000) {
             _live.first { it.session.connection.isUsable }
         }
+        if (storedCursor.isNotBlank()) session.replayNow()
+        if (pendings.isEmpty()) return
         for (p in pendings) {
             val live = _live.value.session.requests[p.clientRequestId]
             if (live == null) {
@@ -218,7 +237,7 @@ class ConversationRepository(
                 title = existingConversation?.title ?: req.userText.take(40).ifBlank { "Chat" },
                 createdAtMs = existingConversation?.createdAtMs ?: req.startedAtMs,
                 updatedAtMs = clock(),
-                lastCursor = snap.session.lastCursor,
+                lastCursorToken = snap.session.lastCursorToken,
             )
         )
     }

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis.local/contracts/web-v1/approval-envelope.schema.json",
+  "title": "jarvis.web.v1 approval payload",
+  "type": "object",
+  "required": ["approval_id", "title"],
+  "properties": {
+    "approval_id": { "type": "string" },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "tier": { "type": "string" },
+    "risk": { "type": "string" },
+    "expires_at": { "type": "string" },
+    "outcome": { "type": "string", "enum": ["approved", "denied", "expired", "cancelled"] },
+    "resolved_by": { "type": "string" },
+    "resolved_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -44,7 +44,7 @@ data class SessionSnapshot(
  *
  * Reconnect behavior: on link loss, requests the server never accepted become
  * retryable failures (never silently re-sent -> no duplicate outbound), while
- * the client asks the server to replay from [SessionState.lastCursor].
+ * the client asks the server to replay from [SessionState.lastCursorToken].
  */
 class JarvisSessionRepository(
     private val transport: GatewayTransport,
@@ -186,6 +186,23 @@ class JarvisSessionRepository(
 
     suspend fun health(): Result<HealthResponse> = runCatching { transport.health() }
 
+    /** Restore the opaque replay token after process death (PCB-R2). */
+    fun restoreCursor(token: String) {
+        if (token.isBlank()) return
+        mutate { s ->
+            if (s.lastCursorToken.isNotBlank()) s else s.copy(lastCursorToken = token)
+        }
+    }
+
+    /** Ask the Gateway to resume from the stored opaque cursor. */
+    fun replayNow() {
+        val cursor = _snapshot.value.session.lastCursorToken
+        if (cursor.isBlank()) return
+        scope.launch {
+            runCatching { transport.send(MobileRequest.Replay(cursor)) }
+        }
+    }
+
     /** Manual reconnect trigger (e.g. from the offline banner). */
     fun reconnectNow() {
         scope.launch {
@@ -237,9 +254,9 @@ class JarvisSessionRepository(
                 reconnectJob?.cancel()
                 reconnectJob = null
                 // Ask server to replay anything missed while down, from our cursor.
-                val cursor = _snapshot.value.session.lastCursor
+                val cursor = _snapshot.value.session.lastCursorToken
                 scope.launch {
-                    if (cursor > 0) runCatching { transport.send(MobileRequest.Replay(cursor)) }
+                    if (cursor.isNotBlank()) runCatching { transport.send(MobileRequest.Replay(cursor)) }
                 }
             }
             LinkState.RECONNECTING, LinkState.CLOSED, LinkState.FAILED -> {

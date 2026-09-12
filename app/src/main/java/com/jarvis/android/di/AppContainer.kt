@@ -8,7 +8,9 @@ import com.jarvis.android.data.repo.ConversationRepository
 import com.jarvis.android.data.repo.JarvisSessionRepository
 import com.jarvis.android.security.DeviceIdentityStore
 import com.jarvis.android.transport.GatewayTransport
+import com.jarvis.android.transport.NoAuthProvider
 import com.jarvis.android.transport.fake.FakeGateway
+import com.jarvis.android.transport.http.HttpGatewayTransport
 import com.jarvis.android.transport.wss.WssGatewayTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,11 +20,12 @@ import kotlinx.coroutines.launch
 
 /**
  * Manual DI container (no Hilt, keeps the build lean per AND-W0).
- * Chooses Fake vs WSS transport from settings (plan §23 abstraction).
+ * Chooses Fake vs HTTP Web V1 transport from settings (plan §23 abstraction).
+ * Legacy WSS stays on the seam but is not the production path.
  */
 class AppContainer(private val context: Context) {
 
-    enum class TransportMode { FAKE, WSS }
+    enum class TransportMode { FAKE, HTTP, WSS }
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -38,6 +41,15 @@ class AppContainer(private val context: Context) {
     }
 
     private val fake = FakeGateway(scope)
+    private val http by lazy {
+        HttpGatewayTransport(
+            scope = scope,
+            baseUrlProvider = {
+                kotlinx.coroutines.runBlocking { settings.settings.first().gatewayBaseUrl }
+            },
+            auth = NoAuthProvider,
+        )
+    }
     private val wss by lazy { WssGatewayTransport(context, scope) }
 
     /** Resolved at start(); defaults to Fake until settings are read. */
@@ -52,6 +64,7 @@ class AppContainer(private val context: Context) {
     val transport: GatewayTransport by lazy {
         when (transportMode) {
             TransportMode.FAKE -> fake
+            TransportMode.HTTP -> http
             TransportMode.WSS -> wss
         }
     }
@@ -73,7 +86,7 @@ class AppContainer(private val context: Context) {
      */
     fun start() {
         scope.launch {
-            transportMode = if (settings.settings.first().useFakeGateway) TransportMode.FAKE else TransportMode.WSS
+            transportMode = if (settings.settings.first().useFakeGateway) TransportMode.FAKE else TransportMode.HTTP
             session.start()
             runCatching { conversations.recover() }
         }

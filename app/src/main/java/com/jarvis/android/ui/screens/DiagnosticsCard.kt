@@ -55,7 +55,7 @@ fun DiagnosticsCard(vm: JarvisViewModel, diagnostics: List<DiagnosticEntry>) {
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
-                    "CURSOR ${snapshot.session.lastCursor}",
+                    "CURSOR ${snapshot.session.lastCursorToken.ifBlank { snapshot.session.lastCursor.toString() }}",
                     style = HudTextStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

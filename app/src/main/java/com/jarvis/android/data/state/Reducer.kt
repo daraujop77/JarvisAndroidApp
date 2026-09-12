@@ -36,6 +36,28 @@ sealed interface ReducerOutcome {
  */
 object Reducer {
 
+    /**
+     * Web V1 entry: opaque cursor is stored as-is and never compared numerically.
+     * Duplicate detection remains by [EventEnvelope.eventId].
+     */
+    fun applyWebV1(
+        state: SessionState,
+        env: EventEnvelope,
+        opaqueCursor: String,
+        nowMs: Long,
+    ): ReducerOutcome {
+        // Opaque tokens are not ordered; skip the numeric stale check by
+        // presenting a cursor that is never less than lastCursor.
+        val outcome = apply(state, env.copy(cursor = state.lastCursor), nowMs)
+        return when (outcome) {
+            is ReducerOutcome.Applied ->
+                ReducerOutcome.Applied(outcome.state.copy(lastCursorToken = opaqueCursor))
+            is ReducerOutcome.Duplicate -> outcome
+            is ReducerOutcome.Stale -> outcome
+            is ReducerOutcome.ProtocolMismatch -> outcome
+        }
+    }
+
     fun apply(state: SessionState, env: EventEnvelope, nowMs: Long): ReducerOutcome {
         if (!isVersionCompatible(env.version)) {
             return ReducerOutcome.ProtocolMismatch(
