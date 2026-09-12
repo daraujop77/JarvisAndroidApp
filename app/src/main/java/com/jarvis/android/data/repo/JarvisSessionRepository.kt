@@ -75,7 +75,9 @@ class JarvisSessionRepository(
                 .launchIn(this)
 
             goToConnecting()
-            transport.connect()
+            // A failed initial connect (bad URL, no session) must not kill the
+            // collector — onLink(FAILED) drives the backoff loop instead.
+            runCatching { transport.connect() }
         }
     }
 

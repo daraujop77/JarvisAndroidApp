@@ -22,7 +22,16 @@ import kotlinx.serialization.json.contentOrNull
 object WebV1 {
     const val PROTOCOL = "jarvis.web.v1"
     const val VERSION = "1.0"
-    const val FINGERPRINT = "web-v1-1.0"
+
+    /**
+     * Official `contract_fingerprint` pinned in `contracts/web-v1/spine-0.json`
+     * (sha256_utf8_lf over the frozen spine). Vendored copies used a
+     * "web-v1-1.0" placeholder; the real PC-A baseline uses this digest, so
+     * compatibility checks must compare against it.
+     */
+    const val FINGERPRINT = "445e4013df96ad986232eaecec6c58c01bab472e2a55c5ec11c54536de552021"
+    const val EVENT_SCHEMA = "jarvis.web.event.v1"
+    const val REQUEST_SCHEMA = "jarvis.web.request.v1"
 
     val json = Json {
         ignoreUnknownKeys = true
@@ -54,9 +63,12 @@ data class WebV1Event(
     val cursor: String,
     @SerialName("event_id") val eventId: String,
     val type: String,
+    val schema: String? = WebV1.EVENT_SCHEMA,
     @SerialName("protocol_version") val protocolVersion: String = WebV1.VERSION,
     @SerialName("contract_fingerprint") val contractFingerprint: String? = WebV1.FINGERPRINT,
     @SerialName("timestamp_utc") val timestampUtc: String? = null,
+    /** monotonic per-stream order; cursor is the opaque replay position. */
+    val sequence: Long? = null,
     val optional: Boolean = false,
     val payload: JsonObject = JsonObject(emptyMap()),
     val user_id: String? = null,
@@ -86,6 +98,7 @@ data class WebV1Event(
 @Serializable
 data class WebV1Request(
     val operation: String, // submit | resume | cancel | action
+    val schema: String = WebV1.REQUEST_SCHEMA,
     @SerialName("protocol_version") val protocolVersion: String = WebV1.VERSION,
     @SerialName("contract_fingerprint") val contractFingerprint: String = WebV1.FINGERPRINT,
     val payload: JsonObject = JsonObject(emptyMap()),
@@ -95,6 +108,12 @@ data class WebV1Request(
     val conversation_id: String? = null,
     val request_id: String? = null,
     val trace_id: String? = null,
+    val task_id: String? = null,
+    val run_id: String? = null,
+    val action_id: String? = null,
+    @SerialName("target_request_id") val targetRequestId: String? = null,
+    @SerialName("idempotency_key") val idempotencyKey: String? = null,
+    @SerialName("side_effecting") val sideEffecting: Boolean = false,
     val after: String? = null, // opaque cursor for resume/replay
 )
 
@@ -149,9 +168,9 @@ object WebV1Codec {
         val v = version ?: return false
         val major = v.substringBefore('.', v)
         if (major != WebV1.VERSION.substringBefore('.')) return false
-        if (fingerprint != null && fingerprint != WebV1.FINGERPRINT && !fingerprint.startsWith("web-v1-1.")) {
-            return false
-        }
+        // Pinned to the frozen spine digest (max_compatible_minor = 0). A missing
+        // fingerprint is tolerated (defer to version); a wrong one fails closed.
+        if (fingerprint != null && fingerprint != WebV1.FINGERPRINT) return false
         return true
     }
 }

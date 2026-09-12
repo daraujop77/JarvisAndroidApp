@@ -30,8 +30,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.AmbientBackdrop
 import com.jarvis.android.ui.components.JarvisOrb
@@ -55,7 +60,11 @@ fun PairingScreen(
     var code by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var deviceId by remember { mutableStateOf<String?>(null) }
+    var baseUrl by remember { mutableStateOf("http://desktop-l59hjk4/") }
+    var user by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     val accents = LocalJarvisAccents.current
+    val liveAuth by vm.liveAuth.collectAsStateWithLifecycle()
 
     AmbientBackdrop(modifier) {
         Column(
@@ -151,6 +160,81 @@ fun PairingScreen(
                     style = HudTextStyle,
                     color = accents.orbGlow,
                     modifier = Modifier.padding(top = 14.dp),
+                )
+            }
+
+            Spacer(Modifier.height(28.dp))
+
+            // PCB-LIVE-1: PC-A authenticated app session over the private front door.
+            Text(
+                "OR CONNECT TO YOUR JARVIS PC",
+                style = HudTextStyle,
+                color = accents.orbGlow,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Uses the existing PC-A /api/app session over your private Tailscale network. " +
+                    "Only the short-lived token PC-A returns is stored on this device — never the password. " +
+                    "The cryptographic pairing protocol is still owned by PC-A.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                label = { Text("Private front door URL") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = jarvisTextFieldColors(),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = user,
+                onValueChange = { user = it },
+                label = { Text("Username") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = jarvisTextFieldColors(),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = jarvisTextFieldColors(),
+            )
+            Spacer(Modifier.height(18.dp))
+            OutlinedButton(
+                onClick = { vm.liveLogin(baseUrl, user, password) },
+                enabled = liveAuth !is JarvisViewModel.LiveAuthState.Busy &&
+                    baseUrl.isNotBlank() && user.isNotBlank() && password.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text(
+                    when (liveAuth) {
+                        JarvisViewModel.LiveAuthState.Busy -> "Signing in…"
+                        else -> "Connect to Jarvis PC"
+                    },
+                )
+            }
+            AnimatedVisibility(visible = liveAuth is JarvisViewModel.LiveAuthState.Error) {
+                Text(
+                    (liveAuth as? JarvisViewModel.LiveAuthState.Error)?.message.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 10.dp),
                 )
             }
 

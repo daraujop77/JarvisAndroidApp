@@ -11,6 +11,8 @@ import com.jarvis.android.transport.GatewayTransport
 import com.jarvis.android.transport.NoAuthProvider
 import com.jarvis.android.transport.fake.FakeGateway
 import com.jarvis.android.transport.http.HttpGatewayTransport
+import com.jarvis.android.transport.live.JarvisAppSession
+import com.jarvis.android.transport.live.LiveAppGatewayTransport
 import com.jarvis.android.transport.wss.WssGatewayTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +27,7 @@ import kotlinx.coroutines.launch
  */
 class AppContainer(private val context: Context) {
 
-    enum class TransportMode { FAKE, HTTP, WSS }
+    enum class TransportMode { FAKE, HTTP, LIVE, WSS }
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -52,6 +54,11 @@ class AppContainer(private val context: Context) {
     }
     private val wss by lazy { WssGatewayTransport(context, scope) }
 
+    /** PC-A authenticated app session (PCB-LIVE-1). Persists only the bearer token. */
+    val liveSession: JarvisAppSession by lazy { JarvisAppSession.forContext(context) }
+
+    private val live by lazy { LiveAppGatewayTransport(liveSession, scope) }
+
     /** Resolved at start(); defaults to Fake until settings are read. */
     @Volatile
     var transportMode: TransportMode = TransportMode.FAKE
@@ -65,6 +72,7 @@ class AppContainer(private val context: Context) {
         when (transportMode) {
             TransportMode.FAKE -> fake
             TransportMode.HTTP -> http
+            TransportMode.LIVE -> live
             TransportMode.WSS -> wss
         }
     }
@@ -86,9 +94,20 @@ class AppContainer(private val context: Context) {
      */
     fun start() {
         scope.launch {
-            transportMode = if (settings.settings.first().useFakeGateway) TransportMode.FAKE else TransportMode.HTTP
+            transportMode = resolveMode(settings.settings.first().useFakeGateway)
             session.start()
             runCatching { conversations.recover() }
         }
+    }
+
+    /**
+     * FAKE unless the live session is authenticated (PCB-LIVE-1 over PC-A's
+     * /api/app surface). HTTP is the frozen /api/v1 target, which PC-A does
+     * not serve yet, so it only applies when neither fake nor a live token.
+     */
+    fun resolveMode(useFake: Boolean): TransportMode = when {
+        useFake -> TransportMode.FAKE
+        liveSession.isAuthenticated -> TransportMode.LIVE
+        else -> TransportMode.HTTP
     }
 }

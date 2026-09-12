@@ -136,6 +136,62 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun reconnect() = session.reconnectNow()
 
     /** AND-W3 skeleton: provision the non-exportable device keypair. */
+    // ---- PCB-LIVE-1: PC-A authenticated app session --------------------------
+
+    private val _liveAuth = MutableStateFlow<LiveAuthState>(LiveAuthState.Idle)
+    val liveAuth: StateFlow<LiveAuthState> = _liveAuth
+
+    /** Log in to the existing PC-A /api/app surface over the private front door. */
+    fun liveLogin(base: String, user: String, password: String, onDone: (Boolean) -> Unit = {}) {
+        _liveAuth.value = LiveAuthState.Busy
+        viewModelScope.launch {
+            val result = container.liveSession.login(base, user, password)
+            if (result.isSuccess) {
+                container.settings.setPaired(true, container.deviceIdentity.provision())
+                _liveAuth.value = LiveAuthState.Authed(result.getOrThrow().username)
+                onDone(true)
+                // Transport mode is resolved once at startup (existing V1
+                // limitation); a cold restart activates the LIVE seam so the
+                // session/ViewModel graphs are built around the live transport.
+                relaunch()
+            } else {
+                _liveAuth.value = LiveAuthState.Error(result.exceptionOrNull()?.message ?: "login failed")
+                onDone(false)
+            }
+        }
+    }
+
+    fun liveLogout(onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            container.liveSession.logout()
+            container.settings.setPaired(false)
+            _liveAuth.value = LiveAuthState.Idle
+            onDone()
+        }
+    }
+
+    sealed interface LiveAuthState {
+        data object Idle : LiveAuthState
+        data object Busy : LiveAuthState
+        data class Authed(val username: String) : LiveAuthState
+        data class Error(val message: String) : LiveAuthState
+    }
+
+    private fun relaunch() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            kotlinx.coroutines.delay(350)
+            val ctx = app.applicationContext
+            val intent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+            intent?.addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK,
+            )
+            ctx.startActivity(intent)
+            Runtime.getRuntime().exit(0)
+        }
+    }
+
+    /** AND-W3 skeleton: provision the non-exportable device keypair. */
     fun pairDemoDevice(onDeviceId: (String) -> Unit) {
         viewModelScope.launch {
             val id = container.deviceIdentity.provision()

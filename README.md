@@ -16,8 +16,10 @@ Current instruction: do **not** redo AND-W0/W1/W2. Reconcile the existing Androi
 - **PCB-R1**: Fake Gateway emits Web V1 envelopes — done. See `PCB-R1-REPORT.md`.
 - **PCB-R2**: Room v3 opaque-cursor migration + process-death tests — done. See `PCB-R2-REPORT.md`.
 - **PCB-R3**: HTTP `/api/v1/*` adapter + `AuthProvider` seam — done, no live PC-A calls. See `PCB-R3-REPORT.md`.
-
-**Stop gate:** `PC_B_READY_FOR_LIVE_GATEWAY_WAITING_FOR_PA1`
+- **PCB-LIVE-1**: PA-1 confirmed PASS by the owner. Live transport for PC-A's existing
+  `/api/app` session surface (login → SSE chat → scoped cancel → recovery) behind the
+  same `GatewayTransport` seam; official PC-A `contracts/web-v1` fixtures now vendored
+  verbatim and consumed unmodified. Phone E2E is the owner's step. See `PCB-LIVE-1-REPORT.md`.
 
 ## Status
 

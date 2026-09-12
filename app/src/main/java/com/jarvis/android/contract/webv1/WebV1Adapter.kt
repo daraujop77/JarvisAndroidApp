@@ -98,13 +98,15 @@ object WebV1Adapter {
             device_id = identity.deviceId,
             user_id = identity.userId,
             session_id = identity.sessionId,
+            trace_id = identity.traceId,
         )
         is MobileRequest.CancelRequest -> WebV1Request(
             operation = "cancel",
-            request_id = req.targetRequestId,
+            targetRequestId = req.targetRequestId,
             device_id = identity.deviceId,
             user_id = identity.userId,
             session_id = identity.sessionId,
+            trace_id = identity.traceId,
         )
         is MobileRequest.Replay -> WebV1Request(
             operation = "resume",
@@ -112,20 +114,27 @@ object WebV1Adapter {
             device_id = identity.deviceId,
             user_id = identity.userId,
             session_id = identity.sessionId,
+            trace_id = identity.traceId,
         )
         is MobileRequest.ResolveApproval -> WebV1Request(
             operation = "action",
+            sideEffecting = true,
+            idempotencyKey = req.resolutionId,
             payload = buildJsonObject {
                 put("approval_id", req.approvalId)
                 put("outcome", req.outcome.name.lowercase())
                 put("resolution_id", req.resolutionId)
             },
+            action_id = req.approvalId,
             device_id = identity.deviceId,
             user_id = identity.userId,
             session_id = identity.sessionId,
+            trace_id = identity.traceId,
         )
         is MobileRequest.UploadAttachment -> WebV1Request(
             operation = "action",
+            sideEffecting = true,
+            idempotencyKey = req.attachmentId,
             payload = buildJsonObject {
                 put("kind", "attachment.upload")
                 put("attachment_id", req.attachmentId)
@@ -178,7 +187,7 @@ object WebV1Adapter {
                 requestId = requestId,
                 messageId = p.string("message_id") ?: requestId,
                 seq = p.int("seq") ?: 0,
-                text = p.string("text") ?: "",
+                text = p.string("delta") ?: p.string("text") ?: "",
             )
             "message.completed" -> GatewayEvent.MessageCompleted(
                 requestId = requestId,
@@ -314,12 +323,12 @@ object WebV1Adapter {
                     type = "message.delta"
                     put("message_id", event.messageId)
                     put("seq", event.seq)
-                    put("text", event.text)
+                    put("delta", event.text)
                 }
                 is GatewayEvent.MessageCompleted -> {
                     type = "message.completed"
                     put("message_id", event.messageId)
-                    event.fullText?.let { put("full_text", it) }
+                    event.fullText?.let { put("text", it) }
                 }
                 is GatewayEvent.MessageFailed -> {
                     type = "message.failed"
