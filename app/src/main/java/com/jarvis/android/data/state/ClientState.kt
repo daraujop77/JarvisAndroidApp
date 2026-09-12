@@ -135,6 +135,10 @@ data class SessionState(
     val tasks: Map<String, TaskUiState> = emptyMap(),
     val attachments: Map<String, AttachmentUiState> = emptyMap(),
     val diagnostics: List<DiagnosticEntry> = emptyList(),
+    /** Last Web V1 protocol_version observed on the wire ("" until first event). */
+    val negotiatedProtocolVersion: String = "",
+    /** Last Web V1 contract_fingerprint observed on the wire. */
+    val negotiatedFingerprint: String = "",
 ) {
     val activeRequestCount: Int
         get() = requests.values.count { !it.status.isTerminal }

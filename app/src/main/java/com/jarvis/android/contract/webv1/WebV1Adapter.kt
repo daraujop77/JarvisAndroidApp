@@ -26,8 +26,18 @@ import kotlinx.serialization.json.put
 object WebV1Adapter {
 
     sealed interface Inbound {
-        data class Domain(val envelope: EventEnvelope, val opaqueCursor: String) : Inbound
-        data class IgnoreOptional(val type: String, val opaqueCursor: String) : Inbound
+        data class Domain(
+            val envelope: EventEnvelope,
+            val opaqueCursor: String,
+            val protocolVersion: String = WebV1.VERSION,
+            val fingerprint: String? = WebV1.FINGERPRINT,
+        ) : Inbound
+        data class IgnoreOptional(
+            val type: String,
+            val opaqueCursor: String,
+            val protocolVersion: String = WebV1.VERSION,
+            val fingerprint: String? = WebV1.FINGERPRINT,
+        ) : Inbound
         data class ProtocolMismatch(val reason: String) : Inbound
         data class Malformed(val reason: String) : Inbound
     }
@@ -46,7 +56,7 @@ object WebV1Adapter {
         }
         val event = toDomainEvent(wire) ?: run {
             return if (wire.optional) {
-                Inbound.IgnoreOptional(wire.type, wire.cursor)
+                Inbound.IgnoreOptional(wire.type, wire.cursor, wire.protocolVersion, wire.contractFingerprint)
             } else {
                 Inbound.Domain(
                     EventEnvelope(
@@ -57,6 +67,8 @@ object WebV1Adapter {
                         event = GatewayEvent.Unknown(wire.type),
                     ),
                     opaqueCursor = wire.cursor,
+                    protocolVersion = wire.protocolVersion,
+                    fingerprint = wire.contractFingerprint,
                 )
             }
         }
@@ -69,6 +81,8 @@ object WebV1Adapter {
                 event = event,
             ),
             opaqueCursor = wire.cursor,
+            protocolVersion = wire.protocolVersion,
+            fingerprint = wire.contractFingerprint,
         )
     }
 

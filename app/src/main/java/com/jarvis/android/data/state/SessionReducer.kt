@@ -31,12 +31,19 @@ class SessionReducer(private val clock: () -> Long = System::currentTimeMillis) 
                 return s to FrameResult.Applied(ReducerOutcome.ProtocolMismatch(s, inbound.reason))
             }
             is WebV1Adapter.Inbound.IgnoreOptional -> {
-                val s = state.copy(lastCursorToken = inbound.opaqueCursor)
-                    .withDiagnostic(DiagnosticEntry.Kind.UNKNOWN_EVENT, "optional type=${inbound.type}")
+                val s = state.copy(
+                    lastCursorToken = inbound.opaqueCursor,
+                    negotiatedProtocolVersion = inbound.protocolVersion.ifBlank { state.negotiatedProtocolVersion },
+                    negotiatedFingerprint = inbound.fingerprint ?: state.negotiatedFingerprint,
+                ).withDiagnostic(DiagnosticEntry.Kind.UNKNOWN_EVENT, "optional type=${inbound.type}")
                 return s to FrameResult.Applied(ReducerOutcome.Applied(s))
             }
             is WebV1Adapter.Inbound.Domain -> {
-                val outcome = Reducer.applyWebV1(state, inbound.envelope, inbound.opaqueCursor, clock())
+                val outcome = Reducer.applyWebV1(
+                    state, inbound.envelope, inbound.opaqueCursor, clock(),
+                    protocolVersion = inbound.protocolVersion,
+                    fingerprint = inbound.fingerprint,
+                )
                 return finish(outcome, inbound.envelope.eventId)
             }
             is WebV1Adapter.Inbound.Malformed -> {

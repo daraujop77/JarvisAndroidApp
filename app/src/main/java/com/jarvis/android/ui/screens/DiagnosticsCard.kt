@@ -70,6 +70,23 @@ fun DiagnosticsCard(vm: JarvisViewModel, diagnostics: List<DiagnosticEntry>) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    "TRANSPORT ${vm.transportMode.name}",
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "PROTO ${snapshot.session.negotiatedProtocolVersion.ifBlank { "—" }}",
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "FINGERPRINT ${snapshot.session.negotiatedFingerprint.ifBlank { "—" }}",
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             AnimatedVisibility(visible = expanded) {
                 LazyColumn(

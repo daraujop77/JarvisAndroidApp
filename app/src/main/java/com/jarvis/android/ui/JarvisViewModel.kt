@@ -210,6 +210,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     var fakeScenario: FakeScenario = FakeScenario.HAPPY
         private set
 
+    val transportMode: AppContainer.TransportMode get() = container.transportMode
+
     private val _healthStatus = MutableStateFlow<String?>(null)
     val healthStatus: StateFlow<String?> = _healthStatus
 

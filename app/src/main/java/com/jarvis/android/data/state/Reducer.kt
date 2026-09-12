@@ -45,15 +45,21 @@ object Reducer {
         env: EventEnvelope,
         opaqueCursor: String,
         nowMs: Long,
+        protocolVersion: String = "",
+        fingerprint: String? = null,
     ): ReducerOutcome {
         // Opaque tokens are not ordered; skip the numeric stale check by
         // presenting a cursor that is never less than lastCursor.
         val outcome = apply(state, env.copy(cursor = state.lastCursor), nowMs)
+        fun withNegotiation(s: SessionState) = s.copy(
+            lastCursorToken = opaqueCursor,
+            negotiatedProtocolVersion = protocolVersion.ifBlank { s.negotiatedProtocolVersion },
+            negotiatedFingerprint = fingerprint ?: s.negotiatedFingerprint,
+        )
         return when (outcome) {
-            is ReducerOutcome.Applied ->
-                ReducerOutcome.Applied(outcome.state.copy(lastCursorToken = opaqueCursor))
-            is ReducerOutcome.Duplicate -> outcome
-            is ReducerOutcome.Stale -> outcome
+            is ReducerOutcome.Applied -> ReducerOutcome.Applied(withNegotiation(outcome.state))
+            is ReducerOutcome.Duplicate -> ReducerOutcome.Duplicate(withNegotiation(outcome.state))
+            is ReducerOutcome.Stale -> ReducerOutcome.Stale(withNegotiation(outcome.state))
             is ReducerOutcome.ProtocolMismatch -> outcome
         }
     }

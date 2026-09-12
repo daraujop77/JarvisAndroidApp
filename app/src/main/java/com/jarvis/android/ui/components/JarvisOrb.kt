@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -40,6 +42,12 @@ fun JarvisOrb(
     activity: OrbActivity = OrbActivity.IDLE,
     /** 0f..1f — extra intensity, e.g. streaming progress or audio level. */
     intensity: Float = 0f,
+    /**
+     * Optional TalkBack label. The orb is a Canvas (no semantics), so where it is
+     * the *only* status affordance (e.g. a thinking avatar with empty text) callers
+     * pass a description. Leave null on decorative orbs to avoid announcement noise.
+     */
+    contentDescription: String? = null,
 ) {
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
@@ -88,7 +96,13 @@ fun JarvisOrb(
     val liveCounter = if (reduced) 0f else counterSpin
     val livePulse = if (reduced) 1f else pulse
 
-    Canvas(modifier = modifier.size(size)) {
+    val orbModifier = if (contentDescription != null) {
+        modifier.semantics { this.contentDescription = contentDescription }
+    } else {
+        modifier
+    }
+
+    Canvas(modifier = orbModifier.size(size)) {
         val c = Offset(this.size.width / 2f, this.size.height / 2f)
         val r = this.size.minDimension / 2f
         val boost = 1f + intensity * 0.25f
