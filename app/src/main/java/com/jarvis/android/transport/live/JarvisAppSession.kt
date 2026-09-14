@@ -6,7 +6,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -166,6 +173,15 @@ class JarvisAppSession(
 
     fun authHeader(): String? = token?.let { "Bearer $it" }
 
+    /**
+     * Conversation-local chat profile chosen by the OWNER (PCB-LIVE-4).
+     * Values come from the server-driven catalog in `/api/app/status`
+     * (`chat.models[].profile`) — the client never invents model names.
+     */
+    var chatProfile: String
+        get() = store.get(KEY_PROFILE)?.takeIf { it.isNotBlank() } ?: "normal"
+        set(value) = store.put(mapOf(KEY_PROFILE to value))
+
     /** Persist per-turn scope so process-death recovery can call GET /requests/{id}. */
     fun rememberTurn(clientRequestId: String, conversationId: String, traceId: String, deviceId: String, sessionId: String) {
         store.put(
@@ -200,6 +216,39 @@ class JarvisAppSession(
         val deviceId: String,
         val sessionId: String,
     )
+
+    /**
+     * PCB-LIVE-4: the conversation profile catalog is **server-driven** —
+     * PC-A's `/api/app/status` returns `chat.models[]` (profile/label/model/
+     * state) plus `chat.access.owner_model_selection`, the same source PC-A's
+     * own web client reads. The client never invents or hardcodes models.
+     */
+    data class ProfileEntry(val profile: String, val label: String, val model: String, val state: String)
+
+    data class ChatAccess(val ownerModelSelection: Boolean, val entries: List<ProfileEntry>)
+
+    suspend fun fetchChatAccess(): ChatAccess? = withContext(Dispatchers.IO) {
+        val t = token ?: return@withContext null
+        runCatching {
+            val resp = get(baseUrl, "/api/app/status", auth = authHeader())
+            if (resp.first !in 200..299) return@runCatching null
+            val chat = json.parseToJsonElement(resp.second).jsonObject["chat"]?.jsonObject
+                ?: return@runCatching null
+            val models = (chat["models"] as? JsonArray).orEmpty().mapNotNull { el ->
+                val o = el as? JsonObject ?: return@mapNotNull null
+                val profile = o["profile"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                ProfileEntry(
+                    profile = profile,
+                    label = o["label"]?.jsonPrimitive?.contentOrNull ?: profile,
+                    model = o["model"]?.jsonPrimitive?.contentOrNull ?: "—",
+                    state = o["state"]?.jsonPrimitive?.contentOrNull ?: "unchecked",
+                )
+            }
+            val ownerSel = chat["access"]?.jsonObject
+                ?.get("owner_model_selection")?.jsonPrimitive?.booleanOrNull ?: false
+            ChatAccess(ownerModelSelection = ownerSel, entries = models)
+        }.getOrNull()
+    }
 
     // ---- HTTP plumbing shared with the transport ------------------------------
 
@@ -244,6 +293,7 @@ class JarvisAppSession(
         const val KEY_DEVICE = "app_device_id"
         const val KEY_TURN_IDS = "turn_ids"
         const val KEY_TURN_PREFIX = "turn_"
+        const val KEY_PROFILE = "chat_profile"
 
         internal val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 

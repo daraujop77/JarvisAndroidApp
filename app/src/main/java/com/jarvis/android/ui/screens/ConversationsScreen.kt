@@ -221,6 +221,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val liveRequest = snapshot.session.requests.values.firstOrNull { !it.status.isTerminal }
     val streaming = liveRequest != null
 
+    LaunchedEffect(Unit) { vm.refreshChatAccess() }
+
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
@@ -313,6 +315,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 )
             }
 
+            ProfileChipRow(vm)
+
             Composer(
                 input = input,
                 onInput = { input = it },
@@ -327,6 +331,48 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 onStop = { liveRequest?.let { vm.cancel(it.clientRequestId) } },
                 onSend = { vm.sendWithAttachments(input); input = "" },
             )
+        }
+    }
+}
+
+/**
+ * PCB-LIVE-4: owner chat-profile chips. The catalog is **server-driven** —
+ * entries come from PC-A's `/api/app/status` (`chat.models[]`) and the row is
+ * hidden unless that same response grants `owner_model_selection`. The client
+ * never hardcodes models.
+ */
+@Composable
+private fun ProfileChipRow(vm: JarvisViewModel) {
+    val access = vm.chatAccess.collectAsStateWithLifecycle().value ?: return
+    val selected by vm.chatProfile.collectAsStateWithLifecycle()
+    val accents = LocalJarvisAccents.current
+    val entries = access.entries
+    if (!access.ownerModelSelection || entries.size < 2) return
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items(entries, key = { it.profile }) { entry ->
+            val active = entry.profile == selected
+            Surface(
+                onClick = { vm.setChatProfile(entry.profile) },
+                shape = RoundedCornerShape(50),
+                color = if (active) accents.orbGlow.copy(alpha = 0.22f)
+                else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (active) accents.orbGlow.copy(alpha = 0.8f)
+                    else Color(0xFF2A3A52),
+                ),
+            ) {
+                Text(
+                    entry.label.ifBlank { entry.profile },
+                    style = HudTextStyle,
+                    color = if (active) accents.orbGlow else Color(0xFFB7C7DC),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
         }
     }
 }

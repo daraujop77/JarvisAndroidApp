@@ -116,6 +116,25 @@ class LiveAppGatewayTransportTest {
                             .setBody("""{"result":"cancel_requested"}""")
                     }
                     request.path == "/api/status" -> MockResponse().setBody("""{"status":"ok"}""")
+                    request.path == "/api/app/status" && auth != "Bearer test-token" ->
+                        MockResponse().setResponseCode(401)
+                    request.path == "/api/app/status" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema": "jarvis.app.status.v1",
+                          "user": {"id":"u1","username":"alex","role":"owner"},
+                          "chat": {
+                            "mode": "local",
+                            "access": {"owner_model_selection": true},
+                            "models": [
+                              {"profile":"fast","label":"Fast","model":"qwen3.5:4b","state":"installed"},
+                              {"profile":"normal","label":"Normal","model":"gemma4:12b-it-qat","state":"active"},
+                              {"profile":"deep","label":"Deep","model":"qwen3.8:27b","state":"installed"}
+                            ]
+                          }
+                        }
+                        """.trimIndent(),
+                    )
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -355,5 +374,37 @@ class LiveAppGatewayTransportTest {
         // exactly one stream attempt; recovery used GET /requests/{id}, no re-run
         assertEquals(1, streamCalls.get())
         assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-broken"))
+    }
+
+    @Test
+    fun ownerProfileSelectionIsServerDrivenAndSentWithTurn() {
+        val session = JarvisAppSession(seededStore())
+        val access = runBlocking(Dispatchers.IO) { session.fetchChatAccess() }
+        assertTrue("server grants owner selection", access?.ownerModelSelection == true)
+        assertEquals(listOf("fast", "normal", "deep"), access?.entries?.map { it.profile })
+
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val cid = repo.send("c1", "hi")
+        await { repo.snapshot.value.session.requests[cid]?.status?.isTerminal == true }
+        assertTrue(postedBodies.last().contains("\"profile\":\"normal\""))
+
+        // owner picks another server profile; the next turn carries it
+        session.chatProfile = "deep"
+        val cid2 = repo.send("c1", "again")
+        await { repo.snapshot.value.session.requests[cid2]?.status?.isTerminal == true }
+        assertTrue(postedBodies.last().contains("\"profile\":\"deep\""))
+    }
+
+    @Test
+    fun chatProfileDefaultsToNormalAndPersistsOnTheStore() {
+        val store = JarvisAppSession.MemoryStore()
+        val session = JarvisAppSession(store)
+        assertEquals("normal", session.chatProfile)
+        session.chatProfile = "fast"
+        // A new session over the same store (process restart) sees the choice.
+        assertEquals("fast", JarvisAppSession(store).chatProfile)
     }
 }

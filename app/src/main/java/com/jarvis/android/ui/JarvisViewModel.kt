@@ -163,6 +163,37 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /** PCB-LIVE-4: server-driven profile catalog (from /api/app/status). */
+    private val _chatAccess = MutableStateFlow<com.jarvis.android.transport.live.JarvisAppSession.ChatAccess?>(null)
+    val chatAccess: StateFlow<com.jarvis.android.transport.live.JarvisAppSession.ChatAccess?> = _chatAccess
+
+    private val _chatProfile = MutableStateFlow(container.liveSession.chatProfile)
+    val chatProfile: StateFlow<String> = _chatProfile
+
+    fun refreshChatAccess() {
+        if (container.transportMode != AppContainer.TransportMode.LIVE) return
+        viewModelScope.launch {
+            val access = container.liveSession.fetchChatAccess()
+            _chatAccess.value = access
+            // Server gates this account away from selection, or the stored
+            // profile no longer exists: fall back to the server default.
+            val current = _chatProfile.value
+            if (access != null && access.entries.isNotEmpty() &&
+                (access.entries.none { it.profile == current })
+            ) {
+                val fallback = "normal".takeIf { f -> access.entries.any { it.profile == f } }
+                    ?: access.entries.first().profile
+                container.liveSession.chatProfile = fallback
+                _chatProfile.value = fallback
+            }
+        }
+    }
+
+    fun setChatProfile(profile: String) {
+        container.liveSession.chatProfile = profile
+        _chatProfile.value = profile
+    }
+
     fun liveLogout(onDone: () -> Unit = {}) {
         viewModelScope.launch {
             container.liveSession.logout()
