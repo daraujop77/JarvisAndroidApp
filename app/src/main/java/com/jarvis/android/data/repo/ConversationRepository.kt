@@ -111,12 +111,31 @@ class ConversationRepository(
         return id
     }
 
-    /** Send via the session repo, persisting the optimistic outbound first. */
+    /**
+     * Send via the session repo, persisting the optimistic outbound first.
+     * `session.send` stays synchronous (request appears in the snapshot at
+     * once); the conversation history is read lazily inside the transport's
+     * own dispatch coroutine so this never blocks or reorders the hot path.
+     */
     fun send(conversationId: String, text: String, attachmentIds: List<String> = emptyList()) {
-        val cid = session.send(conversationId, text, attachmentIds)
+        val cid = session.send(conversationId, text, attachmentIds) { historyContext(conversationId) }
         persistOutbound(cid, conversationId, text, attachmentIds)
         watchRequest(cid)
     }
+
+    /**
+     * PCB-LIVE-2: bounded conversation history for multi-turn context, matching
+     * PC-A's own web client (last turns, completed only, current text excluded).
+     */
+    private suspend fun historyContext(
+        conversationId: String,
+        limit: Int = 12,
+    ): List<com.jarvis.android.contract.ChatTurn> =
+        dao.messages(conversationId)
+            .filter { it.status == RequestStatus.Completed.dbName }
+            .takeLast(limit)
+            .map { com.jarvis.android.contract.ChatTurn(role = it.role, content = it.text) }
+            .filter { it.content.isNotBlank() }
 
     /**
      * The conversation row must exist before the message row: `messages` has a
@@ -174,14 +193,30 @@ class ConversationRepository(
         if (pendings.isEmpty()) return
         for (p in pendings) {
             val live = _live.value.session.requests[p.clientRequestId]
-            if (live == null) {
-                val cid = session.sendWithId(
-                    p.clientRequestId, p.conversationId, p.text,
-                    attachmentIds = p.attachmentIds.split(',').filter { it.isNotBlank() },
-                )
-                dao.upsertPending(p.copy(attempts = p.attempts + 1))
-                watchRequest(cid)
+            if (live != null) continue
+            // Reconciliation guard: finalize may have persisted the assistant
+            // text in the crash window before deleting the pending row. If the
+            // terminal answer is already durable, resending would overwrite it
+            // — reconcile by dropping the pending instead.
+            val persisted = dao.assistantMessage(p.clientRequestId)
+            if (persisted != null && persisted.status == RequestStatus.Completed.dbName) {
+                dao.deletePending(p.clientRequestId)
+                continue
             }
+            val recovered = runCatching {
+                session.recoverCompletedTurn(p.clientRequestId, p.conversationId)
+            }.getOrDefault(false)
+            if (recovered) {
+                watchRequest(p.clientRequestId)
+                continue
+            }
+            val cid = session.sendWithId(
+                p.clientRequestId, p.conversationId, p.text,
+                attachmentIds = p.attachmentIds.split(',').filter { it.isNotBlank() },
+                contextProvider = { historyContext(p.conversationId) },
+            )
+            dao.upsertPending(p.copy(attempts = p.attempts + 1))
+            watchRequest(cid)
         }
     }
 

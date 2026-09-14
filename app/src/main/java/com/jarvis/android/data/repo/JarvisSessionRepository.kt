@@ -90,15 +90,29 @@ class JarvisSessionRepository(
 
     // ---- commands -----------------------------------------------------------
 
-    /** Optimistic send. Returns the clientRequestId (idempotency key). */
-    fun send(conversationId: String, text: String, attachmentIds: List<String> = emptyList()): String =
-        sendWithId(UUID.randomUUID().toString(), conversationId, text, attachmentIds)
+    /**
+     * Optimistic send. Returns the clientRequestId (idempotency key).
+     * [contextProvider] is invoked inside the dispatch coroutine so history is
+     * read off the caller thread; the request is registered synchronously.
+     */
+    fun send(
+        conversationId: String,
+        text: String,
+        attachmentIds: List<String> = emptyList(),
+        contextProvider: suspend () -> List<com.jarvis.android.contract.ChatTurn> = { emptyList() },
+    ): String = sendWithId(UUID.randomUUID().toString(), conversationId, text, attachmentIds, contextProvider)
 
     /**
      * Send reusing an existing clientRequestId (process-death reconciliation).
      * Server-side idempotency on the key guarantees at-most-once delivery.
      */
-    fun sendWithId(clientRequestId: String, conversationId: String, text: String, attachmentIds: List<String> = emptyList()): String {
+    fun sendWithId(
+        clientRequestId: String,
+        conversationId: String,
+        text: String,
+        attachmentIds: List<String> = emptyList(),
+        contextProvider: suspend () -> List<com.jarvis.android.contract.ChatTurn> = { emptyList() },
+    ): String {
         val cid = clientRequestId
         mutate { Reducer.beginSend(it, cid, conversationId, text, clock()) }
         scope.launch {
@@ -109,6 +123,7 @@ class JarvisSessionRepository(
                         conversationId = conversationId,
                         text = text,
                         attachmentIds = attachmentIds,
+                        context = contextProvider(),
                     )
                 )
             } catch (t: TransportException) {
@@ -187,6 +202,14 @@ class JarvisSessionRepository(
     }
 
     suspend fun health(): Result<HealthResponse> = runCatching { transport.health() }
+
+    /**
+     * PCB-LIVE-2: ask the transport to reconcile a completed turn without a
+     * second inference (LIVE does; Fake/HTTP return false so pending outbound
+     * is re-issued with the same idempotency key as before).
+     */
+    suspend fun recoverCompletedTurn(clientRequestId: String, conversationId: String): Boolean =
+        runCatching { transport.recoverCompletedTurn(clientRequestId, conversationId) }.getOrDefault(false)
 
     /** Restore the opaque replay token after process death (PCB-R2). */
     fun restoreCursor(token: String) {

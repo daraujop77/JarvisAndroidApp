@@ -166,6 +166,41 @@ class JarvisAppSession(
 
     fun authHeader(): String? = token?.let { "Bearer $it" }
 
+    /** Persist per-turn scope so process-death recovery can call GET /requests/{id}. */
+    fun rememberTurn(clientRequestId: String, conversationId: String, traceId: String, deviceId: String, sessionId: String) {
+        store.put(
+            mapOf(
+                KEY_TURN_PREFIX + clientRequestId to
+                    listOf(conversationId, traceId, deviceId, sessionId).joinToString("\u001f"),
+            ),
+        )
+        val ids = (storedTurnIds() + clientRequestId).distinct().takeLast(32)
+        store.put(mapOf(KEY_TURN_IDS to ids.joinToString(",")))
+    }
+
+    fun loadTurn(clientRequestId: String): StoredTurn? {
+        val raw = store.get(KEY_TURN_PREFIX + clientRequestId) ?: return null
+        val parts = raw.split("\u001f")
+        if (parts.size != 4) return null
+        return StoredTurn(clientRequestId, parts[0], parts[1], parts[2], parts[3])
+    }
+
+    fun forgetTurn(clientRequestId: String) {
+        store.put(mapOf(KEY_TURN_PREFIX + clientRequestId to null))
+        store.put(mapOf(KEY_TURN_IDS to storedTurnIds().filterNot { it == clientRequestId }.joinToString(",")))
+    }
+
+    fun storedTurnIds(): List<String> =
+        store.get(KEY_TURN_IDS)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+
+    data class StoredTurn(
+        val clientRequestId: String,
+        val conversationId: String,
+        val traceId: String,
+        val deviceId: String,
+        val sessionId: String,
+    )
+
     // ---- HTTP plumbing shared with the transport ------------------------------
 
     internal fun get(base: String, path: String, auth: String?): Pair<Int, String> =
@@ -207,6 +242,8 @@ class JarvisAppSession(
         const val KEY_EXPIRES = "expires_utc"
         const val KEY_APP_SESSION = "app_session_id"
         const val KEY_DEVICE = "app_device_id"
+        const val KEY_TURN_IDS = "turn_ids"
+        const val KEY_TURN_PREFIX = "turn_"
 
         internal val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 

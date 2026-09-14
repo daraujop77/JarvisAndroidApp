@@ -148,6 +148,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             val result = container.liveSession.login(base, user, password)
             if (result.isSuccess) {
                 container.settings.setPaired(true, container.deviceIdentity.provision())
+                container.settings.setUseFake(false)
+                container.settings.setBaseUrl(container.liveSession.baseUrl)
                 _liveAuth.value = LiveAuthState.Authed(result.getOrThrow().username)
                 onDone(true)
                 // Transport mode is resolved once at startup (existing V1
@@ -202,6 +204,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun unpair() {
         viewModelScope.launch {
+            // A live session must end on the server, not just locally —
+            // otherwise "revoke" leaves a valid bearer token behind.
+            if (container.liveSession.isAuthenticated) {
+                runCatching { container.liveSession.logout() }
+                _liveAuth.value = LiveAuthState.Idle
+            }
             container.deviceIdentity.wipe()
             container.settings.setPaired(false)
         }

@@ -110,4 +110,6 @@ class AppContainer(private val context: Context) {
         liveSession.isAuthenticated -> TransportMode.LIVE
         else -> TransportMode.HTTP
     }
+
+    val liveTransport: LiveAppGatewayTransport get() = live
 }

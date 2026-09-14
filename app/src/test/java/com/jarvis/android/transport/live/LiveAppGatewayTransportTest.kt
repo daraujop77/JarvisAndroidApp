@@ -39,6 +39,13 @@ class LiveAppGatewayTransportTest {
     private lateinit var job: Job
     private val cancelCalls = AtomicInteger(0)
     private val loginCalls = AtomicInteger(0)
+    private val streamCalls = AtomicInteger(0)
+    private val postedBodies = java.util.Collections.synchronizedList(mutableListOf<String>())
+
+    private companion object {
+        const val ANDROID_DEVICE = "android_device_stub"
+        const val APP_SESSION = "and_session_stub"
+    }
 
     @Before
     fun setUp() {
@@ -68,10 +75,28 @@ class LiveAppGatewayTransportTest {
                     )
                     request.path == "/api/app/chat/stream" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
-                    request.path == "/api/app/chat/stream" -> MockResponse()
-                        .setHeader("Content-Type", "text/event-stream")
-                        .setBody(sseBody())
-                        .throttleBody(96, 150, TimeUnit.MILLISECONDS)
+                    request.path == "/api/app/chat/stream" -> {
+                        streamCalls.incrementAndGet()
+                        postedBodies += "POST /api/app/chat/stream\n" + request.body.readUtf8()
+                        MockResponse()
+                            .setHeader("Content-Type", "text/event-stream")
+                            .setBody(sseBody())
+                            .throttleBody(96, 150, TimeUnit.MILLISECONDS)
+                    }
+                    request.path?.startsWith("/api/app/chat/requests/") == true && auth != "Bearer test-token" ->
+                        MockResponse().setResponseCode(401)
+                    request.path?.startsWith("/api/app/chat/requests/") == true -> {
+                        val rid = request.path!!.substringAfterLast('/')
+                        if (rid == "req-lost") {
+                            MockResponse().setBody(
+                                """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
+                                    """"response":{"text":"Recovered answer"}}""",
+                            )
+                        } else {
+                            MockResponse().setResponseCode(404)
+                                .setBody("""{"schema":"jarvis.web.error.v1","error":"unknown_request"}""")
+                        }
+                    }
                     request.path == "/api/app/chat/cancel" -> {
                         cancelCalls.incrementAndGet()
                         MockResponse().setResponseCode(202)
@@ -215,6 +240,66 @@ class LiveAppGatewayTransportTest {
         runBlocking(Dispatchers.Default) { delay(300) }
         assertFalse(repo.snapshot.value.isReady)
         assertFalse(repo.snapshot.value.session.connection.isUsable)
+    }
+
+    @Test
+    fun submitSendsBoundedConversationContext() {
+        val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+
+        val cid = repo.send(
+            "c1", "what did I ask before?",
+            contextProvider = {
+                listOf(
+                    com.jarvis.android.contract.ChatTurn("user", "first question"),
+                    com.jarvis.android.contract.ChatTurn("assistant", "first answer"),
+                )
+            },
+        )
+        await { repo.snapshot.value.session.requests[cid]?.status?.isTerminal == true }
+        val streamBody = postedBodies.last { it.contains("/api/app/chat/stream") }
+        assertTrue(streamBody.contains("first question"))
+        assertTrue(streamBody.contains("first answer"))
+        assertTrue(streamBody.contains("what did I ask before?"))
+    }
+
+    @Test
+    fun recoverCompletedTurnSettlesWithoutSecondInference() {
+        val store = seededStore()
+        // Persist a turn scope as if the app died mid-stream.
+        store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-lost"))
+        store.put(
+            mapOf(
+                JarvisAppSession.KEY_TURN_PREFIX + "req-lost" to
+                    "c1|trace-lost|$ANDROID_DEVICE|$APP_SESSION",
+            ),
+        )
+        val transport = LiveAppGatewayTransport(JarvisAppSession(store), scope)
+        val frames = mutableListOf<String>()
+        runBlocking(Dispatchers.IO) {
+            val collect = scope.launch { transport.frames.toList(frames) }
+            delay(80)
+            val recovered = transport.recoverCompletedTurn("req-lost", "c1")
+            assertTrue("server had a completed turn cached", recovered)
+            delay(80)
+            collect.cancel()
+        }
+        // Recovery emits accepted+completed for the same id and NO extra stream POST.
+        assertTrue(frames.any { it.contains("message.accepted") && it.contains("req-lost") })
+        assertTrue(frames.any { it.contains("message.completed") && it.contains("req-lost") })
+        assertEquals(0, streamCalls.get())
+        assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-lost"))
+    }
+
+    @Test
+    fun recoverReturnsFalseWhenServerHasNoCompletedTurn() {
+        val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
+        val recovered = runBlocking(Dispatchers.IO) {
+            transport.recoverCompletedTurn("req-never-ran", "c1")
+        }
+        assertFalse(recovered)
     }
 
     // test-only view into the memory store for the no-password-never-stored assert

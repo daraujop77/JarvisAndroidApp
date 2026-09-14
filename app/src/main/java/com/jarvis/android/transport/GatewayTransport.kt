@@ -28,6 +28,14 @@ interface GatewayTransport {
     suspend fun send(request: MobileRequest)
 
     suspend fun health(): HealthResponse
+
+    /**
+     * PCB-LIVE-2: reconcile a completed turn without a second inference.
+     * Returns true if the server already finished this [clientRequestId] and
+     * the transport emitted the corresponding frames. Fake/HTTP default to false
+     * so pending outbound is re-issued with the same key (server idempotency).
+     */
+    suspend fun recoverCompletedTurn(clientRequestId: String, conversationId: String): Boolean = false
 }
 
 enum class LinkState {

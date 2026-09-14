@@ -150,6 +150,18 @@ class FakeGateway(
         streamJobs[rid]?.cancel()
         streamJobs[rid] = scope.launch {
             val p = progressByReq.getOrPut(rid) { StreamProgress() }
+            if (p.settled) {
+                // Idempotent resend of an already-finished request (client
+                // restarted after the terminal frame but before the pending
+                // cleanup). A real server answers from cache, not a second
+                // inference: replay this request's journal with fresh cursors
+                // and the original event_ids, so a live session dedupes and a
+                // fresh session re-applies the full answer.
+                journal.filter { it.request_id == rid }.forEach { env ->
+                    emitRaw(WebV1Codec.encodeEvent(env.copy(cursor = nextCursorToken())))
+                }
+                return@launch
+            }
             if (!p.timersArmed) {
                 p.timersArmed = true
                 if (config.emitProtocolMismatchFirst) {

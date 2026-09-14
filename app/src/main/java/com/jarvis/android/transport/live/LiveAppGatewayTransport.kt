@@ -148,11 +148,13 @@ class LiveAppGatewayTransport(
         val sessionId = session.appSessionId
         val ctl = TurnCtl()
 
+        session.rememberTurn(turnId, req.conversationId, traceId, deviceId, sessionId)
         val job = scope.launch(Dispatchers.IO) {
             try {
                 emit(GatewayEvent.MessageAccepted(turnId, req.conversationId, "msg_$turnId"))
                 streamChat(req, traceId, deviceId, sessionId, ctl)
                 emit(GatewayEvent.MessageCompleted(turnId, "msg_$turnId"))
+                session.forgetTurn(turnId)
             } catch (t: CancellationException) {
                 if (ctl.cancelRequested) {
                     emitQuietly(GatewayEvent.MessageCompleted(turnId, "msg_$turnId"))
@@ -195,6 +197,12 @@ class LiveAppGatewayTransport(
             put("request_id", req.clientRequestId)
             put("trace_id", traceId)
             put("messages", buildJsonArray {
+                req.context.forEach { turn ->
+                    addJsonObject {
+                        put("role", turn.role)
+                        put("content", turn.content)
+                    }
+                }
                 addJsonObject {
                     put("role", "user")
                     put("content", req.text)
@@ -319,9 +327,15 @@ class LiveAppGatewayTransport(
         }
     }
 
-    /** Completed-turn reconciliation via `/api/app/chat/requests/{id}` (PA-8 recovery path). */
-    suspend fun recoverTurn(clientRequestId: String): String? {
-        val turn = active[clientRequestId] ?: return null
+    /**
+     * PCB-LIVE-2: GET /api/app/chat/requests/{id} with X-Jarvis-* scope.
+     * If PC-A already completed the turn, emit accepted+completed locally so
+     * the reducer settles without a second inference.
+     */
+    override suspend fun recoverCompletedTurn(clientRequestId: String, conversationId: String): Boolean {
+        val stored = session.loadTurn(clientRequestId) ?: JarvisAppSession.StoredTurn(
+            clientRequestId, conversationId, clientRequestId, session.deviceId, session.appSessionId,
+        )
         val request = Request.Builder()
             .url(
                 session.baseUrl + "/api/app/chat/requests/" +
@@ -331,22 +345,30 @@ class LiveAppGatewayTransport(
             .apply {
                 session.authHeader()?.let { header("Authorization", it) }
                 header("X-Jarvis-User-Id", session.userId)
-                header("X-Jarvis-Device-Id", turn.deviceId)
-                header("X-Jarvis-Session-Id", turn.sessionId)
-                header("X-Jarvis-Conversation-Id", turn.conversationId)
-                header("X-Jarvis-Trace-Id", turn.traceId)
+                header("X-Jarvis-Device-Id", stored.deviceId)
+                header("X-Jarvis-Session-Id", stored.sessionId)
+                header("X-Jarvis-Conversation-Id", stored.conversationId)
+                header("X-Jarvis-Trace-Id", stored.traceId)
             }
             .build()
-        return withContext(Dispatchers.IO) {
+        val text = withContext(Dispatchers.IO) {
             client.newCall(request).execute().use { resp ->
                 if (resp.code !in 200..299) return@use null
                 val body = resp.body?.string() ?: return@use null
                 runCatching {
-                    json.parseToJsonElement(body)
-                        .jsonObject["response"]?.jsonObject?.get("text")?.jsonPrimitive?.content
+                    val obj = json.parseToJsonElement(body).jsonObject
+                    val schema = obj["schema"]?.jsonPrimitive?.content
+                    if (schema != "jarvis.chat.turn.v1") return@use null
+                    val status = obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content
+                    if (status != "completed") return@use null
+                    obj["response"]?.jsonObject?.get("text")?.jsonPrimitive?.content
                 }.getOrNull()
             }
-        }
+        } ?: return false
+        emit(GatewayEvent.MessageAccepted(clientRequestId, conversationId, "msg_$clientRequestId"))
+        emit(GatewayEvent.MessageCompleted(clientRequestId, "msg_$clientRequestId", text))
+        session.forgetTurn(clientRequestId)
+        return true
     }
 
     // ---- frame production (internal EventEnvelope for the existing reducer) ---

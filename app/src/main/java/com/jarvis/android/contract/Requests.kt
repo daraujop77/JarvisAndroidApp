@@ -25,6 +25,12 @@ sealed interface MobileRequest {
         val text: String,
         val attachmentIds: List<String> = emptyList(),
         val protocolVersion: String = ContractVersion.SUPPORTED,
+        /**
+         * PCB-LIVE-2: bounded conversation history (oldest first) sent with the
+         * turn so PC-A answers with context, mirroring its own web client.
+         * Additive: transports that ignore it still behave as before.
+         */
+        val context: List<ChatTurn> = emptyList(),
     ) : MobileRequest
 
     @Serializable
@@ -67,6 +73,9 @@ sealed interface MobileRequest {
         val sizeBytes: Long,
     ) : MobileRequest
 }
+
+@Serializable
+data class ChatTurn(val role: String, val content: String)
 
 @Serializable
 data class HealthResponse(
