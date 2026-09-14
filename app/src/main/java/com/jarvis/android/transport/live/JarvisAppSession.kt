@@ -174,13 +174,22 @@ class JarvisAppSession(
     fun authHeader(): String? = token?.let { "Bearer $it" }
 
     /**
-     * Conversation-local chat profile chosen by the OWNER (PCB-LIVE-4).
+     * Conversation-local chat profile chosen by the OWNER (PCB-LIVE-4/5).
      * Values come from the server-driven catalog in `/api/app/status`
      * (`chat.models[].profile`) — the client never invents model names.
+     * Selection is isolated per conversation (runbook PA-7M: route selection
+     * never crosses between Web/Android conversations A and B).
      */
-    var chatProfile: String
+    var defaultChatProfile: String
         get() = store.get(KEY_PROFILE)?.takeIf { it.isNotBlank() } ?: "normal"
         set(value) = store.put(mapOf(KEY_PROFILE to value))
+
+    fun chatProfileFor(conversationId: String): String =
+        store.get(KEY_PROFILE_CONV + conversationId)?.takeIf { it.isNotBlank() } ?: defaultChatProfile
+
+    fun setChatProfileFor(conversationId: String, profile: String) {
+        store.put(mapOf(KEY_PROFILE_CONV + conversationId to profile))
+    }
 
     /** Persist per-turn scope so process-death recovery can call GET /requests/{id}. */
     fun rememberTurn(clientRequestId: String, conversationId: String, traceId: String, deviceId: String, sessionId: String) {
@@ -294,6 +303,7 @@ class JarvisAppSession(
         const val KEY_TURN_IDS = "turn_ids"
         const val KEY_TURN_PREFIX = "turn_"
         const val KEY_PROFILE = "chat_profile"
+        const val KEY_PROFILE_CONV = "chat_profile_"
 
         internal val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 

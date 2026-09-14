@@ -391,20 +391,56 @@ class LiveAppGatewayTransportTest {
         await { repo.snapshot.value.session.requests[cid]?.status?.isTerminal == true }
         assertTrue(postedBodies.last().contains("\"profile\":\"normal\""))
 
-        // owner picks another server profile; the next turn carries it
-        session.chatProfile = "deep"
+        // owner picks another server profile for THIS conversation; the next
+        // turn on the same conversation carries it.
+        session.setChatProfileFor("c1", "deep")
         val cid2 = repo.send("c1", "again")
         await { repo.snapshot.value.session.requests[cid2]?.status?.isTerminal == true }
         assertTrue(postedBodies.last().contains("\"profile\":\"deep\""))
     }
 
     @Test
-    fun chatProfileDefaultsToNormalAndPersistsOnTheStore() {
+    fun profileSelectionIsConversationLocal() {
         val store = JarvisAppSession.MemoryStore()
         val session = JarvisAppSession(store)
-        assertEquals("normal", session.chatProfile)
-        session.chatProfile = "fast"
-        // A new session over the same store (process restart) sees the choice.
-        assertEquals("fast", JarvisAppSession(store).chatProfile)
+        assertEquals("normal", session.chatProfileFor("cA"))
+        session.setChatProfileFor("cA", "fast")
+        assertEquals("fast", session.chatProfileFor("cA"))
+        // PA-7M: conversation B keeps its own default; no cross-selection leak.
+        assertEquals("normal", session.chatProfileFor("cB"))
+        // Same store after a restart still shows A's choice, B's default.
+        assertEquals("fast", JarvisAppSession(store).chatProfileFor("cA"))
+        assertEquals("normal", JarvisAppSession(store).chatProfileFor("cB"))
+    }
+
+    @Test
+    fun concurrentConversationsCarryIndependentProfilesAndContexts() {
+        val session = JarvisAppSession(seededStore())
+        session.setChatProfileFor("cA", "fast")
+        session.setChatProfileFor("cB", "deep")
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+
+        val idA = repo.send("cA", "alpha question", contextProvider = {
+            listOf(com.jarvis.android.contract.ChatTurn("user", "only in A"))
+        })
+        val idB = repo.send("cB", "beta question", contextProvider = {
+            listOf(com.jarvis.android.contract.ChatTurn("user", "only in B"))
+        })
+        await {
+            repo.snapshot.value.session.requests[idA]?.status?.isTerminal == true &&
+                repo.snapshot.value.session.requests[idB]?.status?.isTerminal == true
+        }
+        val bodyA = postedBodies.single { it.contains(idA) }
+        val bodyB = postedBodies.single { it.contains(idB) }
+        assertTrue(bodyA.contains("\"profile\":\"fast\""))
+        assertTrue(bodyB.contains("\"profile\":\"deep\""))
+        assertTrue(bodyA.contains("only in A") && !bodyA.contains("only in B"))
+        assertTrue(bodyB.contains("only in B") && !bodyB.contains("only in A"))
+        // different conversation ids on the wire
+        assertTrue(bodyA.contains("\"conversation_id\":\"cA\""))
+        assertTrue(bodyB.contains("\"conversation_id\":\"cB\""))
     }
 }

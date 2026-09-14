@@ -167,30 +167,43 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _chatAccess = MutableStateFlow<com.jarvis.android.transport.live.JarvisAppSession.ChatAccess?>(null)
     val chatAccess: StateFlow<com.jarvis.android.transport.live.JarvisAppSession.ChatAccess?> = _chatAccess
 
-    private val _chatProfile = MutableStateFlow(container.liveSession.chatProfile)
+    // Conversation-local profile selection (PA-7M isolation): re-derived
+    // whenever the open conversation changes.
+    private val _chatProfile = MutableStateFlow(container.liveSession.chatProfileFor(_conversationId.value ?: ""))
     val chatProfile: StateFlow<String> = _chatProfile
+
+    init {
+        viewModelScope.launch {
+            _conversationId.collect { id ->
+                _chatProfile.value = container.liveSession.chatProfileFor(id ?: "")
+            }
+        }
+    }
 
     fun refreshChatAccess() {
         if (container.transportMode != AppContainer.TransportMode.LIVE) return
         viewModelScope.launch {
             val access = container.liveSession.fetchChatAccess()
             _chatAccess.value = access
-            // Server gates this account away from selection, or the stored
-            // profile no longer exists: fall back to the server default.
-            val current = _chatProfile.value
+            // If the stored conversation profile no longer exists on the
+            // server catalog, fall back to normal/first. Selection stays local
+            // to this conversation (never touches other conversations).
+            val convId = _conversationId.value ?: return@launch
+            val current = container.liveSession.chatProfileFor(convId)
             if (access != null && access.entries.isNotEmpty() &&
-                (access.entries.none { it.profile == current })
+                access.entries.none { it.profile == current }
             ) {
                 val fallback = "normal".takeIf { f -> access.entries.any { it.profile == f } }
                     ?: access.entries.first().profile
-                container.liveSession.chatProfile = fallback
+                container.liveSession.setChatProfileFor(convId, fallback)
                 _chatProfile.value = fallback
             }
         }
     }
 
     fun setChatProfile(profile: String) {
-        container.liveSession.chatProfile = profile
+        val convId = _conversationId.value ?: return
+        container.liveSession.setChatProfileFor(convId, profile)
         _chatProfile.value = profile
     }
 
