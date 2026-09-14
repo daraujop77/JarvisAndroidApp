@@ -40,7 +40,16 @@ class LiveAppGatewayTransportTest {
     private val cancelCalls = AtomicInteger(0)
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
+    private val jsonChatCalls = AtomicInteger(0)
     private val postedBodies = java.util.Collections.synchronizedList(mutableListOf<String>())
+
+    /** Per-test SSE behavior; default = full happy stream. */
+    private var streamResponder: () -> MockResponse = {
+        MockResponse()
+            .setHeader("Content-Type", "text/event-stream")
+            .setBody(sseBody())
+            .throttleBody(96, 150, TimeUnit.MILLISECONDS)
+    }
 
     private companion object {
         const val ANDROID_DEVICE = "android_device_stub"
@@ -78,16 +87,13 @@ class LiveAppGatewayTransportTest {
                     request.path == "/api/app/chat/stream" -> {
                         streamCalls.incrementAndGet()
                         postedBodies += "POST /api/app/chat/stream\n" + request.body.readUtf8()
-                        MockResponse()
-                            .setHeader("Content-Type", "text/event-stream")
-                            .setBody(sseBody())
-                            .throttleBody(96, 150, TimeUnit.MILLISECONDS)
+                        streamResponder()
                     }
                     request.path?.startsWith("/api/app/chat/requests/") == true && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
                     request.path?.startsWith("/api/app/chat/requests/") == true -> {
                         val rid = request.path!!.substringAfterLast('/')
-                        if (rid == "req-lost") {
+                        if (rid == "req-lost" || rid == "req-broken") {
                             MockResponse().setBody(
                                 """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
                                     """"response":{"text":"Recovered answer"}}""",
@@ -96,6 +102,13 @@ class LiveAppGatewayTransportTest {
                             MockResponse().setResponseCode(404)
                                 .setBody("""{"schema":"jarvis.web.error.v1","error":"unknown_request"}""")
                         }
+                    }
+                    request.path == "/api/app/chat" && request.method == "POST" -> {
+                        jsonChatCalls.incrementAndGet()
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
+                                """"response":{"text":"JSON fallback answer"}}""",
+                        )
                     }
                     request.path == "/api/app/chat/cancel" -> {
                         cancelCalls.incrementAndGet()
@@ -273,7 +286,7 @@ class LiveAppGatewayTransportTest {
         store.put(
             mapOf(
                 JarvisAppSession.KEY_TURN_PREFIX + "req-lost" to
-                    "c1|trace-lost|$ANDROID_DEVICE|$APP_SESSION",
+                    listOf("c1", "trace-lost", ANDROID_DEVICE, APP_SESSION).joinToString("\u001f"),
             ),
         )
         val transport = LiveAppGatewayTransport(JarvisAppSession(store), scope)
@@ -302,15 +315,45 @@ class LiveAppGatewayTransportTest {
         assertFalse(recovered)
     }
 
-    // test-only view into the memory store for the no-password-never-stored assert
-    private fun JarvisAppSession.tokenStoreForTest(): String {
-        val storeField = JarvisAppSession::class.java.getDeclaredField("store")
-        storeField.isAccessible = true
-        val store = storeField.get(this) as JarvisAppSession.Store
-        return listOf(
-            JarvisAppSession.KEY_TOKEN, JarvisAppSession.KEY_BASE, JarvisAppSession.KEY_USER_ID,
-            JarvisAppSession.KEY_USERNAME, JarvisAppSession.KEY_ROLE, JarvisAppSession.KEY_EXPIRES,
-            JarvisAppSession.KEY_APP_SESSION, JarvisAppSession.KEY_DEVICE,
-        ).mapNotNull { store.get(it) }.joinToString("|")
+    @Test
+    fun missingSseRouteFallsBackToJsonChat() {
+        streamResponder = { MockResponse().setResponseCode(404) }
+        val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+
+        val cid = repo.send("c1", "hello")
+        await { repo.snapshot.value.session.requests[cid]?.status?.isTerminal == true }
+        val req = repo.snapshot.value.session.requests[cid]!!
+        assertEquals(RequestStatus.Completed, req.status)
+        assertEquals("JSON fallback answer", req.text)
+        assertEquals(1, streamCalls.get())
+        assertEquals(1, jsonChatCalls.get())
+    }
+
+    @Test
+    fun brokenStreamRecoversCompletedTurnWithoutSecondInference() {
+        // SSE opens, sends deltas, then dies before `complete` (tailnet drop).
+        streamResponder = {
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("event: ready\ndata: {}\n\nevent: delta\ndata: {\"delta\":\"partial \"}\n\n")
+        }
+        val store = seededStore()
+        val transport = LiveAppGatewayTransport(JarvisAppSession(store), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+
+        val cid = repo.sendWithId("req-broken", "c1", "hello")
+        await { repo.snapshot.value.session.requests[cid]?.status?.isTerminal == true }
+        val req = repo.snapshot.value.session.requests[cid]!!
+        assertEquals(RequestStatus.Completed, req.status)
+        // server-side cache wins over the partial stream
+        assertEquals("Recovered answer", req.text)
+        // exactly one stream attempt; recovery used GET /requests/{id}, no re-run
+        assertEquals(1, streamCalls.get())
+        assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-broken"))
     }
 }

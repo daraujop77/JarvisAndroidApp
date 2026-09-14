@@ -162,10 +162,52 @@ class LiveAppGatewayTransport(
                 // disconnect-driven cancel: Reducer.onDisconnected owns the state
                 throw t
             } catch (t: Throwable) {
-                if (t is IOException && ctl.cancelRequested) {
-                    emit(GatewayEvent.MessageCompleted(turnId, "msg_$turnId"))
-                } else {
-                    emit(
+                when {
+                    t is IOException && ctl.cancelRequested ->
+                        emit(GatewayEvent.MessageCompleted(turnId, "msg_$turnId"))
+
+                    // PC-A's own web client falls back to the JSON endpoint
+                    // when the SSE route is absent (404/405 before any frame).
+                    t is StreamUnavailable -> {
+                        val text = runCatching {
+                            postJsonTurn(req, traceId, deviceId, sessionId)
+                        }.getOrNull()
+                        if (text != null) {
+                            emit(GatewayEvent.MessageCompleted(turnId, "msg_$turnId", text))
+                            session.forgetTurn(turnId)
+                        } else {
+                            emit(
+                                GatewayEvent.MessageFailed(
+                                    turnId, "msg_$turnId",
+                                    ErrorEnvelope("live_error", "stream unavailable"),
+                                    retryable = true,
+                                ),
+                            )
+                        }
+                    }
+
+                    // Stream broke mid-turn: PC-A may already hold the finished
+                    // turn; reconcile through GET /requests/{id} rather than
+                    // paying for a second inference (matches auth.js recovery).
+                    // The request is already Accepted/Streaming locally, so
+                    // settle it with the cached text only — no second accepted.
+                    t is StreamInterrupted || (t is IOException && !ctl.cancelRequested) -> {
+                        val cached = runCatching { fetchCachedTurnText(turnId) }.getOrNull()
+                        if (cached != null) {
+                            emit(GatewayEvent.MessageCompleted(turnId, "msg_$turnId", cached))
+                            session.forgetTurn(turnId)
+                        } else {
+                            emit(
+                                GatewayEvent.MessageFailed(
+                                    turnId, "msg_$turnId",
+                                    ErrorEnvelope("stream_interrupted", t.message ?: "stream ended early"),
+                                    retryable = true,
+                                ),
+                            )
+                        }
+                    }
+
+                    else -> emit(
                         GatewayEvent.MessageFailed(
                             turnId,
                             "msg_$turnId",
@@ -181,6 +223,12 @@ class LiveAppGatewayTransport(
         active[turnId] = ActiveTurn(turnId, req.conversationId, traceId, deviceId, sessionId, job, ctl)
     }
 
+    /** SSE route missing on this PC-A build; caller falls back to JSON chat. */
+    private class StreamUnavailable : Exception("sse_unavailable")
+
+    /** Stream opened but closed without a terminal frame; try turn recovery. */
+    private class StreamInterrupted : Exception("stream_interrupted")
+
     private suspend fun streamChat(
         req: MobileRequest.SendMessage,
         traceId: String,
@@ -188,27 +236,7 @@ class LiveAppGatewayTransport(
         sessionId: String,
         ctl: TurnCtl,
     ) {
-        val payload = buildJsonObject {
-            put("route", "local")
-            put("profile", "normal")
-            put("session_id", sessionId)
-            put("conversation_id", req.conversationId)
-            put("device_id", deviceId)
-            put("request_id", req.clientRequestId)
-            put("trace_id", traceId)
-            put("messages", buildJsonArray {
-                req.context.forEach { turn ->
-                    addJsonObject {
-                        put("role", turn.role)
-                        put("content", turn.content)
-                    }
-                }
-                addJsonObject {
-                    put("role", "user")
-                    put("content", req.text)
-                }
-            })
-        }.toString()
+        val payload = chatPayload(req, traceId, deviceId, sessionId)
 
         val request = Request.Builder()
             .url(session.baseUrl + "/api/app/chat/stream")
@@ -230,6 +258,7 @@ class LiveAppGatewayTransport(
                 )
                 throw TransportException("auth expired")
             }
+            if (resp.code == 404 || resp.code == 405) throw StreamUnavailable()
             if (resp.code !in 200..299) {
                 val msg = resp.body?.string()?.take(200).orEmpty()
                 throw TransportException("chat stream ${resp.code} $msg")
@@ -258,9 +287,57 @@ class LiveAppGatewayTransport(
             }
         }
         if (!completed && !ctl.cancelRequested) {
-            throw TransportException("stream ended before completion")
+            throw StreamInterrupted()
         }
     }
+
+    /** Bounded JSON smoke path when the SSE route is absent on this PC-A build. */
+    private suspend fun postJsonTurn(
+        req: MobileRequest.SendMessage,
+        traceId: String,
+        deviceId: String,
+        sessionId: String,
+    ): String? {
+        val payload = chatPayload(req, traceId, deviceId, sessionId)
+        val (code, body) = withContext(Dispatchers.IO) {
+            session.post(
+                session.baseUrl, "/api/app/chat", payload,
+                session.authHeader() ?: throw TransportException("no token"),
+            )
+        }
+        if (code !in 200..299) return null
+        return runCatching {
+            val obj = json.parseToJsonElement(body).jsonObject
+            obj["response"]?.jsonObject?.get("text")?.jsonPrimitive?.content
+        }.getOrNull()
+    }
+
+    private fun chatPayload(
+        req: MobileRequest.SendMessage,
+        traceId: String,
+        deviceId: String,
+        sessionId: String,
+    ): String = buildJsonObject {
+        put("route", "local")
+        put("profile", "normal")
+        put("session_id", sessionId)
+        put("conversation_id", req.conversationId)
+        put("device_id", deviceId)
+        put("request_id", req.clientRequestId)
+        put("trace_id", traceId)
+        put("messages", buildJsonArray {
+            req.context.forEach { turn ->
+                addJsonObject {
+                    put("role", turn.role)
+                    put("content", turn.content)
+                }
+            }
+            addJsonObject {
+                put("role", "user")
+                put("content", req.text)
+            }
+        })
+    }.toString()
 
     /** Returns true when this frame is the terminal `complete`. */
     private suspend fun handleSFrame(event: String, data: String, requestId: String, seq: Int): Boolean {
@@ -328,14 +405,12 @@ class LiveAppGatewayTransport(
     }
 
     /**
-     * PCB-LIVE-2: GET /api/app/chat/requests/{id} with X-Jarvis-* scope.
-     * If PC-A already completed the turn, emit accepted+completed locally so
-     * the reducer settles without a second inference.
+     * GET /api/app/chat/requests/{id} with X-Jarvis-* scope. Returns the cached
+     * assistant text when PC-A already completed the turn, else null. Never
+     * triggers a second inference.
      */
-    override suspend fun recoverCompletedTurn(clientRequestId: String, conversationId: String): Boolean {
-        val stored = session.loadTurn(clientRequestId) ?: JarvisAppSession.StoredTurn(
-            clientRequestId, conversationId, clientRequestId, session.deviceId, session.appSessionId,
-        )
+    private suspend fun fetchCachedTurnText(clientRequestId: String): String? {
+        val stored = session.loadTurn(clientRequestId) ?: return null
         val request = Request.Builder()
             .url(
                 session.baseUrl + "/api/app/chat/requests/" +
@@ -351,20 +426,27 @@ class LiveAppGatewayTransport(
                 header("X-Jarvis-Trace-Id", stored.traceId)
             }
             .build()
-        val text = withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             client.newCall(request).execute().use { resp ->
                 if (resp.code !in 200..299) return@use null
                 val body = resp.body?.string() ?: return@use null
                 runCatching {
                     val obj = json.parseToJsonElement(body).jsonObject
-                    val schema = obj["schema"]?.jsonPrimitive?.content
-                    if (schema != "jarvis.chat.turn.v1") return@use null
+                    if (obj["schema"]?.jsonPrimitive?.content != "jarvis.chat.turn.v1") return@use null
                     val status = obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content
                     if (status != "completed") return@use null
                     obj["response"]?.jsonObject?.get("text")?.jsonPrimitive?.content
                 }.getOrNull()
             }
-        } ?: return false
+        }
+    }
+
+    /**
+     * Process-death recovery: the fresh session has no knowledge of this
+     * request, so emit accepted+completed from the cached server turn.
+     */
+    override suspend fun recoverCompletedTurn(clientRequestId: String, conversationId: String): Boolean {
+        val text = fetchCachedTurnText(clientRequestId) ?: return false
         emit(GatewayEvent.MessageAccepted(clientRequestId, conversationId, "msg_$clientRequestId"))
         emit(GatewayEvent.MessageCompleted(clientRequestId, "msg_$clientRequestId", text))
         session.forgetTurn(clientRequestId)
