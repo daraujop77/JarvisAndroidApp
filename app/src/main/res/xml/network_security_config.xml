@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PC-A's PA-8 private front door is plain HTTP over Tailscale Serve
+  (http://desktop-l59hjk4/); the HTTPS front door is a later PC-A gate.
+  Cleartext is permitted at the platform layer here, but the LIVE transport
+  still fail-closes on host policy (JarvisAppSession.isAllowedLiveHost only
+  accepts loopback / RFC1918 / Tailscale CGNAT / *.ts.net / MagicDNS
+  single-label names), so the bearer token can never be sent to a public host.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
