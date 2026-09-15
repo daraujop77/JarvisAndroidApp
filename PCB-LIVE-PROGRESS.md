@@ -6,8 +6,13 @@ serve `/api/v1/*` yet. All live code stays behind the `GatewayTransport` seam â€
 UI/reducer semantics unchanged, no third protocol, no mobile-only backend, no
 direct Hermes/Ollama/PowerShell/Action-Gateway.
 
-Owner attested `PA-1 = PASS`; PC-A main `d940c45` (PA-7M merged, PA-8 in
-progress). Front door: `http://desktop-l59hjk4/`.
+Owner attested `PA-1 = PASS`. **Current PC-A state (supersedes older notes):**
+`PA-11 = PASS`, `WEB_PC_V1_OPERATIONAL = PASS`, known-good baseline
+`56a74db21cc6bb31eec26d9ed8b876a86e9e85f0`. PC-A is *preparing* (may be
+PREPARED_NOT_ACTIVATED): real `/api/v1` surface, approval bridge, pairing V1,
+attachment/upload V1 â€” PC-B consumes published schemas/fixtures only and marks
+anything unpublished `WAITING_FOR_PC_A_CONTRACT`. Front door (app surface):
+`http://desktop-l59hjk4/`.
 
 ## Per-packet record
 
