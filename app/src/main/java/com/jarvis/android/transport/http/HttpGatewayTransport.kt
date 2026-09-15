@@ -125,13 +125,18 @@ class HttpGatewayTransport(
         pollJob?.cancel()
         pollJob = scope.launch {
             while (isActive && _linkState.value == LinkState.CONNECTED) {
+                // Wait the interval BEFORE the first poll: an immediate poll
+                // races disconnect() (an in-flight request may or may not be
+                // server-observed), making behavior and tests non-deterministic.
+                // Replay sends and connect-time sends poll explicitly.
+                delay(pollIntervalMs)
+                if (!isActive || _linkState.value != LinkState.CONNECTED) break
                 runCatching { pollOnce(base) }
                     .onFailure {
                         if (_linkState.value == LinkState.CONNECTED) {
                             _linkState.value = LinkState.RECONNECTING
                         }
                     }
-                delay(pollIntervalMs)
             }
         }
     }
