@@ -1,6 +1,9 @@
 # PC-B checkpoint — frozen base during PC-A Cross-System Gate verification
 
-STATUS: **PC_B_CROSS_SYSTEM_FIXES_4_OF_4_READY_FOR_REAUDIT**
+STATUS: **PC_B_READY_FOR_CROSS_SYSTEM_RESULT_AND_OWNER_DEVICE_CHECK**
+
+Contract SHA for PC-A reaudit (do not treat later docs commits as the wire baseline):
+`decef0039db8e8f8e7109ea21cf2a2191dfb8a4d`
 
 Previous freeze SHA audited by PC-A: `c97fa93016c8ae79665618b1eba8a6adbe31239a`
 (`CROSS_SYSTEM_GATE = BLOCKED` on four remaining gaps; auth-provider already PASS).

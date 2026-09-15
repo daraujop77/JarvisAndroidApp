@@ -1,8 +1,16 @@
 # OWNER device verification checklist (PC-B)
 
 One physical pass on the S25 Ultra (same tailnet, Tailscale on) closes every
-`OWNER_DEVICE_TEST_REQUIRED` gate. Use `dist/JARVIS-debug.apk` (or
-`adb install -r app\build\outputs\apk\debug\app-debug.apk`).
+`OWNER_DEVICE_TEST_REQUIRED` gate.
+
+**Use the one-session pack** (PASS/FAIL, hashes, rollback, results template):
+
+- [DEVICE-HUMAN-CHECK.md](DEVICE-HUMAN-CHECK.md)
+- [DEVICE-HUMAN-CHECK-RESULTS.md](DEVICE-HUMAN-CHECK-RESULTS.md)
+
+APK: `dist/JARVIS-debug.apk` built from audited SHA `decef0039db8e8f8e7109ea21cf2a2191dfb8a4d`
+(SHA-256 `2E66072237A488171CA9AA88ABBA3C0A1F5A45DAF620107C891EEAE40AC2ABFE`).
+Do not rebuild mid-session.
 
 ## PCB-LIVE-1 session
 - [ ] Settings → IDENTITY → **Revoke & re-pair** → bottom form → Connect to Jarvis PC

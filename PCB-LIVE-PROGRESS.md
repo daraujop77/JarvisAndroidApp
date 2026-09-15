@@ -107,6 +107,6 @@ fields, typed HTTP error envelope). Those four are closed in the dedicated
 No `/api/v1` production cutover, no live approvals/pairing/uploads.
 
 ## Next task
-Wait for PC-A Cross-System Gate result. Owner device pass still
-`OWNER_DEVICE_TEST_REQUIRED`. Parked incomplete Web V1 client WIP stays in
-stash until the gate unfreezes the contract tree.
+Wait for PC-A reaudit of `decef003`. Owner device pass is packed in
+`DEVICE-HUMAN-CHECK.md` (same APK, no mid-session rebuild). Parked Web V1
+WIP stash stays unapplied.
