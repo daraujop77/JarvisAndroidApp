@@ -7,8 +7,8 @@ import com.jarvis.android.data.prefs.SettingsStore
 import com.jarvis.android.data.repo.ConversationRepository
 import com.jarvis.android.data.repo.JarvisSessionRepository
 import com.jarvis.android.security.DeviceIdentityStore
+import com.jarvis.android.transport.AuthProvider
 import com.jarvis.android.transport.GatewayTransport
-import com.jarvis.android.transport.NoAuthProvider
 import com.jarvis.android.transport.fake.FakeGateway
 import com.jarvis.android.transport.http.HttpGatewayTransport
 import com.jarvis.android.transport.live.JarvisAppSession
@@ -47,9 +47,14 @@ class AppContainer(private val context: Context) {
         HttpGatewayTransport(
             scope = scope,
             baseUrlProvider = {
-                kotlinx.coroutines.runBlocking { settings.settings.first().gatewayBaseUrl }
+                val stored = kotlinx.coroutines.runBlocking { settings.settings.first().gatewayBaseUrl }
+                stored.ifBlank { liveSession.baseUrl }
             },
-            auth = NoAuthProvider,
+            // Lane G: reuse the real PC-A bearer when a session exists; never a
+            // fabricated token. Absent credentials stay fail-closed server-side.
+            auth = AuthProvider {
+                liveSession.authHeader()?.let { mapOf("Authorization" to it) } ?: emptyMap()
+            },
         )
     }
     private val wss by lazy { WssGatewayTransport(context, scope) }
