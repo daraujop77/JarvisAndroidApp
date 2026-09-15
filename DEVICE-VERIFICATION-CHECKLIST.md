@@ -8,9 +8,9 @@ One physical pass on the S25 Ultra (same tailnet, Tailscale on) closes every
 - [DEVICE-HUMAN-CHECK.md](DEVICE-HUMAN-CHECK.md)
 - [DEVICE-HUMAN-CHECK-RESULTS.md](DEVICE-HUMAN-CHECK-RESULTS.md)
 
-APK: `dist/JARVIS-debug.apk` built from audited SHA `decef0039db8e8f8e7109ea21cf2a2191dfb8a4d`
-(SHA-256 `2E66072237A488171CA9AA88ABBA3C0A1F5A45DAF620107C891EEAE40AC2ABFE`).
-Do not rebuild mid-session.
+APK: `dist/JARVIS-debug.apk` built from SHA `cffcfe4764fa4ef7d6ec268ff8071c00c1e3ed4c`
+(SHA-256 `BCD24B4D27686AFB7ECD9434E080DCC40C1307DFAF979520CE7F5AE8B180C961`).
+Do not rebuild mid-session. Physical pass waits on PC-A recording `CROSS_SYSTEM_GATE = PASS`.
 
 ## PCB-LIVE-1 session
 - [ ] Settings → IDENTITY → **Revoke & re-pair** → bottom form → Connect to Jarvis PC

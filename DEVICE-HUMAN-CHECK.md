@@ -1,11 +1,13 @@
 # S25 Ultra Human Check — one session, one APK
 
-**Audited code SHA (do not rebuild mid-session):** `decef0039db8e8f8e7109ea21cf2a2191dfb8a4d`  
+**Audited code SHA (do not rebuild mid-session):** `cffcfe4764fa4ef7d6ec268ff8071c00c1e3ed4c`  
 **Install this APK only:** `dist/JARVIS-debug.apk`  
 (copy of `app/build/outputs/apk/debug/app-debug.apk` produced from that SHA)
 
-**SHA-256:** `2E66072237A488171CA9AA88ABBA3C0A1F5A45DAF620107C891EEAE40AC2ABFE`  
-**Size:** 20,705,318 bytes  
+Local PC-B reaudit of this SHA: `CROSS_SYSTEM_GATE = PASS` (harness only; PC-A has not recorded the gate yet). Do not start the physical pass until PC-A confirms.
+
+**SHA-256:** `BCD24B4D27686AFB7ECD9434E080DCC40C1307DFAF979520CE7F5AE8B180C961`  
+**Size:** 20,759,832 bytes  
 
 Verify before install:
 

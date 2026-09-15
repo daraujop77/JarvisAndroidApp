@@ -1,6 +1,11 @@
 # PC-B checkpoint — frozen base during PC-A Cross-System Gate verification
 
-STATUS: **PC_B_CROSS_SYSTEM_FINAL_2_OF_2_READY_FOR_REAUDIT**
+STATUS: **PC_B_LOCAL_CROSS_SYSTEM_GATE_PASS_WAITING_PC_A_RECORD**
+
+Local reaudit (read-only harness, no runtime mutation) of
+`cffcfe4764fa4ef7d6ec268ff8071c00c1e3ed4c`:
+`CROSS_SYSTEM_GATE = PASS` on PC-B. PC-A has not recorded this yet.
+Do not start PC-4 or the physical Human Check until PC-A does.
 
 `decef003` reaudit: `CROSS_SYSTEM_GATE = BLOCKED` on capabilities-strict +
 typed-error-complete. Follow-up code SHA is the `fix: close final PC-B

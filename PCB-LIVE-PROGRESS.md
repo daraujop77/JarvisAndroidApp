@@ -107,9 +107,8 @@ fields, typed HTTP error envelope). Those four are closed in the dedicated
 No `/api/v1` production cutover, no live approvals/pairing/uploads.
 
 ## Next task
-Wait for PC-A reaudit of the `fix: close final PC-B cross-system gaps`
-commit (capabilities schema+fingerprint required; typed error envelope
-complete). Owner device pack remains `DEVICE-HUMAN-CHECK.md` — rebuild the
-sideload APK only after that SHA is the new Human Check baseline. Parked
-Web V1 WIP stash was inspected and **not** applied (broken compile, would
-regress AUTH / task-run / event-required).
+PC-B local reaudit of `cffcfe4764fa4ef7d6ec268ff8071c00c1e3ed4c` is
+`CROSS_SYSTEM_GATE = PASS` (harness only). Wait for PC-A to record the same
+gate. Human Check APK is now that SHA
+(`dist/JARVIS-debug.apk` SHA-256 `BCD24B4D…`). Do not start the physical
+pass or PC-4 until PC-A records PASS. Parked Web V1 WIP stash stays unapplied.

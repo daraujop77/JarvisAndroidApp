@@ -9,10 +9,10 @@ Fill during the S25 Ultra session. One row per test ID from `DEVICE-HUMAN-CHECK.
 | Date (local) | |
 | Operator | |
 | Device | Samsung S25 Ultra |
-| Audited commit | `decef0039db8e8f8e7109ea21cf2a2191dfb8a4d` |
+| Audited commit | `cffcfe4764fa4ef7d6ec268ff8071c00c1e3ed4c` |
 | APK path | `dist/JARVIS-debug.apk` |
-| APK SHA-256 | `2E66072237A488171CA9AA88ABBA3C0A1F5A45DAF620107C891EEAE40AC2ABFE` |
-| APK size (bytes) | 20705318 |
+| APK SHA-256 | `BCD24B4D27686AFB7ECD9434E080DCC40C1307DFAF979520CE7F5AE8B180C961` |
+| APK size (bytes) | 20759832 |
 | PC-A baseline (if known) | |
 | Front door | `http://desktop-l59hjk4/` |
 | Tailscale | connected / not connected |
@@ -55,6 +55,6 @@ CURSOR =
 
 ## Owner sign-off
 
-- [ ] I installed only the hashed `dist/JARVIS-debug.apk` from `decef003`
+- [ ] I installed only the hashed `dist/JARVIS-debug.apk` from `cffcfe4`
 - [ ] I did not rebuild mid-session
 - [ ] LIVE-1..5 + AND-W8 are all PASS, or failures are listed above
