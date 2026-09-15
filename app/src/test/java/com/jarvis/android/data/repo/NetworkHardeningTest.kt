@@ -164,4 +164,50 @@ class NetworkHardeningTest {
         assertTrue(transport.connectCalls.get() > backgrounded)
         repo.stop()
     }
+
+    @Test
+    fun authExpiredWhileBackgroundedNeverRetriesOnForeground() {
+        val transport = ScriptedTransport(connectSucceeds = true)
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = listOf(3L, 3L, 3L, 3L, 3L))
+        repo.start()
+        settle(80)
+        transport.pushFrame(
+            """{"cursor":1,"eventId":"e-exp","version":"1.0",""" +
+                """"event":{"type":"connection.state","payload":{"state":"AUTH_EXPIRED"}}}""",
+        )
+        settle(80)
+        assertEquals(SessionPhase.AUTH_EXPIRED, repo.snapshot.value.phase)
+        val afterExpiry = transport.connectCalls.get()
+
+        repo.setForeground(false)
+        settle(80)
+        repo.setForeground(true)
+        settle(200)
+        assertEquals(SessionPhase.AUTH_EXPIRED, repo.snapshot.value.phase)
+        assertEquals("expired session never auto-retries", afterExpiry, transport.connectCalls.get())
+        repo.stop()
+    }
+
+    @Test
+    fun protocolMismatchFailsClosedWithoutReconnectStorm() {
+        val transport = ScriptedTransport(connectSucceeds = true)
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = listOf(3L, 3L, 3L, 3L, 3L))
+        repo.start()
+        settle(80)
+        transport.pushFrame(
+            """{"cursor":1,"eventId":"e-mm","version":"2.0",""" +
+                """"event":{"type":"connection.state","payload":{"state":"ONLINE"}}}""",
+        )
+        settle(80)
+        assertEquals(SessionPhase.MISMATCH, repo.snapshot.value.phase)
+        assertEquals(ConnectionState.PROTOCOL_MISMATCH, repo.snapshot.value.session.connection)
+        val afterMismatch = transport.connectCalls.get()
+
+        repo.setForeground(false)
+        repo.setForeground(true)
+        settle(200)
+        assertEquals(SessionPhase.MISMATCH, repo.snapshot.value.phase)
+        assertEquals("mismatch never auto-retries", afterMismatch, transport.connectCalls.get())
+        repo.stop()
+    }
 }

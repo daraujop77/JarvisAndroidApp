@@ -29,8 +29,8 @@ Shipped:
   latch with CONNECTING after sleeping; it now re-checks phase before dialing.
 - Tests (`NetworkHardeningTest`, `ReconnectPolicyTest`): never ONLINE without a
   server-confirmed frame; bounded attempts (no storm, then provably stops);
-  revoked device never auto-retries, even across background→foreground;
-  background defers + foreground resumes.
+  revoked / AUTH_EXPIRED / PROTOCOL_MISMATCH never auto-retry, even across
+  background→foreground; background defers + foreground resumes.
 - HTTP poller race fixed (delay-then-poll).
 
 ## Lane C — Room migration debt → **PASS**

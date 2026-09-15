@@ -97,10 +97,12 @@ fun JarvisRoot(app: JarvisApp) {
         }
     }
 
-    // Fail closed: a revoked or expired device loses the app surface and must
-    // re-pair, rather than keeping a usable session (plan §25 revoke/re-pair).
+    // Fail closed: revoked / expired / protocol-mismatch lose the chat
+    // surface. Re-pair (or update + re-pair) is the only recovery — never a
+    // silent reconnect from MAIN.
     val credentialsInvalid = snapshot.phase == SessionPhase.REVOKED ||
-        snapshot.phase == SessionPhase.AUTH_EXPIRED
+        snapshot.phase == SessionPhase.AUTH_EXPIRED ||
+        snapshot.phase == SessionPhase.MISMATCH
 
     val shell = when {
         !bootShown -> Shell.BOOT
@@ -131,6 +133,7 @@ fun JarvisRoot(app: JarvisApp) {
                     lockedReason = when (snapshot.phase) {
                         SessionPhase.REVOKED -> "This device was revoked on the Jarvis PC. Pair again to restore access."
                         SessionPhase.AUTH_EXPIRED -> "Your session expired. Pair again to restore access."
+                        SessionPhase.MISMATCH -> "This app is out of date for the Jarvis PC protocol. Update, then pair again."
                         else -> null
                     },
                 )

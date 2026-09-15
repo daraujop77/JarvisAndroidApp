@@ -45,9 +45,9 @@ private fun ConnectionState.label(): String = when (this) {
     ConnectionState.RECONNECTING -> "RECONNECTING"
     ConnectionState.OFFLINE -> "OFFLINE"
     ConnectionState.DISCONNECTED -> "DISCONNECTED"
-    ConnectionState.AUTH_EXPIRED -> "SESSION EXPIRED"
+    ConnectionState.AUTH_EXPIRED -> "AUTH REQUIRED"
     ConnectionState.DEVICE_REVOKED -> "DEVICE REVOKED"
-    ConnectionState.PROTOCOL_MISMATCH -> "PROTOCOL MISMATCH"
+    ConnectionState.PROTOCOL_MISMATCH -> "UPDATE REQUIRED"
 }
 
 /**

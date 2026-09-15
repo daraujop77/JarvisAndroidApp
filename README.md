@@ -141,6 +141,8 @@ floats), so ambient motion never triggers recomposition of the surrounding UI.
   /MagicDNS), so a token can never reach a public host. HTTPS-ready.
 - **Backup**: `allowBackup=false`. **Exports**: only the launcher activity is exported;
   the approval `BroadcastReceiver` is `exported=false`.
+- **Recents/screenshots**: `MainActivity` sets `FLAG_SECURE` so the task switcher
+  and screenshots cannot capture chat, approvals or pairing fields.
 - **Developer surfaces are debug-only** (`BuildConfig.DEBUG`): the Fake Gateway toggle,
   the SIMULATION scenario picker, the diagnostics card and the "Continue with Fake
   Gateway" pairing button are hidden in release. `AppContainer.resolveMode` also refuses

@@ -60,6 +60,17 @@ isolation test (two conversations streaming concurrently: each conversation's
 Room+live view contains only its own request ids and text). These land as
 `test:` commits; the verified wire/contract baseline recorded above is unchanged.
 
+## Addendum 2 (still during freeze — no wire/contract change)
+Independent daily-use / privacy hardening:
+- `FLAG_SECURE` on `MainActivity` (recents + screenshots blanked).
+- PROTOCOL_MISMATCH now fail-closes the MAIN shell (same pairing lock as
+  REVOKED / AUTH_EXPIRED) with an UPDATE REQUIRED copy.
+- Banner labels aligned to the product states: AUTH REQUIRED / UPDATE REQUIRED.
+- Tests: AUTH_EXPIRED and PROTOCOL_MISMATCH never auto-retry across
+  background→foreground.
+Suite: **111 tests, 0 failures**. `:app:assembleDebug` PASS. Contract tree
+untouched (`contract/**` and fixtures identical to freeze HEAD).
+
 ## Outstanding (owner-side, does not affect the gate)
 Physical device pass per `DEVICE-VERIFICATION-CHECKLIST.md`
 (`OWNER_DEVICE_TEST_REQUIRED` on AND-W8/LIVE device evidence).

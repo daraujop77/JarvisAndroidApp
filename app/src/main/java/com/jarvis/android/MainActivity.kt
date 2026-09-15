@@ -1,6 +1,7 @@
 package com.jarvis.android
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.fragment.app.FragmentActivity
@@ -18,6 +19,13 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Lane E: recents/task-switcher and screenshots must not show chat,
+        // approvals or tokens. FLAG_SECURE blanks the preview and blocks
+        // capture; the lock screen still re-arms on onStop.
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE,
+        )
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(
                 this, android.Manifest.permission.POST_NOTIFICATIONS,

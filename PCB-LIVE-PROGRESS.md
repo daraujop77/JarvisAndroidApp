@@ -99,8 +99,11 @@ Gates: `ROOM_MIGRATIONS_COMPLETE = PASS` · `AND_W8_PREP = PASS` (device confirm
 - Foreground-service sync (AND-W8), Tailscale-in-UI wiring: deferred, non-blocking
   for LIVE E2E while the app is foregrounded.
 
+## Freeze-window independent work
+STATUS remains **READY_FOR_PC_A_RESULT**. No `/api/v1` cutover, no live
+approvals/pairing/uploads, no Web V1 schema change.
+
 ## Next task
-Owner plugs the phone (and confirms PC-A gateway is listening on the tailnet) →
-run LIVE-1..5 device pass → record as `PCB-LIVE-DEVICE-VERIFIED`, attach to PA-8
-evidence. Until then PC-B has completed all LIVE-1..5 work that does not require a
-live PC-A gate.
+Wait for PC-A Cross-System Gate result. Owner device pass still
+`OWNER_DEVICE_TEST_REQUIRED`. Parked incomplete Web V1 client WIP stays in
+stash until the gate unfreezes the contract tree.
