@@ -14,3 +14,8 @@ captures/
 !debug.keystore
 # Keep one installable debug APK in dist/ so the repo can be sideloaded
 !dist/*.apk
+
+t.log
+base.log
+build-verify.log
+*.log
