@@ -59,6 +59,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _conversationId.value = id
     }
 
+    // ---- AND-W9 Projects shell (Lane F: backend NOT_CONNECTED) ----------------
+
+    private val _projectsEpoch = MutableStateFlow(0)
+    val projects = _projectsEpoch
+        .flatMapLatest { container.projectsRepository.observeProjects() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), com.jarvis.android.data.projects.ProjectsResult.Loading)
+
+    fun refreshProjects() { _projectsEpoch.value += 1 }
+
+    fun conversationsFor(projectId: com.jarvis.android.data.projects.ProjectId) =
+        container.projectsRepository.conversationsFor(projectId)
+
     fun startNewConversation(onReady: (String) -> Unit = {}) {
         conversations.newConversation { id ->
             _conversationId.value = id

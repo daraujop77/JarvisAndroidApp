@@ -99,6 +99,15 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * AND-W9 (Lane F): Projects backend is NOT_CONNECTED. The shell runs on
+     * this fake repository; swapping in a real PC-A projects source later is a
+     * one-property change, no UI edits.
+     */
+    val projectsRepository: com.jarvis.android.data.projects.ProjectsRepository by lazy {
+        com.jarvis.android.data.projects.FakeProjectsRepository()
+    }
+
+    /**
      * Called from Application.onCreate, so nothing here may block the main
      * thread: the transport mode is resolved on a background coroutine before
      * the session (and its lazy transport) is first touched.

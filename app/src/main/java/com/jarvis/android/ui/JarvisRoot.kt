@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
@@ -46,6 +47,7 @@ import com.jarvis.android.ui.screens.ApprovalsScreen
 import com.jarvis.android.ui.screens.ConversationsScreen
 import com.jarvis.android.ui.screens.LockScreen
 import com.jarvis.android.ui.screens.PairingScreen
+import com.jarvis.android.ui.screens.ProjectsScreen
 import com.jarvis.android.ui.screens.SettingsScreen
 import com.jarvis.android.ui.screens.TasksScreen
 import com.jarvis.android.ui.screens.WelcomeScreen
@@ -58,10 +60,20 @@ sealed class TopLevelDestination(val route: String, val label: String, val icon:
     data object Tasks : TopLevelDestination("tasks", "Tasks", Icons.AutoMirrored.Filled.List)
     data object Settings : TopLevelDestination("settings", "Settings", Icons.Filled.Settings)
 
+    /** AND-W9 shell: fake repository until PC-A publishes the projects contract. */
+    data object Projects : TopLevelDestination("projects", "Projects", Icons.Filled.Folder)
+
     companion object {
-        /** Getter, not a val: a companion val can capture nulls before the nested objects exist. */
+        /**
+         * Getter, not a val: a companion val can capture nulls before the
+         * nested objects exist. Projects is a debug-only preview until PC-A
+         * publishes the projects contract (the shell runs on fixture data, so
+         * release users must not see it as if it were real).
+         */
         val all: List<TopLevelDestination>
-            get() = listOf(Conversations, Approvals, Tasks, Settings)
+            get() = if (com.jarvis.android.BuildConfig.DEBUG)
+                listOf(Conversations, Projects, Approvals, Tasks, Settings)
+            else listOf(Conversations, Approvals, Tasks, Settings)
     }
 }
 
@@ -203,6 +215,7 @@ private fun MainShell(vm: JarvisViewModel) {
                 exitTransition = { fadeOut(tween(160)) },
             ) {
                 composable(TopLevelDestination.Conversations.route) { ConversationsScreen(vm) }
+                composable(TopLevelDestination.Projects.route) { ProjectsScreen(vm) }
                 composable(TopLevelDestination.Approvals.route) { ApprovalsScreen(vm, isOwner = isOwner) }
                 composable(TopLevelDestination.Tasks.route) { TasksScreen(vm) }
                 composable(TopLevelDestination.Settings.route) { SettingsScreen(vm) }
