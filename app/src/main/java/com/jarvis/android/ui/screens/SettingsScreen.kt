@@ -162,25 +162,26 @@ fun SettingsScreen(vm: JarvisViewModel) {
             }
 
             SettingsCard("CONNECTION") {
-                SwitchRow(
-                    title = "Use Fake Gateway",
-                    subtitle = "Deterministic local scenarios — no network. Off = HTTP /api/v1",
-                    checked = settings.useFakeGateway,
-                    onChange = vm::setUseFake,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Restart the app to apply a transport change.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
+                if (vm.developerOptionsEnabled) {
+                    SwitchRow(
+                        title = "Use Fake Gateway",
+                        subtitle = "Deterministic local scenarios — no network. Off = HTTP /api/v1",
+                        checked = settings.useFakeGateway,
+                        onChange = vm::setUseFake,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Restart the app to apply a transport change.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
                 var url by remember(settings.gatewayBaseUrl) { mutableStateOf(settings.gatewayBaseUrl) }
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
                     label = { Text("Gateway base URL") },
-                    enabled = !settings.useFakeGateway,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -190,7 +191,6 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(
                         onClick = { vm.setBaseUrl(url) },
-                        enabled = !settings.useFakeGateway,
                     ) { Text("Save URL") }
                     Button(onClick = vm::checkHealth) { Text("Check health") }
                 }
@@ -200,47 +200,49 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 }
             }
 
-            SettingsCard("SIMULATION") {
-                Text(
-                    "Drives the deterministic scenario matrix without a live backend.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                var expanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                    OutlinedTextField(
-                        value = vm.fakeScenario.label,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Scenario") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                        shape = RoundedCornerShape(14.dp),
-                        colors = jarvisTextFieldColors(),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+            if (vm.developerOptionsEnabled) {
+                SettingsCard("SIMULATION") {
+                    Text(
+                        "Drives the deterministic scenario matrix without a live backend.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    ExposedDropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false },
-                        containerColor = Color(0xFF0E1626),
-                    ) {
-                        FakeScenario.entries.forEach { sc ->
-                            DropdownMenuItem(
-                                text = { Text(sc.label, color = Color(0xFFE8EEF8)) },
-                                onClick = { vm.applyFakeScenario(sc); expanded = false },
-                            )
+                    Spacer(Modifier.height(10.dp))
+                    var expanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                        OutlinedTextField(
+                            value = vm.fakeScenario.label,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Scenario") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = jarvisTextFieldColors(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                            containerColor = Color(0xFF0E1626),
+                        ) {
+                            FakeScenario.entries.forEach { sc ->
+                                DropdownMenuItem(
+                                    text = { Text(sc.label, color = Color(0xFFE8EEF8)) },
+                                    onClick = { vm.applyFakeScenario(sc); expanded = false },
+                                )
+                            }
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    Button(onClick = vm::runFakeScenarioNow, modifier = Modifier.fillMaxWidth()) {
+                        Text("Run scenario now")
+                    }
                 }
-                Spacer(Modifier.height(10.dp))
-                Button(onClick = vm::runFakeScenarioNow, modifier = Modifier.fillMaxWidth()) {
-                    Text("Run scenario now")
-                }
-            }
 
-            DiagnosticsCard(vm, snapshot.session.diagnostics)
+                DiagnosticsCard(vm, snapshot.session.diagnostics)
+            }
             Spacer(Modifier.height(12.dp))
         }
     }

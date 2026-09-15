@@ -59,9 +59,15 @@ class AppContainer(private val context: Context) {
 
     private val live by lazy { LiveAppGatewayTransport(liveSession, scope) }
 
-    /** Resolved at start(); defaults to Fake until settings are read. */
+    /**
+     * Resolved fully in [start] on a background coroutine. The pre-start value
+     * is fail-safe: release builds default to HTTP (never FAKE) with no disk
+     * I/O on the main thread, and [resolveMode] still promotes to LIVE once the
+     * stored token is read.
+     */
     @Volatile
-    var transportMode: TransportMode = TransportMode.FAKE
+    var transportMode: TransportMode =
+        if (com.jarvis.android.BuildConfig.DEBUG) TransportMode.FAKE else TransportMode.HTTP
         private set
 
     /**
@@ -101,12 +107,13 @@ class AppContainer(private val context: Context) {
     }
 
     /**
-     * FAKE unless the live session is authenticated (PCB-LIVE-1 over PC-A's
-     * /api/app surface). HTTP is the frozen /api/v1 target, which PC-A does
-     * not serve yet, so it only applies when neither fake nor a live token.
+     * FAKE is a debug-only surface (Lane E): a release build never runs against
+     * the simulator even if a stray preference asked for it. LIVE applies while
+     * the PC-A app-session token is valid; HTTP remains the frozen /api/v1
+     * target for when PC-A activates it.
      */
     fun resolveMode(useFake: Boolean): TransportMode = when {
-        useFake -> TransportMode.FAKE
+        com.jarvis.android.BuildConfig.DEBUG && useFake -> TransportMode.FAKE
         liveSession.isAuthenticated -> TransportMode.LIVE
         else -> TransportMode.HTTP
     }

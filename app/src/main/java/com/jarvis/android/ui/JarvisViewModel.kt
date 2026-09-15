@@ -323,6 +323,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _healthStatus = MutableStateFlow<String?>(null)
     val healthStatus: StateFlow<String?> = _healthStatus
 
+    /** Lane E: scenario picker, fake-gateway toggle and diagnostics are dev-only. */
+    val developerOptionsEnabled: Boolean = com.jarvis.android.BuildConfig.DEBUG
+
     fun applyFakeScenario(scenario: FakeScenario) {
         fakeScenario = scenario
         if (container.transportMode == AppContainer.TransportMode.FAKE) {

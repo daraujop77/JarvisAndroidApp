@@ -129,6 +129,26 @@ through the §7 matrix without a live backend.
 All looping animation is confined to the draw phase (`Canvas`/`drawBehind` reading animated
 floats), so ambient motion never triggers recomposition of the surrounding UI.
 
+## Release / security posture (Lane E)
+
+- **R8/ProGuard**: release runs `minifyReleaseWithR8`; kotlinx.serialization keep-rules
+  are in `app/proguard-rules.pro`. Release APK builds (`app-release-unsigned.apk`).
+  No signing key is committed — provide one via `signingConfig` for store publishing.
+- **No secrets in source**: static scan finds none (only a public-key PEM header). The
+  live bearer token is stored at runtime in app-private prefs; passwords are never stored.
+- **Cleartext**: permitted *only* via `network_security_config` for the private Tailscale
+  front door; the LIVE transport still fail-closes the host (loopback/RFC1918/CGNAT/`*.ts.net`
+  /MagicDNS), so a token can never reach a public host. HTTPS-ready.
+- **Backup**: `allowBackup=false`. **Exports**: only the launcher activity is exported;
+  the approval `BroadcastReceiver` is `exported=false`.
+- **Developer surfaces are debug-only** (`BuildConfig.DEBUG`): the Fake Gateway toggle,
+  the SIMULATION scenario picker, the diagnostics card and the "Continue with Fake
+  Gateway" pairing button are hidden in release. `AppContainer.resolveMode` also refuses
+  FAKE in release even if a stray preference asked for it (LIVE→HTTP fallback).
+- **No log leakage**: no `android.util.Log`/`println` in `app/src/main`; diagnostics are
+  sanitized opaque ids/tokens only, never raw payloads (contract `raw_payload_persistence
+  = forbidden_in_evidence`).
+
 ## Known debt
 
 - **Room**: v3 opaque `lastCursorToken`. Explicit `Migration(1,2)` + `Migration(2,3)`

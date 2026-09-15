@@ -158,15 +158,17 @@ fun PairingScreen(
 
             Spacer(Modifier.height(20.dp))
 
-            Button(
-                onClick = {
-                    if (name.isNotBlank()) vm.setOwnerName(name)
-                    vm.pairDemoDevice { deviceId = it }
-                },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            ) { Text("Continue with Fake Gateway") }
+            if (vm.developerOptionsEnabled) {
+                Button(
+                    onClick = {
+                        if (name.isNotBlank()) vm.setOwnerName(name)
+                        vm.pairDemoDevice { deviceId = it }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                ) { Text("Continue with Fake Gateway") }
+            }
 
             AnimatedVisibility(visible = deviceId != null, enter = fadeIn()) {
                 Text(
