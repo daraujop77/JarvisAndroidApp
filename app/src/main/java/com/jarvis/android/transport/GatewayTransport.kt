@@ -52,4 +52,7 @@ class TransportException(
     cause: Throwable? = null,
     val code: String? = null,
     val retryable: Boolean = false,
+    val statusCode: Int? = null,
+    val requestId: String? = null,
+    val traceId: String? = null,
 ) : Exception(message, cause)

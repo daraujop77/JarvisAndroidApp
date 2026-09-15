@@ -169,18 +169,17 @@ data class WebV1Health(
 )
 
 /**
- * Official capabilities wire (`jarvis.web.capabilities.v1` in spine-0):
- * required `protocol_version`, `server_version`, `capabilities`.
- * `operations` / `event_types` are not the wire shape; callers that still
- * want those lists derive them after a successful decode.
+ * Official capabilities wire (`jarvis.web.capabilities.v1`).
+ * Required: schema, protocol_version, server_version, capabilities,
+ * contract_fingerprint. `operations` / `event_types` are derived after decode.
  */
 @Serializable
 data class WebV1Capabilities(
+    val schema: String,
     @SerialName("protocol_version") val protocolVersion: String,
     @SerialName("server_version") val serverVersion: String,
     val capabilities: List<String>,
-    val schema: String? = null,
-    @SerialName("contract_fingerprint") val contractFingerprint: String? = null,
+    @SerialName("contract_fingerprint") val contractFingerprint: String,
     @SerialName("disabled_capabilities") val disabledCapabilities: List<String> = emptyList(),
 ) {
     val operations: List<String>
@@ -196,14 +195,18 @@ data class WebV1Capabilities(
 
 @Serializable
 data class WebV1Error(
-    val schema: String? = null,
-    @SerialName("protocol_version") val protocolVersion: String? = null,
-    @SerialName("contract_fingerprint") val contractFingerprint: String? = null,
-    val error: String? = null,
-    val code: String? = null,
-    val message: String? = null,
-    val retryable: Boolean? = null,
-)
+    val schema: String,
+    @SerialName("protocol_version") val protocolVersion: String,
+    @SerialName("contract_fingerprint") val contractFingerprint: String,
+    @SerialName("status_code") val statusCode: Int,
+    val error: String,
+    val message: String,
+    val retryable: Boolean,
+    val request_id: String?,
+    val trace_id: String?,
+) {
+    val code: String get() = error
+}
 
 sealed interface WebV1Decode {
     data class Ok(val event: WebV1Event) : WebV1Decode
@@ -214,6 +217,12 @@ sealed interface WebV1CapabilitiesDecode {
     data class Ok(val capabilities: WebV1Capabilities) : WebV1CapabilitiesDecode
     data class Malformed(val reason: String) : WebV1CapabilitiesDecode
     data class ProtocolMismatch(val reason: String) : WebV1CapabilitiesDecode
+}
+
+sealed interface WebV1ErrorDecode {
+    data class Ok(val error: WebV1Error) : WebV1ErrorDecode
+    data class Malformed(val reason: String) : WebV1ErrorDecode
+    data class ProtocolMismatch(val reason: String) : WebV1ErrorDecode
 }
 
 object WebV1Codec {
@@ -245,23 +254,35 @@ object WebV1Codec {
         WebV1CapabilitiesDecode.Malformed(t.message ?: "decode failure")
     }
 
-    fun parseTypedError(raw: String): WebV1Error? {
+    fun decodeError(raw: String): WebV1ErrorDecode = try {
+        val obj = WebV1.json.parseToJsonElement(raw) as? JsonObject
+            ?: return WebV1ErrorDecode.Malformed("not a JSON object")
+        val parsed = WebV1Validator.requireError(obj)
+        if (!protocolCompatible(parsed.protocolVersion, parsed.contractFingerprint)) {
+            WebV1ErrorDecode.ProtocolMismatch(
+                "incompatible protocol ${parsed.protocolVersion}/${parsed.contractFingerprint}",
+            )
+        } else {
+            WebV1ErrorDecode.Ok(parsed)
+        }
+    } catch (t: WebV1ValidationException) {
+        WebV1ErrorDecode.Malformed(t.message ?: "invalid error")
+    } catch (t: Throwable) {
+        WebV1ErrorDecode.Malformed(t.message ?: "decode failure")
+    }
+
+    /** True when the body is attempting to be a typed Web V1 error (must then be complete). */
+    fun looksLikeTypedError(raw: String): Boolean {
         val obj = runCatching { WebV1.json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
-            ?: return null
+            ?: return false
         val schema = obj.string("schema")
-        val code = obj.string("error") ?: obj.string("code")
-        if (schema != null && schema != WebV1.ERROR_SCHEMA && code == null) return null
-        if (code.isNullOrBlank() && schema != WebV1.ERROR_SCHEMA) return null
-        val fingerprint = obj.string("contract_fingerprint")
-        return WebV1Error(
-            schema = schema,
-            protocolVersion = obj.string("protocol_version"),
-            contractFingerprint = fingerprint,
-            error = code,
-            code = code,
-            message = obj.string("message")?.take(200),
-            retryable = obj.bool("retryable"),
-        )
+        if (schema == WebV1.ERROR_SCHEMA) return true
+        return obj.containsKey("error") || obj.containsKey("status_code") || obj.containsKey("retryable")
+    }
+
+    fun parseTypedError(raw: String): WebV1Error? = when (val decoded = decodeError(raw)) {
+        is WebV1ErrorDecode.Ok -> decoded.error
+        else -> null
     }
 
     fun encodeEvent(event: WebV1Event): String =
@@ -345,10 +366,12 @@ internal object WebV1Validator {
     }
 
     fun requireCapabilities(obj: JsonObject): WebV1Capabilities {
+        val schema = requireConstString(obj, "schema", WebV1.CAPABILITIES_SCHEMA)
         val protocolVersion = requireVersion(obj, "protocol_version")
         val serverVersion = requirePresentString(obj, "server_version")
         if (serverVersion.isBlank()) throw WebV1ValidationException("missing server_version")
-        val capsEl = obj["capabilities"] ?: throw WebV1ValidationException("missing capabilities")
+        val fingerprint = requireFingerprint(obj, "contract_fingerprint")
+        val capsEl = requirePresent(obj, "capabilities")
         if (capsEl is JsonNull) throw WebV1ValidationException("capabilities is null")
         val arr = capsEl as? JsonArray
             ?: throw WebV1ValidationException("capabilities must be an array")
@@ -357,22 +380,62 @@ internal object WebV1Validator {
                 ?: throw WebV1ValidationException("capabilities[$i] must be a string")
             p.contentOrNull ?: throw WebV1ValidationException("capabilities[$i] must be a string")
         }
-        val fingerprint = if (obj.containsKey("contract_fingerprint")) {
-            when (val el = obj["contract_fingerprint"]) {
-                null, is JsonNull -> null
-                else -> (el as? JsonPrimitive)?.contentOrNull
-            }
-        } else null
         return WebV1Capabilities(
+            schema = schema,
             protocolVersion = protocolVersion,
             serverVersion = serverVersion,
             capabilities = caps,
-            schema = obj.string("schema"),
             contractFingerprint = fingerprint,
             disabledCapabilities = (obj["disabled_capabilities"] as? JsonArray)?.mapNotNull {
                 (it as? JsonPrimitive)?.contentOrNull
             } ?: emptyList(),
         )
+    }
+
+    fun requireError(obj: JsonObject): WebV1Error {
+        val schema = requireConstString(obj, "schema", WebV1.ERROR_SCHEMA)
+        val protocolVersion = requireVersion(obj, "protocol_version")
+        val fingerprint = requireFingerprint(obj, "contract_fingerprint")
+        val statusCode = requireStatusCode(obj, "status_code")
+        if (!obj.containsKey("error") && !obj.containsKey("code")) {
+            throw WebV1ValidationException("missing error")
+        }
+        val errorEl = obj["error"] ?: obj["code"]
+        val error = when {
+            errorEl == null || errorEl is JsonNull ->
+                throw WebV1ValidationException("error is null")
+            else -> (errorEl as? JsonPrimitive)?.contentOrNull
+                ?: throw WebV1ValidationException("error must be a string")
+        }
+        if (error.isBlank()) throw WebV1ValidationException("missing error")
+        if (error.length > WebV1.MAX_ID_LENGTH) throw WebV1ValidationException("invalid error length")
+        val message = requirePresentString(obj, "message").take(200)
+        val retryable = requireBoolean(obj, "retryable")
+        val requestId = requireNullableId(obj, "request_id")
+        val traceId = requireNullableId(obj, "trace_id")
+        return WebV1Error(
+            schema = schema,
+            protocolVersion = protocolVersion,
+            contractFingerprint = fingerprint,
+            statusCode = statusCode,
+            error = error,
+            message = message,
+            retryable = retryable,
+            request_id = requestId,
+            trace_id = traceId,
+        )
+    }
+
+    private fun requireStatusCode(obj: JsonObject, key: String): Int {
+        val el = requirePresent(obj, key)
+        if (el is JsonNull) throw WebV1ValidationException("$key is null")
+        val p = el as? JsonPrimitive
+            ?: throw WebV1ValidationException("$key must be an integer")
+        if (p.isString) throw WebV1ValidationException("$key must be an integer")
+        val n = p.intOrNull ?: p.longOrNull?.toInt()
+            ?: throw WebV1ValidationException("$key must be an integer")
+        if (n !in 100..599) throw WebV1ValidationException("invalid $key")
+        return n
     }
 
     private fun requirePresent(obj: JsonObject, key: String): JsonElement {

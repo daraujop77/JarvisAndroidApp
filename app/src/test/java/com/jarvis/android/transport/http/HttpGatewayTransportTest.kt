@@ -43,7 +43,7 @@ class HttpGatewayTransportTest {
                         """{"status":"ok","protocol_version":"1.0","contract_fingerprint":"web-v1-1.0","capabilities":["streaming"]}""",
                     )
                     path == "/api/v1/capabilities" -> MockResponse().setBody(
-                        """{"schema":"jarvis.web.capabilities.v1","protocol_version":"1.0","server_version":"pc-a-test","capabilities":["conversation","streaming","cancel","replay","approvals","action_proposals"],"future_flag":true}""",
+                        """{"schema":"jarvis.web.capabilities.v1","protocol_version":"1.0","server_version":"pc-a-test","contract_fingerprint":"${WebV1.FINGERPRINT}","capabilities":["conversation","streaming","cancel","replay","approvals","action_proposals"],"future_flag":true}""",
                     )
                     path.startsWith("/api/v1/events") -> {
                         val after = path.substringAfter("after=", "").ifBlank { null }
@@ -234,7 +234,7 @@ class HttpGatewayTransportTest {
                 request.method == "POST" && request.path == "/api/v1/requests" -> MockResponse()
                     .setResponseCode(503)
                     .setBody(
-                        """{"schema":"jarvis.web.error.v1","error":"gateway_unavailable","message":"busy","retryable":true,"token":"secret-should-not-leak"}""",
+                        """{"schema":"jarvis.web.error.v1","protocol_version":"1.0","contract_fingerprint":"${WebV1.FINGERPRINT}","status_code":503,"error":"gateway_unavailable","message":"busy","retryable":true,"request_id":"req-http-err","trace_id":"trace-http-err","token":"secret-should-not-leak"}""",
                     )
                 else -> MockResponse().setResponseCode(404)
             }
@@ -253,6 +253,9 @@ class HttpGatewayTransportTest {
             assertTrue(err is TransportException)
             val te = err as TransportException
             assertEquals("gateway_unavailable", te.code)
+            assertEquals(503, te.statusCode)
+            assertEquals("req-http-err", te.requestId)
+            assertEquals("trace-http-err", te.traceId)
             assertTrue(te.retryable)
             assertFalse(te.message!!.contains("secret"))
             assertFalse(te.message!!.contains("token"))
@@ -270,7 +273,7 @@ class HttpGatewayTransportTest {
                     """{"status":"ok","protocol_version":"1.0","capabilities":[]}""",
                 )
                 request.path == "/api/v1/capabilities" -> MockResponse().setBody(
-                    """{"protocol_version":"1.0","capabilities":["streaming"]}""",
+                    """{"schema":"jarvis.web.capabilities.v1","protocol_version":"1.0","contract_fingerprint":"${WebV1.FINGERPRINT}","capabilities":["streaming"]}""",
                 )
                 else -> MockResponse().setResponseCode(404)
             }

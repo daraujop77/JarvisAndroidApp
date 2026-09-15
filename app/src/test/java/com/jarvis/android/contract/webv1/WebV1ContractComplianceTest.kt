@@ -35,13 +35,42 @@ class WebV1ContractComplianceTest {
         protocol: String = "1.0",
         server: String? = "jarvis-pc-a",
         capabilitiesPresent: Boolean = true,
+        schema: String? = WebV1.CAPABILITIES_SCHEMA,
+        fingerprint: String? = WebV1.FINGERPRINT,
         extra: String = "",
     ): String = buildString {
-        append("""{"protocol_version":"$protocol"""")
-        if (server != null) append(""","server_version":"$server"""")
-        if (capabilitiesPresent) append(""","capabilities":["conversation","streaming"]""")
-        append(extra)
+        append("{")
+        val parts = mutableListOf<String>()
+        if (schema != null) parts += """"schema":"$schema""""
+        parts += """"protocol_version":"$protocol""""
+        if (server != null) parts += """"server_version":"$server""""
+        if (capabilitiesPresent) parts += """"capabilities":["conversation","streaming"]"""
+        if (fingerprint != null) parts += """"contract_fingerprint":"$fingerprint""""
+        if (extra.isNotBlank()) parts += extra.trimStart(',')
+        append(parts.joinToString(","))
         append("}")
+    }
+
+    private fun validTypedError(
+        extra: String = "",
+        omit: Set<String> = emptySet(),
+        overrides: Map<String, String> = emptyMap(),
+    ): String {
+        val fields = linkedMapOf(
+            "schema" to """"${WebV1.ERROR_SCHEMA}"""",
+            "protocol_version" to """"1.0"""",
+            "contract_fingerprint" to """"${WebV1.FINGERPRINT}"""",
+            "status_code" to "503",
+            "error" to """"gateway_unavailable"""",
+            "message" to """"busy"""",
+            "retryable" to "true",
+            "request_id" to """"req-err-001"""",
+            "trace_id" to """"trace-err-001"""",
+        )
+        overrides.forEach { (k, v) -> fields[k] = v }
+        omit.forEach { fields.remove(it) }
+        val body = fields.entries.joinToString(",") { """"${it.key}":${it.value}""" }
+        return if (extra.isBlank()) "{$body}" else "{$body,$extra}"
     }
 
     @Test
@@ -54,8 +83,38 @@ class WebV1ContractComplianceTest {
         assertEquals("1.0", caps.protocolVersion)
         assertEquals("jarvis-pc-a", caps.serverVersion)
         assertEquals(listOf("conversation", "streaming"), caps.capabilities)
+        assertEquals(WebV1.CAPABILITIES_SCHEMA, caps.schema)
+        assertEquals(WebV1.FINGERPRINT, caps.contractFingerprint)
         assertTrue(caps.operations.contains("submit"))
         assertFalse(caps.operations.contains("action"))
+    }
+
+    @Test
+    fun capabilitiesMissingSchemaIsMalformed() {
+        val decoded = WebV1Codec.decodeCapabilities(validCapabilities(schema = null))
+        assertTrue(decoded is WebV1CapabilitiesDecode.Malformed)
+        assertTrue((decoded as WebV1CapabilitiesDecode.Malformed).reason.contains("schema"))
+    }
+
+    @Test
+    fun capabilitiesWrongSchemaIsMalformed() {
+        val decoded = WebV1Codec.decodeCapabilities(validCapabilities(schema = "jarvis.web.event.v1"))
+        assertTrue(decoded is WebV1CapabilitiesDecode.Malformed)
+        assertTrue((decoded as WebV1CapabilitiesDecode.Malformed).reason.contains("schema"))
+    }
+
+    @Test
+    fun capabilitiesMissingFingerprintIsMalformed() {
+        val decoded = WebV1Codec.decodeCapabilities(validCapabilities(fingerprint = null))
+        assertTrue(decoded is WebV1CapabilitiesDecode.Malformed)
+        assertTrue((decoded as WebV1CapabilitiesDecode.Malformed).reason.contains("contract_fingerprint"))
+    }
+
+    @Test
+    fun capabilitiesWrongFingerprintFailsClosed() {
+        val other = "0".repeat(64)
+        val decoded = WebV1Codec.decodeCapabilities(validCapabilities(fingerprint = other))
+        assertTrue(decoded is WebV1CapabilitiesDecode.ProtocolMismatch)
     }
 
     @Test
@@ -208,14 +267,66 @@ class WebV1ContractComplianceTest {
 
     @Test
     fun typedErrorEnvelopeMapsCodeRetryabilityAndNeverKeepsRawBody() {
-        val typed = """{"schema":"jarvis.web.error.v1","error":"gateway_unavailable","message":"busy","retryable":true,"secret":"do-not-keep"}"""
+        val typed = validTypedError(extra = """"secret":"do-not-keep"""")
         val ex = WebV1Errors.fromHttp(503, typed)
         assertEquals("gateway_unavailable", ex.code)
+        assertEquals(503, ex.statusCode)
+        assertEquals("req-err-001", ex.requestId)
+        assertEquals("trace-err-001", ex.traceId)
         assertTrue(ex.retryable)
         assertFalse(ex.message!!.contains("secret"))
         assertFalse(ex.message!!.contains("do-not-keep"))
         val env = WebV1Errors.toInternalError(ex)
         assertEquals("gateway_unavailable", env.code)
+        assertTrue(env.details!!.contains("request_id=req-err-001"))
+        assertTrue(env.details!!.contains("trace_id=trace-err-001"))
+        assertTrue(env.details!!.contains("status=503"))
+    }
+
+    @Test
+    fun typedErrorMissingRequiredFieldFailsClosed() {
+        val required = listOf(
+            "schema", "protocol_version", "contract_fingerprint", "status_code",
+            "error", "message", "retryable", "request_id", "trace_id",
+        )
+        for (field in required) {
+            val decoded = WebV1Codec.decodeError(validTypedError(omit = setOf(field)))
+            assertTrue("$field absent must be malformed", decoded is WebV1ErrorDecode.Malformed)
+            val ex = WebV1Errors.fromHttp(400, validTypedError(omit = setOf(field)))
+            assertEquals("invalid_response", ex.code)
+            assertFalse(ex.retryable)
+            assertFalse(ex.message!!.contains("secret"))
+        }
+    }
+
+    @Test
+    fun typedErrorPresentNullOnNullableIdsIsValid() {
+        val decoded = WebV1Codec.decodeError(
+            validTypedError(overrides = mapOf("request_id" to "null", "trace_id" to "null")),
+        )
+        assertTrue(decoded is WebV1ErrorDecode.Ok)
+        val err = (decoded as WebV1ErrorDecode.Ok).error
+        assertNull(err.request_id)
+        assertNull(err.trace_id)
+    }
+
+    @Test
+    fun typedErrorWrongTypesAndMismatchesFailClosed() {
+        val wrongType = WebV1Codec.decodeError(validTypedError(overrides = mapOf("status_code" to """"503"""")))
+        assertTrue(wrongType is WebV1ErrorDecode.Malformed)
+
+        val protocol = WebV1Codec.decodeError(validTypedError(overrides = mapOf("protocol_version" to """"2.0"""")))
+        assertTrue(protocol is WebV1ErrorDecode.ProtocolMismatch)
+
+        val fingerprint = WebV1Codec.decodeError(
+            validTypedError(overrides = mapOf("contract_fingerprint" to """"${"0".repeat(64)}"""")),
+        )
+        assertTrue(fingerprint is WebV1ErrorDecode.ProtocolMismatch)
+
+        val wrongSchema = WebV1Codec.decodeError(
+            validTypedError(overrides = mapOf("schema" to """"jarvis.web.event.v1"""")),
+        )
+        assertTrue(wrongSchema is WebV1ErrorDecode.Malformed)
     }
 
     @Test
@@ -234,21 +345,48 @@ class WebV1ContractComplianceTest {
 
     @Test
     fun unknownFieldsOnTypedErrorAreIgnored() {
-        val body = """{"schema":"jarvis.web.error.v1","error":"invalid_request","message":"nope","extra":{"x":1}}"""
+        val body = validTypedError(
+            extra = """"extra":{"x":1}""",
+            overrides = mapOf(
+                "status_code" to "400",
+                "error" to """"invalid_request"""",
+                "message" to """"nope"""",
+                "retryable" to "false",
+            ),
+        )
         val ex = WebV1Errors.fromHttp(400, body)
         assertEquals("invalid_request", ex.code)
+        assertEquals(400, ex.statusCode)
         assertFalse(ex.retryable)
     }
 
     @Test
     fun authFailureAndProtocolMismatchAreNonRetryable() {
-        val auth = WebV1Errors.fromHttp(401, """{"schema":"jarvis.web.error.v1","error":"invalid_request","message":"denied"}""")
+        val auth = WebV1Errors.fromHttp(
+            401,
+            validTypedError(
+                overrides = mapOf(
+                    "status_code" to "401",
+                    "error" to """"invalid_request"""",
+                    "message" to """"denied"""",
+                    "retryable" to "false",
+                ),
+            ),
+        )
         assertEquals("invalid_request", auth.code)
+        assertEquals(401, auth.statusCode)
         assertFalse(auth.retryable)
 
         val mismatch = WebV1Errors.fromHttp(
             409,
-            """{"schema":"jarvis.web.error.v1","error":"protocol_version_mismatch","message":"need 1.0","contract_fingerprint":"${WebV1.FINGERPRINT}"}""",
+            validTypedError(
+                overrides = mapOf(
+                    "status_code" to "409",
+                    "error" to """"protocol_version_mismatch"""",
+                    "message" to """"need 1.0"""",
+                    "retryable" to "false",
+                ),
+            ),
         )
         assertEquals("protocol_version_mismatch", mismatch.code)
         assertFalse(mismatch.retryable)
@@ -256,9 +394,22 @@ class WebV1ContractComplianceTest {
 
     @Test
     fun retryableVersusFinalErrorCodes() {
-        val retryable = WebV1Errors.fromHttp(503, """{"schema":"jarvis.web.error.v1","error":"executor_unavailable","message":"later"}""")
+        val retryable = WebV1Errors.fromHttp(
+            503,
+            validTypedError(overrides = mapOf("error" to """"executor_unavailable"""", "message" to """"later"""")),
+        )
         assertTrue(retryable.retryable)
-        val final = WebV1Errors.fromHttp(409, """{"schema":"jarvis.web.error.v1","error":"duplicate_request","message":"seen"}""")
+        val final = WebV1Errors.fromHttp(
+            409,
+            validTypedError(
+                overrides = mapOf(
+                    "status_code" to "409",
+                    "error" to """"duplicate_request"""",
+                    "message" to """"seen"""",
+                    "retryable" to "false",
+                ),
+            ),
+        )
         assertFalse(final.retryable)
     }
 

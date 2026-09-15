@@ -107,6 +107,9 @@ fields, typed HTTP error envelope). Those four are closed in the dedicated
 No `/api/v1` production cutover, no live approvals/pairing/uploads.
 
 ## Next task
-Wait for PC-A reaudit of `decef003`. Owner device pass is packed in
-`DEVICE-HUMAN-CHECK.md` (same APK, no mid-session rebuild). Parked Web V1
-WIP stash stays unapplied.
+Wait for PC-A reaudit of the `fix: close final PC-B cross-system gaps`
+commit (capabilities schema+fingerprint required; typed error envelope
+complete). Owner device pack remains `DEVICE-HUMAN-CHECK.md` — rebuild the
+sideload APK only after that SHA is the new Human Check baseline. Parked
+Web V1 WIP stash was inspected and **not** applied (broken compile, would
+regress AUTH / task-run / event-required).
