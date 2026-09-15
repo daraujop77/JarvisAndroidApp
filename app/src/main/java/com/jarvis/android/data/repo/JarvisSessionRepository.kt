@@ -236,6 +236,32 @@ class JarvisSessionRepository(
         }
     }
 
+    // ---- AND-W8: lifecycle-aware reconnection ----------------------------------
+
+    @Volatile
+    private var appForeground = true
+
+    /**
+     * Process foreground/background transition. Returning to foreground resumes
+     * reconnection that was intentionally deferred while backgrounded (no
+     * battery-burning poll while the user isn't looking); backgrounding with no
+     * in-flight request stops scheduling. Fail-closed phases never retry.
+     */
+    fun setForeground(foreground: Boolean) {
+        val was = appForeground
+        appForeground = foreground
+        if (foreground && !was && started) {
+            val snap = _snapshot.value
+            val closedForGood = snap.phase == SessionPhase.REVOKED ||
+                snap.phase == SessionPhase.MISMATCH ||
+                snap.phase == SessionPhase.AUTH_EXPIRED
+            if (!closedForGood && !snap.session.connection.isUsable) {
+                reconnectAttempts = 0
+                scheduleReconnect()
+            }
+        }
+    }
+
     // ---- internals ------------------------------------------------------------
 
     /**
@@ -304,6 +330,9 @@ class JarvisSessionRepository(
     /** One backoff loop at a time; repeated link drops must not stack retries. */
     private fun scheduleReconnect() {
         if (reconnectJob?.isActive == true) return
+        // AND-W8: backgrounded with nothing in flight -> defer; setForeground
+        // resumes. Bounded caps below still prevent retry storms in-app.
+        if (!appForeground && _snapshot.value.session.activeRequestCount == 0) return
         reconnectJob = scope.launch { backoffReconnect() }
     }
 

@@ -20,8 +20,11 @@ progress). Front door: `http://desktop-l59hjk4/`.
 | LIVE-3 | SSE 404/405 → JSON `/api/app/chat` fallback; mid-stream drop → GET `/requests/{id}` recovery | 76/0 | `fa32a3d` |
 | LIVE-4 | server-driven owner profile selector (chips from `/api/app/status` `chat.models[]`, gated by `owner_model_selection`); profile flows into turn payload | 78/0 | `6c3f740` |
 | LIVE-5 | **conversation-local** profile selection (PA-7M isolation); concurrent A/B isolation tests (profile + context + conversation_id never cross) | 79/0 | `f3f6e21` |
+| Lane C (hardening) | Explicit `Migration(1,2)` (pending_outbound.attachmentIds, reconstructed from pre-attachment schema) + registered 1→2 and 2→3; JVM **chain** test v1→v2→v3 preserving conversations/messages/pending/cursor/attempts; README debt note retired | 80/0 | laneC commit |
+| Lane A (AND-W8) | No foreground service (documented decision). `NotifyPolicy`: pure background/foreground notification decisions with **persisted** seen-IDs (no re-notify after process death), per-request completion ids, one-shot auth-expired/revoked transitions, approval notify→cancel exactly-once. `JarvisSessionRepository.setForeground`: background+idle defers reconnect, foreground resumes; caps stay bounded (no retry storm). Fixed HTTP poller first-poll race (delay-then-poll). | 86/0 | laneA commit |
 
-`TESTS: 79 unit tests, 0 failures` · `:app:assembleDebug BUILD SUCCESSFUL` at each commit.
+`TESTS: 86 unit tests, 0 failures` · `:app:assembleDebug BUILD SUCCESSFUL` at each commit.
+Gates: `ROOM_MIGRATIONS_COMPLETE = PASS` · `AND_W8_PREP = PASS` (device confirmation: `OWNER_DEVICE_TEST_REQUIRED`).
 
 ## Latency / responsiveness measures in place
 - Streaming: SSE deltas applied incrementally, out-of-order buffered by reducer.

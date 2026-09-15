@@ -135,8 +135,14 @@ floats), so ambient motion never triggers recomposition of the surrounding UI.
   registered, no destructive fallback, and a JVM chain test (v1→v2→v3) that preserves
   conversations, messages, pending outbound, cursor and attempts.
 - **Transport switch needs an app restart** (mode resolved once at startup).
-- **No foreground service**: the socket lives only while the app is alive; server-side tasks
-  continue independently, which is the intended V1 behavior (AND-W8 full scope not done).
+- **No foreground service (deliberate, AND-W8)**: streams run in app-scoped coroutines
+  and survive backgrounding while the process lives; on process death the LIVE-2/3
+  recovery reconciles completed turns without a second inference. Notification dedupe
+  (`NotifyPolicy`) is persisted, so restarts never re-notify. Backgrounded with nothing
+  in flight, reconnect is deferred and resumes on foreground (battery-aware, bounded).
+  A permanent foreground service would need a persistent user-visible notification for
+  no V1 benefit; revisit only if PC-A pushes server-originated events (needs a PC-A
+  push/replay endpoint we don't have). `AND_W8_PREP = PASS` (device pass: OWNER_DEVICE_TEST_REQUIRED).
 
 ## Not yet (blocked, per plan §11 / §22)
 

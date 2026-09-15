@@ -25,13 +25,13 @@ import com.jarvis.android.data.state.ConnectionState
  * Dedup is by approvalId / requestId so background/foreground transitions
  * never repeat actions (plan AND-W8 gate).
  */
-class NotificationCoordinator(private val context: Context) {
+class NotificationCoordinator(context: Context) {
 
-    private val manager = NotificationManagerCompat.from(context)
+    private val appContext = context.applicationContext
+    private val manager = NotificationManagerCompat.from(appContext)
+    private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private val notifiedApprovals = mutableSetOf<String>()
-    private val resolvedNotified = mutableSetOf<String>()
-    private var lastRequestCount = 0
+    private val policy = NotifyPolicy(NotifyPolicy.State.fromPersisted(prefs.getString(KEY_STATE, null)))
     private var appForeground = false
 
     init {
@@ -44,35 +44,25 @@ class NotificationCoordinator(private val context: Context) {
 
     /** Called for every snapshot; emits only *new* meaningful transitions. */
     fun onSnapshot(snap: SessionSnapshot) {
+        val actions = policy.evaluate(snap, foreground = appForeground)
+        if (actions.isEmpty()) return
+        persistState()
         if (!hasPermission()) return
+        for (a in actions) when (a) {
+            is NotifyPolicy.Action.NotifyApproval ->
+                notifyApproval(a.approvalId, a.title, a.body)
+            is NotifyPolicy.Action.CancelApproval -> cancelApproval(a.approvalId)
+            is NotifyPolicy.Action.NotifyReplyCompleted -> notifyCompletion(a.clientRequestId, a.snippet)
+            NotifyPolicy.Action.NotifyAuthExpired -> notifyAuthExpired()
+            NotifyPolicy.Action.NotifyRevoked -> notifyRevoked()
+        }
+    }
 
-        for ((id, a) in snap.session.approvals) {
-            if (a.outcome == null && id !in notifiedApprovals) {
-                notifiedApprovals += id
-                notifyApproval(a.approvalId, a.title, a.description ?: "Open JARVIS to review", id)
-            }
-            if (a.outcome != null && a.approvalId !in resolvedNotified) {
-                resolvedNotified += a.approvalId
-                notifiedApprovals -= a.approvalId
-                cancelApproval(a.approvalId)
-            }
-        }
-
-        // New completions while backgrounded -> summary notification
-        val completed = snap.session.requests.values.count {
-            it.status == com.jarvis.android.data.state.RequestStatus.Completed
-        }
-        if (completed > lastRequestCount && !appForeground && completed > 0) {
-            lastRequestCount = completed
-            val newest = snap.session.requests.values
-                .lastOrNull { it.status == com.jarvis.android.data.state.RequestStatus.Completed }
-            notifyCompletion(newest?.text?.take(120) ?: "Reply ready")
-        }
-        lastRequestCount = if (completed < lastRequestCount) completed else lastRequestCount
+    private fun persistState() {
+        prefs.edit().putString(KEY_STATE, policy.state.toPersisted()).apply()
     }
 
     fun notifyRevoked() {
-        if (!hasPermission()) return
         notify(
             channelId = CHANNEL_STATE,
             id = NOTIF_REVOKED,
@@ -84,7 +74,6 @@ class NotificationCoordinator(private val context: Context) {
     }
 
     fun notifyAuthExpired() {
-        if (!hasPermission()) return
         notify(
             channelId = CHANNEL_STATE,
             id = NOTIF_AUTH,
@@ -97,7 +86,7 @@ class NotificationCoordinator(private val context: Context) {
 
     // ---- internals -------------------------------------------------------------
 
-    private fun notifyApproval(approvalId: String, title: String, body: String, key: String) {
+    private fun notifyApproval(approvalId: String, title: String, body: String) {
         val notify = baseNotification(CHANNEL_APPROVALS)
             .setContentTitle("Approval needed: $title")
             .setContentText(body)
@@ -114,13 +103,13 @@ class NotificationCoordinator(private val context: Context) {
         notify(CHANNEL_APPROVALS, notifIdFor(approvalId), notify)
     }
 
-    private fun notifyCompletion(body: String) {
+    private fun notifyCompletion(clientRequestId: String, body: String) {
         notify(
             CHANNEL_COMPLETIONS,
-            NOTIF_COMPLETION_BASE + (System.currentTimeMillis() % 1000).toInt(),
+            NOTIF_COMPLETION_BASE + (clientRequestId.hashCode() and 0x1FF),
             baseNotification(CHANNEL_COMPLETIONS)
                 .setContentTitle("JARVIS replied")
-                .setContentText(body)
+                .setContentText(body.ifBlank { "Reply ready" })
                 .setAutoCancel(true)
                 .setContentIntent(openAppIntent()),
         )
@@ -130,10 +119,10 @@ class NotificationCoordinator(private val context: Context) {
         runCatching { manager.cancel(notifIdFor(approvalId)) }
     }
 
-    private fun notifIdFor(approvalId: String): Int = 1000 + (approvalId.hashCode() % 900)
+    private fun notifIdFor(approvalId: String): Int = 1000 + (approvalId.hashCode() and 0x1FF)
 
     private fun baseNotification(channel: String) =
-        NotificationCompat.Builder(context, channel)
+        NotificationCompat.Builder(appContext, channel)
             .setSmallIcon(R.drawable.ic_stat_jarvis)
             .setPriority(
                 if (channel == CHANNEL_APPROVALS) NotificationCompat.PRIORITY_HIGH
@@ -141,22 +130,22 @@ class NotificationCoordinator(private val context: Context) {
             )
 
     private fun openAppIntent(): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).apply {
+        val intent = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         return PendingIntent.getActivity(
-            context, 0, intent,
+            appContext, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
 
     private fun approvalActionIntent(approvalId: String, outcome: ApprovalOutcome): PendingIntent {
-        val intent = Intent(context, ApprovalActionReceiver::class.java).apply {
+        val intent = Intent(appContext, ApprovalActionReceiver::class.java).apply {
             putExtra(ApprovalActionReceiver.EXTRA_APPROVAL_ID, approvalId)
             putExtra(ApprovalActionReceiver.EXTRA_OUTCOME, outcome.name)
         }
         return PendingIntent.getBroadcast(
-            context, (approvalId + outcome).hashCode(), intent,
+            appContext, (approvalId + outcome).hashCode(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
@@ -168,12 +157,12 @@ class NotificationCoordinator(private val context: Context) {
 
     private fun hasPermission(): Boolean =
         Build.VERSION.SDK_INT < 33 ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
     private fun createChannels() {
         if (Build.VERSION.SDK_INT < 26) return
-        val nm = context.getSystemService(NotificationManager::class.java)
+        val nm = appContext.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_APPROVALS, "Approvals", NotificationManager.IMPORTANCE_HIGH,
@@ -200,6 +189,8 @@ class NotificationCoordinator(private val context: Context) {
         private const val NOTIF_REVOKED = 9001
         private const val NOTIF_AUTH = 9002
         private const val NOTIF_COMPLETION_BASE = 2000
+        private const val PREFS = "jarvis_notify_state"
+        private const val KEY_STATE = "seen_ids"
     }
 }
 
@@ -213,7 +204,7 @@ class ApprovalActionReceiver : android.content.BroadcastReceiver() {
         }.getOrNull() ?: return
         app.container.session.resolveApproval(approvalId, outcome)
         val nm = NotificationManagerCompat.from(context)
-        nm.cancel(1000 + (approvalId.hashCode() % 900))
+        nm.cancel(1000 + (approvalId.hashCode() and 0x1FF))
     }
 
     companion object {
