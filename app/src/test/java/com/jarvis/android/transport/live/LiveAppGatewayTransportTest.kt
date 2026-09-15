@@ -2,6 +2,7 @@ package com.jarvis.android.transport.live
 
 import com.jarvis.android.data.repo.JarvisSessionRepository
 import com.jarvis.android.data.repo.SessionPhase
+import com.jarvis.android.transport.TransportException
 import com.jarvis.android.data.state.ConnectionState
 import com.jarvis.android.data.state.RequestStatus
 import kotlinx.coroutines.CoroutineScope
@@ -442,5 +443,39 @@ class LiveAppGatewayTransportTest {
         // different conversation ids on the wire
         assertTrue(bodyA.contains("\"conversation_id\":\"cA\""))
         assertTrue(bodyB.contains("\"conversation_id\":\"cB\""))
+    }
+
+    @Test
+    fun approvalAndUploadRefuseExplicitlyUntilPcAGates() {
+        // Lane H seam: the live surface must fail closed with a clear error
+        // (PA-5/6 + upload freeze), never silently drop or invent behavior.
+        val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+
+        val err = runBlocking(Dispatchers.IO) {
+            runCatching {
+                transport.send(
+                    com.jarvis.android.contract.MobileRequest.ResolveApproval(
+                        "a1", com.jarvis.android.contract.ApprovalOutcome.APPROVED, "res-1",
+                    ),
+                )
+            }.exceptionOrNull()
+        }
+        assertTrue(err is TransportException)
+        assertTrue(err!!.message!!.contains("approvals not enabled"))
+
+        val upErr = runBlocking(Dispatchers.IO) {
+            runCatching {
+                transport.send(
+                    com.jarvis.android.contract.MobileRequest.UploadAttachment(
+                        "att1", "c1", "p.jpg", "image/jpeg", 10L,
+                    ),
+                )
+            }.exceptionOrNull()
+        }
+        assertTrue(upErr is TransportException)
+        assertTrue(upErr!!.message!!.contains("upload contract not frozen"))
     }
 }

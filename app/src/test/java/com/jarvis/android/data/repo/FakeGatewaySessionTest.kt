@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -293,6 +294,41 @@ class FakeGatewaySessionTest {
                 while (fake.receivedRequests.none { it is com.jarvis.android.contract.MobileRequest.ResolveApproval }) delay(10)
             }
             delay(300)
+        }
+        assertEquals(
+            1,
+            fake.receivedRequests.count { it is com.jarvis.android.contract.MobileRequest.ResolveApproval },
+        )
+    }
+
+    @Test
+    fun approvalResolutionNetworkDropThenReconnectRetriesExactlyOnce() {
+        awaitConnection(ConnectionState.ONLINE)
+        fake.config = FakeConfig(requireApprovalOnRequest = true, approveNeverResolves = true)
+        repo.send("c1", "hello")
+        runBlockingShort {
+            withTimeout(3_000) { while (repo.snapshot.value.session.approvals.isEmpty()) delay(10) }
+        }
+        val id = repo.snapshot.value.session.approvals.values.first().approvalId
+
+        // Drop the link, then tap Approve: the command cannot be delivered, so
+        // the reducer must roll the approval back to unresolved (not stuck
+        // in-flight), leaving room for a single retry.
+        runBlockingShort { fake.disconnect() }
+        repo.resolveApproval(id, ApprovalOutcome.APPROVED)
+        runBlockingShort { delay(150) }
+        val afterDrop = repo.snapshot.value.session.approvals[id]!!
+        assertFalse("not stuck in flight after failed delivery", afterDrop.resolutionInFlight)
+        assertEquals(0, fake.receivedRequests.count { it is com.jarvis.android.contract.MobileRequest.ResolveApproval })
+
+        // Restore the link and retry once; it now reaches the transport exactly once.
+        runBlockingShort { fake.connect() }
+        awaitConnection(ConnectionState.ONLINE)
+        repo.resolveApproval(id, ApprovalOutcome.APPROVED)
+        runBlockingShort {
+            withTimeout(3_000) {
+                while (fake.receivedRequests.none { it is com.jarvis.android.contract.MobileRequest.ResolveApproval }) delay(10)
+            }
         }
         assertEquals(
             1,

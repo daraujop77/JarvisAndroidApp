@@ -252,6 +252,29 @@ class ReducerTest {
         assertEquals(ApprovalOutcome.DENIED, s.approvals["a1"]!!.outcome)
     }
 
+    @Test
+    fun serverExpiredWinsOverLocalApprove() {
+        var s = SessionState(connection = ConnectionState.ONLINE)
+        s = applied(s, GatewayEvent.ApprovalRequired(
+            ApprovalRequiredPayload("a1", null, "T", expiresAtMs = now - 1),
+        ))
+        // User taps Approve while the server has already expired it.
+        s = Reducer.resolveApprovalLocally(s, "a1", ApprovalOutcome.APPROVED)
+        s = applied(s, GatewayEvent.ApprovalResolved(
+            ApprovalResolvedPayload("a1", ApprovalOutcome.EXPIRED),
+        ))
+        // Server is authoritative: EXPIRED, not APPROVED; not in flight.
+        assertEquals(ApprovalOutcome.EXPIRED, s.approvals["a1"]!!.outcome)
+        assertFalse(s.approvals["a1"]!!.resolutionInFlight)
+    }
+
+    @Test
+    fun approvalResolvedForUnknownIdIsNoOp() {
+        val s = SessionState(connection = ConnectionState.ONLINE)
+        val s2 = applied(s, GatewayEvent.ApprovalResolved(ApprovalResolvedPayload("ghost", ApprovalOutcome.APPROVED)))
+        assertTrue(s2.approvals.isEmpty())
+    }
+
     // ---- tasks --------------------------------------------------------------------
 
     @Test
