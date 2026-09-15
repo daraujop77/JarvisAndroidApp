@@ -50,6 +50,8 @@ class JarvisSessionRepository(
     private val transport: GatewayTransport,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Lane B: injectable (but bounded) backoff; production uses [ReconnectPolicy]. */
+    private val backoffMs: List<Long> = ReconnectPolicy.BACKOFF_MS,
 ) {
 
     private val reducer = SessionReducer(clock)
@@ -337,18 +339,33 @@ class JarvisSessionRepository(
     }
 
     private suspend fun backoffReconnect() {
-        val phase = _snapshot.value.phase
-        if (phase == SessionPhase.REVOKED || phase == SessionPhase.MISMATCH) return // fail closed
-        val caps = listOf(500L, 1_000L, 2_000L, 5_000L, 10_000L)
-        if (reconnectAttempts >= caps.size) return
-        delay(caps[reconnectAttempts])
-        reconnectAttempts++
-        if (_snapshot.value.session.connection.isUsable) {
-            reconnectAttempts = 0
-            return
+        var attempts = reconnectAttempts
+        while (
+            ReconnectPolicy.shouldRetry(_snapshot.value.phase, attempts, backoffMs) &&
+            // A loop already in flight must also park when backgrounded with
+            // nothing in flight; setForeground(true) restarts it.
+            (appForeground || _snapshot.value.session.activeRequestCount > 0)
+        ) {
+            val delayMs = ReconnectPolicy.nextDelayMs(attempts, backoffMs) ?: return
+            delay(delayMs)
+            attempts++
+            reconnectAttempts = attempts
+            val cur = _snapshot.value
+            if (cur.session.connection.isUsable) {
+                reconnectAttempts = 0
+                return
+            }
+            // A fail-closed frame (revoked / mismatch / expired) may have
+            // arrived during the sleep; never overwrite its latch with a
+            // CONNECTING phase.
+            if (ReconnectPolicy.isFailClosed(cur.phase)) return
+            goToConnecting()
+            val connected = runCatching { transport.connect() }.isSuccess
+            // Success: the CONNECTED link event does the bookkeeping. Failure:
+            // transports also flip linkState to FAILED, but this loop keeps the
+            // attempt budget itself so a storm is impossible either way.
+            if (connected) return
         }
-        goToConnecting()
-        runCatching { transport.connect() }
     }
 
     private fun goToConnecting() {
