@@ -25,6 +25,45 @@ abstract class JarvisDatabase : RoomDatabase() {
         private var instance: JarvisDatabase? = null
 
         /**
+         * v1 → v2: `pending_outbound` gained the `attachmentIds` column (AND-W6).
+         * Recreate (not ALTER-with-default) so the resulting column carries no
+         * SQL default, matching Room's compiled v2 schema exactly.
+         */
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                applyMigration1to2(db::execSQL)
+            }
+        }
+
+        fun applyMigration1to2(execSql: (String) -> Unit) {
+            execSql(
+                """
+                CREATE TABLE IF NOT EXISTS `pending_outbound_new` (
+                    `clientRequestId` TEXT NOT NULL,
+                    `conversationId` TEXT NOT NULL,
+                    `text` TEXT NOT NULL,
+                    `createdAtMs` INTEGER NOT NULL,
+                    `attempts` INTEGER NOT NULL,
+                    `attachmentIds` TEXT NOT NULL,
+                    PRIMARY KEY(`clientRequestId`)
+                )
+                """.trimIndent(),
+            )
+            execSql(
+                """
+                INSERT INTO `pending_outbound_new` (
+                    `clientRequestId`, `conversationId`, `text`, `createdAtMs`, `attempts`, `attachmentIds`
+                )
+                SELECT
+                    `clientRequestId`, `conversationId`, `text`, `createdAtMs`, `attempts`, ''
+                FROM `pending_outbound`
+                """.trimIndent(),
+            )
+            execSql("DROP TABLE `pending_outbound`")
+            execSql("ALTER TABLE `pending_outbound_new` RENAME TO `pending_outbound`")
+        }
+
+        /**
          * PCB-R2: Long cursor → opaque string token. Conversations, messages,
          * and pending outbound are preserved. Numeric `0` becomes empty token.
          */
@@ -79,7 +118,7 @@ abstract class JarvisDatabase : RoomDatabase() {
                     JarvisDatabase::class.java,
                     "jarvis.db",
                 )
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }

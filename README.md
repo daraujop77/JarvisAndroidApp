@@ -131,8 +131,9 @@ floats), so ambient motion never triggers recomposition of the surrounding UI.
 
 ## Known debt
 
-- **Room**: v3 opaque `lastCursorToken` with `Migration(2,3)` and a JVM migration test.
-  No destructive fallback. v1→v2 still has no explicit migration (fresh installs only).
+- **Room**: v3 opaque `lastCursorToken`. Explicit `Migration(1,2)` + `Migration(2,3)`
+  registered, no destructive fallback, and a JVM chain test (v1→v2→v3) that preserves
+  conversations, messages, pending outbound, cursor and attempts.
 - **Transport switch needs an app restart** (mode resolved once at startup).
 - **No foreground service**: the socket lives only while the app is alive; server-side tasks
   continue independently, which is the intended V1 behavior (AND-W8 full scope not done).
