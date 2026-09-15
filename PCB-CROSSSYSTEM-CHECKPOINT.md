@@ -54,9 +54,11 @@ Test-only hardening additions (no production/wire change, contract untouched):
   deltas, comment lines) and still settles the turn.
 - HTTP poller failure flips the link to RECONNECTING so bounded backoff takes
   over (no silent spin).
-Full suite re-run after the additions: **108 tests, 0 failures**,
-`:app:testDebugUnitTest` + builds remain green. These land as one `test:` commit;
-the verified wire/contract baseline recorded above is unchanged.
+Full suite re-run after all additions: **109 tests, 0 failures**,
+`:app:testDebugUnitTest` + builds remain green. Also added a PA-7M-style merge
+isolation test (two conversations streaming concurrently: each conversation's
+Room+live view contains only its own request ids and text). These land as
+`test:` commits; the verified wire/contract baseline recorded above is unchanged.
 
 ## Outstanding (owner-side, does not affect the gate)
 Physical device pass per `DEVICE-VERIFICATION-CHECKLIST.md`

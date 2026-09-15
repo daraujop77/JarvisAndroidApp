@@ -5,6 +5,7 @@ import com.jarvis.android.data.local.JarvisDao
 import com.jarvis.android.data.local.MessageEntity
 import com.jarvis.android.data.local.PendingOutboundEntity
 import com.jarvis.android.data.state.RequestStatus
+import kotlinx.coroutines.flow.first
 import com.jarvis.android.transport.fake.FakeConfig
 import com.jarvis.android.transport.fake.FakeGateway
 import kotlinx.coroutines.CoroutineScope
@@ -129,6 +130,61 @@ class ProcessDeathReconciliationTest {
         assertTrue(b.none { it.text.contains("from A") })
         assertTrue(a.none { it.conversationId != "cA" })
         assertTrue(b.none { it.conversationId != "cB" })
+    }
+
+    @Test
+    fun concurrentStreamsKeepPerConversationMergeIsolated() {
+        // Lane B checklist: two conversations streaming AT THE SAME TIME must
+        // never cross through the Room+live merge: B's view only ever contains
+        // rows belonging to B's requests, A's view only to A's.
+        val fake = FakeGateway(scope, FakeConfig(wordDelayMs = 40, replyWords = List(15) { "w$it " }))
+        val session = JarvisSessionRepository(fake, scope)
+        val convos = ConversationRepository(dao, session, scope)
+        session.start()
+        runBlockingShort {
+            withTimeout(2_000) { while (!session.snapshot.value.session.connection.isUsable) delay(10) }
+        }
+        convos.send("cA", "alpha")
+        runBlockingShort {
+            withTimeout(5_000) {
+                while (session.snapshot.value.session.requests.values.none {
+                        it.conversationId == "cA" && it.status == RequestStatus.Streaming
+                    }
+                ) delay(10)
+            }
+        }
+        // Switch target conversation while A's stream is mid-flight.
+        convos.send("cB", "beta")
+        runBlockingShort {
+            withTimeout(8_000) {
+                while (session.snapshot.value.session.requests.values.count { it.status == RequestStatus.Completed } < 2) {
+                    delay(10)
+                }
+            }
+            withTimeout(3_000) {
+                while (dao.messages("cA").none { it.role == "assistant" } ||
+                    dao.messages("cB").none { it.role == "assistant" }
+                ) delay(10)
+            }
+        }
+
+        val idA = session.snapshot.value.session.requests.values
+            .first { it.conversationId == "cA" }.clientRequestId
+        val idB = session.snapshot.value.session.requests.values
+            .first { it.conversationId == "cB" }.clientRequestId
+
+        val aView = runBlockingShort { convos.observeMessages("cA").first() }
+        val bView = runBlockingShort { convos.observeMessages("cB").first() }
+        assertTrue(aView.all { it.clientRequestId == idA })
+        assertTrue(bView.all { it.clientRequestId == idB })
+        assertTrue(aView.any { it.role == "user" && it.text == "alpha" })
+        assertTrue(bView.any { it.role == "user" && it.text == "beta" })
+        assertTrue(aView.any { it.role == "assistant" && it.status == RequestStatus.Completed })
+        assertTrue(bView.any { it.role == "assistant" && it.status == RequestStatus.Completed })
+        assertEquals(
+            (0 until 15).joinToString("") { "w$it " },
+            aView.first { it.role == "assistant" }.text,
+        )
     }
 
     @Test
