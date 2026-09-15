@@ -141,13 +141,22 @@ class WebV1FixtureTest {
         val req = obj("contracts/web-v1/fixtures/request-positive.json")
         val wire = WebV1Adapter.outbound(
             MobileRequest.SendMessage("req-spine-positive-001", "conversation-spine-001", "Hola Jarvis"),
-            WebV1Identity(userId = "owner-001", deviceId = "device-001", sessionId = "session-spine-001", traceId = "trace-spine-positive-001"),
+            WebV1Identity(
+                userId = "owner-001",
+                deviceId = "device-001",
+                sessionId = "session-spine-001",
+                traceId = "trace-spine-positive-001",
+                taskId = "task-spine-001",
+                runId = "run-spine-001",
+            ),
         )
         assertEquals(req["operation"]!!.asStringOrNull(), wire.operation)
         assertEquals("submit", wire.operation)
         assertEquals(req["request_id"]!!.asStringOrNull(), wire.request_id)
         assertEquals(req["conversation_id"]!!.asStringOrNull(), wire.conversation_id)
         assertEquals(req["user_id"]!!.asStringOrNull(), wire.user_id)
+        assertEquals(req["task_id"]!!.asStringOrNull(), wire.task_id)
+        assertEquals(req["run_id"]!!.asStringOrNull(), wire.run_id)
         assertEquals(req["schema"]!!.asStringOrNull(), wire.schema)
         assertEquals(req["contract_fingerprint"]!!.asStringOrNull(), wire.contractFingerprint)
     }

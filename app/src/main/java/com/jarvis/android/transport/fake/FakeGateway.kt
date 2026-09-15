@@ -13,6 +13,7 @@ import com.jarvis.android.contract.MobileRequest
 import com.jarvis.android.contract.ServerConnectionState
 import com.jarvis.android.contract.TaskStatus
 import com.jarvis.android.contract.TaskUpdatedPayload
+import com.jarvis.android.contract.webv1.WebV1
 import com.jarvis.android.contract.webv1.WebV1Adapter
 import com.jarvis.android.contract.webv1.WebV1Codec
 import com.jarvis.android.contract.webv1.WebV1Event
@@ -61,6 +62,7 @@ class FakeGateway(
     private val journal = ArrayDeque<WebV1Event>()
     private var cursorSeq = 0L
     private var eventSeq = 0L
+    private val seqLock = Any()
     private val streamJobs = mutableMapOf<String, Job>()
     private val progressByReq = mutableMapOf<String, StreamProgress>()
     private val cancelledRequestIds = mutableSetOf<String>()
@@ -165,15 +167,17 @@ class FakeGateway(
             if (!p.timersArmed) {
                 p.timersArmed = true
                 if (config.emitProtocolMismatchFirst) {
+                    val seq = synchronized(seqLock) { ++eventSeq }
                     emitRaw(
                         WebV1Codec.encodeEvent(
-                            WebV1Event(
+                            WebV1Adapter.domainToWire(
+                                event = GatewayEvent.Unknown("capability.bump"),
                                 cursor = nextCursorToken(),
-                                eventId = "evt_${eventSeq++}",
-                                type = "capability.bump",
+                                eventId = "evt_$seq",
                                 protocolVersion = "2.0",
-                                contractFingerprint = "web-v2-0.1",
-                            ),
+                                fingerprint = WebV1.FINGERPRINT,
+                                sequence = seq,
+                            ).copy(protocolVersion = "2.0"),
                         ),
                     )
                     p.settled = true
@@ -192,13 +196,15 @@ class FakeGateway(
                 if (!config.dropBeforeAccepted) emit(GatewayEvent.MessageAccepted(rid, req.conversationId, mid))
                 p.acceptedSent = true
                 if (config.emitOptionalUnknown) {
+                    val seq = synchronized(seqLock) { ++eventSeq }
                     emitRaw(
                         WebV1Codec.encodeEvent(
-                            WebV1Event(
+                            WebV1Adapter.domainToWire(
+                                event = GatewayEvent.Unknown("hologram.started"),
                                 cursor = nextCursorToken(),
-                                eventId = "evt_opt_${eventSeq++}",
-                                type = "hologram.started",
+                                eventId = "evt_opt_$seq",
                                 optional = true,
+                                sequence = seq,
                             ),
                         ),
                     )
@@ -422,10 +428,12 @@ class FakeGateway(
     // ---- frame production -----------------------------------------------------
 
     private suspend fun emit(event: GatewayEvent) {
+        val seq = synchronized(seqLock) { ++eventSeq }
         val wire = WebV1Adapter.domainToWire(
             event = event,
             cursor = nextCursorToken(),
-            eventId = "evt_${eventSeq++}",
+            eventId = "evt_$seq",
+            sequence = seq,
         )
         journal.addLast(wire)
         emitRaw(WebV1Codec.encodeEvent(wire))
@@ -435,7 +443,7 @@ class FakeGateway(
         emit(GatewayEvent.MessageDelta(rid, mid, seq, text))
     }
 
-    private fun nextCursorToken(): String = "tok_${++cursorSeq}"
+    private fun nextCursorToken(): String = synchronized(seqLock) { "tok_${++cursorSeq}" }
 
     private suspend fun emitRaw(json: String) {
         emittedFrames += json

@@ -5,7 +5,9 @@ import com.jarvis.android.contract.MobileRequest
 import com.jarvis.android.contract.webv1.WebV1
 import com.jarvis.android.contract.webv1.WebV1Adapter
 import com.jarvis.android.contract.webv1.WebV1Capabilities
+import com.jarvis.android.contract.webv1.WebV1CapabilitiesDecode
 import com.jarvis.android.contract.webv1.WebV1Codec
+import com.jarvis.android.contract.webv1.WebV1Errors
 import com.jarvis.android.contract.webv1.WebV1Health
 import com.jarvis.android.contract.webv1.WebV1Identity
 import com.jarvis.android.transport.live.JarvisAppSession
@@ -96,7 +98,7 @@ class HttpGatewayTransport(
         val wire = when (request) {
             is MobileRequest.Replay -> {
                 afterCursor = request.sinceCursor
-                WebV1Adapter.outboundReplay(request.sinceCursor, identity())
+                WebV1Adapter.outboundReplay(request.sinceCursor, identity(), request.conversationId)
             }
             else -> WebV1Adapter.outbound(request, identity())
         }
@@ -119,7 +121,13 @@ class HttpGatewayTransport(
 
     suspend fun capabilities(): WebV1Capabilities {
         val raw = get(requireBase(), "/api/v1/capabilities")
-        return WebV1.json.decodeFromString(WebV1Capabilities.serializer(), raw)
+        return when (val decoded = WebV1Codec.decodeCapabilities(raw)) {
+            is WebV1CapabilitiesDecode.Ok -> decoded.capabilities
+            is WebV1CapabilitiesDecode.ProtocolMismatch ->
+                throw TransportException(decoded.reason, code = "protocol_version_mismatch", retryable = false)
+            is WebV1CapabilitiesDecode.Malformed ->
+                throw TransportException(decoded.reason, code = "invalid_response", retryable = false)
+        }
     }
 
     fun lastCursor(): String = afterCursor
@@ -199,7 +207,7 @@ class HttpGatewayTransport(
         client.newCall(request).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
-                throw TransportException("HTTP ${resp.code} ${request.url.encodedPath}: $body")
+                throw WebV1Errors.fromHttp(resp.code, body)
             }
             return body
         }

@@ -38,6 +38,8 @@ sealed interface MobileRequest {
     data class CancelRequest(
         val targetRequestId: String,
         val reason: String? = null,
+        /** Internal scope hint so the Web V1 adapter can fill required conversation_id. */
+        val conversationId: String = "",
     ) : MobileRequest
 
     @Serializable
@@ -47,6 +49,7 @@ sealed interface MobileRequest {
         val outcome: ApprovalOutcome,
         /** Client-side idempotency key for the resolution itself. */
         val resolutionId: String,
+        val conversationId: String = "",
     ) : MobileRequest
 
     @Serializable
@@ -54,6 +57,8 @@ sealed interface MobileRequest {
     data class Replay(
         /** Opaque Web V1 replay token. Empty / "0" means from the beginning. */
         val sinceCursor: String = "",
+        /** Internal scope hint (see [CancelRequest.conversationId]). */
+        val conversationId: String = "",
     ) : MobileRequest
 
     /**

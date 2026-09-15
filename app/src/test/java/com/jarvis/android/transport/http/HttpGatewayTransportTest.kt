@@ -4,6 +4,7 @@ import com.jarvis.android.contract.MobileRequest
 import com.jarvis.android.contract.webv1.WebV1
 import com.jarvis.android.transport.AuthProvider
 import com.jarvis.android.transport.LinkState
+import com.jarvis.android.transport.TransportException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,6 +17,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -41,7 +43,7 @@ class HttpGatewayTransportTest {
                         """{"status":"ok","protocol_version":"1.0","contract_fingerprint":"web-v1-1.0","capabilities":["streaming"]}""",
                     )
                     path == "/api/v1/capabilities" -> MockResponse().setBody(
-                        """{"protocol_version":"1.0","contract_fingerprint":"web-v1-1.0","operations":["submit","resume","cancel","action"],"event_types":["message.delta"]}""",
+                        """{"schema":"jarvis.web.capabilities.v1","protocol_version":"1.0","server_version":"pc-a-test","capabilities":["conversation","streaming","cancel","replay","approvals","action_proposals"],"future_flag":true}""",
                     )
                     path.startsWith("/api/v1/events") -> {
                         val after = path.substringAfter("after=", "").ifBlank { null }
@@ -51,11 +53,24 @@ class HttpGatewayTransportTest {
                         MockResponse().setBody(
                             """
                             [{
-                              "cursor":"$cursor-next",
-                              "event_id":"evt_http_1",
-                              "type":"connection.ready",
+                              "schema":"jarvis.web.event.v1",
                               "protocol_version":"1.0",
-                              "contract_fingerprint":"web-v1-1.0",
+                              "contract_fingerprint":"${WebV1.FINGERPRINT}",
+                              "event_id":"evt_http_1",
+                              "sequence":1,
+                              "cursor":"$cursor-next",
+                              "type":"connection.ready",
+                              "timestamp_utc":"2026-09-10T08:00:00Z",
+                              "user_id":"owner-001",
+                              "device_id":"device-001",
+                              "session_id":"session-001",
+                              "conversation_id":"c1",
+                              "request_id":null,
+                              "trace_id":"trace-001",
+                              "task_id":null,
+                              "run_id":null,
+                              "action_id":null,
+                              "optional":false,
                               "payload":{}
                             }]
                             """.trimIndent(),
@@ -97,6 +112,8 @@ class HttpGatewayTransportTest {
             assertEquals("ok", h.status)
             assertEquals(WebV1.VERSION, h.protocolVersion)
             val caps = t.capabilities()
+            assertEquals("pc-a-test", caps.serverVersion)
+            assertTrue(caps.capabilities.contains("streaming"))
             assertTrue(caps.operations.contains("submit"))
             t.disconnect()
         }
@@ -204,5 +221,75 @@ class HttpGatewayTransportTest {
         assertTrue(err is com.jarvis.android.transport.TransportException)
         assertTrue(err!!.message!!.contains("private-network"))
         assertEquals(LinkState.FAILED, t.linkState.value)
+    }
+
+    @Test
+    fun typedErrorEnvelopeIsParsedWithoutRawBody() {
+        val errServer = MockWebServer()
+        errServer.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/api/v1/health" -> MockResponse().setBody(
+                    """{"status":"ok","protocol_version":"1.0","capabilities":[]}""",
+                )
+                request.method == "POST" && request.path == "/api/v1/requests" -> MockResponse()
+                    .setResponseCode(503)
+                    .setBody(
+                        """{"schema":"jarvis.web.error.v1","error":"gateway_unavailable","message":"busy","retryable":true,"token":"secret-should-not-leak"}""",
+                    )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        errServer.start()
+        try {
+            val t = HttpGatewayTransport(
+                scope = scope,
+                baseUrlProvider = { errServer.url("/").toString().trimEnd('/') },
+                pollIntervalMs = 10_000,
+            )
+            val err = runBlockingShort {
+                t.connect()
+                runCatching { t.send(MobileRequest.SendMessage("r1", "c1", "hello")) }.exceptionOrNull()
+            }
+            assertTrue(err is TransportException)
+            val te = err as TransportException
+            assertEquals("gateway_unavailable", te.code)
+            assertTrue(te.retryable)
+            assertFalse(te.message!!.contains("secret"))
+            assertFalse(te.message!!.contains("token"))
+        } finally {
+            errServer.shutdown()
+        }
+    }
+
+    @Test
+    fun capabilitiesMissingServerVersionFailsClosed() {
+        val bad = MockWebServer()
+        bad.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/api/v1/health" -> MockResponse().setBody(
+                    """{"status":"ok","protocol_version":"1.0","capabilities":[]}""",
+                )
+                request.path == "/api/v1/capabilities" -> MockResponse().setBody(
+                    """{"protocol_version":"1.0","capabilities":["streaming"]}""",
+                )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        bad.start()
+        try {
+            val t = HttpGatewayTransport(
+                scope = scope,
+                baseUrlProvider = { bad.url("/").toString().trimEnd('/') },
+                pollIntervalMs = 10_000,
+            )
+            val err = runBlockingShort {
+                t.connect()
+                runCatching { t.capabilities() }.exceptionOrNull()
+            }
+            assertTrue(err is TransportException)
+            assertTrue((err as TransportException).message!!.contains("server_version"))
+        } finally {
+            bad.shutdown()
+        }
     }
 }

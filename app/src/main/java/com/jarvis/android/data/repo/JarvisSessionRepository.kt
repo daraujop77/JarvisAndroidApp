@@ -171,7 +171,13 @@ class JarvisSessionRepository(
         if (!transitioned) return // already cancelling/cancelled/terminal
         scope.launch {
             try {
-                transport.send(MobileRequest.CancelRequest(targetRequestId = clientRequestId))
+                val conversationId = _snapshot.value.session.requests[clientRequestId]?.conversationId.orEmpty()
+                transport.send(
+                    MobileRequest.CancelRequest(
+                        targetRequestId = clientRequestId,
+                        conversationId = conversationId,
+                    ),
+                )
             } catch (t: TransportException) {
                 mutate { s -> s.withDiag(DiagnosticEntry.Kind.TRANSPORT, "cancel delivery failed: ${t.message}") }
             }
@@ -195,6 +201,9 @@ class JarvisSessionRepository(
                         approvalId = approvalId,
                         outcome = outcome,
                         resolutionId = UUID.randomUUID().toString(),
+                        conversationId = _snapshot.value.session.approvals[approvalId]?.requestId
+                            ?.let { rid -> _snapshot.value.session.requests[rid]?.conversationId }
+                            .orEmpty(),
                     )
                 )
             } catch (t: TransportException) {

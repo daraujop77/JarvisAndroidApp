@@ -55,6 +55,13 @@ class AppContainer(private val context: Context) {
             auth = AuthProvider {
                 liveSession.authHeader()?.let { mapOf("Authorization" to it) } ?: emptyMap()
             },
+            identity = {
+                com.jarvis.android.contract.webv1.WebV1Identity(
+                    userId = liveSession.userId.ifBlank { null },
+                    deviceId = liveSession.deviceId.ifBlank { null },
+                    sessionId = liveSession.appSessionId.ifBlank { null },
+                )
+            },
         )
     }
     private val wss by lazy { WssGatewayTransport(context, scope) }

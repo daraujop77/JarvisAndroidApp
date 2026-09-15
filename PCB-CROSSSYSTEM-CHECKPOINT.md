@@ -1,6 +1,9 @@
 # PC-B checkpoint — frozen base during PC-A Cross-System Gate verification
 
-STATUS: **READY_FOR_PC_A_RESULT**
+STATUS: **PC_B_CROSS_SYSTEM_FIXES_4_OF_4_READY_FOR_REAUDIT**
+
+Previous freeze SHA audited by PC-A: `c97fa93016c8ae79665618b1eba8a6adbe31239a`
+(`CROSS_SYSTEM_GATE = BLOCKED` on four remaining gaps; auth-provider already PASS).
 
 Verified-code HEAD at freeze: `c97fa93016c8ae79665618b1eba8a6adbe31239a`
 (`main`, in sync with `origin/daraujop77/JarvisAndroidApp` before this
@@ -70,6 +73,21 @@ Independent daily-use / privacy hardening:
   background→foreground.
 Suite: **111 tests, 0 failures**. `:app:assembleDebug` PASS. Contract tree
 untouched (`contract/**` and fixtures identical to freeze HEAD).
+
+## Reaudit package (four remaining gaps, client-only)
+
+Fingerprint unchanged: `445e4013df96ad986232eaecec6c58c01bab472e2a55c5ec11c54536de552021`.
+No PC-A change. No schema relaxation. No third contract.
+
+| Gap | Result |
+|---|---|
+| 1. Capabilities official shape (`protocol_version`, `server_version`, `capabilities`) | **PASS** |
+| 2. `task_id` / `run_id` on every `/api/v1/requests` operation, stable across retry | **PASS** |
+| 3. Required event fields: absent → malformed; present-null allowed only where schema is `string\|null` | **PASS** |
+| 4. Typed Web V1 HTTP error envelope (no `HTTP <status>: <raw body>`) | **PASS** |
+
+`SUPPORTED_TEST_JDK = 21` (Android Studio JBR `21.0.10`). Gradle 8.13 / AGP 8.11.1.
+Java 25.0.2 is an environment issue on PC-A (`Kotlin IllegalArgumentException: 25.0.2`), not an Android contract issue.
 
 ## Outstanding (owner-side, does not affect the gate)
 Physical device pass per `DEVICE-VERIFICATION-CHECKLIST.md`

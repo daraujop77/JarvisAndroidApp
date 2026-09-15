@@ -100,8 +100,11 @@ Gates: `ROOM_MIGRATIONS_COMPLETE = PASS` · `AND_W8_PREP = PASS` (device confirm
   for LIVE E2E while the app is foregrounded.
 
 ## Freeze-window independent work
-STATUS remains **READY_FOR_PC_A_RESULT**. No `/api/v1` cutover, no live
-approvals/pairing/uploads, no Web V1 schema change.
+PC-A reaudit of `c97fa93`: `CROSS_SYSTEM_GATE = BLOCKED` on four remaining
+client gaps (capabilities shape, request `task_id`/`run_id`, required event
+fields, typed HTTP error envelope). Those four are closed in the dedicated
+`fix: close PC-B cross-system contract gaps` commit. Fingerprint unchanged.
+No `/api/v1` production cutover, no live approvals/pairing/uploads.
 
 ## Next task
 Wait for PC-A Cross-System Gate result. Owner device pass still

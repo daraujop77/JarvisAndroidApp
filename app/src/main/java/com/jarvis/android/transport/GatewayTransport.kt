@@ -47,4 +47,9 @@ enum class LinkState {
     FAILED,
 }
 
-class TransportException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class TransportException(
+    message: String,
+    cause: Throwable? = null,
+    val code: String? = null,
+    val retryable: Boolean = false,
+) : Exception(message, cause)

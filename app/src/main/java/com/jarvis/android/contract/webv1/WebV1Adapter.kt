@@ -87,51 +87,48 @@ object WebV1Adapter {
     }
 
     fun outbound(req: MobileRequest, identity: WebV1Identity = WebV1Identity()): WebV1Request = when (req) {
-        is MobileRequest.SendMessage -> WebV1Request(
+        is MobileRequest.SendMessage -> requestEnvelope(
+            identity = identity,
+            conversationId = req.conversationId,
+            requestId = req.clientRequestId,
             operation = "submit",
             payload = buildJsonObject {
                 put("text", req.text)
                 put("client_request_id", req.clientRequestId)
             },
-            conversation_id = req.conversationId,
-            request_id = req.clientRequestId,
-            device_id = identity.deviceId,
-            user_id = identity.userId,
-            session_id = identity.sessionId,
-            trace_id = identity.traceId,
         )
-        is MobileRequest.CancelRequest -> WebV1Request(
-            operation = "cancel",
-            targetRequestId = req.targetRequestId,
-            device_id = identity.deviceId,
-            user_id = identity.userId,
-            session_id = identity.sessionId,
-            trace_id = identity.traceId,
-        )
-        is MobileRequest.Replay -> WebV1Request(
-            operation = "resume",
-            after = req.sinceCursor.ifBlank { null },
-            device_id = identity.deviceId,
-            user_id = identity.userId,
-            session_id = identity.sessionId,
-            trace_id = identity.traceId,
-        )
-        is MobileRequest.ResolveApproval -> WebV1Request(
-            operation = "action",
-            sideEffecting = true,
-            idempotencyKey = req.resolutionId,
-            payload = buildJsonObject {
-                put("approval_id", req.approvalId)
-                put("outcome", req.outcome.name.lowercase())
-                put("resolution_id", req.resolutionId)
-            },
-            action_id = req.approvalId,
-            device_id = identity.deviceId,
-            user_id = identity.userId,
-            session_id = identity.sessionId,
-            trace_id = identity.traceId,
-        )
-        is MobileRequest.UploadAttachment -> WebV1Request(
+        is MobileRequest.CancelRequest -> {
+            val conversationId = req.conversationId.ifBlank { identity.conversationId.orEmpty() }
+            requestEnvelope(
+                identity = identity,
+                conversationId = conversationId,
+                requestId = WebV1ScopeIds.cancelRequestId(req.targetRequestId),
+                operation = "cancel",
+                targetRequestId = req.targetRequestId,
+            )
+        }
+        is MobileRequest.Replay -> outboundReplay(req.sinceCursor, identity, req.conversationId)
+        is MobileRequest.ResolveApproval -> {
+            val conversationId = req.conversationId.ifBlank { identity.conversationId.orEmpty() }
+            requestEnvelope(
+                identity = identity,
+                conversationId = conversationId,
+                requestId = req.resolutionId,
+                operation = "action",
+                sideEffecting = true,
+                idempotencyKey = req.resolutionId,
+                actionId = req.approvalId,
+                payload = buildJsonObject {
+                    put("approval_id", req.approvalId)
+                    put("outcome", req.outcome.name.lowercase())
+                    put("resolution_id", req.resolutionId)
+                },
+            )
+        }
+        is MobileRequest.UploadAttachment -> requestEnvelope(
+            identity = identity,
+            conversationId = req.conversationId,
+            requestId = req.attachmentId,
             operation = "action",
             sideEffecting = true,
             idempotencyKey = req.attachmentId,
@@ -142,19 +139,63 @@ object WebV1Adapter {
                 put("mime_type", req.mimeType)
                 put("size_bytes", req.sizeBytes)
             },
-            conversation_id = req.conversationId,
-            device_id = identity.deviceId,
         )
     }
 
-    fun outboundReplay(opaqueCursor: String, identity: WebV1Identity = WebV1Identity()): WebV1Request =
-        WebV1Request(
+    fun outboundReplay(
+        opaqueCursor: String,
+        identity: WebV1Identity = WebV1Identity(),
+        conversationId: String = "",
+    ): WebV1Request {
+        val cid = conversationId.ifBlank { identity.conversationId.orEmpty() }
+        val sessionId = identity.sessionId.orEmpty()
+        return requestEnvelope(
+            identity = identity,
+            conversationId = cid,
+            requestId = WebV1ScopeIds.resumeRequestId(sessionId, cid, opaqueCursor),
             operation = "resume",
-            after = opaqueCursor,
-            device_id = identity.deviceId,
-            user_id = identity.userId,
-            session_id = identity.sessionId,
+            after = opaqueCursor.ifBlank { null },
         )
+    }
+
+    private fun requestEnvelope(
+        identity: WebV1Identity,
+        conversationId: String,
+        requestId: String,
+        operation: String,
+        payload: kotlinx.serialization.json.JsonObject = buildJsonObject { },
+        sideEffecting: Boolean = false,
+        idempotencyKey: String? = null,
+        actionId: String? = null,
+        targetRequestId: String? = null,
+        after: String? = null,
+    ): WebV1Request {
+        val cid = conversationId.ifBlank { identity.conversationId.orEmpty() }.ifBlank { "conversation" }
+        val rid = requestId.ifBlank { identity.requestId.orEmpty() }.ifBlank { "request" }
+        val userId = identity.userId.orEmpty().ifBlank { "user" }
+        val deviceId = identity.deviceId.orEmpty().ifBlank { "device" }
+        val sessionId = identity.sessionId.orEmpty().ifBlank { "session" }
+        val taskId = identity.taskId?.takeIf { it.isNotBlank() } ?: WebV1ScopeIds.taskId(cid)
+        val runId = identity.runId?.takeIf { it.isNotBlank() } ?: WebV1ScopeIds.runId(cid, rid)
+        val traceId = identity.traceId?.takeIf { it.isNotBlank() } ?: WebV1ScopeIds.traceId(sessionId, rid)
+        return WebV1Request(
+            request_id = WebV1ScopeIds.clamp(rid),
+            trace_id = WebV1ScopeIds.clamp(traceId),
+            user_id = WebV1ScopeIds.clamp(userId),
+            device_id = WebV1ScopeIds.clamp(deviceId),
+            session_id = WebV1ScopeIds.clamp(sessionId),
+            conversation_id = WebV1ScopeIds.clamp(cid),
+            task_id = WebV1ScopeIds.clamp(taskId),
+            run_id = WebV1ScopeIds.clamp(runId),
+            operation = operation,
+            payload = payload,
+            action_id = actionId?.takeIf { it.isNotBlank() }?.let(WebV1ScopeIds::clamp),
+            targetRequestId = targetRequestId?.takeIf { it.isNotBlank() }?.let(WebV1ScopeIds::clamp),
+            idempotencyKey = idempotencyKey?.takeIf { it.isNotBlank() }?.let(WebV1ScopeIds::clamp),
+            sideEffecting = sideEffecting,
+            after = after,
+        )
+    }
 
     private fun toDomainEvent(wire: WebV1Event): GatewayEvent? {
         val p = wire.payload
@@ -296,6 +337,8 @@ object WebV1Adapter {
         protocolVersion: String = WebV1.VERSION,
         fingerprint: String? = WebV1.FINGERPRINT,
         optional: Boolean = false,
+        identity: WebV1Identity = WebV1Identity(),
+        sequence: Long = 1,
     ): WebV1Event {
         var type = "unknown"
         var requestId: String? = event.requestId
@@ -399,19 +442,34 @@ object WebV1Adapter {
                 }
             }
         }
+        val cid = (conversationId ?: identity.conversationId).orEmpty().ifBlank { "conversation" }
+        val rid = requestId ?: identity.requestId
+        val sessionId = identity.sessionId.orEmpty().ifBlank { "session" }
+        val userId = identity.userId.orEmpty().ifBlank { "user" }
+        val deviceId = identity.deviceId.orEmpty().ifBlank { "device" }
+        val resolvedTask = taskId ?: identity.taskId ?: WebV1ScopeIds.taskId(cid)
+        val resolvedRun = identity.runId ?: WebV1ScopeIds.runId(cid, rid ?: eventId)
+        val resolvedTrace = identity.traceId ?: WebV1ScopeIds.traceId(sessionId, rid ?: eventId)
         return WebV1Event(
-            cursor = cursor,
-            eventId = eventId,
-            type = type,
+            schema = WebV1.EVENT_SCHEMA,
             protocolVersion = protocolVersion,
-            contractFingerprint = fingerprint,
+            contractFingerprint = fingerprint ?: WebV1.FINGERPRINT,
+            eventId = eventId,
+            sequence = sequence.coerceAtLeast(1),
+            cursor = cursor,
+            type = type,
             timestampUtc = timestampUtc,
-            optional = optional,
+            user_id = userId,
+            device_id = deviceId,
+            session_id = sessionId,
+            conversation_id = cid,
+            request_id = rid,
+            trace_id = resolvedTrace,
+            task_id = resolvedTask,
+            run_id = resolvedRun,
+            action_id = actionId ?: identity.actionId,
             payload = payload,
-            conversation_id = conversationId,
-            request_id = requestId,
-            task_id = taskId,
-            action_id = actionId,
+            optional = optional,
         )
     }
 

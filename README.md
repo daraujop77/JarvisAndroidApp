@@ -3,6 +3,11 @@
 Native Android client for JARVIS, built per `android-separate-pc-parallel-execution-plan-v1.md`.
 This is the **client-development lane**: it consumes shared contracts, never redefines them.
 
+**SUPPORTED_TEST_JDK = 21** (Android Studio JBR). Gradle 8.13 / AGP 8.11.1.
+Kotlin on this project is not compatible with a Gradle daemon running Java 25
+(`IllegalArgumentException: 25.0.2`). Set `JAVA_HOME` to the Studio JBR 21
+before `gradlew` — that is an environment issue, not an Android contract issue.
+
 
 ## PC-B current execution guide
 

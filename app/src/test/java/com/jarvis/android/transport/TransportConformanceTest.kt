@@ -105,16 +105,34 @@ class TransportConformanceTest {
         )
     }
 
-    private fun webEvent(cursor: String, eventId: String, type: String, payload: String) =
-        """{"cursor":"$cursor","event_id":"$eventId","type":"$type",""" +
-            """"protocol_version":"1.0","contract_fingerprint":"${WebV1.FINGERPRINT}",""" +
-            """"request_id":"$REQ","payload":$payload,"optional":false}"""
+    private fun webEvent(
+        cursor: String,
+        eventId: String,
+        type: String,
+        payload: String,
+        sequence: Long = 1,
+        conversationId: String = "c1",
+        requestId: String? = REQ,
+        protocolVersion: String = "1.0",
+        fingerprint: String = WebV1.FINGERPRINT,
+    ): String {
+        val req = if (requestId == null) "null" else "\"$requestId\""
+        return """{"schema":"${WebV1.EVENT_SCHEMA}","protocol_version":"$protocolVersion",""" +
+            """"contract_fingerprint":"$fingerprint","event_id":"$eventId","sequence":$sequence,""" +
+            """"cursor":"$cursor","type":"$type","timestamp_utc":"2026-09-10T08:00:00Z",""" +
+            """"user_id":"owner-001","device_id":"device-001","session_id":"session-001",""" +
+            """"conversation_id":"$conversationId","request_id":$req,"trace_id":"trace-001",""" +
+            """"task_id":"task-001","run_id":"run-001","action_id":null,"optional":false,""" +
+            """"payload":$payload}"""
+    }
 
-    /** message.accepted also carries the conversation binding at the top level. */
-    private fun webAccepted() =
-        """{"cursor":"c1","event_id":"e-acc","type":"message.accepted",""" +
-            """"protocol_version":"1.0","contract_fingerprint":"${WebV1.FINGERPRINT}",""" +
-            """"request_id":"$REQ","conversation_id":"c1","payload":{"message_id":"m1"},"optional":false}"""
+    private fun webAccepted() = webEvent(
+        cursor = "c1",
+        eventId = "e-acc",
+        type = "message.accepted",
+        payload = """{"message_id":"m1"}""",
+        sequence = 1,
+    )
 
     private val happyHttpEvents: List<String> get() = listOf(
         webAccepted(),
@@ -236,8 +254,14 @@ class TransportConformanceTest {
     @Test
     fun incompatibleProtocolFailsClosedOnHttpTransport() {
         val bad = listOf(
-            """{"cursor":"c1","event_id":"x1","type":"connection.ready",""" +
-                """"protocol_version":"2.0","contract_fingerprint":"other","payload":{},"optional":false}""",
+            webEvent(
+                cursor = "c1",
+                eventId = "x1",
+                type = "connection.ready",
+                payload = "{}",
+                requestId = null,
+                protocolVersion = "2.0",
+            ),
         )
         // Bad envelope arrives on the very first poll, before any submit.
         val repo = JarvisSessionRepository(httpTransport(emptyList(), firstPollEvents = bad), scope)
