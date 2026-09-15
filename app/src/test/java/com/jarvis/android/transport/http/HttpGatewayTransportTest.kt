@@ -153,6 +153,43 @@ class HttpGatewayTransportTest {
     }
 
     @Test
+    fun pollFailureDowngradesLinkToReconnecting() {
+        // Hardening: health OK at connect, then events 500 -> the poller must
+        // flip the link to RECONNECTING (so the session layer's bounded
+        // backoff takes over) instead of spinning silently as CONNECTED.
+        val flaky = MockWebServer()
+        var eventsHit = 0
+        flaky.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/api/v1/health" -> MockResponse().setBody(
+                    """{"status":"ok","protocol_version":"1.0","capabilities":[]}""",
+                )
+                request.path?.startsWith("/api/v1/events") == true -> {
+                    eventsHit++
+                    MockResponse().setResponseCode(500).setBody("boom")
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        flaky.start()
+        try {
+            val t = HttpGatewayTransport(
+                scope = scope,
+                baseUrlProvider = { flaky.url("/").toString().trimEnd('/') },
+                pollIntervalMs = 20,
+            )
+            runBlockingShort {
+                t.connect()
+                withTimeout(3_000) { while (t.linkState.value != LinkState.RECONNECTING) delay(10) }
+                t.disconnect()
+            }
+            assertTrue("poller actually attempted events", eventsHit >= 1)
+        } finally {
+            flaky.shutdown()
+        }
+    }
+
+    @Test
     fun publicHostIsRejectedBeforeAnyRequest() {
         // Lane D security rule: the HTTP adapter carries a real bearer when a
         // session exists, so a public/typo'd base URL must fail closed before any

@@ -181,6 +181,34 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun sseIgnoresUnknownAndMalformedFramesButStillCompletes() {
+        // Hardening (no contract change): junk the server might interleave must
+        // not kill the turn — unknown event names, garbage JSON, comment lines.
+        streamResponder = {
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    "event: ready\ndata: {}\n\n" +
+                        ": keepalive comment\n\n" +
+                        "event: ui.future_hint\ndata: {\"anything\":true}\n\n" +
+                        "event: delta\ndata: {not valid json\n\n" +
+                        "event: delta\ndata: {\"delta\":\"ok \"}\n\n" +
+                        "event: complete\ndata: {\"schema\":\"jarvis.chat.turn.v1\",\"response\":{\"text\":\"Recovered answer\"}}\n\n",
+                )
+        }
+        val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val cid = repo.send("c1", "stress me")
+        await { repo.snapshot.value.session.requests[cid]?.status?.isTerminal == true }
+        val req = repo.snapshot.value.session.requests[cid]!!
+        assertEquals(RequestStatus.Completed, req.status)
+        // malformed delta dropped; valid one applied; complete overrides with full text
+        assertEquals("Recovered answer", req.text)
+    }
+
+    @Test
     fun loginPersistsOnlyTheShortLivedToken() = runBlocking(Dispatchers.IO) {
         val store = JarvisAppSession.MemoryStore()
         val session = JarvisAppSession(store)

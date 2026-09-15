@@ -48,6 +48,16 @@ None blocking, re-confirming for the record:
    identity is provisioned but not part of any wire contract yet.
 No shared-contract change is requested from PC-A.
 
+## Addendum (after the fresh regression, still during the freeze)
+Test-only hardening additions (no production/wire change, contract untouched):
+- SSE stream tolerates interleaved junk (unknown event names, malformed JSON
+  deltas, comment lines) and still settles the turn.
+- HTTP poller failure flips the link to RECONNECTING so bounded backoff takes
+  over (no silent spin).
+Full suite re-run after the additions: **108 tests, 0 failures**,
+`:app:testDebugUnitTest` + builds remain green. These land as one `test:` commit;
+the verified wire/contract baseline recorded above is unchanged.
+
 ## Outstanding (owner-side, does not affect the gate)
 Physical device pass per `DEVICE-VERIFICATION-CHECKLIST.md`
 (`OWNER_DEVICE_TEST_REQUIRED` on AND-W8/LIVE device evidence).
