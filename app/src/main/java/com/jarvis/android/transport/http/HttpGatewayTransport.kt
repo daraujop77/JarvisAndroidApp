@@ -8,6 +8,7 @@ import com.jarvis.android.contract.webv1.WebV1Capabilities
 import com.jarvis.android.contract.webv1.WebV1Codec
 import com.jarvis.android.contract.webv1.WebV1Health
 import com.jarvis.android.contract.webv1.WebV1Identity
+import com.jarvis.android.transport.live.JarvisAppSession
 import com.jarvis.android.transport.AuthProvider
 import com.jarvis.android.transport.GatewayTransport
 import com.jarvis.android.transport.LinkState
@@ -69,14 +70,16 @@ class HttpGatewayTransport(
     override suspend fun connect() {
         if (_linkState.value == LinkState.CONNECTED || _linkState.value == LinkState.CONNECTING) return
         _linkState.value = LinkState.CONNECTING
-        val base = requireBase()
         try {
+            val base = requireBase()
             get(base, "/api/v1/health")
             _linkState.value = LinkState.CONNECTED
             startPolling(base)
         } catch (t: Throwable) {
             _linkState.value = LinkState.FAILED
-            throw TransportException("http connect failed: ${t.message}", t)
+            // Keep the original fail-closed reason (e.g. private-host guard);
+            // only wrap foreign exceptions.
+            throw if (t is TransportException) t else TransportException("http connect failed: ${t.message}", t)
         }
     }
 
@@ -167,6 +170,13 @@ class HttpGatewayTransport(
         val base = baseUrlProvider().trim().trimEnd('/')
         if (base.isBlank()) throw TransportException("gateway base URL not configured")
         if (base.toHttpUrlOrNull() == null) throw TransportException("invalid gateway base URL")
+        // Lane D security rule: this adapter carries the real PC-A bearer when a
+        // session exists, so it must fail closed on public hosts exactly like the
+        // LIVE transport — a stray/typo'd URL can never downgrade the token to a
+        // public endpoint.
+        if (!JarvisAppSession.isAllowedLiveHost(base)) {
+            throw TransportException("gateway host must be a private-network address (Tailscale/LAN)")
+        }
         return base
     }
 
