@@ -262,8 +262,8 @@ private class FakeDao : JarvisDao {
         messages.update { it.filterNot { m -> m.clientRequestId == rid && m.role == "assistant" } }
     }
 
-    override suspend fun upsertPending(pendingRow: PendingOutboundEntity) {
-        pending.update { it + (pendingRow.clientRequestId to pendingRow) }
+    override suspend fun upsertPending(pending: PendingOutboundEntity) {
+        this.pending.update { it + (pending.clientRequestId to pending) }
     }
 
     override suspend fun pendingOutbound(): List<PendingOutboundEntity> =
