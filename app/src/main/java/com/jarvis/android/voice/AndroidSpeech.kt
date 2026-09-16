@@ -34,6 +34,7 @@ class AndroidSpeechRecognizerClient(
             listener.onError("On-device recognition unavailable")
             return
         }
+        release()
         val sr = SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
         recognizer = sr
         sr.setRecognitionListener(object : RecognitionListener {
@@ -46,6 +47,7 @@ class AndroidSpeechRecognizerClient(
             }
             override fun onError(error: Int) {
                 listener.onError("recognition failed")
+                release()
             }
             override fun onResults(results: Bundle?) {
                 val text = results
@@ -53,6 +55,7 @@ class AndroidSpeechRecognizerClient(
                     ?.firstOrNull()
                     .orEmpty()
                 listener.onFinal(text)
+                release()
             }
             override fun onPartialResults(partialResults: Bundle?) {
                 val text = partialResults
@@ -77,6 +80,10 @@ class AndroidSpeechRecognizerClient(
 
     override fun cancel() {
         recognizer?.cancel()
+        release()
+    }
+
+    override fun release() {
         recognizer?.destroy()
         recognizer = null
     }

@@ -33,6 +33,8 @@ interface SpeechRecognizerClient {
     fun start()
     fun stop()
     fun cancel()
+    /** Destroy a finished session so the next listen cannot leak the previous instance. */
+    fun release()
 }
 
 interface SpeechListener {
@@ -128,6 +130,7 @@ class VoiceController(
     fun onFinal(text: String) {
         if (state.phase != VoicePhase.LISTENING && state.phase != VoicePhase.PROCESSING) return
         recognizer.stop()
+        recognizer.release()
         state = state.copy(
             phase = VoicePhase.TRANSCRIPT_READY,
             partial = "",
@@ -203,5 +206,35 @@ class VoiceController(
         recognizer.cancel()
         speaker.stop()
         speaker.shutdown()
+    }
+}
+
+/**
+ * Speaks only assistant messages that become terminal AFTER the observer is
+ * live. Historical Completed rows (open conversation, process recreation,
+ * Room replay) are primed as already seen and never spoken.
+ */
+class AssistantTtsGate {
+    data class Terminal(val conversationId: String, val messageId: String, val text: String, val isError: Boolean)
+
+    private var conversationId: String? = null
+    private var primed = false
+    private val seen = mutableSetOf<String>()
+
+    fun onSnapshot(conversationId: String?, terminals: List<Terminal>): List<Terminal> {
+        if (conversationId != this.conversationId) {
+            this.conversationId = conversationId
+            primed = false
+            seen.clear()
+        }
+        val scoped = terminals.filter { it.conversationId == conversationId && it.messageId.isNotBlank() }
+        if (!primed) {
+            seen += scoped.map { it.messageId }
+            primed = true
+            return emptyList()
+        }
+        val fresh = scoped.filter { it.messageId !in seen && !it.isError }
+        seen += scoped.map { it.messageId }
+        return fresh
     }
 }

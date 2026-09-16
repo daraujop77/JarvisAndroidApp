@@ -230,6 +230,10 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val voice by vm.voiceUi.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
 
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { vm.stopVoice() }
+    }
+
     LaunchedEffect(Unit) { vm.refreshChatAccess() }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {

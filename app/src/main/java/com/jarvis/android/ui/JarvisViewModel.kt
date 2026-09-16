@@ -321,11 +321,23 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             speaker = voiceSpeaker,
             readAloud = { settings.value.readRepliesAloud },
         )
+        val ttsGate = com.jarvis.android.voice.AssistantTtsGate()
         viewModelScope.launch {
             messages.collect { list ->
-                val last = list.lastOrNull { it.role == "assistant" && it.status.isTerminal } ?: return@collect
-                val failed = last.status is com.jarvis.android.data.state.RequestStatus.Failed
-                voice.onAssistantCompleted(last.clientRequestId, last.text, isError = failed, isFinal = true)
+                val convId = conversationId.value
+                val terminals = list
+                    .filter { it.role == "assistant" && it.status.isTerminal }
+                    .map {
+                        com.jarvis.android.voice.AssistantTtsGate.Terminal(
+                            conversationId = convId.orEmpty(),
+                            messageId = it.clientRequestId,
+                            text = it.text,
+                            isError = it.status is com.jarvis.android.data.state.RequestStatus.Failed,
+                        )
+                    }
+                ttsGate.onSnapshot(convId, terminals).forEach { fresh ->
+                    voice.onAssistantCompleted(fresh.messageId, fresh.text, isError = fresh.isError, isFinal = true)
+                }
                 pushVoice()
             }
         }

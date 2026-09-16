@@ -11,9 +11,12 @@ class VoiceControllerTest {
     private class FakeRecognizer(override var onDeviceAvailable: Boolean = true) : SpeechRecognizerClient {
         var started = 0
         var cancelled = 0
-        override fun start() { started++ }
+        var released = 0
+        var live = 0
+        override fun start() { started++; live++ }
         override fun stop() = Unit
-        override fun cancel() { cancelled++ }
+        override fun cancel() { cancelled++; release() }
+        override fun release() { if (live > 0) { live--; released++ } }
     }
 
     private class FakeSpeaker : LocalSpeaker {
@@ -61,6 +64,13 @@ class VoiceControllerTest {
         c.onFinal("hello jarvis")
         assertEquals(VoicePhase.TRANSCRIPT_READY, c.state.phase)
         assertEquals("hello jarvis", c.state.draft)
+        assertEquals(0, rec.live)
+        assertTrue(rec.released >= 1)
+        c.retry()
+        c.onMicTapped(true)
+        c.onFinal("again")
+        assertEquals(2, rec.started)
+        assertEquals(0, rec.live)
         c.editDraft("hello JARVIS")
         assertEquals("hello JARVIS", c.consumeSend())
         assertNull(c.consumeSend())
@@ -215,6 +225,31 @@ class VoiceControllerTest {
         c.onAssistantCompleted("m1", "one again", isError = false, isFinal = true)
         c.onAssistantCompleted("m2", "two", isError = false, isFinal = true)
         assertEquals(listOf("m1" to "one", "m2" to "two"), speaker.spoken)
+    }
+
+    @Test
+    fun assistantTtsGateIgnoresHistoryThenSpeaksNewCompletions() {
+        val gate = AssistantTtsGate()
+        val old = AssistantTtsGate.Terminal("c1", "old", "history", isError = false)
+        assertTrue(gate.onSnapshot("c1", listOf(old)).isEmpty())
+        assertTrue(gate.onSnapshot("c1", listOf(old)).isEmpty())
+        val fresh = AssistantTtsGate.Terminal("c1", "new", "hello", isError = false)
+        assertEquals(listOf(fresh), gate.onSnapshot("c1", listOf(old, fresh)))
+        assertTrue(gate.onSnapshot("c1", listOf(old, fresh)).isEmpty())
+        assertTrue(gate.onSnapshot("c2", listOf(old)).isEmpty())
+        val later = AssistantTtsGate.Terminal("c2", "n2", "two", isError = false)
+        assertEquals(listOf(later), gate.onSnapshot("c2", listOf(old, later)))
+    }
+
+    @Test
+    fun assistantTtsGateRecreationDoesNotSpeakOldHistory() {
+        val first = AssistantTtsGate()
+        val hist = AssistantTtsGate.Terminal("c1", "m1", "old", isError = false)
+        first.onSnapshot("c1", listOf(hist))
+        val recreated = AssistantTtsGate()
+        assertTrue(recreated.onSnapshot("c1", listOf(hist)).isEmpty())
+        val next = AssistantTtsGate.Terminal("c1", "m2", "new", isError = false)
+        assertEquals(listOf(next), recreated.onSnapshot("c1", listOf(hist, next)))
     }
 
     @Test
