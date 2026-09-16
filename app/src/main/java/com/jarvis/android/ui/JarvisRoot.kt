@@ -92,6 +92,7 @@ fun JarvisRoot(app: JarvisApp) {
 
     LaunchedEffect(relock) {
         if (relock) {
+            vm.stopVoice()
             vm.relock()
             app.consumeRelock()
         }

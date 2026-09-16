@@ -277,6 +277,72 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun setAppLock(value: Boolean) = viewModelScope.launch { container.settings.setAppLock(value) }
 
+    fun setVoiceInputEnabled(value: Boolean) = viewModelScope.launch { container.settings.setVoiceInputEnabled(value) }
+    fun setPreferOnDeviceRecognition(value: Boolean) =
+        viewModelScope.launch { container.settings.setPreferOnDeviceRecognition(value) }
+    fun setReadRepliesAloud(value: Boolean) = viewModelScope.launch { container.settings.setReadRepliesAloud(value) }
+    fun setTtsRate(value: Float) = viewModelScope.launch { container.settings.setTtsRate(value) }
+
+    private val voice = com.jarvis.android.voice.VoiceController(
+        recognizer = object : com.jarvis.android.voice.SpeechRecognizerClient {
+            override val onDeviceAvailable: Boolean
+                get() = settings.value.preferOnDeviceRecognition &&
+                    runCatching {
+                        android.speech.SpeechRecognizer.isRecognitionAvailable(app) &&
+                            android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(app)
+                    }.getOrDefault(false)
+            override fun start() = Unit
+            override fun stop() = Unit
+            override fun cancel() = Unit
+        },
+        speaker = object : com.jarvis.android.voice.LocalSpeaker {
+            override fun speak(utteranceId: String, text: String) = Unit
+            override fun stop() = Unit
+        },
+        readAloud = { settings.value.readRepliesAloud },
+    )
+    private val _voiceUi = MutableStateFlow(voice.state)
+    val voiceUi: StateFlow<com.jarvis.android.voice.VoiceUiState> = _voiceUi
+
+    fun voiceOrbCue() = voice.orbCue
+
+    private fun pushVoice() { _voiceUi.value = voice.state }
+
+    fun onVoiceMic() {
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            app, android.Manifest.permission.RECORD_AUDIO,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        voice.onMicTapped(granted)
+        pushVoice()
+    }
+
+    fun editVoiceDraft(text: String) {
+        voice.editDraft(text)
+        pushVoice()
+    }
+
+    fun consumeVoiceSend(): String? {
+        val text = voice.consumeSend()
+        pushVoice()
+        return text
+    }
+
+    fun cancelVoice() {
+        voice.cancelReview()
+        pushVoice()
+    }
+
+    fun retryVoice() {
+        voice.retry()
+        pushVoice()
+    }
+
+    fun stopVoice() {
+        voice.abandon()
+        voice.stopSpeaking()
+        pushVoice()
+    }
+
     fun setReducedMotion(value: Boolean) = viewModelScope.launch { container.settings.setReducedMotion(value) }
 
     fun setOwnerName(value: String) = viewModelScope.launch { container.settings.setOwnerName(value.trim()) }

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +39,13 @@ class SettingsStore(private val context: Context) {
         val isOwner: Boolean = true,
         /** True once a local avatar JPEG has been written. */
         val hasAvatar: Boolean = false,
+        /** Voice V0: local push-to-talk. Off until the owner opts in. */
+        val voiceInputEnabled: Boolean = false,
+        /** Network recognition is never used. This only gates the on-device engine. */
+        val preferOnDeviceRecognition: Boolean = true,
+        /** Speak completed assistant replies. Off by default. */
+        val readRepliesAloud: Boolean = false,
+        val ttsRate: Float = 1f,
     )
 
     private object Keys {
@@ -50,6 +58,10 @@ class SettingsStore(private val context: Context) {
         val OWNER_NAME = stringPreferencesKey("owner_name")
         val IS_OWNER = booleanPreferencesKey("is_owner")
         val HAS_AVATAR = booleanPreferencesKey("has_avatar")
+        val VOICE_INPUT = booleanPreferencesKey("voice_input_enabled")
+        val PREFER_ON_DEVICE = booleanPreferencesKey("prefer_on_device_recognition")
+        val READ_ALOUD = booleanPreferencesKey("read_replies_aloud")
+        val TTS_RATE = floatPreferencesKey("tts_rate")
     }
 
     val settings: Flow<Settings> = context.dataStore.data
@@ -68,6 +80,10 @@ class SettingsStore(private val context: Context) {
                 ownerName = prefs[Keys.OWNER_NAME] ?: "",
                 isOwner = prefs[Keys.IS_OWNER] ?: true,
                 hasAvatar = prefs[Keys.HAS_AVATAR] ?: false,
+                voiceInputEnabled = prefs[Keys.VOICE_INPUT] ?: false,
+                preferOnDeviceRecognition = prefs[Keys.PREFER_ON_DEVICE] ?: true,
+                readRepliesAloud = prefs[Keys.READ_ALOUD] ?: false,
+                ttsRate = prefs[Keys.TTS_RATE] ?: 1f,
             )
         }
 
@@ -78,6 +94,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setOwnerName(value: String) = context.dataStore.edit { it[Keys.OWNER_NAME] = value }
     suspend fun setIsOwner(value: Boolean) = context.dataStore.edit { it[Keys.IS_OWNER] = value }
     suspend fun setHasAvatar(value: Boolean) = context.dataStore.edit { it[Keys.HAS_AVATAR] = value }
+    suspend fun setVoiceInputEnabled(value: Boolean) = context.dataStore.edit { it[Keys.VOICE_INPUT] = value }
+    suspend fun setPreferOnDeviceRecognition(value: Boolean) = context.dataStore.edit { it[Keys.PREFER_ON_DEVICE] = value }
+    suspend fun setReadRepliesAloud(value: Boolean) = context.dataStore.edit { it[Keys.READ_ALOUD] = value }
+    suspend fun setTtsRate(value: Float) = context.dataStore.edit { it[Keys.TTS_RATE] = value.coerceIn(0.5f, 2f) }
     suspend fun setPaired(value: Boolean, deviceId: String? = null) = context.dataStore.edit {
         it[Keys.PAIRED] = value
         if (deviceId != null) it[Keys.DEVICE_ID] = deviceId else it.remove(Keys.DEVICE_ID)

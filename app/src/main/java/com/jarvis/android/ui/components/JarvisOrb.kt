@@ -25,7 +25,7 @@ import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
 
 /** Visual activity level of the orb; drives speed and intensity. */
-enum class OrbActivity { IDLE, LISTENING, THINKING, OFFLINE }
+enum class OrbActivity { IDLE, LISTENING, THINKING, SPEAKING, PROCESSING, ERROR, OFFLINE }
 
 /**
  * The JARVIS mark: concentric arc-reactor rings that rotate in opposite
@@ -56,7 +56,10 @@ fun JarvisOrb(
     val speed = when (activity) {
         OrbActivity.IDLE -> 1f
         OrbActivity.LISTENING -> 1.8f
+        OrbActivity.PROCESSING -> 2.2f
         OrbActivity.THINKING -> 2.6f
+        OrbActivity.SPEAKING -> 2.4f
+        OrbActivity.ERROR -> 0.6f
         OrbActivity.OFFLINE -> 0.45f
     }
 
@@ -90,6 +93,7 @@ fun JarvisOrb(
 
     val tint = when (activity) {
         OrbActivity.OFFLINE -> accents.offline
+        OrbActivity.ERROR -> androidx.compose.material3.MaterialTheme.colorScheme.error
         else -> accents.orbGlow
     }
     val liveSpin = if (reduced) 0f else spin

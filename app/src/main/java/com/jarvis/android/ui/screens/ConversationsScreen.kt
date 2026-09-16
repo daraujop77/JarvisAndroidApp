@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,6 +87,7 @@ import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
+import com.jarvis.android.voice.VoicePhase
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
@@ -220,6 +222,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
     val liveRequest = snapshot.session.requests.values.firstOrNull { !it.status.isTerminal }
     val streaming = liveRequest != null
+    val voice by vm.voiceUi.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { vm.refreshChatAccess() }
 
@@ -247,7 +251,10 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 ),
                 windowInsets = WindowInsets(0),
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        vm.stopVoice()
+                        onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -255,10 +262,17 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         JarvisOrb(
                             size = 30.dp,
-                            activity = when {
-                                streaming -> OrbActivity.THINKING
-                                !snapshot.connection.isUsable -> OrbActivity.OFFLINE
-                                else -> OrbActivity.IDLE
+                            activity = when (vm.voiceOrbCue()) {
+                                com.jarvis.android.voice.VoiceOrbCue.LISTENING -> OrbActivity.LISTENING
+                                com.jarvis.android.voice.VoiceOrbCue.PROCESSING -> OrbActivity.PROCESSING
+                                com.jarvis.android.voice.VoiceOrbCue.SPEAKING -> OrbActivity.SPEAKING
+                                com.jarvis.android.voice.VoiceOrbCue.ERROR -> OrbActivity.ERROR
+                                com.jarvis.android.voice.VoiceOrbCue.THINKING -> OrbActivity.THINKING
+                                else -> when {
+                                    streaming -> OrbActivity.THINKING
+                                    !snapshot.connection.isUsable -> OrbActivity.OFFLINE
+                                    else -> OrbActivity.IDLE
+                                }
                             },
                         )
                         Spacer(Modifier.size(10.dp))
@@ -317,12 +331,33 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
             ProfileChipRow(vm)
 
+            if (settings.voiceInputEnabled && voice.phase != VoicePhase.IDLE) {
+                VoiceReviewBar(
+                    phase = voice.phase,
+                    partial = voice.partial,
+                    draft = voice.draft,
+                    error = voice.error,
+                    onDraft = vm::editVoiceDraft,
+                    onSend = {
+                        vm.consumeVoiceSend()?.let {
+                            input = ""
+                            vm.send(it)
+                        }
+                    },
+                    onCancel = vm::cancelVoice,
+                    onRetry = vm::retryVoice,
+                )
+            }
+
             Composer(
                 input = input,
                 onInput = { input = it },
                 connected = snapshot.connection.isUsable,
                 streaming = streaming,
                 canSend = input.isNotBlank() || pendingAttachments.isNotEmpty(),
+                voiceEnabled = settings.voiceInputEnabled,
+                voicePhase = voice.phase,
+                onMic = vm::onVoiceMic,
                 onPickPhoto = {
                     photoPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -377,6 +412,57 @@ private fun ProfileChipRow(vm: JarvisViewModel) {
     }
 }
 
+@Composable
+private fun VoiceReviewBar(
+    phase: VoicePhase,
+    partial: String,
+    draft: String,
+    error: String?,
+    onDraft: (String) -> Unit,
+    onSend: () -> Unit,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Text(
+            when (phase) {
+                VoicePhase.REQUESTING_PERMISSION -> "REQUESTING PERMISSION"
+                VoicePhase.LISTENING -> "LISTENING"
+                VoicePhase.PROCESSING -> "PROCESSING"
+                VoicePhase.TRANSCRIPT_READY -> "REVIEW BEFORE SEND"
+                VoicePhase.ERROR -> "VOICE ERROR"
+                VoicePhase.IDLE -> ""
+            },
+            style = HudTextStyle,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        when (phase) {
+            VoicePhase.LISTENING, VoicePhase.PROCESSING -> Text(
+                partial.ifBlank { "…" },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            VoicePhase.TRANSCRIPT_READY -> {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = onDraft,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Transcript") },
+                )
+                Row {
+                    TextButton(onClick = onSend, enabled = draft.isNotBlank()) { Text("Send") }
+                    TextButton(onClick = onRetry) { Text("Retry") }
+                    TextButton(onClick = onCancel) { Text("Cancel") }
+                }
+            }
+            VoicePhase.ERROR -> {
+                Text(error ?: "Voice failed", color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = onRetry) { Text("Dismiss") }
+            }
+            else -> Unit
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Composer(
@@ -385,6 +471,9 @@ private fun Composer(
     connected: Boolean,
     streaming: Boolean,
     canSend: Boolean,
+    voiceEnabled: Boolean = false,
+    voicePhase: VoicePhase = VoicePhase.IDLE,
+    onMic: () -> Unit = {},
     onPickPhoto: () -> Unit,
     onStop: () -> Unit,
     onSend: () -> Unit,
@@ -395,6 +484,16 @@ private fun Composer(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        if (voiceEnabled) {
+            IconButton(onClick = onMic) {
+                Icon(
+                    Icons.Filled.Mic,
+                    contentDescription = if (voicePhase == VoicePhase.LISTENING) "Stop listening" else "Push to talk",
+                    tint = if (voicePhase == VoicePhase.LISTENING) accents.orbGlow
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         IconButton(onClick = onPickPhoto) {
             Icon(
                 Icons.Filled.AddPhotoAlternate,

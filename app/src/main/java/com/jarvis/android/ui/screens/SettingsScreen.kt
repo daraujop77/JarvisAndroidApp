@@ -161,6 +161,27 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 OutlinedButton(onClick = { vm.setOwnerName(name) }) { Text("Save name") }
             }
 
+            SettingsCard("VOICE") {
+                SwitchRow(
+                    title = "Voice input",
+                    subtitle = "Push-to-talk. Transcript is reviewed before send. No audio is stored.",
+                    checked = settings.voiceInputEnabled,
+                    onChange = vm::setVoiceInputEnabled,
+                )
+                SwitchRow(
+                    title = "Prefer on-device recognition",
+                    subtitle = "Network recognition stays off. If the device cannot recognize offline, voice input errors instead of uploading audio.",
+                    checked = settings.preferOnDeviceRecognition,
+                    onChange = vm::setPreferOnDeviceRecognition,
+                )
+                SwitchRow(
+                    title = "Read Jarvis replies aloud",
+                    subtitle = "Off by default. Speaks completed assistant replies only.",
+                    checked = settings.readRepliesAloud,
+                    onChange = vm::setReadRepliesAloud,
+                )
+            }
+
             SettingsCard("CONNECTION") {
                 if (vm.developerOptionsEnabled) {
                     SwitchRow(
