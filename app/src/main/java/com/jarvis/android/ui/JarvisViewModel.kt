@@ -283,26 +283,53 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun setReadRepliesAloud(value: Boolean) = viewModelScope.launch { container.settings.setReadRepliesAloud(value) }
     fun setTtsRate(value: Float) = viewModelScope.launch { container.settings.setTtsRate(value) }
 
-    private val voice = com.jarvis.android.voice.VoiceController(
-        recognizer = object : com.jarvis.android.voice.SpeechRecognizerClient {
-            override val onDeviceAvailable: Boolean
-                get() = settings.value.preferOnDeviceRecognition &&
-                    runCatching {
-                        android.speech.SpeechRecognizer.isRecognitionAvailable(app) &&
-                            android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(app)
-                    }.getOrDefault(false)
-            override fun start() = Unit
-            override fun stop() = Unit
-            override fun cancel() = Unit
-        },
-        speaker = object : com.jarvis.android.voice.LocalSpeaker {
-            override fun speak(utteranceId: String, text: String) = Unit
-            override fun stop() = Unit
-        },
-        readAloud = { settings.value.readRepliesAloud },
-    )
-    private val _voiceUi = MutableStateFlow(voice.state)
+    private val _voiceUi = MutableStateFlow(com.jarvis.android.voice.VoiceUiState())
     val voiceUi: StateFlow<com.jarvis.android.voice.VoiceUiState> = _voiceUi
+
+    private lateinit var voice: com.jarvis.android.voice.VoiceController
+    private val voiceSpeaker = com.jarvis.android.voice.AndroidLocalSpeaker(
+        context = app,
+        rate = { settings.value.ttsRate },
+        onDone = { id ->
+            if (::voice.isInitialized) {
+                voice.onSpeakDone(id)
+                pushVoice()
+            }
+        },
+    )
+    init {
+        val listener = object : com.jarvis.android.voice.SpeechListener {
+            override fun onPartial(text: String) {
+                voice.onPartial(text)
+                pushVoice()
+            }
+            override fun onProcessing() {
+                voice.onProcessing()
+                pushVoice()
+            }
+            override fun onFinal(text: String) {
+                voice.onFinal(text)
+                pushVoice()
+            }
+            override fun onError(safeMessage: String) {
+                voice.onRecognizerError(safeMessage)
+                pushVoice()
+            }
+        }
+        voice = com.jarvis.android.voice.VoiceController(
+            recognizer = com.jarvis.android.voice.AndroidSpeechRecognizerClient(app, listener),
+            speaker = voiceSpeaker,
+            readAloud = { settings.value.readRepliesAloud },
+        )
+        viewModelScope.launch {
+            messages.collect { list ->
+                val last = list.lastOrNull { it.role == "assistant" && it.status.isTerminal } ?: return@collect
+                val failed = last.status is com.jarvis.android.data.state.RequestStatus.Failed
+                voice.onAssistantCompleted(last.clientRequestId, last.text, isError = failed, isFinal = true)
+                pushVoice()
+            }
+        }
+    }
 
     fun voiceOrbCue() = voice.orbCue
 
@@ -341,6 +368,27 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         voice.abandon()
         voice.stopSpeaking()
         pushVoice()
+    }
+
+    val voiceMicPermission = com.jarvis.android.voice.VoiceMicPermission()
+
+    fun onVoicePermissionResult(granted: Boolean) {
+        when (voiceMicPermission.onRequestResult(granted)) {
+            com.jarvis.android.voice.VoiceMicPermission.Action.START -> {
+                voice.onMicTapped(true)
+                pushVoice()
+            }
+            com.jarvis.android.voice.VoiceMicPermission.Action.FAIL -> {
+                voice.onMicTapped(false)
+                pushVoice()
+            }
+            com.jarvis.android.voice.VoiceMicPermission.Action.REQUEST -> Unit
+        }
+    }
+
+    override fun onCleared() {
+        voice.shutdown()
+        super.onCleared()
     }
 
     fun setReducedMotion(value: Boolean) = viewModelScope.launch { container.settings.setReducedMotion(value) }

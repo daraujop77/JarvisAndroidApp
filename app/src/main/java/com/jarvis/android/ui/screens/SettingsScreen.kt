@@ -180,6 +180,17 @@ fun SettingsScreen(vm: JarvisViewModel) {
                     checked = settings.readRepliesAloud,
                     onChange = vm::setReadRepliesAloud,
                 )
+                if (settings.readRepliesAloud) {
+                    Text(
+                        "TTS rate ${"%.1f".format(settings.ttsRate)}x",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    androidx.compose.material3.Slider(
+                        value = settings.ttsRate,
+                        onValueChange = vm::setTtsRate,
+                        valueRange = 0.5f..2f,
+                    )
+                }
             }
 
             SettingsCard("CONNECTION") {

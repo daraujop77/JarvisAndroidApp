@@ -2,6 +2,7 @@ package com.jarvis.android.voice
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -24,11 +25,12 @@ class AndroidSpeechRecognizerClient(
     private var recognizer: SpeechRecognizer? = null
 
     override val onDeviceAvailable: Boolean
-        get() = SpeechRecognizer.isRecognitionAvailable(appContext) &&
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            SpeechRecognizer.isRecognitionAvailable(appContext) &&
             SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)
 
     override fun start() {
-        if (!onDeviceAvailable) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !onDeviceAvailable) {
             listener.onError("On-device recognition unavailable")
             return
         }
@@ -39,7 +41,9 @@ class AndroidSpeechRecognizerClient(
             override fun onBeginningOfSpeech() = Unit
             override fun onRmsChanged(rmsdB: Float) = Unit
             override fun onBufferReceived(buffer: ByteArray?) = Unit
-            override fun onEndOfSpeech() = Unit
+            override fun onEndOfSpeech() {
+                listener.onProcessing()
+            }
             override fun onError(error: Int) {
                 listener.onError("recognition failed")
             }
@@ -112,7 +116,7 @@ class AndroidLocalSpeaker(
         tts.stop()
     }
 
-    fun shutdown() {
+    override fun shutdown() {
         tts.shutdown()
     }
 }

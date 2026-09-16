@@ -89,6 +89,11 @@ fun JarvisRoot(app: JarvisApp) {
     val bootShown by vm.bootShown.collectAsStateWithLifecycle()
     val unlocked by vm.unlocked.collectAsStateWithLifecycle()
     val relock by app.relockRequested.collectAsStateWithLifecycle()
+    val voiceStop by app.voiceStopRequested.collectAsStateWithLifecycle()
+
+    LaunchedEffect(voiceStop) {
+        if (voiceStop > 0) vm.stopVoice()
+    }
 
     LaunchedEffect(relock) {
         if (relock) {

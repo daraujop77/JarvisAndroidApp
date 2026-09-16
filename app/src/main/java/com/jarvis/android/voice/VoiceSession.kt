@@ -37,6 +37,7 @@ interface SpeechRecognizerClient {
 
 interface SpeechListener {
     fun onPartial(text: String)
+    fun onProcessing() {}
     fun onFinal(text: String)
     fun onError(safeMessage: String)
 }
@@ -44,6 +45,7 @@ interface SpeechListener {
 interface LocalSpeaker {
     fun speak(utteranceId: String, text: String)
     fun stop()
+    fun shutdown() {}
 }
 
 /** What may be spoken. Never errors, secrets, or debug text. */
@@ -110,6 +112,12 @@ class VoiceController(
         sendConsumed = false
         state = state.copy(phase = VoicePhase.LISTENING, partial = "", error = null, permissionDenied = false)
         recognizer.start()
+    }
+
+    fun onProcessing() {
+        if (state.phase == VoicePhase.LISTENING) {
+            state = state.copy(phase = VoicePhase.PROCESSING)
+        }
     }
 
     fun onPartial(text: String) {
@@ -189,5 +197,11 @@ class VoiceController(
     fun stopSpeaking() {
         speaker.stop()
         state = state.copy(speaking = false)
+    }
+
+    fun shutdown() {
+        recognizer.cancel()
+        speaker.stop()
+        speaker.shutdown()
     }
 }

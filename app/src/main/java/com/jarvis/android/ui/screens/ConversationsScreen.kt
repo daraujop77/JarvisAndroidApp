@@ -215,6 +215,11 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     var input by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
     val accents = LocalJarvisAccents.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> vm.onVoicePermissionResult(granted) }
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
@@ -357,7 +362,17 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 canSend = input.isNotBlank() || pendingAttachments.isNotEmpty(),
                 voiceEnabled = settings.voiceInputEnabled,
                 voicePhase = voice.phase,
-                onMic = vm::onVoiceMic,
+                onMic = {
+                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        context, android.Manifest.permission.RECORD_AUDIO,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    when (vm.voiceMicPermission.onMicTapped(granted)) {
+                        com.jarvis.android.voice.VoiceMicPermission.Action.START -> vm.onVoiceMic()
+                        com.jarvis.android.voice.VoiceMicPermission.Action.REQUEST ->
+                            micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                        com.jarvis.android.voice.VoiceMicPermission.Action.FAIL -> vm.onVoiceMic()
+                    }
+                },
                 onPickPhoto = {
                     photoPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),

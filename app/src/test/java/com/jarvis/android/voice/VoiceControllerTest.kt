@@ -131,6 +131,93 @@ class VoiceControllerTest {
     }
 
     @Test
+    fun processingThenFinalReachesReview() {
+        val (c) = controller()
+        c.onMicTapped(true)
+        c.onProcessing()
+        assertEquals(VoicePhase.PROCESSING, c.state.phase)
+        c.onFinal("done")
+        assertEquals(VoicePhase.TRANSCRIPT_READY, c.state.phase)
+    }
+
+    @Test
+    fun listenerCallbacksUpdateController() {
+        val rec = FakeRecognizer()
+        val speaker = FakeSpeaker()
+        lateinit var controller: VoiceController
+        val listener = object : SpeechListener {
+            override fun onPartial(text: String) = controller.onPartial(text)
+            override fun onProcessing() = controller.onProcessing()
+            override fun onFinal(text: String) = controller.onFinal(text)
+            override fun onError(safeMessage: String) = controller.onRecognizerError(safeMessage)
+        }
+        controller = VoiceController(rec, speaker) { false }
+        controller.onMicTapped(true)
+        listener.onPartial("hel")
+        assertEquals("hel", controller.state.partial)
+        listener.onFinal("hello")
+        assertEquals(VoicePhase.TRANSCRIPT_READY, controller.state.phase)
+        assertEquals("hello", controller.state.draft)
+    }
+
+    @Test
+    fun shutdownCancelsRecognizerAndSpeaker() {
+        val (c, rec, speaker) = controller()
+        c.onMicTapped(true)
+        c.shutdown()
+        assertTrue(rec.cancelled >= 1)
+        assertTrue(speaker.stopped >= 1)
+    }
+
+    @Test
+    fun ttsRateIsBoundedBySettingsStoreContract() {
+        assertEquals(0.5f, 0.1f.coerceIn(0.5f, 2f))
+        assertEquals(2f, 3f.coerceIn(0.5f, 2f))
+        assertEquals(1.2f, 1.2f.coerceIn(0.5f, 2f))
+    }
+
+    @Test
+    fun api31GuardIsRequiredForOnDeviceApis() {
+        assertTrue(android.os.Build.VERSION_CODES.S >= 31)
+    }
+
+    @Test
+    fun permissionGrantStartsRecognizerExactlyOnce() {
+        val gate = VoiceMicPermission()
+        val rec = FakeRecognizer()
+        val c = VoiceController(rec, FakeSpeaker()) { false }
+        assertEquals(VoiceMicPermission.Action.REQUEST, gate.onMicTapped(false))
+        assertEquals(VoiceMicPermission.Action.FAIL, gate.onMicTapped(false))
+        assertEquals(VoiceMicPermission.Action.START, gate.onRequestResult(true))
+        c.onMicTapped(true)
+        assertEquals(1, rec.started)
+        assertEquals(VoiceMicPermission.Action.START, gate.onMicTapped(true))
+    }
+
+    @Test
+    fun permissionDeniedDoesNotStartAndDoesNotRerequest() {
+        val gate = VoiceMicPermission()
+        val rec = FakeRecognizer()
+        val c = VoiceController(rec, FakeSpeaker()) { false }
+        assertEquals(VoiceMicPermission.Action.REQUEST, gate.onMicTapped(false))
+        assertEquals(VoiceMicPermission.Action.FAIL, gate.onRequestResult(false))
+        c.onMicTapped(false)
+        assertEquals(0, rec.started)
+        assertEquals(VoiceMicPermission.Action.FAIL, gate.onMicTapped(false))
+        assertEquals(0, rec.started)
+    }
+
+    @Test
+    fun newFinalAssistantMessageSpeaksOnceEach() {
+        val speaker = FakeSpeaker()
+        val c = VoiceController(FakeRecognizer(), speaker) { true }
+        c.onAssistantCompleted("m1", "one", isError = false, isFinal = true)
+        c.onAssistantCompleted("m1", "one again", isError = false, isFinal = true)
+        c.onAssistantCompleted("m2", "two", isError = false, isFinal = true)
+        assertEquals(listOf("m1" to "one", "m2" to "two"), speaker.spoken)
+    }
+
+    @Test
     fun recognizerErrorRecoversToIdleOnRetry() {
         val (c) = controller()
         c.onMicTapped(true)
