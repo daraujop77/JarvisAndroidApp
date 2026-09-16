@@ -79,6 +79,20 @@ class VoiceController(
 
     private var spokenIds = mutableSetOf<String>()
     private var sendConsumed = false
+    var appForeground: Boolean = true
+        private set
+    var chatVisible: Boolean = false
+        private set
+
+    fun setAppForeground(value: Boolean) {
+        appForeground = value
+        if (!value) stopSpeaking()
+    }
+
+    fun setChatVisible(value: Boolean) {
+        chatVisible = value
+        if (!value) stopSpeaking()
+    }
 
     val orbCue: VoiceOrbCue
         get() = when {
@@ -189,6 +203,7 @@ class VoiceController(
         if (messageId.isBlank() || messageId in spokenIds) return
         val speakable = SpeechPrivacy.speakableAssistantText(text) ?: return
         spokenIds += messageId
+        if (!appForeground || !chatVisible) return
         state = state.copy(speaking = true)
         speaker.speak(messageId, speakable)
     }

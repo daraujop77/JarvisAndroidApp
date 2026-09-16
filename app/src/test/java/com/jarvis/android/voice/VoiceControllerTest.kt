@@ -110,6 +110,8 @@ class VoiceControllerTest {
     fun ttsSpeaksCompletedAssistantOnceAndIgnoresPartials() {
         val speaker = FakeSpeaker()
         val c = VoiceController(FakeRecognizer(), speaker) { true }
+        c.setChatVisible(true)
+        c.setAppForeground(true)
         c.onAssistantCompleted("m1", "partial", isError = false, isFinal = false)
         c.onAssistantCompleted("m1", "partial still", isError = false, isFinal = false)
         c.onAssistantCompleted("m1", "Hello there", isError = false, isFinal = true)
@@ -133,6 +135,8 @@ class VoiceControllerTest {
     fun stopTtsImmediately() {
         val speaker = FakeSpeaker()
         val c = VoiceController(FakeRecognizer(), speaker) { true }
+        c.setChatVisible(true)
+        c.setAppForeground(true)
         c.onAssistantCompleted("m1", "long reply", isError = false)
         assertTrue(c.state.speaking)
         c.stopSpeaking()
@@ -221,10 +225,53 @@ class VoiceControllerTest {
     fun newFinalAssistantMessageSpeaksOnceEach() {
         val speaker = FakeSpeaker()
         val c = VoiceController(FakeRecognizer(), speaker) { true }
+        c.setChatVisible(true)
+        c.setAppForeground(true)
         c.onAssistantCompleted("m1", "one", isError = false, isFinal = true)
         c.onAssistantCompleted("m1", "one again", isError = false, isFinal = true)
         c.onAssistantCompleted("m2", "two", isError = false, isFinal = true)
         assertEquals(listOf("m1" to "one", "m2" to "two"), speaker.spoken)
+    }
+
+    @Test
+    fun hiddenChatAndBackgroundCompletionsStaySilentAndDoNotReplay() {
+        val speaker = FakeSpeaker()
+        val c = VoiceController(FakeRecognizer(), speaker) { true }
+        c.setChatVisible(true)
+        c.setAppForeground(true)
+        c.onAssistantCompleted("m1", "visible", isError = false, isFinal = true)
+        assertEquals(1, speaker.spoken.size)
+
+        c.setChatVisible(false)
+        c.onAssistantCompleted("m2", "hidden", isError = false, isFinal = true)
+        assertEquals(1, speaker.spoken.size)
+
+        c.setChatVisible(true)
+        c.setAppForeground(false)
+        c.onAssistantCompleted("m3", "background", isError = false, isFinal = true)
+        assertEquals(1, speaker.spoken.size)
+
+        c.setAppForeground(true)
+        c.setChatVisible(true)
+        c.onAssistantCompleted("m2", "hidden", isError = false, isFinal = true)
+        c.onAssistantCompleted("m3", "background", isError = false, isFinal = true)
+        assertEquals(1, speaker.spoken.size)
+
+        c.onAssistantCompleted("m4", "after return", isError = false, isFinal = true)
+        assertEquals(listOf("m1" to "visible", "m4" to "after return"), speaker.spoken)
+    }
+
+    @Test
+    fun hidingChatStopsSpeakingImmediately() {
+        val speaker = FakeSpeaker()
+        val c = VoiceController(FakeRecognizer(), speaker) { true }
+        c.setChatVisible(true)
+        c.setAppForeground(true)
+        c.onAssistantCompleted("m1", "long", isError = false, isFinal = true)
+        assertTrue(c.state.speaking)
+        c.setChatVisible(false)
+        assertFalse(c.state.speaking)
+        assertTrue(speaker.stopped >= 1)
     }
 
     @Test

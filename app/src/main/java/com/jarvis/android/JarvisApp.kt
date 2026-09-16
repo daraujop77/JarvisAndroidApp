@@ -19,6 +19,7 @@ class JarvisApp : Application() {
     /** Set when the app backgrounds; the UI re-locks on the next composition. */
     val relockRequested = kotlinx.coroutines.flow.MutableStateFlow(false)
     val voiceStopRequested = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val appInForeground = kotlinx.coroutines.flow.MutableStateFlow(true)
 
     fun lockOnBackground() { relockRequested.value = true }
 
@@ -33,11 +34,13 @@ class JarvisApp : Application() {
             override fun onStart(owner: LifecycleOwner) {
                 notifications.setForeground(true)
                 container.session.setForeground(true)
+                appInForeground.value = true
             }
 
             override fun onStop(owner: LifecycleOwner) {
                 notifications.setForeground(false)
                 container.session.setForeground(false)
+                appInForeground.value = false
                 voiceStopRequested.value += 1
             }
         })

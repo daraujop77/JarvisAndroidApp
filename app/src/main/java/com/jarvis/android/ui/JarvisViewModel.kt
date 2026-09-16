@@ -382,6 +382,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         pushVoice()
     }
 
+    fun setVoiceChatVisible(visible: Boolean) {
+        voice.setChatVisible(visible)
+        if (!visible) voice.stopSpeaking()
+        pushVoice()
+    }
+
+    fun setVoiceAppForeground(foreground: Boolean) {
+        voice.setAppForeground(foreground)
+        if (!foreground) voice.stopSpeaking()
+        pushVoice()
+    }
+
     val voiceMicPermission = com.jarvis.android.voice.VoiceMicPermission()
 
     fun onVoicePermissionResult(granted: Boolean) {

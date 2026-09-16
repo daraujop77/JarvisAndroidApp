@@ -90,6 +90,12 @@ fun JarvisRoot(app: JarvisApp) {
     val unlocked by vm.unlocked.collectAsStateWithLifecycle()
     val relock by app.relockRequested.collectAsStateWithLifecycle()
     val voiceStop by app.voiceStopRequested.collectAsStateWithLifecycle()
+    val appForeground by app.appInForeground.collectAsStateWithLifecycle()
+
+    LaunchedEffect(appForeground) {
+        vm.setVoiceAppForeground(appForeground)
+        if (!appForeground) vm.stopVoice()
+    }
 
     LaunchedEffect(voiceStop) {
         if (voiceStop > 0) vm.stopVoice()
