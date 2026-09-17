@@ -1,0 +1,40 @@
+{
+  "schema": "jarvis.android.concurrent-connect.rereview.v1",
+  "task_id": "ANDROID-CONCURRENT-CONNECT-R2-INDEPENDENT-REREVIEW-001",
+  "lane": "PC-B-3",
+  "review_product_sha": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "reference_base_sha": "90192b91f2a87268dd14d8adb0eb23852b499b76",
+  "source_review_sha": "d6255f2ba0ab39e8fff27c02c5a434eab3c3d98d",
+  "source_review_head": "7dce965ec05e3801de9b4f71d0df21b2ec9f19d9",
+  "ancestry": "both the reference base and the previously blocked SHA are ancestors of the reviewed product",
+  "reviewed_files": [
+    "app/src/main/java/com/jarvis/android/transport/http/HttpGatewayTransport.kt",
+    "app/src/test/java/com/jarvis/android/transport/TransportConformanceTest.kt"
+  ],
+  "product_code_changed": false,
+  "git_diff_check": "clean",
+  "unit_tests": { "suites": 9, "tests": 93, "failures": 0, "skipped": 0, "jdk": "Android Studio JBR 21.0.10" },
+  "original_defect": {
+    "id": "connect-does-not-exclude-concurrent-callers",
+    "reproduced_against_r2": false,
+    "result": "CLOSED",
+    "evidence": "connect() now holds a coroutine Mutex across the decision and across the post-health publish. Two overlapping connect() calls cannot both pass the guard. startPolling captures the generation ticket and its loop exits when the generation changes, so a loop superseded by a newer connect or by disconnect stops polling. The builder test overlappingConnectAcrossHealthCheckLeavesOnePoller drives exactly the reported race and asserts the poll count is stable after disconnect."
+  },
+  "concurrent_connect_assessment": "serialized by connectGate. A disconnect during the health check increments the generation and sets CLOSED; the in-flight attempt observes both and does not publish a poller.",
+  "generation_assessment": "monotonic AtomicLong. No path decrements it. The post-health generation.set(ticket) only restores the ticket of the attempt that still owns CONNECTING, and only when the state was not moved to CLOSED, so a stale attempt cannot roll the generation backward past a disconnect.",
+  "active_poller_accounting": "one pollJob field. Every startPolling cancels the previously referenced job, and the cancelled job's own loop condition also fails because its captured ticket no longer matches.",
+  "cursor_replay_assessment": "an obsolete loop cannot advance afterCursor once its ticket is stale, because it leaves the loop before the next pollOnce. The 50-cycle restart regression asserts the cursor and the single completed submit on every cycle.",
+  "disconnect_cleanup_assessment": "disconnect increments the generation before taking the gate, so an in-flight connect cannot publish after it, and it cancels the referenced poll job.",
+  "connected_idempotency_assessment": {
+    "verdict": "functionally single-poller, not allocation-idempotent",
+    "observation": "The CONNECTED-with-live-poll branch calls startPolling again. That cancels the live poll and launches a new one at the same generation. pollJob always references the newest job and the cancelled one exits on its next loop check, so no orphan polls and the cursor cannot diverge. It does restart the poll on every overlapping connect() while already connected, which is unnecessary churn. Not a blocker: it cannot produce a second live poller or an independently moving cursor."
+  },
+  "human_check_apk_changed": false,
+  "pc_a_validation_required": true,
+  "known_limitations": "The builder's overlapping-connect test proves the poll count is stable after disconnect, not that the live poll was left untouched. The churn observation above is visible in source and is not exercised as a failure.",
+  "pass": 93,
+  "fail": 0,
+  "skip": 0,
+  "real_side_effects": false,
+  "result": "PASS_FOR_DEVICE_QA"
+}
