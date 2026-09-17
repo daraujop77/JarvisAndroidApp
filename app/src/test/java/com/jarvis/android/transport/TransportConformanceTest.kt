@@ -361,6 +361,51 @@ class TransportConformanceTest {
     }
 
     @Test
+    fun loopbackFiftyRestartCyclesPreserveCursorAndDoNotResubmit() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        val bodies = mutableListOf<String>()
+        val holder = arrayOfNulls<MockWebServer>(1)
+        val transport = scriptedHttp(
+            events,
+            onPost = { body: String -> bodies += body },
+            baseUrl = { holder[0]!!.url("/").toString().trimEnd('/') },
+        )
+        holder[0] = servers.last()
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = listOf(20L))
+        repo.start()
+        waitUntil { repo.snapshot.value.phase == SessionPhase.READY }
+        events += happyHttpEvents
+        repo.sendWithId(REQ, "c1", "greeting")
+        assertEquals(RequestStatus.Completed, repo.awaitTerminal(REQ))
+        val cursor = repo.snapshot.value.session.lastCursorToken
+        val jobsBefore = Thread.getAllStackTraces().keys.count { it.name.contains("DefaultDispatcher") }
+
+        repeat(50) {
+            val dead = holder[0]!!
+            val dispatcher = dead.dispatcher
+            dead.shutdown()
+            val restarted = MockWebServer()
+            restarted.dispatcher = dispatcher
+            restarted.start()
+            servers += restarted
+            holder[0] = restarted
+            repo.reconnectNow()
+            waitUntil(20_000) {
+                transport.linkState.value == com.jarvis.android.transport.LinkState.CONNECTED ||
+                    repo.snapshot.value.phase == SessionPhase.READY
+            }
+            assertEquals(cursor, repo.snapshot.value.session.lastCursorToken)
+            assertEquals(RequestStatus.Completed, repo.snapshot.value.session.requests[REQ]!!.status)
+        }
+        val jobsAfter = Thread.getAllStackTraces().keys.count { it.name.contains("DefaultDispatcher") }
+        assertEquals("completed submit stays one across 50 restarts", 1, bodies.count { it.contains(REQ) })
+        assertTrue("dispatcher threads grew unbounded: $jobsBefore -> $jobsAfter", jobsAfter - jobsBefore < 25)
+        repo.stop()
+    }
+
+    @Test
     fun loopbackTypedErrorEnvelopeFailsRequestWithoutLeakingBody() {
         val events = mutableListOf(
             webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),

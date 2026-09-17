@@ -146,9 +146,12 @@ class HttpGatewayTransport(
                 // races disconnect() (an in-flight request may or may not be
                 // server-observed), making behavior and tests non-deterministic.
                 // Replay sends and connect-time sends poll explicitly.
+                // Re-read the base each tick so an explicit reconnect can point
+                // the same poll at a replacement loopback server.
+                val liveBase = runCatching { requireBase() }.getOrDefault(base)
                 delay(pollIntervalMs)
                 if (!isActive || _linkState.value != LinkState.CONNECTED) break
-                runCatching { pollOnce(base) }
+                runCatching { pollOnce(liveBase) }
                     .onFailure {
                         if (_linkState.value == LinkState.CONNECTED) {
                             _linkState.value = LinkState.RECONNECTING

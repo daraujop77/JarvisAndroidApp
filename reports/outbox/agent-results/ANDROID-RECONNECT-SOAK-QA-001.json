@@ -1,0 +1,33 @@
+{
+  "schema": "jarvis.agent-result.v1",
+  "TASK_ID": "ANDROID-RECONNECT-SOAK-QA-001",
+  "BASE_PRODUCT_SHA": "d6255f2ba0ab39e8fff27c02c5a434eab3c3d98d",
+  "BRANCH": "android/voice-v0-local",
+  "RESULT": "PASS_FOR_INDEPENDENT_REVIEW",
+  "CYCLES": 50,
+  "SCOPED_FIX": "HttpGatewayTransport poll re-reads the gateway base each tick, so an explicit reconnect follows a replacement loopback server without resetting the cursor.",
+  "RECONNECT_OUTCOMES": "50 shutdown/restart/explicit-reconnect cycles recovered. Cursor stayed stable. Completed request was posted once.",
+  "CURSOR_REPLAY_EVIDENCE": "lastCursorToken unchanged across all 50 cycles; duplicate event suppression suite stayed green",
+  "VOICE_REGRESSION": "VoiceControllerTest 22/22 PASS; consumed spoken ids are not replayed",
+  "RESOURCE_TREND": "DefaultDispatcher thread growth across the campaign stayed under 25. No monotonic leak asserted beyond that bound.",
+  "TESTS_RUN": [
+    "com.jarvis.android.transport.TransportConformanceTest",
+    "com.jarvis.android.voice.VoiceControllerTest",
+    "com.jarvis.android.contract.webv1.WebV1ContractComplianceTest",
+    "com.jarvis.android.contract.webv1.WebV1FixtureTest",
+    "com.jarvis.android.data.repo.ReconnectPolicyTest",
+    "com.jarvis.android.data.repo.NetworkHardeningTest",
+    "com.jarvis.android.data.repo.ProcessDeathReconciliationTest"
+  ],
+  "PASS": 77,
+  "FAIL": 0,
+  "SKIP": 0,
+  "CONTRACT_REGRESSIONS": [],
+  "KNOWN_LIMITATIONS": "Loopback HTTP only. No physical S25. No PC-A runtime. Automatic backoff remains bounded. Frozen Human Check APK was not rebuilt. Thread count is a coarse signal, not a heap profile.",
+  "PC_A_VALIDATION_REQUIRED": true,
+  "HUMAN_CHECK_APK_CHANGED": false,
+  "READY_FOR_INTEGRATION": false,
+  "REAL_SIDE_EFFECTS": false,
+  "WEB_V1_CHANGED": false,
+  "published_by": "PC-B-2"
+}
