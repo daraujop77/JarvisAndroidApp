@@ -1,0 +1,79 @@
+{
+  "schema": "jarvis.android.qa-artifact.independent-review.v1",
+  "task_id": "ANDROID-R2-QA-ARTIFACT-INDEPENDENT-REVIEW-001",
+  "lane": "PC-B-3",
+  "product_sha": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "qa_evidence_head": "e203ea94b287c61ecedf2c1ed31777a7c91873c1",
+  "qa_evidence_branch": "qa/android-r2-qa-apk-freeze-pcb",
+  "provenance": {
+    "product_is_ancestor_of_evidence": true,
+    "evidence_delta_files": [
+      "dist/JARVIS-android-r2-qa.apk",
+      "reports/outbox/agent-results/ANDROID-R2-QA-APK-FREEZE-RERUN-003.json"
+    ],
+    "source_or_web_v1_changes_smuggled": false
+  },
+  "artifact": {
+    "path": "dist/JARVIS-android-r2-qa.apk",
+    "recomputed_sha256": "7AE6BF6FCDE2B94765DE5B1D93180ED2AC8CDC50841DA328B535CE4CF489CEC1",
+    "expected_sha256": "7AE6BF6FCDE2B94765DE5B1D93180ED2AC8CDC50841DA328B535CE4CF489CEC1",
+    "sha256_match": true,
+    "recomputed_size": 20754502,
+    "expected_size": 20754502,
+    "size_match": true,
+    "zip_entries": 479,
+    "zip_integrity": "opens and enumerates"
+  },
+  "package_manifest": {
+    "tool": "aapt 35.0.0 dump badging + xmltree",
+    "package": "com.jarvis.android.debug",
+    "matches_product_application_id": true,
+    "product_application_id": "com.jarvis.android",
+    "product_application_id_suffix": ".debug",
+    "version_code": "1",
+    "version_name": "0.1.0-w1",
+    "min_sdk": "26",
+    "target_sdk": "36",
+    "debuggable": true,
+    "permissions": [
+      "android.permission.INTERNET",
+      "android.permission.POST_NOTIFICATIONS",
+      "android.permission.USE_BIOMETRIC",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.USE_FINGERPRINT"
+    ],
+    "app_exported_components": [
+      { "type": "activity", "name": "com.jarvis.android.MainActivity", "exported": true },
+      { "type": "receiver", "name": "com.jarvis.android.notify.ApprovalActionReceiver", "exported": false }
+    ],
+    "assessment": "consistent with an accepted debug QA build; the only app-owned exported component is the launcher activity"
+  },
+  "artifact_distinctness": {
+    "frozen_human_check_apk": { "path": "dist/JARVIS-debug.apk", "blob_unchanged_from_product": true, "sha256": "BCD24B4D27686AFB7ECD9434E080DCC40C1307DFAF979520CE7F5AE8B180C961" },
+    "voice_v0_qa_apk": { "path": "dist/JARVIS-voice-v0-qa.apk", "blob_unchanged_from_product": true, "reused": false },
+    "qa_apk_is_distinct": true
+  },
+  "builder_test_claim": {
+    "claimed": "78 PASS / 0 FAIL / 0 SKIP",
+    "references_exact_product_sha": true,
+    "suites_named": [
+      "TransportConformanceTest",
+      "VoiceControllerTest",
+      "WebV1ContractComplianceTest",
+      "WebV1FixtureTest",
+      "ReconnectPolicyTest",
+      "NetworkHardeningTest",
+      "ProcessDeathReconciliationTest"
+    ],
+    "independently_rerun": false,
+    "note": "this review inspects the published artifact and provenance; it does not rebuild or rerun the suite"
+  },
+  "tooling_limitations": "Static inspection only: aapt badging/xmltree and ZIP enumeration. No device install, no runtime behavior inferred, no signature verification beyond archive integrity.",
+  "product_code_changed": false,
+  "physical_device_used": false,
+  "real_side_effects": false,
+  "pass": 1,
+  "fail": 0,
+  "skip": 0,
+  "result": "PASS_FOR_DEVICE_QA_PREP"
+}
