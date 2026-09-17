@@ -68,23 +68,43 @@ class HttpGatewayTransport(
     @Volatile
     private var afterCursor: String = ""
     private var pollJob: Job? = null
+    private val connectGate = kotlinx.coroutines.sync.Mutex()
+    private val generation = java.util.concurrent.atomic.AtomicLong(0)
 
     override suspend fun connect() {
+        connectGate.lock()
         val current = _linkState.value
-        // A healthy poll must not be restarted. CLOSED, FAILED and a poll that
-        // already parked itself in RECONNECTING are recoverable: a later
-        // repository-driven connect opens a fresh poll without resetting the
-        // opaque cursor.
-        if (current == LinkState.CONNECTING) return
-        if (current == LinkState.CONNECTED && pollJob?.isActive == true) return
-        _linkState.value = LinkState.CONNECTING
+        val ticket = generation.incrementAndGet()
+        try {
+            // A healthy poll must not be restarted. CLOSED, FAILED and a poll
+            // that already parked itself in RECONNECTING are recoverable.
+            if (current == LinkState.CONNECTED && pollJob?.isActive == true) {
+                // Same generation, fresh poll. A replacement gateway base is
+                // picked up on the next tick; the previous poll cannot linger.
+                startPolling(requireBase())
+                return
+            }
+            _linkState.value = LinkState.CONNECTING
+        } finally {
+            connectGate.unlock()
+        }
         try {
             val base = requireBase()
             get(base, "/api/v1/health")
-            _linkState.value = LinkState.CONNECTED
-            startPolling(base)
+            connectGate.lock()
+            try {
+                // A disconnect during health wins. A newer connect does not:
+                // this in-flight attempt is the one that owns CONNECTING and
+                // must install the single poller.
+                if (generation.get() != ticket && _linkState.value == LinkState.CLOSED) return
+                generation.set(ticket)
+                _linkState.value = LinkState.CONNECTED
+                startPolling(base)
+            } finally {
+                connectGate.unlock()
+            }
         } catch (t: Throwable) {
-            _linkState.value = LinkState.FAILED
+            if (generation.get() == ticket) _linkState.value = LinkState.FAILED
             // Keep the original fail-closed reason (e.g. private-host guard);
             // only wrap foreign exceptions.
             throw if (t is TransportException) t else TransportException("http connect failed: ${t.message}", t)
@@ -92,9 +112,15 @@ class HttpGatewayTransport(
     }
 
     override suspend fun disconnect() {
-        pollJob?.cancel()
-        pollJob = null
-        _linkState.value = LinkState.CLOSED
+        generation.incrementAndGet()
+        connectGate.lock()
+        try {
+            pollJob?.cancel()
+            pollJob = null
+            _linkState.value = LinkState.CLOSED
+        } finally {
+            connectGate.unlock()
+        }
     }
 
     override suspend fun send(request: MobileRequest) {
@@ -139,9 +165,10 @@ class HttpGatewayTransport(
     fun lastCursor(): String = afterCursor
 
     private fun startPolling(base: String) {
+        val ticket = generation.get()
         pollJob?.cancel()
         pollJob = scope.launch {
-            while (isActive && _linkState.value == LinkState.CONNECTED) {
+            while (isActive && ticket == generation.get() && _linkState.value == LinkState.CONNECTED) {
                 // Wait the interval BEFORE the first poll: an immediate poll
                 // races disconnect() (an in-flight request may or may not be
                 // server-observed), making behavior and tests non-deterministic.

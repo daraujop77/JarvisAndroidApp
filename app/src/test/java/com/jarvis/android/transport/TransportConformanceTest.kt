@@ -14,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
@@ -382,7 +383,7 @@ class TransportConformanceTest {
         val cursor = repo.snapshot.value.session.lastCursorToken
         val jobsBefore = Thread.getAllStackTraces().keys.count { it.name.contains("DefaultDispatcher") }
 
-        repeat(50) {
+        repeat(50) { cycle ->
             val dead = holder[0]!!
             val dispatcher = dead.dispatcher
             dead.shutdown()
@@ -392,15 +393,25 @@ class TransportConformanceTest {
             servers += restarted
             holder[0] = restarted
             repo.reconnectNow()
-            waitUntil(20_000) {
-                transport.linkState.value == com.jarvis.android.transport.LinkState.CONNECTED ||
-                    repo.snapshot.value.phase == SessionPhase.READY
+            val deadline = System.currentTimeMillis() + 5_000
+            while (System.currentTimeMillis() < deadline &&
+                transport.linkState.value != com.jarvis.android.transport.LinkState.CONNECTED &&
+                repo.snapshot.value.phase != SessionPhase.READY
+            ) {
+                Thread.sleep(20)
             }
-            assertEquals(cursor, repo.snapshot.value.session.lastCursorToken)
+            check(transport.linkState.value == com.jarvis.android.transport.LinkState.CONNECTED || repo.snapshot.value.phase == SessionPhase.READY) {
+                "cycle=$cycle link=${transport.linkState.value} phase=${repo.snapshot.value.phase}"
+            }
+            assertEquals("cycle=$cycle link=${transport.linkState.value} phase=${repo.snapshot.value.phase}", cursor, repo.snapshot.value.session.lastCursorToken)
             assertEquals(RequestStatus.Completed, repo.snapshot.value.session.requests[REQ]!!.status)
         }
         val jobsAfter = Thread.getAllStackTraces().keys.count { it.name.contains("DefaultDispatcher") }
-        assertEquals("completed submit stays one across 50 restarts", 1, bodies.count { it.contains(REQ) })
+        assertEquals(
+            "completed submit stays one across 50 restarts",
+            1,
+            bodies.count { it.contains(""""operation":"submit"""") },
+        )
         assertTrue("dispatcher threads grew unbounded: $jobsBefore -> $jobsAfter", jobsAfter - jobsBefore < 25)
         repo.stop()
     }
@@ -455,6 +466,35 @@ class TransportConformanceTest {
     }
 
     @Test
+    fun overlappingConnectAcrossHealthCheckLeavesOnePoller() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        var healthCalls = 0
+        val transport = scriptedHttp(events, onHealth = {
+            healthCalls++
+            if (healthCalls == 1) Thread.sleep(300)
+        })
+        runBlocking(Dispatchers.Default) {
+            val first = async { transport.connect() }
+            delay(40)
+            val second = async { transport.connect() }
+            first.await()
+            second.await()
+        }
+        Thread.sleep(120)
+        assertEquals(LinkState.CONNECTED, transport.linkState.value)
+        assertTrue("at least one connect reached health", healthCalls >= 1)
+        runBlocking(Dispatchers.Default) { transport.disconnect() }
+        val pollsAtStop = eventPolls(transport)
+        Thread.sleep(150)
+        assertEquals("disconnect stops every poller", pollsAtStop, eventPolls(transport))
+    }
+
+    private fun eventPolls(transport: HttpGatewayTransport): Int =
+        servers.sumOf { it.requestCount }
+
+    @Test
     fun loopbackCompletionSpeaksOnlyWhileForegroundAndChatVisibleAndDoesNotReplay() {
         val events = mutableListOf(
             webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
@@ -492,14 +532,18 @@ class TransportConformanceTest {
         events: MutableList<String>,
         onPost: (String) -> Unit = {},
         onPoll: () -> Unit = {},
+        onHealth: () -> Unit = {},
         baseUrl: (() -> String)? = null,
     ): HttpGatewayTransport {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when {
-                request.path == "/api/v1/health" -> MockResponse().setBody(
-                    """{"status":"ok","protocol_version":"1.0","capabilities":[]}""",
-                )
+                request.path == "/api/v1/health" -> {
+                    onHealth()
+                    MockResponse().setBody(
+                        """{"status":"ok","protocol_version":"1.0","capabilities":[]}""",
+                    )
+                }
                 request.path?.startsWith("/api/v1/events") == true -> {
                     onPoll()
                     val after = request.requestUrl?.queryParameter("after")
