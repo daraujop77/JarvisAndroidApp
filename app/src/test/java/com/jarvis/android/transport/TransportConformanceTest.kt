@@ -309,6 +309,58 @@ class TransportConformanceTest {
     }
 
     @Test
+    fun loopbackServerRestartAfterClosedReconnectsWithoutResending() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        var sends = 0
+        val holder = arrayOfNulls<MockWebServer>(1)
+        val transport = scriptedHttp(
+            events,
+            onPost = { body: String ->
+                if (!body.contains(""""operation":"resume"""")) sends++
+            },
+            baseUrl = { holder[0]!!.url("/").toString().trimEnd('/') },
+        )
+        holder[0] = servers.last()
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = listOf(20L, 20L))
+        repo.start()
+        waitUntil { repo.snapshot.value.phase == SessionPhase.READY }
+        events += happyHttpEvents
+        repo.sendWithId(REQ, "c1", "greeting")
+        assertEquals(RequestStatus.Completed, repo.awaitTerminal(REQ))
+        val cursor = repo.snapshot.value.session.lastCursorToken
+        assertTrue(cursor.isNotBlank())
+
+        val dead = holder[0]!!
+        val dispatcher = dead.dispatcher
+        dead.shutdown()
+        waitUntil {
+            transport.linkState.value == com.jarvis.android.transport.LinkState.RECONNECTING ||
+                transport.linkState.value == com.jarvis.android.transport.LinkState.FAILED
+        }
+        val restarted = MockWebServer()
+        restarted.dispatcher = dispatcher
+        restarted.start()
+        servers += restarted
+        holder[0] = restarted
+        // The bounded backoff may already be exhausted from the outage. The
+        // repository-driven explicit reconnect must still open a fresh poll.
+        repo.reconnectNow()
+        waitUntil(20_000) {
+            val link = transport.linkState.value
+            link == com.jarvis.android.transport.LinkState.CONNECTED ||
+                link == com.jarvis.android.transport.LinkState.RECONNECTING ||
+                repo.snapshot.value.phase == SessionPhase.READY
+        }
+        assertEquals(RequestStatus.Completed, repo.snapshot.value.session.requests[REQ]!!.status)
+        assertEquals(EXPECTED, repo.snapshot.value.session.requests[REQ]!!.text)
+        assertEquals(cursor, repo.snapshot.value.session.lastCursorToken)
+        assertEquals("completed submit is not repeated after the server returns", 1, sends)
+        repo.stop()
+    }
+
+    @Test
     fun loopbackTypedErrorEnvelopeFailsRequestWithoutLeakingBody() {
         val events = mutableListOf(
             webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
@@ -395,6 +447,7 @@ class TransportConformanceTest {
         events: MutableList<String>,
         onPost: (String) -> Unit = {},
         onPoll: () -> Unit = {},
+        baseUrl: (() -> String)? = null,
     ): HttpGatewayTransport {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
@@ -404,7 +457,9 @@ class TransportConformanceTest {
                 )
                 request.path?.startsWith("/api/v1/events") == true -> {
                     onPoll()
-                    MockResponse().setBody(events.joinToString(",", "[", "]"))
+                    val after = request.requestUrl?.queryParameter("after")
+                    val pending = if (after.isNullOrBlank()) events else events.dropWhile { !it.contains(""""cursor":"$after"""") }.drop(1)
+                    MockResponse().setBody(pending.joinToString(",", "[", "]"))
                 }
                 request.method == "POST" && request.path == "/api/v1/requests" -> {
                     onPost(request.body.readUtf8())
@@ -417,7 +472,7 @@ class TransportConformanceTest {
         servers += server
         return HttpGatewayTransport(
             scope = scope,
-            baseUrlProvider = { server.url("/").toString().trimEnd('/') },
+            baseUrlProvider = baseUrl ?: { server.url("/").toString().trimEnd('/') },
             auth = AuthProvider { mapOf("Authorization" to "Bearer loopback-token") },
             pollIntervalMs = 30,
         )

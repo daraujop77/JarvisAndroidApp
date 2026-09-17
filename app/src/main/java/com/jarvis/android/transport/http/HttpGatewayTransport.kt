@@ -70,7 +70,13 @@ class HttpGatewayTransport(
     private var pollJob: Job? = null
 
     override suspend fun connect() {
-        if (_linkState.value == LinkState.CONNECTED || _linkState.value == LinkState.CONNECTING) return
+        val current = _linkState.value
+        // A healthy poll must not be restarted. CLOSED, FAILED and a poll that
+        // already parked itself in RECONNECTING are recoverable: a later
+        // repository-driven connect opens a fresh poll without resetting the
+        // opaque cursor.
+        if (current == LinkState.CONNECTING) return
+        if (current == LinkState.CONNECTED && pollJob?.isActive == true) return
         _linkState.value = LinkState.CONNECTING
         try {
             val base = requireBase()
