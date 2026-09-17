@@ -21,7 +21,9 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
+import com.jarvis.android.voice.VoiceController
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -269,6 +271,170 @@ class TransportConformanceTest {
         waitUntil { repo.snapshot.value.phase == SessionPhase.MISMATCH }
         assertEquals(ConnectionState.PROTOCOL_MISMATCH, repo.snapshot.value.session.connection)
         repo.stop()
+    }
+
+    /**
+     * Loopback E2E: production HttpGatewayTransport + JarvisSessionRepository
+     * against a local fake Gateway. Not a physical device run.
+     */
+    @Test
+    fun loopbackDropPreservesCursorAndDoesNotResend() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        val bodies = mutableListOf<String>()
+        val transport = scriptedHttp(events, onPost = { body: String -> bodies += body })
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = listOf(20L, 20L))
+        repo.start()
+        waitUntil { repo.snapshot.value.phase == SessionPhase.READY }
+        events += happyHttpEvents
+        repo.sendWithId(REQ, "c1", "greeting")
+        waitUntil { bodies.isNotEmpty() }
+        assertEquals(RequestStatus.Completed, repo.awaitTerminal(REQ))
+        val cursor = repo.snapshot.value.session.lastCursorToken
+        assertTrue(cursor.isNotBlank())
+
+        servers.last().shutdown()
+        waitUntil {
+            transport.linkState.value == com.jarvis.android.transport.LinkState.RECONNECTING ||
+                transport.linkState.value == com.jarvis.android.transport.LinkState.FAILED ||
+                repo.snapshot.value.phase == SessionPhase.DISCONNECTED
+        }
+        Thread.sleep(80)
+        assertEquals(RequestStatus.Completed, repo.snapshot.value.session.requests[REQ]!!.status)
+        assertEquals(EXPECTED, repo.snapshot.value.session.requests[REQ]!!.text)
+        assertTrue(cursor.isNotBlank())
+        assertEquals("drop bodies: ${bodies.joinToString(" || ")}", 1, bodies.size)
+        repo.stop()
+    }
+
+    @Test
+    fun loopbackTypedErrorEnvelopeFailsRequestWithoutLeakingBody() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        val transport = scriptedHttp(events)
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = emptyList())
+        repo.start()
+        waitUntil { repo.snapshot.value.phase == SessionPhase.READY }
+        events += webEvent(
+            cursor = "c-fail",
+            eventId = "e-fail",
+            type = "message.failed",
+            payload = """{"code":"gateway_unavailable","message":"busy","retryable":true,"token":"secret-should-not-leak"}""",
+            sequence = 2,
+        )
+        repo.sendWithId(REQ, "c1", "greeting")
+        waitUntil { repo.snapshot.value.session.requests[REQ]?.status is RequestStatus.Failed }
+        val failed = repo.snapshot.value.session.requests[REQ]!!.status as RequestStatus.Failed
+        assertEquals("gateway_unavailable", failed.error.code)
+        assertTrue(failed.retryable)
+        assertFalse(failed.error.message.contains("secret-should-not-leak"))
+        repo.stop()
+    }
+
+    @Test
+    fun loopbackConversationIsolationKeepsRequestIdsApart() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        val transport = scriptedHttp(events)
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = emptyList())
+        repo.start()
+        waitUntil { repo.snapshot.value.phase == SessionPhase.READY }
+        events += webEvent("c1", "e-a", "message.completed", """{"message_id":"m-a","full_text":"alpha"}""", requestId = "req-a", conversationId = "conv-a")
+        events += webEvent("c2", "e-b", "message.completed", """{"message_id":"m-b","full_text":"beta"}""", requestId = "req-b", conversationId = "conv-b", sequence = 2)
+        repo.sendWithId("req-a", "conv-a", "a")
+        repo.sendWithId("req-b", "conv-b", "b")
+        waitUntil {
+            repo.snapshot.value.session.requests["req-a"]?.status?.isTerminal == true &&
+                repo.snapshot.value.session.requests["req-b"]?.status?.isTerminal == true
+        }
+        assertEquals("alpha", repo.snapshot.value.session.requests["req-a"]!!.text)
+        assertEquals("beta", repo.snapshot.value.session.requests["req-b"]!!.text)
+        assertEquals("conv-a", repo.snapshot.value.session.requests["req-a"]!!.conversationId)
+        assertEquals("conv-b", repo.snapshot.value.session.requests["req-b"]!!.conversationId)
+        repo.stop()
+    }
+
+    @Test
+    fun loopbackCompletionSpeaksOnlyWhileForegroundAndChatVisibleAndDoesNotReplay() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        val transport = scriptedHttp(events)
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = emptyList())
+        val speaker = RecordingSpeaker()
+        val voice = VoiceController(
+            recognizer = NoopRecognizer(),
+            speaker = speaker,
+            readAloud = { true },
+        )
+        voice.setAppForeground(true)
+        voice.setChatVisible(true)
+        repo.start()
+        waitUntil { repo.snapshot.value.phase == SessionPhase.READY }
+        events += webEvent("c1", "e-done", "message.completed", """{"message_id":"m1","full_text":"$EXPECTED"}""")
+        repo.sendWithId(REQ, "c1", "greeting")
+        waitUntil { repo.snapshot.value.session.requests[REQ]?.status == RequestStatus.Completed }
+        voice.onAssistantCompleted(REQ, repo.snapshot.value.session.requests[REQ]!!.text, isError = false, isFinal = true)
+        assertEquals(listOf(REQ), speaker.spoken.map { it.first })
+
+        voice.setChatVisible(false)
+        voice.onAssistantCompleted(REQ, EXPECTED, isError = false, isFinal = true)
+        assertEquals("consumed completion is not replayed", 1, speaker.spoken.size)
+
+        voice.setChatVisible(true)
+        voice.setAppForeground(false)
+        voice.onAssistantCompleted("req-next", "later", isError = false, isFinal = true)
+        assertEquals("background completion stays silent", 1, speaker.spoken.size)
+        repo.stop()
+    }
+
+    private fun scriptedHttp(
+        events: MutableList<String>,
+        onPost: (String) -> Unit = {},
+        onPoll: () -> Unit = {},
+    ): HttpGatewayTransport {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/api/v1/health" -> MockResponse().setBody(
+                    """{"status":"ok","protocol_version":"1.0","capabilities":[]}""",
+                )
+                request.path?.startsWith("/api/v1/events") == true -> {
+                    onPoll()
+                    MockResponse().setBody(events.joinToString(",", "[", "]"))
+                }
+                request.method == "POST" && request.path == "/api/v1/requests" -> {
+                    onPost(request.body.readUtf8())
+                    MockResponse().setBody("{}")
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+        servers += server
+        return HttpGatewayTransport(
+            scope = scope,
+            baseUrlProvider = { server.url("/").toString().trimEnd('/') },
+            auth = AuthProvider { mapOf("Authorization" to "Bearer loopback-token") },
+            pollIntervalMs = 30,
+        )
+    }
+
+    private class NoopRecognizer : com.jarvis.android.voice.SpeechRecognizerClient {
+        override val onDeviceAvailable: Boolean = true
+        override fun start() = Unit
+        override fun stop() = Unit
+        override fun cancel() = Unit
+        override fun release() = Unit
+    }
+
+    private class RecordingSpeaker : com.jarvis.android.voice.LocalSpeaker {
+        val spoken = mutableListOf<Pair<String, String>>()
+        override fun speak(utteranceId: String, text: String) { spoken += utteranceId to text }
+        override fun stop() = Unit
     }
 
     companion object {
