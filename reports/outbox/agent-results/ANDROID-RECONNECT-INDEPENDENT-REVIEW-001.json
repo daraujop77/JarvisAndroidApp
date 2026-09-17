@@ -1,0 +1,56 @@
+{
+  "schema": "jarvis.android.reconnect.independent-review.v1",
+  "task_id": "ANDROID-RECONNECT-INDEPENDENT-REVIEW-001",
+  "lane": "PC-B-3",
+  "review_product_sha": "d6255f2ba0ab39e8fff27c02c5a434eab3c3d98d",
+  "reference_base_sha": "e2bfba69b10e07a754c630cd3ee302ea3e915ec6",
+  "review_branch": "android/voice-v0-local",
+  "ancestry": "reference base is an ancestor of the reviewed product",
+  "reviewed_files": [
+    "app/src/main/java/com/jarvis/android/transport/http/HttpGatewayTransport.kt",
+    "app/src/test/java/com/jarvis/android/transport/TransportConformanceTest.kt"
+  ],
+  "product_delta": "HttpGatewayTransport.connect now returns early only for CONNECTING, or for CONNECTED while pollJob.isActive. CLOSED, FAILED and a poll parked in RECONNECTING fall through and open a fresh poll. The cursor field is not reset.",
+  "product_code_changed": false,
+  "human_check_apk_sha256": "BCD24B4D27686AFB7ECD9434E080DCC40C1307DFAF979520CE7F5AE8B180C961",
+  "human_check_apk_changed": false,
+  "qa_apk_sha256": "D084CD10C4AC99EBED363943276206853FB0F1956C7CB9B3206F03D329CFD830",
+  "git_diff_check": "clean",
+  "unit_tests": {
+    "command": "testDebugUnitTest transport + data.repo + voice",
+    "suites": 9,
+    "tests": 91,
+    "failures": 0,
+    "skipped": 0,
+    "jdk": "Android Studio JBR 21.0.10"
+  },
+  "blocker": {
+    "id": "connect-does-not-exclude-concurrent-callers",
+    "owning_module": "android-transport",
+    "file": "app/src/main/java/com/jarvis/android/transport/http/HttpGatewayTransport.kt",
+    "lines": "72-85 and 141-142",
+    "evidence": "connect() reads _linkState.value, decides, then assigns CONNECTING with no mutex and no compare-and-set. connect() is a suspend function, so the health GET between the decision and startPolling is a real suspension point. Two overlapping connect() calls (reconnectNow plus the backoff loop, or two reconnectNow calls) can both pass the guard, both run the health check, and both call startPolling. startPolling cancels pollJob only after the second call has already launched its own loop, so the first loop is orphaned and keeps polling. pollOnce advances the shared afterCursor and trySend's every frame, so the orphaned loop duplicates accepted events and can move the cursor independently of the live loop.",
+    "not_covered_by_builder_tests": "loopbackServerRestartAfterClosedReconnectsWithoutResending drives one reconnectNow after the link is already parked. It never overlaps two connect() calls.",
+    "callers_that_overlap": [
+      "JarvisSessionRepository.reconnectNow",
+      "JarvisSessionRepository.backoffReconnect",
+      "JarvisSessionRepository.start"
+    ]
+  },
+  "confirmed_sound": [
+    "CONNECTING remains idempotent",
+    "a live CONNECTED poll is not restarted",
+    "the cursor field is not reset by connect()",
+    "a single reconnectNow after CLOSED does not resend a completed submit in the builder test",
+    "duplicate event_id suppression and process-death reconciliation were not regressed by this delta",
+    "the frozen Human Check APK hash is unchanged"
+  ],
+  "cursor_replay_assessment": "sound for the single-caller path the builder tested; unsound once two connect() calls overlap, because two poll loops share one cursor",
+  "lifecycle_cleanup_assessment": "disconnect() cancels only the job currently referenced by pollJob. A loop orphaned by a concurrent connect() is not cancelled by a later disconnect().",
+  "pass": 91,
+  "fail": 1,
+  "skip": 0,
+  "pc_a_validation_required": true,
+  "real_side_effects": false,
+  "result": "BLOCKED_REVIEW"
+}
