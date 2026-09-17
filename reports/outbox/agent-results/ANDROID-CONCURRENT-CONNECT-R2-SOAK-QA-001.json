@@ -1,0 +1,43 @@
+{
+  "schema": "jarvis.agent-result.v1",
+  "TASK_ID": "ANDROID-CONCURRENT-CONNECT-R2-SOAK-QA-001",
+  "REVIEW_PRODUCT_SHA": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "PRODUCT_SHA": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "BRANCH": "android/voice-v0-local",
+  "RESULT": "PASS_FOR_INDEPENDENT_REREVIEW_SUPPORT",
+  "PRODUCT_CODE_CHANGED": false,
+  "ITERATIONS": {
+    "overlapping_connect_pairs": 100,
+    "connected_idempotent_connect_calls": 30,
+    "server_restart_cycles": 50
+  },
+  "OVERLAP_CASES": [
+    "oneHundredOverlappingConnectsLeaveOnePollerAndStopCleanly",
+    "overlappingConnectAcrossHealthCheckLeavesOnePoller",
+    "connectWhileAlreadyConnectedDoesNotChurnTheLivePoll"
+  ],
+  "ACTIVE_POLLER_ACCOUNTING": "100 overlapping connect pairs end CONNECTED. disconnect stops further event polls.",
+  "DISCONNECT_CLEANUP": "PASS. Event poll count does not increase for 150ms after disconnect.",
+  "CONNECTED_IDEMPOTENCY": "PASS. 30 extra connect() calls while CONNECTED did not suppress the live poll.",
+  "CURSOR_REQUEST_REPLAY": "50 restart cycles kept the cursor stable and posted the completed submit once.",
+  "FIFTY_CYCLE_RESULT": "PASS",
+  "TESTS_RUN": [
+    "com.jarvis.android.transport.TransportConformanceTest",
+    "com.jarvis.android.voice.VoiceControllerTest",
+    "com.jarvis.android.contract.webv1.WebV1ContractComplianceTest",
+    "com.jarvis.android.contract.webv1.WebV1FixtureTest",
+    "com.jarvis.android.data.repo.ReconnectPolicyTest",
+    "com.jarvis.android.data.repo.NetworkHardeningTest",
+    "com.jarvis.android.data.repo.ProcessDeathReconciliationTest"
+  ],
+  "PASS": 80,
+  "FAIL": 0,
+  "SKIP": 0,
+  "RESOURCE_TREND": "No monotonic thread leak asserted. Poll activity stops after disconnect. No heap profile.",
+  "KNOWN_LIMITATIONS": "Loopback HTTP only. No physical S25. No PC-A runtime. Poller count is inferred from post-disconnect silence, not an internal counter. Frozen Human Check APK was not rebuilt.",
+  "PC_A_VALIDATION_REQUIRED": true,
+  "HUMAN_CHECK_APK_CHANGED": false,
+  "REAL_SIDE_EFFECTS": false,
+  "WEB_V1_CHANGED": false,
+  "published_by": "PC-B-2"
+}

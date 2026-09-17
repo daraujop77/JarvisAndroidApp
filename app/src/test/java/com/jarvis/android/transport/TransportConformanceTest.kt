@@ -495,6 +495,54 @@ class TransportConformanceTest {
         servers.sumOf { it.requestCount }
 
     @Test
+    fun oneHundredOverlappingConnectsLeaveOnePollerAndStopCleanly() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        val transport = scriptedHttp(events, onHealth = { Thread.sleep(40) })
+        repeat(100) {
+            runBlocking(Dispatchers.Default) {
+                val first = async { transport.connect() }
+                val second = async { transport.connect() }
+                first.await()
+                second.await()
+            }
+            assertEquals(LinkState.CONNECTED, transport.linkState.value)
+        }
+        runBlocking(Dispatchers.Default) { transport.disconnect() }
+        val pollsAtStop = eventPolls(transport)
+        Thread.sleep(150)
+        assertEquals("disconnect stops every poller after 100 overlaps", pollsAtStop, eventPolls(transport))
+        assertEquals(LinkState.CLOSED, transport.linkState.value)
+    }
+
+    @Test
+    fun connectWhileAlreadyConnectedDoesNotChurnTheLivePoll() {
+        val events = mutableListOf(
+            webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
+        )
+        val transport = scriptedHttp(events)
+        runBlocking(Dispatchers.Default) { transport.connect() }
+        waitUntil { eventPolls(transport) >= 2 }
+        val before = eventPolls(transport)
+        val started = System.currentTimeMillis()
+        repeat(30) {
+            runBlocking(Dispatchers.Default) { transport.connect() }
+        }
+        val elapsed = System.currentTimeMillis() - started
+        Thread.sleep(200)
+        val after = eventPolls(transport)
+        val duringQuiet = after - before
+        assertEquals(LinkState.CONNECTED, transport.linkState.value)
+        // A live poll at 30ms should keep requesting events while extra connect
+        // calls arrive. A restart on every connect suppresses that traffic.
+        assertTrue(
+            "poll churn: only $duringQuiet event polls in ${elapsed + 200}ms after 30 extra connects",
+            duringQuiet >= 3,
+        )
+    }
+
+    @Test
     fun loopbackCompletionSpeaksOnlyWhileForegroundAndChatVisibleAndDoesNotReplay() {
         val events = mutableListOf(
             webEvent("c0", "e-init", "connection.ready", "{}", requestId = null),
