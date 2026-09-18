@@ -1,0 +1,46 @@
+{
+  "schema": "jarvis.android.r3-r4.a3-home-command-center.v1",
+  "phase": "A3",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "BASE_SHA": "18a507995f0ea1adf5f5763b7530ed8e1f96f5bd",
+  "FINAL_SHA": "da27df54c2b2cac3691e724d274e731a778b0ed3",
+  "files_changed": [
+    "app/src/main/java/com/jarvis/android/ui/JarvisRoot.kt",
+    "app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt",
+    "app/src/main/java/com/jarvis/android/ui/components/AmbientBackdrop.kt",
+    "app/src/main/java/com/jarvis/android/ui/components/JarvisOrb.kt",
+    "app/src/main/java/com/jarvis/android/ui/home/HomeCommandCenter.kt",
+    "app/src/main/java/com/jarvis/android/ui/home/JarvisVisualState.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/ApprovalsTasksScreens.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/ConversationsScreen.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/HomeA11y.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/HomeScreen.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/LockScreen.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/PairingScreen.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/WelcomeScreen.kt",
+    "app/src/test/java/com/jarvis/android/ui/home/HomeCommandCenterTest.kt",
+    "app/src/test/java/com/jarvis/android/ui/theme/ReducedMotionTest.kt"
+  ],
+  "unit_tests": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "suites": 20,
+    "tests": 188,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0
+  },
+  "assemble_debug": "BUILD SUCCESSFUL",
+  "jdk": "Android Studio JBR 21.0.10",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "PHYSICAL_DEVICE_USED": false,
+  "REAL_SIDE_EFFECTS": false,
+  "RESULT": "A3_HOME_COMMAND_CENTER_PASS",
+  "notes": [
+    "Home reads connection, server catalog profile, running tasks, owner-only pending approvals, recent local conversations, fixture projects, and sanitized diagnostics.",
+    "Profile label is null unless /api/app/status supplied a catalog entry. No model name is hardcoded.",
+    "Fixture projects are debug-only and labeled not live-backed.",
+    "UI visual states BOOT, IDLE, LISTENING, THINKING, RESPONDING, EXECUTING, AWAITING_APPROVAL, OFFLINE, ERROR drive JarvisOrb and AmbientBackdrop only.",
+    "Phase A4 was not started."
+  ]
+}
