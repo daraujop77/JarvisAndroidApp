@@ -1,0 +1,40 @@
+{
+  "task_id": "ANDROID-A9-SETTINGS-DIAGNOSTICS",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "f5beefb43b2f80b33f232eff67805440726cc949",
+  "base_sha": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "evidence_sha": "c0be139e82cbb9f7f18388a225a0bc5b4f09ba46",
+  "branch": "android/r3-r4-settings-ux-pcb",
+  "reviewer": "independent",
+  "merged": false,
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --tests com.jarvis.android.data.prefs.SettingsDiagnosticsTest --no-daemon",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "tests": 7,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "full_suite_rerun": false,
+    "emulator_or_device": false
+  },
+  "checks": {
+    "connection_security_summary_uses_existing_state": true,
+    "no_new_authority": true,
+    "owner_guest_presentation_grants_no_local_owner_powers": "relabel only; ApprovalsScreen still gates on the pre-existing local isOwner flag, which is not a server grant and is not newly wired to transport",
+    "appearance_and_reduced_motion_local": true,
+    "animation_intensity_and_compact_density_stored_only": "written to DataStore; not consumed by Motion or layout in this commit",
+    "diagnostics_copy_sanitized": "counts and kind names only; detail strings, fingerprints, device ids, URLs and payloads are not interpolated",
+    "unsafe_copy_refused": true,
+    "app_version_from_buildconfig": true,
+    "protocol_compatibility_from_existing_webv1": "WebV1.PROTOCOL, ContractVersion.SUPPORTED, WebV1Codec.protocolCompatible; negotiated values come from session state",
+    "preference_reset_does_not_clear_credentials": "removes reduced_motion, owner_name, animation_intensity, compact_density only",
+    "debug_only_controls_stay_debug_only": "fake gateway and simulation remain behind BuildConfig.DEBUG; no new debug control was added outside that gate",
+    "transport_byte_identical": true,
+    "web_v1_contract_byte_identical": true,
+    "product_files_modified_by_review": false
+  }
+}
