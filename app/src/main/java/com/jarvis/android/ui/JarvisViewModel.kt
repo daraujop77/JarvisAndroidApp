@@ -498,6 +498,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun setReducedMotion(value: Boolean) = viewModelScope.launch { container.settings.setReducedMotion(value) }
 
+    fun setAnimationIntensity(value: Float) =
+        viewModelScope.launch { container.settings.setAnimationIntensity(value) }
+
+    fun setCompactDensity(value: Boolean) =
+        viewModelScope.launch { container.settings.setCompactDensity(value) }
+
+    /** Appearance only. Never touches pairing, keys, role, lock or the gateway URL. */
+    fun resetLocalUiPreferences() = viewModelScope.launch { container.settings.resetLocalUiPreferences() }
+
     fun setOwnerName(value: String) = viewModelScope.launch { container.settings.setOwnerName(value.trim()) }
 
     fun setIsOwner(value: Boolean) = viewModelScope.launch { container.settings.setIsOwner(value) }
