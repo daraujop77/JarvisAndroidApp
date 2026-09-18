@@ -1,0 +1,53 @@
+{
+  "task_id": "ANDROID-A5-PROJECTS-SHELL",
+  "phase": "A5",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "addf9675c3ed5852803f585ff5c2ab33ba75691b",
+  "base_sha": "cfea5b2a63c37387f140323877326879634ed380",
+  "head_at_review": "523c0b8b615cd8a7bfc0e14890fb150b8c2f2ec1",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "reviewer": "independent-not-builder",
+  "builder_evidence_commits_ignored": [
+    "523c0b8"
+  ],
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "forced_execution": ":app:testDebugUnitTest --no-daemon --rerun-tasks",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "suites": 21,
+    "tests": 201,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "full_suite_rerun": true,
+    "assemble_debug_rerun": false,
+    "emulator_or_device": false,
+    "adb_used": false
+  },
+  "checks": {
+    "no_live_project_backend_or_adapter": true,
+    "fake_projects_repository_only_implementation": true,
+    "fixture_projects_labeled_not_live_backed": true,
+    "release_hides_fixture_only_project_claims": true,
+    "search_filter_sort_local_fixtures_only": true,
+    "contract_webv1_byte_identical": true,
+    "app_contract_byte_identical": true,
+    "transport_unchanged": true,
+    "no_destructive_room_change": true,
+    "physical_device_used": false,
+    "adb_used": false,
+    "a6_started": false
+  },
+  "evidence": {
+    "diff": "git diff cfea5b2..addf967",
+    "repository_seam": "ProjectsRepository interface; only FakeProjectsRepository implements it. AppContainer.projectsRepository still constructs FakeProjectsRepository(). No LiveProjects* class.",
+    "release_gate": "ProjectsScreen returns early when !BuildConfig.DEBUG and shows ProjectsA11y.RELEASE_HIDDEN. JarvisRoot.TopLevelDestination.all omits Projects unless DEBUG. ProjectsWorkspace.visibleInBuild(false) and visibleProjects(debugBuild=false) hide fixtures.",
+    "not_live_labels": "ProjectsA11y.NOT_LIVE / SCREEN / ACTIVITY_PLACEHOLDER and ProjectActivity.FIXTURE_PLACEHOLDER all say not live-backed. Debug list and detail surfaces show that copy.",
+    "search_filter_sort": "ProjectsWorkspace.apply filters and sorts ProjectSummary fixtures by title/state/updatedAtMs only. Conversation grouping uses FakeProjectsRepository.conversationsFor local maps.",
+    "room": "JarvisDatabase, JarvisEntities, and app/schemas unchanged vs cfea5b2"
+  }
+}
