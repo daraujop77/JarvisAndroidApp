@@ -1,0 +1,28 @@
+{
+  "schema": "jarvis.android.r3-r4.phase.v1",
+  "phase": "A9",
+  "task_id": "ANDROID-A9-SETTINGS-DIAGNOSTICS",
+  "lane": "PC-B",
+  "branch": "android/r3-r4-settings-ux-pcb",
+  "BASE_SHA": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "FINAL_SHA": "f5beefb43b2f80b33f232eff67805440726cc949",
+  "commit": "feat: android A9 settings diagnostics",
+  "scope": {
+    "connection_security_summary": true,
+    "owner_guest_presentation": "local presentation only, grants no authority",
+    "appearance_controls": ["reduced_motion", "animation_intensity", "compact_density"],
+    "diagnostics_copy": "counts and categories only, no secrets, refused when unsafe",
+    "app_version": "BuildConfig.VERSION_NAME / VERSION_CODE",
+    "protocol_compatibility": "derived locally from WebV1Codec.protocolCompatible",
+    "reset": "local UI preferences only, never credentials, pairing, role, lock or gateway URL",
+    "debug_only_controls": "fake gateway and simulation stay behind BuildConfig.DEBUG"
+  },
+  "unit_tests": { "suites": 20, "tests": 189, "failures": 0, "skipped": 0 },
+  "assemble_debug": "BUILD SUCCESSFUL",
+  "jdk": "Android Studio JBR 21.0.10",
+  "gradle": "--no-daemon --offline",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "physical_device_used": false,
+  "RESULT": "A9_SETTINGS_DIAGNOSTICS_PASS"
+}
