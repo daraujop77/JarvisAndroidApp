@@ -85,6 +85,7 @@ import com.jarvis.android.ui.components.TypingDots
 import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
+import com.jarvis.android.ui.format.TimeFormat
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
@@ -188,9 +189,7 @@ private fun ConversationListView(
                                 Text(c.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    java.text.DateFormat
-                                        .getTimeInstance(java.text.DateFormat.SHORT)
-                                        .format(java.util.Date(c.updatedAtMs)),
+                                    TimeFormat.conversationStamp(c.updatedAtMs),
                                     style = HudTextStyle,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -513,6 +512,7 @@ private fun MessageBubble(
                 }
             }
 
+            val failed = msg.status as? RequestStatus.Failed
             val footer: (@Composable () -> Unit)? = when {
                 isUser -> null
                 msg.status == RequestStatus.Cancelling -> ({
@@ -521,12 +521,19 @@ private fun MessageBubble(
                 msg.status == RequestStatus.Cancelled -> ({
                     Text("CANCELLED", style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 })
-                msg.status is RequestStatus.Failed -> ({
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("FAILED", style = HudTextStyle, color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = onRetry) {
-                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Text(" Retry")
+                failed != null -> ({
+                    Column(horizontalAlignment = Alignment.Start) {
+                        Text(
+                            failed.error.message.ifBlank { "FAILED" },
+                            style = HudTextStyle,
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 2,
+                        )
+                        if (failed.retryable) {
+                            TextButton(onClick = onRetry) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Text(" Retry")
+                            }
                         }
                     }
                 })
@@ -535,6 +542,14 @@ private fun MessageBubble(
             if (footer != null) {
                 Spacer(Modifier.height(2.dp))
                 Box(Modifier.padding(horizontal = 6.dp)) { footer() }
+            } else if (msg.createdAtMs > 0L && !isStreaming && !awaiting) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    TimeFormat.bubbleTime(msg.createdAtMs),
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
             }
         }
         if (isUser) {
