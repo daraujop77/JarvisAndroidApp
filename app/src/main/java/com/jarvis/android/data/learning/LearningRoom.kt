@@ -32,6 +32,35 @@ data class RewardStatus(val reward: Reward, val unlocked: Boolean)
  */
 enum class RewardTheme { DEFAULT, NEBULA, GOLD }
 
+/**
+ * One child, one progress. Ids are local and stable so renaming a profile
+ * never resets what they already finished. Progress never crosses profiles.
+ */
+data class LearnerProfile(val id: String, val name: String)
+
+/** `profileId|lessonId` so two children can finish the same lesson independently. */
+object LessonProgress {
+    fun encode(profileId: String, lessonId: String): String =
+        "${LearnerProfiles.sanitize(profileId)}|$lessonId"
+
+    fun completedFor(progress: Set<String>, profileId: String): Set<String> {
+        val prefix = "${LearnerProfiles.sanitize(profileId)}|"
+        return progress.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }.toSet()
+    }
+}
+
+object LearnerProfiles {
+    const val DEFAULT_ID = "learner_default"
+
+    fun sanitize(id: String): String {
+        val folded = java.text.Normalizer.normalize(id.trim().lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
+        return folded.take(24).ifBlank { DEFAULT_ID }
+    }
+}
+
 object LearningCatalog {
 
     val lessons: List<Lesson> = listOf(

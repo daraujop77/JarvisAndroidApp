@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.data.learning.LearnerProfiles
 import com.jarvis.android.data.learning.LearningCatalog
+import com.jarvis.android.data.learning.LessonProgress
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -38,8 +42,10 @@ import com.jarvis.android.ui.theme.jarvisTextFieldColors
 @Composable
 fun LearningRoomScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsStateWithLifecycle()
-    val completed = settings.completedLessons
+    val completed = LessonProgress.completedFor(settings.lessonProgress, settings.activeLearnerId)
+    val profiles = decodeProfiles(settings.learnerProfiles)
     val accents = LocalJarvisAccents.current
+    var adding by rememberSaveable { mutableStateOf(false) }
     val total = LearningCatalog.lessons.size
     val done = completed.count { id -> LearningCatalog.lesson(id) != null }
 
@@ -77,6 +83,16 @@ fun LearningRoomScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 }
             }
 
+            item { SectionLabel("WHO IS LEARNING") }
+            item {
+                LearnerPicker(
+                    profiles = profiles,
+                    activeId = settings.activeLearnerId,
+                    onSelect = vm::selectLearner,
+                    onAdd = { adding = true },
+                )
+            }
+
             item { SectionLabel("REWARDS") }
             items(LearningCatalog.rewards.size, key = { LearningCatalog.rewards[it].id }) { index ->
                 val reward = LearningCatalog.rewards[index]
@@ -96,6 +112,77 @@ fun LearningRoomScreen(vm: JarvisViewModel, onBack: () -> Unit) {
             }
         }
     }
+
+    if (adding) {
+        AddLearnerDialog(
+            onDismiss = { adding = false },
+            onConfirm = { name -> vm.addLearner(name); adding = false },
+        )
+    }
+}
+
+/** `id|Name` rows from settings, with a built-in profile so the room is never empty. */
+private fun decodeProfiles(stored: Set<String>): List<com.jarvis.android.data.learning.LearnerProfile> {
+    val parsed = stored.mapNotNull { row ->
+        val parts = row.split('|', limit = 2)
+        if (parts.size == 2 && parts[1].isNotBlank()) {
+            com.jarvis.android.data.learning.LearnerProfile(parts[0], parts[1])
+        } else null
+    }
+    val fallback = com.jarvis.android.data.learning.LearnerProfile(LearnerProfiles.DEFAULT_ID, "Learner")
+    return listOf(fallback) + parsed.filterNot { it.id == LearnerProfiles.DEFAULT_ID }
+}
+
+@Composable
+private fun LearnerPicker(
+    profiles: List<com.jarvis.android.data.learning.LearnerProfile>,
+    activeId: String,
+    onSelect: (String) -> Unit,
+    onAdd: () -> Unit,
+) {
+    val accents = LocalJarvisAccents.current
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        profiles.forEach { profile ->
+            val active = profile.id == activeId
+            Surface(
+                onClick = { onSelect(profile.id) },
+                shape = RoundedCornerShape(50),
+                color = if (active) accents.orbGlow.copy(alpha = 0.22f)
+                else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+            ) {
+                Text(
+                    profile.name,
+                    style = HudTextStyle,
+                    color = if (active) accents.orbGlow else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+        }
+        TextButton(onClick = onAdd) { Text("Add child") }
+    }
+}
+
+@Composable
+private fun AddLearnerDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var name by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add a child") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                label = { Text("Name") },
+                shape = RoundedCornerShape(14.dp),
+                colors = jarvisTextFieldColors(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(name) }, enabled = name.isNotBlank()) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

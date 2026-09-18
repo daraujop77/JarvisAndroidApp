@@ -45,6 +45,19 @@ class LearningRoomTest {
     }
 
     @Test
+    fun progressNeverCrossesProfiles() {
+        val stored = setOf(LessonProgress.encode("Ana", "math-1"), LessonProgress.encode("ana", "words-1"))
+        assertEquals(setOf("math-1", "words-1"), LessonProgress.completedFor(stored, "Ana"))
+        assertTrue(LessonProgress.completedFor(stored, "Luis").isEmpty())
+    }
+
+    @Test
+    fun profileIdsStayStableAndSafe() {
+        assertEquals("ana_maria", LearnerProfiles.sanitize("Ana María"))
+        assertEquals(LearnerProfiles.DEFAULT_ID, LearnerProfiles.sanitize("   "))
+    }
+
+    @Test
     fun championRequiresEveryLesson() {
         val oneShort = LearningCatalog.unlockedCount(LearningCatalog.lessons.size - 1)
         assertFalse(LearningCatalog.rewardsFor(LearningCatalog.lessons.size - 1)

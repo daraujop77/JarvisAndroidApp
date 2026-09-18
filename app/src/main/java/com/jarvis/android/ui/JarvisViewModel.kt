@@ -297,11 +297,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
      * accepted; a correct answer is recorded so its reward stays unlocked.
      */
     fun submitLesson(lessonId: String, attempt: String): Boolean {
-        val accepted = com.jarvis.android.data.learning.LearningCatalog
-            .check(lessonId, attempt, settings.value.completedLessons)
-        if (accepted) viewModelScope.launch { container.settings.completeLesson(lessonId) }
+        val done = com.jarvis.android.data.learning.LessonProgress
+            .completedFor(settings.value.lessonProgress, settings.value.activeLearnerId)
+        val accepted = com.jarvis.android.data.learning.LearningCatalog.check(lessonId, attempt, done)
+        if (accepted) {
+            val profile = settings.value.activeLearnerId
+            viewModelScope.launch { container.settings.completeLesson(profile, lessonId) }
+        }
         return accepted
     }
+
+    fun selectLearner(profileId: String) = viewModelScope.launch { container.settings.setActiveLearner(profileId) }
+
+    fun addLearner(name: String) = viewModelScope.launch { container.settings.addLearner(name) }
 
     /**
      * Bumped whenever the on-disk avatar changes so [rememberOwnerAvatar]

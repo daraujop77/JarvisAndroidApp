@@ -41,7 +41,12 @@ class MainActivity : FragmentActivity() {
             val settings by app.container.settings.settings.collectAsStateWithLifecycle(
                 initialValue = com.jarvis.android.data.prefs.SettingsStore.Settings(),
             )
-            JarvisTheme(theme = LearningCatalog.themeFor(settings.completedLessons)) {
+            JarvisTheme(
+                theme = LearningCatalog.themeFor(
+                    com.jarvis.android.data.learning.LessonProgress
+                        .completedFor(settings.lessonProgress, settings.activeLearnerId),
+                ),
+            ) {
                 JarvisRoot(app = app)
             }
         }

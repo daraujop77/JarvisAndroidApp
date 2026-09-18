@@ -40,10 +40,15 @@ class SettingsStore(private val context: Context) {
         /** True once a local avatar JPEG has been written. */
         val hasAvatar: Boolean = false,
         /**
-         * Lesson ids a child has completed in the on-device Learning Room.
-         * Local only — never sent anywhere.
+         * Lesson ids completed per learner, encoded `profileId|lessonId`.
+         * Local only — never sent anywhere. One child's progress never unlocks
+         * another's rewards.
          */
-        val completedLessons: Set<String> = emptySet(),
+        val lessonProgress: Set<String> = emptySet(),
+        /** Learner shown when the Learning Room opens. */
+        val activeLearnerId: String = com.jarvis.android.data.learning.LearnerProfiles.DEFAULT_ID,
+        /** Local child profiles, encoded `id|Name`. */
+        val learnerProfiles: Set<String> = emptySet(),
     )
 
     private object Keys {
@@ -56,7 +61,9 @@ class SettingsStore(private val context: Context) {
         val OWNER_NAME = stringPreferencesKey("owner_name")
         val IS_OWNER = booleanPreferencesKey("is_owner")
         val HAS_AVATAR = booleanPreferencesKey("has_avatar")
-        val COMPLETED_LESSONS = stringSetPreferencesKey("completed_lessons")
+        val LESSON_PROGRESS = stringSetPreferencesKey("lesson_progress")
+        val ACTIVE_LEARNER = stringPreferencesKey("active_learner")
+        val LEARNER_PROFILES = stringSetPreferencesKey("learner_profiles")
     }
 
     val settings: Flow<Settings> = context.dataStore.data
@@ -75,7 +82,10 @@ class SettingsStore(private val context: Context) {
                 ownerName = prefs[Keys.OWNER_NAME] ?: "",
                 isOwner = prefs[Keys.IS_OWNER] ?: true,
                 hasAvatar = prefs[Keys.HAS_AVATAR] ?: false,
-                completedLessons = prefs[Keys.COMPLETED_LESSONS] ?: emptySet(),
+                lessonProgress = prefs[Keys.LESSON_PROGRESS] ?: emptySet(),
+                activeLearnerId = prefs[Keys.ACTIVE_LEARNER]
+                    ?: com.jarvis.android.data.learning.LearnerProfiles.DEFAULT_ID,
+                learnerProfiles = prefs[Keys.LEARNER_PROFILES] ?: emptySet(),
             )
         }
 
@@ -87,9 +97,23 @@ class SettingsStore(private val context: Context) {
     suspend fun setIsOwner(value: Boolean) = context.dataStore.edit { it[Keys.IS_OWNER] = value }
     suspend fun setHasAvatar(value: Boolean) = context.dataStore.edit { it[Keys.HAS_AVATAR] = value }
 
-    /** Records one finished lesson. Adding an id twice changes nothing. */
-    suspend fun completeLesson(lessonId: String) = context.dataStore.edit {
-        it[Keys.COMPLETED_LESSONS] = (it[Keys.COMPLETED_LESSONS] ?: emptySet()) + lessonId
+    /** Records one finished lesson for one learner. Repeating it changes nothing. */
+    suspend fun completeLesson(profileId: String, lessonId: String) = context.dataStore.edit {
+        val key = com.jarvis.android.data.learning.LessonProgress.encode(profileId, lessonId)
+        it[Keys.LESSON_PROGRESS] = (it[Keys.LESSON_PROGRESS] ?: emptySet()) + key
+    }
+
+    suspend fun setActiveLearner(profileId: String) = context.dataStore.edit {
+        it[Keys.ACTIVE_LEARNER] = com.jarvis.android.data.learning.LearnerProfiles.sanitize(profileId)
+    }
+
+    /** Adds a child profile. A blank name is ignored; the id comes from the name. */
+    suspend fun addLearner(name: String) = context.dataStore.edit { prefs ->
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return@edit
+        val id = com.jarvis.android.data.learning.LearnerProfiles.sanitize(trimmed)
+        prefs[Keys.LEARNER_PROFILES] = (prefs[Keys.LEARNER_PROFILES] ?: emptySet()) + "$id|$trimmed"
+        prefs[Keys.ACTIVE_LEARNER] = id
     }
     suspend fun setPaired(value: Boolean, deviceId: String? = null) = context.dataStore.edit {
         it[Keys.PAIRED] = value
