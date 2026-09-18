@@ -14,6 +14,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,22 +34,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.jarvis.android.data.repo.SessionSnapshot
 import com.jarvis.android.data.state.ConnectionState
+import com.jarvis.android.ui.format.ConnectionCopy
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisMotion
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
-
-private fun ConnectionState.label(): String = when (this) {
-    ConnectionState.ONLINE -> "ONLINE"
-    ConnectionState.DEGRADED -> "DEGRADED"
-    ConnectionState.CONNECTING -> "CONNECTING"
-    ConnectionState.RECONNECTING -> "RECONNECTING"
-    ConnectionState.OFFLINE -> "OFFLINE"
-    ConnectionState.DISCONNECTED -> "DISCONNECTED"
-    ConnectionState.AUTH_EXPIRED -> "AUTH REQUIRED"
-    ConnectionState.DEVICE_REVOKED -> "DEVICE REVOKED"
-    ConnectionState.PROTOCOL_MISMATCH -> "UPDATE REQUIRED"
-}
 
 /**
  * Always-visible HUD strip: a live status dot that breathes while connecting
@@ -91,7 +81,16 @@ fun ConnectionBanner(
     ) {
         PulseDot(color = animatedTint, pulsing = busy)
         Spacer(Modifier.width(10.dp))
-        Text(conn.label(), style = HudTextStyle, color = animatedTint)
+        Column(verticalArrangement = Arrangement.Center) {
+            Text(ConnectionCopy.label(conn), style = HudTextStyle, color = animatedTint)
+            ConnectionCopy.detail(conn)?.let { line ->
+                Text(
+                    line,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         Spacer(Modifier.weight(1f))
 
