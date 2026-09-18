@@ -1,0 +1,29 @@
+{
+  "phase": "A8",
+  "task": "ANDROID-A8-MEDIA-UX",
+  "branch": "android/r3-r4-media-ux-pcb",
+  "BASE_SHA": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "FINAL_SHA": "730b14832fda67be9a0487a6b7290df805664936",
+  "tests": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "suites": 20,
+    "tests": 190,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "assemble": {
+    "command": ":app:assembleDebug --no-daemon",
+    "result": "BUILD SUCCESSFUL"
+  },
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "RESULT": "A8_MEDIA_UX_PASS",
+  "notes": [
+    "Staged attachments are Room-backed (schema v6, additive migration 5->6) and keyed by conversation, so chips cannot leak across a conversation switch or a process restart.",
+    "Upload intent is a distinct phase from uploaded. UPLOADED is reachable only from an authoritative attachment.ready event. The binary upload contract was not invented.",
+    "Failed uploads expose a deterministic retry that re-declares the same opaque id, and a remove that deletes the private file and its thumbnail.",
+    "Thumbnail decode is LRU-capped at 16 entries, edge-clamped to 512, persisted under thumbs/, and dropped on attachment delete. Opaque-id check rejects path-like ids.",
+    "EXIF/GPS stripping by JPEG re-encode is unchanged."
+  ]
+}
