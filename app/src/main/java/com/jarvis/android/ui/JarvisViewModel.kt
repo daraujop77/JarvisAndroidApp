@@ -311,6 +311,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun addLearner(name: String) = viewModelScope.launch { container.settings.addLearner(name) }
 
+    // ---- Writing Room (local drafts, no gateway) -----------------------------
+
+    fun readDraft(projectId: String): String = container.writingStore.read(projectId)
+
+    fun saveDraft(projectId: String, text: String) {
+        viewModelScope.launch(Dispatchers.IO) { container.writingStore.write(projectId, text) }
+    }
+
     /**
      * Bumped whenever the on-disk avatar changes so [rememberOwnerAvatar]
      * reloads. The JPEG itself is never held in the ViewModel.

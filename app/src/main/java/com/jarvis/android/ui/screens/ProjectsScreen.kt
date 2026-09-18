@@ -64,10 +64,10 @@ fun ProjectsScreen(vm: JarvisViewModel) {
 
     val project = openProject
     if (project != null) {
-        if (project.kind == ProjectKind.LEARNING) {
-            LearningRoomScreen(vm, onBack = { openProject = null })
-        } else {
-            ProjectDetailView(vm, project, onBack = { openProject = null })
+        when (project.kind) {
+            ProjectKind.LEARNING -> LearningRoomScreen(vm, onBack = { openProject = null })
+            ProjectKind.WRITING -> WritingRoomScreen(vm, project, onBack = { openProject = null })
+            else -> ProjectDetailView(vm, project, onBack = { openProject = null })
         }
         return
     }

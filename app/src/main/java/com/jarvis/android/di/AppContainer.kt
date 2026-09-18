@@ -42,6 +42,11 @@ class AppContainer(private val context: Context) {
         com.jarvis.android.data.media.AttachmentStore(context)
     }
 
+    /** Local drafts only. No transport sees these files. */
+    val writingStore: com.jarvis.android.data.writing.WritingStore by lazy {
+        com.jarvis.android.data.writing.WritingStore(context)
+    }
+
     private val fake = FakeGateway(scope)
     private val http by lazy {
         HttpGatewayTransport(

@@ -88,6 +88,7 @@ import com.jarvis.android.ui.components.TypingDots
 import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
+import com.jarvis.android.ui.format.ConversationFilter
 import com.jarvis.android.ui.format.TimeFormat
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -120,6 +121,8 @@ private fun ConversationListView(
     val accents = LocalJarvisAccents.current
     var renaming by remember { mutableStateOf<com.jarvis.android.data.repo.ConversationSummary?>(null) }
     var deleting by remember { mutableStateOf<com.jarvis.android.data.repo.ConversationSummary?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val visible = remember(items, query) { ConversationFilter.matching(items, query) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -145,6 +148,17 @@ private fun ConversationListView(
             )
         },
     ) { pad ->
+        if (items.isNotEmpty()) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                singleLine = true,
+                placeholder = { Text("Search chats") },
+                shape = RoundedCornerShape(14.dp),
+                colors = jarvisTextFieldColors(),
+            )
+        }
         if (items.isEmpty()) {
             Column(
                 Modifier.fillMaxSize().padding(pad).padding(32.dp),
@@ -164,11 +178,11 @@ private fun ConversationListView(
             }
         } else {
             LazyColumn(
-                Modifier.fillMaxSize().padding(pad),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                itemsIndexed(items, key = { _, c -> c.conversationId }) { index, c ->
+                itemsIndexed(visible, key = { _, c -> c.conversationId }) { index, c ->
                     Surface(
                         onClick = { onOpen(c.conversationId) },
                         shape = RoundedCornerShape(18.dp),
