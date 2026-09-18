@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Slider
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -38,8 +39,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.BuildConfig
+import com.jarvis.android.data.prefs.SettingsDiagnostics
 import com.jarvis.android.transport.fake.FakeScenario
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.shared.OwnerAvatar
@@ -54,6 +59,15 @@ fun SettingsScreen(vm: JarvisViewModel) {
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val health by vm.healthStatus.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
+    val clipboard = LocalClipboardManager.current
+    var copyNote by remember { mutableStateOf<String?>(null) }
+    val summary = SettingsDiagnostics.securitySummary(settings)
+    val protocol = SettingsDiagnostics.protocolState(
+        appVersionName = BuildConfig.VERSION_NAME,
+        appVersionCode = BuildConfig.VERSION_CODE,
+        negotiatedVersion = snapshot.session.negotiatedProtocolVersion,
+        negotiatedFingerprint = snapshot.session.negotiatedFingerprint,
+    )
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { vm.setAvatar(it) } }
@@ -82,6 +96,20 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            SettingsCard("CONNECTION") {
+                SummaryLine(
+                    "Link",
+                    SettingsDiagnostics.connectionLabel(snapshot.connection, snapshot.phase),
+                )
+                SummaryLine("Pairing", summary.pairingLabel)
+                SummaryLine("Session lock", summary.lockLabel)
+                Text(
+                    "Status only. Pairing and the session are managed below and are never reset from here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             SettingsCard("IDENTITY") {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     OwnerAvatar(store = vm.attachmentStore, epoch = avatarEpoch, size = 64.dp)
@@ -110,10 +138,21 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 }
                 Spacer(Modifier.height(14.dp))
                 SwitchRow(
-                    title = "This device is the OWNER",
-                    subtitle = "Only the owner can see and resolve PC-action approvals",
+                    title = "Present this device as the owner",
+                    subtitle = "Local presentation only. The server still decides what this device may do.",
                     checked = settings.isOwner,
                     onChange = vm::setIsOwner,
+                )
+                Spacer(Modifier.height(8.dp))
+                SummaryLine("Shown as", summary.roleLabel)
+                Text(
+                    if (summary.role == SettingsDiagnostics.RolePresentation.OWNER) {
+                        "Owner view includes pending approvals."
+                    } else {
+                        "Guest view hides approvals. It grants nothing and removes nothing on the server."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -126,7 +165,7 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "DEVICE  ${settings.deviceId?.uppercase() ?: "NOT PROVISIONED"}",
+                    "DEVICE  ${summary.deviceLabel ?: "NOT PROVISIONED"}",
                     style = HudTextStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -145,6 +184,24 @@ fun SettingsScreen(vm: JarvisViewModel) {
                     subtitle = "Turn off ambient glow, pulses and the boot animation",
                     checked = settings.reducedMotion,
                     onChange = vm::setReducedMotion,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Animation intensity ${"%.1f".format(settings.animationIntensity)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFB7C7DC),
+                )
+                Slider(
+                    value = settings.animationIntensity,
+                    onValueChange = vm::setAnimationIntensity,
+                    valueRange = 0.5f..1f,
+                    enabled = !settings.reducedMotion,
+                )
+                SwitchRow(
+                    title = "Compact density",
+                    subtitle = "Tighter spacing. Stored on this phone only.",
+                    checked = settings.compactDensity,
+                    onChange = vm::setCompactDensity,
                 )
                 Spacer(Modifier.height(10.dp))
                 var name by remember(settings.ownerName) { mutableStateOf(settings.ownerName) }
@@ -185,7 +242,7 @@ fun SettingsScreen(vm: JarvisViewModel) {
                         "TTS rate ${"%.1f".format(settings.ttsRate)}x",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    androidx.compose.material3.Slider(
+                    Slider(
                         value = settings.ttsRate,
                         onValueChange = vm::setTtsRate,
                         valueRange = 0.5f..2f,
@@ -193,7 +250,7 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 }
             }
 
-            SettingsCard("CONNECTION") {
+            SettingsCard("GATEWAY") {
                 if (vm.developerOptionsEnabled) {
                     SwitchRow(
                         title = "Use Fake Gateway",
@@ -275,6 +332,56 @@ fun SettingsScreen(vm: JarvisViewModel) {
 
                 DiagnosticsCard(vm, snapshot.session.diagnostics)
             }
+
+            SettingsCard("ABOUT") {
+                SummaryLine("App", "${protocol.appVersionName} (${protocol.appVersionCode})")
+                SummaryLine("Protocol", "${protocol.clientProtocol} ${protocol.clientProtocolVersion}")
+                SummaryLine(
+                    "Server protocol",
+                    protocol.negotiatedVersion.ifBlank { "—" },
+                )
+                SummaryLine("Compatibility", protocol.compatibilityLabel)
+                Text(
+                    "Compatibility is computed locally from the protocol this app speaks. It is not a server grant.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            SettingsCard("TROUBLESHOOTING") {
+                Text(
+                    "Copies counts and categories only. No messages, tokens, device ids, addresses or payloads.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = {
+                    val text = SettingsDiagnostics.diagnosticsCopy(
+                        connection = snapshot.connection,
+                        phase = snapshot.phase,
+                        protocol = protocol,
+                        entries = snapshot.session.diagnostics,
+                    )
+                    if (text == null) {
+                        copyNote = "Nothing copied — the report was not safe to share."
+                    } else {
+                        clipboard.setText(AnnotatedString(text))
+                        copyNote = "Copied."
+                    }
+                }) { Text("Copy diagnostics") }
+                copyNote?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "Resets appearance only: reduced motion, animation intensity, density and the greeting name. Pairing, the device key, the owner flag and the gateway address stay.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = vm::resetLocalUiPreferences) { Text("Reset appearance") }
+            }
             Spacer(Modifier.height(12.dp))
         }
     }
@@ -293,6 +400,14 @@ private fun SettingsCard(title: String, content: @Composable () -> Unit) {
             Spacer(Modifier.height(12.dp))
             content()
         }
+    }
+}
+
+@Composable
+private fun SummaryLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE8EEF8))
     }
 }
 

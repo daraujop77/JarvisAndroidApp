@@ -46,6 +46,13 @@ class SettingsStore(private val context: Context) {
         /** Speak completed assistant replies. Off by default. */
         val readRepliesAloud: Boolean = false,
         val ttsRate: Float = 1f,
+        /**
+         * Local visual intensity, 0.5 (quiet) to 1 (full). Presentation only;
+         * never leaves the device and never changes transport behavior.
+         */
+        val animationIntensity: Float = 1f,
+        /** Tighter spacing. Local chrome only. */
+        val compactDensity: Boolean = false,
     )
 
     private object Keys {
@@ -62,6 +69,8 @@ class SettingsStore(private val context: Context) {
         val PREFER_ON_DEVICE = booleanPreferencesKey("prefer_on_device_recognition")
         val READ_ALOUD = booleanPreferencesKey("read_replies_aloud")
         val TTS_RATE = floatPreferencesKey("tts_rate")
+        val ANIMATION_INTENSITY = floatPreferencesKey("animation_intensity")
+        val COMPACT_DENSITY = booleanPreferencesKey("compact_density")
     }
 
     val settings: Flow<Settings> = context.dataStore.data
@@ -84,6 +93,8 @@ class SettingsStore(private val context: Context) {
                 preferOnDeviceRecognition = prefs[Keys.PREFER_ON_DEVICE] ?: true,
                 readRepliesAloud = prefs[Keys.READ_ALOUD] ?: false,
                 ttsRate = prefs[Keys.TTS_RATE] ?: 1f,
+                animationIntensity = prefs[Keys.ANIMATION_INTENSITY] ?: 1f,
+                compactDensity = prefs[Keys.COMPACT_DENSITY] ?: false,
             )
         }
 
@@ -98,6 +109,23 @@ class SettingsStore(private val context: Context) {
     suspend fun setPreferOnDeviceRecognition(value: Boolean) = context.dataStore.edit { it[Keys.PREFER_ON_DEVICE] = value }
     suspend fun setReadRepliesAloud(value: Boolean) = context.dataStore.edit { it[Keys.READ_ALOUD] = value }
     suspend fun setTtsRate(value: Float) = context.dataStore.edit { it[Keys.TTS_RATE] = value.coerceIn(0.5f, 2f) }
+    suspend fun setAnimationIntensity(value: Float) =
+        context.dataStore.edit { it[Keys.ANIMATION_INTENSITY] = value.coerceIn(0.5f, 1f) }
+
+    suspend fun setCompactDensity(value: Boolean) =
+        context.dataStore.edit { it[Keys.COMPACT_DENSITY] = value }
+
+    /**
+     * Drops local UI chrome only. Pairing, the device id, the owner flag, app
+     * lock, the gateway URL and voice settings are not UI chrome and stay.
+     */
+    suspend fun resetLocalUiPreferences() = context.dataStore.edit {
+        it.remove(Keys.REDUCED_MOTION)
+        it.remove(Keys.OWNER_NAME)
+        it.remove(Keys.ANIMATION_INTENSITY)
+        it.remove(Keys.COMPACT_DENSITY)
+    }
+
     suspend fun setPaired(value: Boolean, deviceId: String? = null) = context.dataStore.edit {
         it[Keys.PAIRED] = value
         if (deviceId != null) it[Keys.DEVICE_ID] = deviceId else it.remove(Keys.DEVICE_ID)
