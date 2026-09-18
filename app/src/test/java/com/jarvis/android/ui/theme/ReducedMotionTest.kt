@@ -2,6 +2,7 @@ package com.jarvis.android.ui.theme
 
 import com.jarvis.android.ui.screens.ConversationA11y
 import com.jarvis.android.ui.screens.HomeA11y
+import com.jarvis.android.ui.screens.TaskApprovalA11y
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -43,5 +44,18 @@ class ReducedMotionTest {
         assertTrue(HomeA11y.QUICK_TASKS.isNotBlank())
         assertTrue(HomeA11y.QUICK_APPROVALS.isNotBlank())
         assertTrue(HomeA11y.QUICK_SETTINGS.isNotBlank())
+    }
+
+    @Test
+    fun taskAndApprovalActionsHaveContentDescriptions() {
+        assertTrue(TaskApprovalA11y.OWNER_ONLY.contains("owner"))
+        assertTrue(TaskApprovalA11y.RESOLVING_NOT_AUTHORITATIVE.contains("not the result"))
+        assertTrue(TaskApprovalA11y.SERVER_OUTCOME.contains("server"))
+        assertTrue(TaskApprovalA11y.EXPIRED_LOCAL.contains("device clock"))
+        assertTrue(TaskApprovalA11y.DUPLICATE_TAP_BLOCKED.contains("Already submitted"))
+        assertTrue(TaskApprovalA11y.BIOMETRIC_REQUIRED.contains("Not approved"))
+        assertTrue(TaskApprovalA11y.PROGRESS_HELD.contains("session state"))
+        assertEquals("Task group RUNNING", TaskApprovalA11y.group("RUNNING"))
+        assertEquals(0, JarvisMotion.durationMs(reducedMotion = true, durationMs = 280))
     }
 }
