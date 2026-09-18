@@ -78,7 +78,6 @@ class ConversationRepository(
         dao.observeMessages(conversationId),
         _live,
     ) { stored, snap ->
-        val live = liveRequestFor(snap, conversationId)
         val persisted = stored.map {
             ChatMessage(
                 clientRequestId = it.clientRequestId,
@@ -89,12 +88,19 @@ class ConversationRepository(
                 attachmentIds = it.attachmentIds.split(',').filter { a -> a.isNotBlank() },
             )
         }.toMutableList()
-        if (live != null && !live.status.isTerminal) {
-            val i = persisted.indexOfFirst { it.clientRequestId == live.clientRequestId && it.role == "assistant" }
-            val row = ChatMessage(live.clientRequestId, "assistant", live.text, live.status, live.startedAtMs)
+        // Every unfinished request stays visible, not only the newest. A
+        // terminal live request is skipped: the persisted row is the one copy.
+        val live = snap.session.requests.values
+            .filter { it.conversationId == conversationId && !it.status.isTerminal }
+            .sortedBy { it.startedAtMs }
+        for (req in live) {
+            val i = persisted.indexOfFirst { it.clientRequestId == req.clientRequestId && it.role == "assistant" }
+            val row = ChatMessage(req.clientRequestId, "assistant", req.text, req.status, req.startedAtMs)
             if (i >= 0) persisted[i] = row else persisted += row
         }
-        persisted.sortedWith(compareBy({ it.createdAtMs }, { if (it.role == "user") 0 else 1 }))
+        persisted
+            .distinctBy { it.role to it.clientRequestId }
+            .sortedWith(compareBy({ it.createdAtMs }, { if (it.role == "user") 0 else 1 }))
     }
 
     fun newConversation(onCreated: (String) -> Unit = {}) {
@@ -291,8 +297,4 @@ class ConversationRepository(
         }
     }
 
-    private fun liveRequestFor(snap: SessionSnapshot, conversationId: String): RequestState? =
-        snap.session.requests.values
-            .filter { it.conversationId == conversationId }
-            .maxByOrNull { it.startedAtMs }
 }

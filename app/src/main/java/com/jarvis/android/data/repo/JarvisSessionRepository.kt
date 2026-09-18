@@ -32,6 +32,13 @@ enum class SessionPhase { DISCONNECTED, CONNECTING, READY, AUTH_EXPIRED, REVOKED
 data class SessionSnapshot(
     val phase: SessionPhase = SessionPhase.DISCONNECTED,
     val session: SessionState = SessionState(),
+    /**
+     * How many backoff sleeps have already elapsed. UI-only. Zero while the
+     * link is usable. Does not schedule work.
+     */
+    val reconnectAttempt: Int = 0,
+    /** Size of the backoff list this session is using. UI-only. */
+    val reconnectBudget: Int = ReconnectPolicy.MAX_ATTEMPTS,
 ) {
     val connection: ConnectionState get() = session.connection
     val isReady: Boolean get() = phase == SessionPhase.READY
@@ -261,16 +268,20 @@ class JarvisSessionRepository(
     fun setForeground(foreground: Boolean) {
         val was = appForeground
         appForeground = foreground
-        if (foreground && !was && started) {
-            val snap = _snapshot.value
-            val closedForGood = snap.phase == SessionPhase.REVOKED ||
-                snap.phase == SessionPhase.MISMATCH ||
-                snap.phase == SessionPhase.AUTH_EXPIRED
-            if (!closedForGood && !snap.session.connection.isUsable) {
-                reconnectAttempts = 0
-                scheduleReconnect()
-            }
-        }
+        if (!foreground || was || !started) return
+        val snap = _snapshot.value
+        val closedForGood = snap.phase == SessionPhase.REVOKED ||
+            snap.phase == SessionPhase.MISMATCH ||
+            snap.phase == SessionPhase.AUTH_EXPIRED
+        if (closedForGood || snap.session.connection.isUsable) return
+        // A loop already waiting on the next backoff sleep must not be
+        // restarted. Resetting it would open a second connect for the same
+        // outage. A loop that already parked (background, or budget spent)
+        // is resumed once, with a fresh budget, by the call below.
+        if (reconnectJob?.isActive == true) return
+        reconnectAttempts = 0
+        publishAttempt(0)
+        scheduleReconnect()
     }
 
     // ---- internals ------------------------------------------------------------
@@ -284,7 +295,8 @@ class JarvisSessionRepository(
     private fun onFrame(frame: String) {
         _snapshot.update { cur ->
             val (newSession, result) = reducer.reduce(cur.session, frame)
-            cur.copy(
+            publish(
+                cur,
                 phase = derivePhase(cur.phase, newSession.connection, result),
                 session = newSession,
             )
@@ -313,6 +325,7 @@ class JarvisSessionRepository(
         when (state) {
             LinkState.CONNECTED -> {
                 reconnectAttempts = 0
+                publishAttempt(0)
                 reconnectJob?.cancel()
                 reconnectJob = null
                 // Ask server to replay anything missed while down, from our cursor.
@@ -322,11 +335,12 @@ class JarvisSessionRepository(
                 }
             }
             LinkState.RECONNECTING, LinkState.CLOSED, LinkState.FAILED -> {
-                mutate { Reducer.onDisconnected(it) }
                 _snapshot.update {
-                    if (it.phase == SessionPhase.READY || it.phase == SessionPhase.CONNECTING) {
-                        it.copy(phase = SessionPhase.DISCONNECTED)
-                    } else it
+                    val session = Reducer.onDisconnected(it.session)
+                    val phase = if (it.phase == SessionPhase.READY || it.phase == SessionPhase.CONNECTING) {
+                        SessionPhase.DISCONNECTED
+                    } else it.phase
+                    publish(it, phase = phase, session = session)
                 }
                 scheduleReconnect()
             }
@@ -359,9 +373,11 @@ class JarvisSessionRepository(
             delay(delayMs)
             attempts++
             reconnectAttempts = attempts
+            publishAttempt(attempts)
             val cur = _snapshot.value
             if (cur.session.connection.isUsable) {
                 reconnectAttempts = 0
+                publishAttempt(0)
                 return
             }
             // A fail-closed frame (revoked / mismatch / expired) may have
@@ -379,15 +395,33 @@ class JarvisSessionRepository(
 
     private fun goToConnecting() {
         _snapshot.update {
-            it.copy(
+            publish(
+                it,
                 phase = SessionPhase.CONNECTING,
                 session = it.session.copy(connection = ConnectionState.CONNECTING),
             )
         }
     }
 
+    /** Mirror the backoff counter onto the snapshot. Does not schedule a retry. */
+    private fun publishAttempt(attempt: Int) {
+        _snapshot.update { publish(it, phase = it.phase, session = it.session, attempt = attempt) }
+    }
+
+    private fun publish(
+        cur: SessionSnapshot,
+        phase: SessionPhase,
+        session: SessionState,
+        attempt: Int = reconnectAttempts,
+    ): SessionSnapshot = cur.copy(
+        phase = phase,
+        session = session,
+        reconnectAttempt = attempt,
+        reconnectBudget = backoffMs.size,
+    )
+
     private inline fun mutate(crossinline f: (SessionState) -> SessionState) {
-        _snapshot.update { it.copy(session = f(it.session)) }
+        _snapshot.update { publish(it, phase = it.phase, session = f(it.session)) }
     }
 
     /**
@@ -400,7 +434,7 @@ class JarvisSessionRepository(
         _snapshot.update { cur ->
             val next = f(cur.session)
             changed = next !== cur.session
-            if (changed) cur.copy(session = next) else cur
+            if (changed) publish(cur, phase = cur.phase, session = next) else cur
         }
         return changed
     }

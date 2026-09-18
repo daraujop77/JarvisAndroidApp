@@ -107,6 +107,7 @@ import com.jarvis.android.data.local.ConversationListItem
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.ConnectionState
 import com.jarvis.android.data.state.RequestStatus
+import com.jarvis.android.ui.recovery.RecoveryUx
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.home.JarvisVisualState
@@ -652,11 +653,15 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                             )
+                            val link = RecoveryUx.link(
+                                snapshot, snapshot.reconnectAttempt, snapshot.reconnectBudget,
+                            )
                             Text(
                                 when {
                                     streaming -> "responding…"
                                     openItem?.locallyRenamed == true -> ConversationA11y.LOCAL_ONLY_HINT
-                                    !snapshot.connection.isUsable -> "offline · saved on this device"
+                                    link.kind != RecoveryUx.LinkKind.ONLINE ->
+                                        link.detail.ifBlank { link.headline.lowercase() }
                                     else -> "ready"
                                 },
                                 style = HudTextStyle,

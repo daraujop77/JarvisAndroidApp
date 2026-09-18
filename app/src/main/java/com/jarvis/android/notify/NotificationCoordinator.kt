@@ -42,6 +42,12 @@ class NotificationCoordinator(context: Context) {
         appForeground = foreground
     }
 
+    /**
+     * The dedupe ledger already on disk, or null when this process has not
+     * recorded one. Read-only: showing it must not mark anything notified.
+     */
+    fun persistedLedger(): String? = prefs.getString(KEY_STATE, null)
+
     /** Called for every snapshot; emits only *new* meaningful transitions. */
     fun onSnapshot(snap: SessionSnapshot) {
         val actions = policy.evaluate(snap, foreground = appForeground)

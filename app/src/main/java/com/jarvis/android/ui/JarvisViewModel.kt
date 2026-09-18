@@ -241,6 +241,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun reconnect() = session.reconnectNow()
 
+    /**
+     * Notification dedupe ledger the coordinator already persisted. Null when
+     * nothing has been deduped. Reading it does not notify.
+     */
+    fun notificationDedupeLedger(): String? =
+        runCatching { app.notifications.persistedLedger() }.getOrNull()
+
     /** AND-W3 skeleton: provision the non-exportable device keypair. */
     // ---- PCB-LIVE-1: PC-A authenticated app session --------------------------
 
