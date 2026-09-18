@@ -1,0 +1,53 @@
+{
+  "task_id": "ANDROID-A3-A9-A8-A4-A5-INTEGRATION",
+  "branch": "android/r3-r4-a3-a9-integration",
+  "BASE_SHA": "b299da568cde2e12c2548e21df57abc0c8ca593e",
+  "picked_shas": [
+    "a0133ff9151f904926cd7db3492c56b7f8aea986",
+    "addf9675c3ed5852803f585ff5c2ab33ba75691b"
+  ],
+  "FINAL_SHA": "b4d43c21a686c4872f2265cd2f759175b7f6f06d",
+  "cherry_pick": "clean, no conflicts, in order",
+  "excluded_shas_not_picked": [
+    "cfea5b2",
+    "32cc428",
+    "644d625",
+    "523c0b8",
+    "7f36cda",
+    "767837a"
+  ],
+  "features_added": false,
+  "conflicts_resolved": false,
+  "ROOM_VERSION": 6,
+  "database_bump": false,
+  "unit_tests": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "suites": 23,
+    "tests": 216,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "result": "BUILD SUCCESSFUL"
+  },
+  "assemble_debug": {
+    "command": ":app:assembleDebug --no-daemon",
+    "result": "BUILD SUCCESSFUL"
+  },
+  "jdk": "Android Studio JBR 21.0.10",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "A6_INCLUDED": false,
+  "a6_types_absent": [
+    "JarvisVisualSystem",
+    "JarvisTokens",
+    "UiDensity",
+    "WidthClass",
+    "AdaptiveLayout",
+    "rememberAdaptiveLayout"
+  ],
+  "server_delete_added": false,
+  "new_approval_power_added": false,
+  "projects_fixture_labeled_not_live": true,
+  "MERGED_TO_R2": false,
+  "RESULT": "READY_FOR_PC_A_ANDROID_REVIEW"
+}
