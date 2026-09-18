@@ -1,0 +1,60 @@
+{
+  "task_id": "ANDROID-A3-HOME-COMMAND-CENTER",
+  "phase": "A3",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "da27df54c2b2cac3691e724d274e731a778b0ed3",
+  "base_sha": "18a507995f0ea1adf5f5763b7530ed8e1f96f5bd",
+  "head_at_review": "99b30286b25305d2b4babd429893baf6987cd395",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "reviewer": "independent-not-builder",
+  "builder_evidence_commits_ignored": [
+    "6fa447c",
+    "b3f6922",
+    "99b3028"
+  ],
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "forced_execution": ":app:testDebugUnitTest --no-daemon --rerun-tasks",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "suites": 20,
+    "tests": 188,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "full_suite_rerun": true,
+    "assemble_debug_rerun": false,
+    "emulator_or_device": false,
+    "adb_used": false
+  },
+  "checks": {
+    "home_uses_existing_local_session_state_only": true,
+    "missing_data_shows_unknown_or_empty_not_fake_counts": true,
+    "model_profile_from_server_catalog_or_explicitly_unknown": true,
+    "pending_approval_count_owner_only": true,
+    "guest_does_not_see_pending_count_as_own": true,
+    "fixture_projects_labeled_not_live_backed": true,
+    "fixture_projects_hidden_outside_debug": true,
+    "visual_states_ui_only": true,
+    "backend_reducer_semantics_unchanged": true,
+    "contract_webv1_byte_identical": true,
+    "app_contract_byte_identical": true,
+    "transport_unchanged": true,
+    "no_destructive_room_change": true,
+    "physical_device_used": false,
+    "adb_used": false,
+    "a4_started": false
+  },
+  "evidence": {
+    "diff": "git diff 18a5079..da27df5",
+    "home_assembly": "HomeCommandCenter.snapshot from bootShown, SessionState, voice, settings.isOwner, chatAccess catalog, local conversations, debug ProjectsResult",
+    "profile_path": "profileFromServer returns null label/model when catalog is null or empty; HomeScreen shows UNKNOWN and HomeA11y.PROFILE_UNKNOWN",
+    "approvals_path": "pendingApprovalCount returns null for !isOwner; HomeScreen shows em dash and owner-only caption; nav badge uses pendingApprovalCount ?: 0 so guests do not inherit a count",
+    "projects_path": "fixtureProjects Hidden unless BuildConfig.DEBUG; visible card always labels HomeA11y.PROJECTS_NOT_LIVE",
+    "visual_state": "JarvisVisualState enum maps to orb/ambient only; data/state/Reducer and SessionPhase are untouched in this diff",
+    "room": "JarvisDatabase, JarvisEntities, and app/schemas unchanged vs 18a5079"
+  }
+}
