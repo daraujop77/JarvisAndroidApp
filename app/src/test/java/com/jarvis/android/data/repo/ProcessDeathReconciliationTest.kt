@@ -6,6 +6,7 @@ import com.jarvis.android.data.local.ConversationLocalMetaEntity
 import com.jarvis.android.data.local.JarvisDao
 import com.jarvis.android.data.local.MessageEntity
 import com.jarvis.android.data.local.PendingOutboundEntity
+import com.jarvis.android.data.local.StagedAttachmentEntity
 import com.jarvis.android.data.state.RequestStatus
 import kotlinx.coroutines.flow.first
 import com.jarvis.android.transport.fake.FakeConfig
@@ -307,5 +308,23 @@ private class FakeDao : JarvisDao {
 
     override suspend fun upsertLocalMeta(meta: ConversationLocalMetaEntity) {
         localMeta.update { it + (meta.conversationId to meta) }
+    }
+
+    private val staged = MutableStateFlow<Map<String, StagedAttachmentEntity>>(emptyMap())
+
+    override fun observeStagedAttachments(id: String): Flow<List<StagedAttachmentEntity>> =
+        staged.map { rows -> rows.values.filter { it.conversationId == id } }
+
+    override suspend fun stagedAttachments(id: String): List<StagedAttachmentEntity> =
+        staged.value.values.filter { it.conversationId == id }
+
+    override suspend fun stagedAttachment(id: String): StagedAttachmentEntity? = staged.value[id]
+
+    override suspend fun upsertStagedAttachment(row: StagedAttachmentEntity) {
+        staged.update { it + (row.attachmentId to row) }
+    }
+
+    override suspend fun deleteStagedAttachment(id: String) {
+        staged.update { it - id }
     }
 }

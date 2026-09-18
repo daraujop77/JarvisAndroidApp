@@ -42,6 +42,11 @@ class AppContainer(private val context: Context) {
         com.jarvis.android.data.media.AttachmentStore(context)
     }
 
+    /** Composer-bound staged attachments. Room-backed, so chips survive process death. */
+    val attachmentStaging: com.jarvis.android.data.media.AttachmentStagingStore by lazy {
+        com.jarvis.android.data.media.AttachmentStagingStore(dao)
+    }
+
     private val fake = FakeGateway(scope)
     private val http by lazy {
         HttpGatewayTransport(

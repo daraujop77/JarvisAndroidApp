@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
+import java.util.LinkedHashMap
 import java.util.UUID
 
 data class StagedAttachment(
@@ -32,6 +33,15 @@ class AttachmentStore(context: Context) {
 
     private val appContext = context.applicationContext
     private val dir = File(appContext.filesDir, "attachments").apply { mkdirs() }
+    private val thumbDir = File(dir, "thumbs").apply { mkdirs() }
+
+    /** Decoded thumbnails kept in memory. Oldest entry is evicted past this. */
+    private val thumbCache = object : LinkedHashMap<ThumbKey, Bitmap>(THUMB_CACHE_MAX, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ThumbKey, Bitmap>?) =
+            size > THUMB_CACHE_MAX
+    }
+
+    private data class ThumbKey(val attachmentId: String, val maxSize: Int)
 
     /** False when the upload contract is still frozen-pending: fake mode only. */
     val uploadPending: Boolean = true
@@ -55,23 +65,70 @@ class AttachmentStore(context: Context) {
         )
     }.getOrNull()
 
-    fun resolve(attachmentId: String): File? =
-        dir.listFiles()?.firstOrNull { it.name.startsWith(attachmentId) && it.extension == "jpg" }
+    fun resolve(attachmentId: String): File? {
+        if (!isOpaqueId(attachmentId)) return null
+        val direct = File(dir, "$attachmentId.jpg")
+        return direct.takeIf { it.isFile }
+    }
 
-    fun decodeThumbnail(attachmentId: String, maxSize: Int = 512): Bitmap? = runCatching {
-        val f = resolve(attachmentId) ?: return@runCatching null
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(f.absolutePath, bounds)
-        var sample = 1
-        while (bounds.outWidth / sample > maxSize || bounds.outHeight / sample > maxSize) sample *= 2
-        BitmapFactory.decodeFile(
-            f.absolutePath,
-            BitmapFactory.Options().apply { inSampleSize = sample },
-        )
-    }.getOrNull()
+    /**
+     * Decode a bounded thumbnail. The decoded bitmap is cached in memory
+     * (LRU, [THUMB_CACHE_MAX] entries) and on disk under `thumbs/`, so a
+     * recomposition or a process restart never re-decodes the full JPEG and
+     * never holds more than the cap. [maxSize] is clamped to [MAX_THUMB_EDGE].
+     */
+    fun decodeThumbnail(attachmentId: String, maxSize: Int = 256): Bitmap? {
+        if (!isOpaqueId(attachmentId)) return null
+        val edge = maxSize.coerceIn(1, MAX_THUMB_EDGE)
+        val key = ThumbKey(attachmentId, edge)
+        synchronized(thumbCache) { thumbCache[key]?.let { return it } }
+        val decoded = runCatching { decodeThumbnailUncached(attachmentId, edge) }.getOrNull() ?: return null
+        synchronized(thumbCache) { thumbCache[key] = decoded }
+        return decoded
+    }
+
+    /** How many decoded thumbnails are currently held. Test seam. */
+    fun cachedThumbnailCount(): Int = synchronized(thumbCache) { thumbCache.size }
 
     fun delete(attachmentId: String) {
+        if (!isOpaqueId(attachmentId)) return
         runCatching { resolve(attachmentId)?.delete() }
+        dropThumbnail(attachmentId)
+    }
+
+    /** Forget the decoded thumbnail for one attachment, memory and disk. */
+    fun dropThumbnail(attachmentId: String) {
+        if (!isOpaqueId(attachmentId)) return
+        synchronized(thumbCache) {
+            thumbCache.keys.filter { it.attachmentId == attachmentId }.forEach { thumbCache.remove(it) }
+        }
+        runCatching { File(thumbDir, "$attachmentId.jpg").delete() }
+    }
+
+    private fun decodeThumbnailUncached(attachmentId: String, edge: Int): Bitmap? {
+        val cached = File(thumbDir, "$attachmentId.jpg")
+        if (cached.isFile && cached.length() > 0) {
+            decodeSampled(cached, edge)?.let { return it }
+        }
+        val source = resolve(attachmentId) ?: return null
+        val decoded = decodeSampled(source, edge) ?: return null
+        // Persist a small copy so the next process doesn't re-decode the full image.
+        runCatching {
+            cached.outputStream().use { decoded.compress(Bitmap.CompressFormat.JPEG, 80, it) }
+        }
+        return decoded
+    }
+
+    private fun decodeSampled(file: File, edge: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / sample > edge || bounds.outHeight / sample > edge) sample *= 2
+        return BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        )
     }
 
     // ---- owner avatar (local only; never uploaded) ----------------------------
@@ -171,4 +228,17 @@ class AttachmentStore(context: Context) {
         val mime = appContext.contentResolver.getType(uri) ?: "image/jpeg"
         Triple(name, mime, size)
     }.getOrNull()
+
+    companion object {
+        /** Decoded thumbnails retained at once. Beyond this the oldest is dropped. */
+        const val THUMB_CACHE_MAX = 16
+
+        /** No thumbnail decode may request an edge larger than this. */
+        const val MAX_THUMB_EDGE = 512
+
+        /** Opaque ids minted by [stageFrom]: `att_` plus 12 hex-ish chars. */
+        private val OPAQUE_ID = Regex("att_[0-9a-fA-F-]{8,36}")
+
+        fun isOpaqueId(attachmentId: String): Boolean = OPAQUE_ID.matches(attachmentId)
+    }
 }

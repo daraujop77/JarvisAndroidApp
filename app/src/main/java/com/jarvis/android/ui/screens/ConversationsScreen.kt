@@ -15,6 +15,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -104,6 +105,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.data.local.ConversationListItem
+import com.jarvis.android.data.media.AttachmentChipModel
+import com.jarvis.android.data.media.AttachmentPhase
+import com.jarvis.android.data.media.AttachmentUx
+import com.jarvis.android.data.media.StagedAttachmentRef
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.ConnectionState
 import com.jarvis.android.data.state.RequestStatus
@@ -559,6 +564,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { vm.stageAttachment(it) } }
 
+    var previewAttachmentId by remember { mutableStateOf<String?>(null) }
+
     val liveRequest = snapshot.session.requests.values.firstOrNull { !it.status.isTerminal }
     val streaming = liveRequest != null
     val voice by vm.voiceUi.collectAsStateWithLifecycle()
@@ -799,6 +806,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     attachments = pendingAttachments,
                     attachmentState = { id -> snapshot.session.attachments[id] },
                     onRemove = { vm.removePendingAttachment(it.attachmentId) },
+                    onRetry = { vm.retryAttachment(it.attachmentId) },
+                    onPreview = { previewAttachmentId = it.attachmentId },
                     attachmentStore = vm.attachmentStore,
                 )
             }
@@ -848,6 +857,16 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 onSend = { vm.sendWithAttachments(input) },
             )
         }
+    }
+
+    val previewing = previewAttachmentId
+    if (previewing != null) {
+        AttachmentPreviewDialog(
+            attachmentId = previewing,
+            model = AttachmentUx.chip(previewing, snapshot.session.attachments[previewing]),
+            attachmentStore = vm.attachmentStore,
+            onDismiss = { previewAttachmentId = null },
+        )
     }
 
     val renaming = openItem
@@ -1186,53 +1205,57 @@ private fun AttachmentChip(
     attachmentId: String,
     state: com.jarvis.android.data.state.AttachmentUiState?,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
+    onPreview: () -> Unit = {},
 ) {
+    val model = AttachmentUx.chip(attachmentId, state)
     val thumb by rememberAttachmentThumb(attachmentId, attachmentStore)
-    val statusText = when {
-        state == null -> "STAGED"
-        state.uploading -> "UPLOADING"
-        state.ready -> "ATTACHED"
-        else -> "FAILED"
-    }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
                 .size(92.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surface),
+                .background(MaterialTheme.colorScheme.surface)
+                .clickable(onClick = onPreview)
+                .semantics { contentDescription = attachmentChipDescription(model) },
             contentAlignment = Alignment.Center,
         ) {
             val bitmap = thumb
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "Attachment",
+                    contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
             } else {
                 Icon(Icons.Filled.Image, contentDescription = null)
             }
-            if (state?.uploading == true) {
+            if (model.showProgress) {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             }
         }
         Spacer(Modifier.height(3.dp))
         Text(
-            statusText,
+            model.label,
             style = HudTextStyle,
-            color = if (state == null || state.ready || state.uploading)
-                MaterialTheme.colorScheme.onSurfaceVariant
-            else MaterialTheme.colorScheme.error,
+            color = if (model.phase == AttachmentPhase.FAILED)
+                MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
+/** Spoken/visible description. Never includes a path, URI, or the raw id. */
+internal fun attachmentChipDescription(model: AttachmentChipModel): String =
+    "Attachment, ${model.label.lowercase()}. ${model.detail}"
+
 @Composable
 private fun PendingAttachmentStrip(
-    attachments: List<com.jarvis.android.data.media.StagedAttachment>,
+    attachments: List<StagedAttachmentRef>,
     attachmentState: (String) -> com.jarvis.android.data.state.AttachmentUiState?,
-    onRemove: (com.jarvis.android.data.media.StagedAttachment) -> Unit,
+    onRemove: (StagedAttachmentRef) -> Unit,
+    onRetry: (StagedAttachmentRef) -> Unit,
+    onPreview: (StagedAttachmentRef) -> Unit,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
 ) {
     LazyRow(
@@ -1240,38 +1263,114 @@ private fun PendingAttachmentStrip(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(attachments, key = { it.attachmentId }) { a ->
-            Box(Modifier.size(76.dp)) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    val bmp by rememberAttachmentThumb(a.attachmentId, attachmentStore)
-                    val bitmap = bmp
-                    if (bitmap != null) {
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                        )
-                    } else {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            if (attachmentState(a.attachmentId)?.uploading == true) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
+            val model = AttachmentUx.chip(a.attachmentId, attachmentState(a.attachmentId))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(76.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable { onPreview(a) }
+                            .semantics { contentDescription = attachmentChipDescription(model) },
+                    ) {
+                        val bmp by rememberAttachmentThumb(a.attachmentId, attachmentStore)
+                        val bitmap = bmp
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Filled.Image, contentDescription = null)
                             }
                         }
+                        if (model.showProgress) {
+                            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                            }
+                        }
+                    }
+                    if (model.canRemove) {
+                        FilledIconButton(
+                            onClick = { onRemove(a) },
+                            modifier = Modifier.align(Alignment.TopEnd).size(24.dp),
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = "Remove attachment", modifier = Modifier.size(14.dp))
+                        }
+                    }
+                    if (model.canRetry) {
+                        FilledIconButton(
+                            onClick = { onRetry(a) },
+                            modifier = Modifier.align(Alignment.BottomStart).size(24.dp),
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Retry upload", modifier = Modifier.size(14.dp))
+                        }
                     }
                 }
-                FilledIconButton(
-                    onClick = { onRemove(a) },
-                    modifier = Modifier.align(Alignment.TopEnd).size(24.dp),
-                ) {
-                    Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(14.dp))
-                }
+                Text(
+                    model.label,
+                    style = HudTextStyle,
+                    color = if (model.phase == AttachmentPhase.FAILED)
+                        MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
 }
+
+/**
+ * Full local preview. The image shown is the EXIF-stripped private copy; the
+ * dialog states the phase explicitly so a local preview is never read as an
+ * uploaded attachment.
+ */
+@Composable
+private fun AttachmentPreviewDialog(
+    attachmentId: String,
+    model: AttachmentChipModel,
+    attachmentStore: com.jarvis.android.data.media.AttachmentStore,
+    onDismiss: () -> Unit,
+) {
+    val thumb by rememberAttachmentThumb(attachmentId, attachmentStore, maxSize = 512)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(model.label) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val bitmap = thumb
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = attachmentChipDescription(model),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Box(
+                        Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (model.showProgress) {
+                            CircularProgressIndicator()
+                        } else {
+                            Icon(Icons.Filled.Image, contentDescription = null)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(model.detail, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+    )
+}
+
