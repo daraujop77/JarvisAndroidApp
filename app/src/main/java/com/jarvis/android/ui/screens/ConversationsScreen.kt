@@ -116,6 +116,7 @@ import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.JarvisMotion
 import com.jarvis.android.ui.theme.LocalReducedMotion
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 import com.jarvis.android.voice.VoicePhase
@@ -792,8 +793,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
             AnimatedVisibility(
                 visible = pendingAttachments.isNotEmpty(),
-                enter = if (reduced) fadeIn() else fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut(),
+                enter = if (reduced) fadeIn(JarvisMotion.standard()) else fadeIn(JarvisMotion.standard()) + slideInVertically(JarvisMotion.standard()) { it / 2 },
+                exit = fadeOut(JarvisMotion.standard()),
             ) {
                 PendingAttachmentStrip(
                     attachments = pendingAttachments,
@@ -972,6 +973,7 @@ private fun Composer(
     onSend: () -> Unit,
 ) {
     val accents = LocalJarvisAccents.current
+    val sendSpec = JarvisMotion.standard<Float>(180)
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1013,7 +1015,10 @@ private fun Composer(
         // is always the one the user actually needs.
         androidx.compose.animation.AnimatedContent(
             targetState = streaming,
-            transitionSpec = { (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut()) },
+            transitionSpec = {
+                (fadeIn(sendSpec) + scaleIn(sendSpec))
+                    .togetherWith(fadeOut(sendSpec) + scaleOut(sendSpec))
+            },
             label = "sendStop",
         ) { isStreaming ->
             if (isStreaming) {
@@ -1027,6 +1032,7 @@ private fun Composer(
                 val reducedMotion = LocalReducedMotion.current
                 val scale by animateFloatAsState(
                     targetValue = if (canSend || reducedMotion) 1f else 0.85f,
+                    animationSpec = JarvisMotion.standard(180),
                     label = "sendScale",
                 )
                 FilledIconButton(

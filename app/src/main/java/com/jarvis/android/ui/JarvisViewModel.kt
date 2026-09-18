@@ -13,6 +13,7 @@ import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.repo.ConversationSummary
 import com.jarvis.android.data.repo.SessionSnapshot
 import com.jarvis.android.di.AppContainer
+import com.jarvis.android.ui.theme.JarvisVisualSystem
 import com.jarvis.android.transport.fake.FakeScenario
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
@@ -509,6 +510,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun setReducedMotion(value: Boolean) = viewModelScope.launch { container.settings.setReducedMotion(value) }
+
+    fun setAnimationIntensity(value: String) = viewModelScope.launch {
+        container.settings.setAnimationIntensity(
+            JarvisVisualSystem.persist(JarvisVisualSystem.intensityOf(value)),
+        )
+    }
+
+    fun setUiDensity(value: String) = viewModelScope.launch {
+        container.settings.setUiDensity(
+            JarvisVisualSystem.persist(JarvisVisualSystem.densityOf(value)),
+        )
+    }
 
     fun setOwnerName(value: String) = viewModelScope.launch { container.settings.setOwnerName(value.trim()) }
 

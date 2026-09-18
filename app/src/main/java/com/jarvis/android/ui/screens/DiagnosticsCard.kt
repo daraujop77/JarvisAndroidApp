@@ -1,6 +1,8 @@
 package com.jarvis.android.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.data.state.DiagnosticEntry
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.theme.HudTextStyle
+import com.jarvis.android.ui.theme.JarvisMotion
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 
 /**
@@ -88,7 +91,7 @@ fun DiagnosticsCard(vm: JarvisViewModel, diagnostics: List<DiagnosticEntry>) {
                 )
             }
 
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(visible = expanded, enter = fadeIn(JarvisMotion.standard()), exit = fadeOut(JarvisMotion.standard())) {
                 LazyColumn(
                     Modifier.fillMaxWidth().height(220.dp).padding(top = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),

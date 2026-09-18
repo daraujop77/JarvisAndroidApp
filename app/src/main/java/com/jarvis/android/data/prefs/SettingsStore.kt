@@ -46,6 +46,13 @@ class SettingsStore(private val context: Context) {
         /** Speak completed assistant replies. Off by default. */
         val readRepliesAloud: Boolean = false,
         val ttsRate: Float = 1f,
+        /**
+         * Local-only decorative motion. Never a server field. Reduced motion
+         * still collapses every animation regardless of this value.
+         */
+        val animationIntensity: String = "standard",
+        /** Local-only spacing density. Compact vs comfortable. */
+        val uiDensity: String = "comfortable",
     )
 
     private object Keys {
@@ -62,6 +69,8 @@ class SettingsStore(private val context: Context) {
         val PREFER_ON_DEVICE = booleanPreferencesKey("prefer_on_device_recognition")
         val READ_ALOUD = booleanPreferencesKey("read_replies_aloud")
         val TTS_RATE = floatPreferencesKey("tts_rate")
+        val ANIMATION_INTENSITY = stringPreferencesKey("animation_intensity")
+        val UI_DENSITY = stringPreferencesKey("ui_density")
     }
 
     val settings: Flow<Settings> = context.dataStore.data
@@ -84,6 +93,14 @@ class SettingsStore(private val context: Context) {
                 preferOnDeviceRecognition = prefs[Keys.PREFER_ON_DEVICE] ?: true,
                 readRepliesAloud = prefs[Keys.READ_ALOUD] ?: false,
                 ttsRate = prefs[Keys.TTS_RATE] ?: 1f,
+                animationIntensity = when (prefs[Keys.ANIMATION_INTENSITY]) {
+                    "subtle" -> "subtle"
+                    else -> "standard"
+                },
+                uiDensity = when (prefs[Keys.UI_DENSITY]) {
+                    "compact" -> "compact"
+                    else -> "comfortable"
+                },
             )
         }
 
@@ -98,6 +115,12 @@ class SettingsStore(private val context: Context) {
     suspend fun setPreferOnDeviceRecognition(value: Boolean) = context.dataStore.edit { it[Keys.PREFER_ON_DEVICE] = value }
     suspend fun setReadRepliesAloud(value: Boolean) = context.dataStore.edit { it[Keys.READ_ALOUD] = value }
     suspend fun setTtsRate(value: Float) = context.dataStore.edit { it[Keys.TTS_RATE] = value.coerceIn(0.5f, 2f) }
+    suspend fun setAnimationIntensity(value: String) = context.dataStore.edit {
+        it[Keys.ANIMATION_INTENSITY] = if (value == "subtle") "subtle" else "standard"
+    }
+    suspend fun setUiDensity(value: String) = context.dataStore.edit {
+        it[Keys.UI_DENSITY] = if (value == "compact") "compact" else "comfortable"
+    }
     suspend fun setPaired(value: Boolean, deviceId: String? = null) = context.dataStore.edit {
         it[Keys.PAIRED] = value
         if (deviceId != null) it[Keys.DEVICE_ID] = deviceId else it.remove(Keys.DEVICE_ID)

@@ -2,6 +2,7 @@ package com.jarvis.android.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ import com.jarvis.android.ui.components.AmbientBackdrop
 import com.jarvis.android.ui.home.JarvisVisualState
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.theme.HudTextStyle
+import com.jarvis.android.ui.theme.JarvisMotion
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 import kotlinx.coroutines.delay
@@ -173,7 +175,7 @@ fun PairingScreen(
                 ) { Text("Continue with Fake Gateway") }
             }
 
-            AnimatedVisibility(visible = deviceId != null, enter = fadeIn()) {
+            AnimatedVisibility(visible = deviceId != null, enter = fadeIn(JarvisMotion.standard())) {
                 Text(
                     "IDENTITY ${deviceId?.take(18)?.uppercase() ?: ""}",
                     style = HudTextStyle,
@@ -247,7 +249,7 @@ fun PairingScreen(
                     },
                 )
             }
-            AnimatedVisibility(visible = liveAuth is JarvisViewModel.LiveAuthState.Error) {
+            AnimatedVisibility(visible = liveAuth is JarvisViewModel.LiveAuthState.Error, enter = fadeIn(JarvisMotion.standard()), exit = fadeOut(JarvisMotion.standard())) {
                 Text(
                     (liveAuth as? JarvisViewModel.LiveAuthState.Error)?.message.orEmpty(),
                     style = MaterialTheme.typography.bodySmall,

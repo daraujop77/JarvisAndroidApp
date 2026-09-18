@@ -17,16 +17,34 @@ import androidx.compose.runtime.staticCompositionLocalOf
  */
 val LocalReducedMotion = staticCompositionLocalOf { false }
 
+/** Local-only decorative intensity. Reduced motion still wins. */
+val LocalAnimationIntensity = staticCompositionLocalOf { AnimationIntensity.STANDARD }
+
+/** Local-only compact/comfortable spacing. */
+val LocalUiDensity = staticCompositionLocalOf { UiDensity.COMFORTABLE }
+
 object JarvisMotion {
 
     val EmphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
     /** JVM-testable: decorative duration collapses to 0 when reduced motion is on. */
     fun durationMs(reducedMotion: Boolean, durationMs: Int): Int =
-        if (reducedMotion) 0 else durationMs
+        JarvisVisualSystem.durationMs(reducedMotion, AnimationIntensity.STANDARD, durationMs)
+
+    fun durationMs(
+        reducedMotion: Boolean,
+        intensity: AnimationIntensity,
+        durationMs: Int,
+    ): Int = JarvisVisualSystem.durationMs(reducedMotion, intensity, durationMs)
 
     fun loopMs(reducedMotion: Boolean, durationMs: Int): Int? =
-        if (reducedMotion) null else durationMs
+        JarvisVisualSystem.loopMs(reducedMotion, AnimationIntensity.STANDARD, durationMs)
+
+    fun loopMs(
+        reducedMotion: Boolean,
+        intensity: AnimationIntensity,
+        durationMs: Int,
+    ): Int? = JarvisVisualSystem.loopMs(reducedMotion, intensity, durationMs)
 
     /** Entrance for chat bubbles and cards. */
     @Composable
@@ -39,11 +57,22 @@ object JarvisMotion {
     @Composable
     @ReadOnlyComposable
     fun <T> standard(durationMs: Int = 280): FiniteAnimationSpec<T> =
-        tween(durationMs(LocalReducedMotion.current, durationMs), easing = EmphasizedEasing)
+        tween(
+            JarvisVisualSystem.durationMs(
+                LocalReducedMotion.current,
+                LocalAnimationIntensity.current,
+                durationMs,
+            ),
+            easing = EmphasizedEasing,
+        )
 
     /** Loop duration helper: returns null when looping motion should be skipped. */
     @Composable
     @ReadOnlyComposable
     fun loopMs(durationMs: Int): Int? =
-        loopMs(LocalReducedMotion.current, durationMs)
+        JarvisVisualSystem.loopMs(
+            LocalReducedMotion.current,
+            LocalAnimationIntensity.current,
+            durationMs,
+        )
 }

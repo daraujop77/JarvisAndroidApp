@@ -33,8 +33,11 @@ import com.jarvis.android.ui.components.AmbientBackdrop
 import com.jarvis.android.ui.home.JarvisVisualState
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.theme.HudTextStyle
+import com.jarvis.android.ui.theme.JarvisVisualSystem
+import com.jarvis.android.ui.theme.LocalAnimationIntensity
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
+import com.jarvis.android.ui.theme.rememberAdaptiveLayout
 import kotlinx.coroutines.delay
 
 private val BootLines = listOf(
@@ -55,13 +58,16 @@ fun WelcomeScreen(
     onFinished: () -> Unit,
 ) {
     val reduced = LocalReducedMotion.current
+    val intensity = LocalAnimationIntensity.current
     val accents = LocalJarvisAccents.current
+    val layout = rememberAdaptiveLayout()
     var stage by remember { mutableIntStateOf(if (reduced) BootLines.size else 0) }
     var greet by remember { androidx.compose.runtime.mutableStateOf(reduced) }
+    val bootMs = JarvisVisualSystem.durationMs(reduced, intensity, 420)
 
     val progress by animateFloatAsState(
         targetValue = stage / BootLines.size.toFloat(),
-        animationSpec = tween(if (reduced) 0 else 420),
+        animationSpec = tween(bootMs),
         label = "boot",
     )
 
@@ -82,7 +88,7 @@ fun WelcomeScreen(
         // Short/landscape windows must not let the centred stack collide with the
         // footer, so the orb scales down and everything stays in one flow.
         val compactHeight = maxHeight < 560.dp
-        val orbSize = if (compactHeight) 104.dp else 168.dp
+        val orbSize = layout.orbHeroDp.dp.let { if (!compactHeight && layout.orbHeroDp < 140) 168.dp else it }
 
         Column(
             modifier = Modifier
@@ -109,7 +115,7 @@ fun WelcomeScreen(
 
             AnimatedVisibility(
                 visible = greet,
-                enter = fadeIn(tween(500)) + slideInVertically(tween(500)) { it / 3 },
+                enter = fadeIn(tween(bootMs)) + slideInVertically(tween(bootMs)) { it / 3 },
             ) {
                 Text(
                     if (ownerName.isNullOrBlank()) "Welcome back." else "Welcome back, $ownerName.",

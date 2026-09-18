@@ -17,25 +17,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /** Core accent used by the orb, glows and active states. */
-val JarvisCyan = Color(0xFF22D3EE)
-val JarvisCyanBright = Color(0xFF67E8F9)
-val JarvisCyanDeep = Color(0xFF0E7490)
-val JarvisViolet = Color(0xFF8B5CF6)
-val JarvisAmber = Color(0xFFFACC15)
-val JarvisGreen = Color(0xFF22C55E)
-val JarvisRed = Color(0xFFF87171)
+val JarvisCyan = tokenColor(JarvisTokens.CYAN)
+val JarvisCyanBright = tokenColor(JarvisTokens.CYAN_BRIGHT)
+val JarvisCyanDeep = tokenColor(JarvisTokens.CYAN_DEEP)
+val JarvisViolet = tokenColor(JarvisTokens.VIOLET)
+val JarvisAmber = tokenColor(JarvisTokens.AMBER)
+val JarvisGreen = tokenColor(JarvisTokens.GREEN)
+val JarvisRed = tokenColor(JarvisTokens.RED)
 
-private val DeepSpace = Color(0xFF060B16)
-private val Surface1 = Color(0xFF0E1626)
-private val Surface2 = Color(0xFF16223A)
+private val DeepSpace = tokenColor(JarvisTokens.DEEP_SPACE)
+private val Surface1 = tokenColor(JarvisTokens.SURFACE_1)
+private val Surface2 = tokenColor(JarvisTokens.SURFACE_2)
 
 /** Default body/title ink on the HUD. Never black. */
-val HudInk = Color(0xFFE8EEF8)
-val HudMuted = Color(0xFFB7C7DC)
+val HudInk = tokenColor(JarvisTokens.INK)
+val HudMuted = tokenColor(JarvisTokens.MUTED)
 
 private val JarvisDark = darkColorScheme(
     primary = JarvisCyan,
-    onPrimary = Color(0xFF041018),
+    onPrimary = tokenColor(JarvisTokens.ON_PRIMARY),
     primaryContainer = JarvisCyanDeep,
     onPrimaryContainer = Color(0xFFCFFAFE),
     secondary = JarvisCyanBright,
@@ -46,7 +46,7 @@ private val JarvisDark = darkColorScheme(
     onSurface = HudInk,
     surfaceVariant = Surface2,
     onSurfaceVariant = HudMuted,
-    outline = Color(0xFF2A3B57),
+    outline = tokenColor(JarvisTokens.OUTLINE),
     error = JarvisRed,
     errorContainer = Color(0xFF4A1D1D),
 )
@@ -67,14 +67,25 @@ data class JarvisAccents(
 )
 
 private val DarkAccents = JarvisAccents(
-    backdrop = Brush.verticalGradient(listOf(Color(0xFF081020), DeepSpace, Color(0xFF0A1424))),
+    backdrop = Brush.verticalGradient(
+        listOf(
+            tokenColor(JarvisTokens.BACKDROP_TOP),
+            DeepSpace,
+            tokenColor(JarvisTokens.BACKDROP_BOTTOM),
+        ),
+    ),
     orbGlow = JarvisCyan,
-    userBubble = Brush.linearGradient(listOf(Color(0xFF0E7490), Color(0xFF155E75))),
+    userBubble = Brush.linearGradient(
+        listOf(
+            tokenColor(JarvisTokens.USER_BUBBLE_START),
+            tokenColor(JarvisTokens.USER_BUBBLE_END),
+        ),
+    ),
     assistantBubble = Surface2, // always a dark fill so on-surface text stays light
     online = JarvisGreen,
     degraded = JarvisAmber,
-    offline = Color(0xFF8095B0),
-    grid = Color(0x1A22D3EE),
+    offline = tokenColor(JarvisTokens.OFFLINE),
+    grid = Color(JarvisTokens.GRID),
 )
 
 val LocalJarvisAccents = staticCompositionLocalOf { DarkAccents }
@@ -125,8 +136,8 @@ fun jarvisTextFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
     focusedPlaceholderColor = HudMuted,
     unfocusedPlaceholderColor = HudMuted,
     focusedBorderColor = JarvisCyan.copy(alpha = 0.85f),
-    unfocusedBorderColor = Color(0xFF2A3B57),
-    disabledBorderColor = Color(0xFF2A3B57).copy(alpha = 0.5f),
+    unfocusedBorderColor = tokenColor(JarvisTokens.OUTLINE),
+    disabledBorderColor = tokenColor(JarvisTokens.OUTLINE).copy(alpha = 0.5f),
     focusedContainerColor = Surface1.copy(alpha = 0.7f),
     unfocusedContainerColor = Surface1.copy(alpha = 0.45f),
     disabledContainerColor = Surface1.copy(alpha = 0.3f),

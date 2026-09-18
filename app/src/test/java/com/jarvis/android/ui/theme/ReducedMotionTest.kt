@@ -69,4 +69,25 @@ class ReducedMotionTest {
         assertTrue(ProjectsA11y.card("Home", "ACTIVE", "1 linked chat").contains("Not live-backed"))
         assertEquals(0, JarvisMotion.durationMs(reducedMotion = true, durationMs = 280))
     }
+
+    @Test
+    fun reducedMotionWinsOverAnimationIntensity() {
+        assertEquals(
+            0,
+            JarvisMotion.durationMs(
+                reducedMotion = true,
+                intensity = AnimationIntensity.STANDARD,
+                durationMs = 420,
+            ),
+        )
+        assertNull(
+            JarvisMotion.loopMs(
+                reducedMotion = true,
+                intensity = AnimationIntensity.SUBTLE,
+                durationMs = 1800,
+            ),
+        )
+        assertTrue(JarvisVisualSystem.passesWcagAa(JarvisTokens.INK, JarvisTokens.DEEP_SPACE))
+        assertTrue(JarvisVisualSystem.passesWcagAa(JarvisTokens.MUTED, JarvisTokens.SURFACE_1))
+    }
 }

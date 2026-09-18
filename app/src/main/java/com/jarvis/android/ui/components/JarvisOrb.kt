@@ -23,8 +23,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jarvis.android.ui.home.JarvisVisualState
 import com.jarvis.android.ui.home.toOrbActivity
+import com.jarvis.android.ui.theme.LocalAnimationIntensity
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
+import com.jarvis.android.ui.theme.JarvisVisualSystem
 
 /** Visual activity level of the orb; drives speed and intensity. */
 enum class OrbActivity { IDLE, LISTENING, THINKING, SPEAKING, PROCESSING, ERROR, OFFLINE }
@@ -54,18 +56,15 @@ fun JarvisOrb(
 ) {
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
+    val intensityPref = LocalAnimationIntensity.current
     val transition = rememberInfiniteTransition(label = "orb")
     val resolvedActivity = visualState?.toOrbActivity() ?: activity
 
-    val speed = when (resolvedActivity) {
-        OrbActivity.IDLE -> 1f
-        OrbActivity.LISTENING -> 1.8f
-        OrbActivity.PROCESSING -> 2.2f
-        OrbActivity.THINKING -> 2.6f
-        OrbActivity.SPEAKING -> 2.4f
-        OrbActivity.ERROR -> 0.6f
-        OrbActivity.OFFLINE -> 0.45f
-    }
+    val speed = JarvisVisualSystem.orbSpeed(
+        resolvedActivity,
+        reducedMotion = false,
+        intensity = intensityPref,
+    )
 
     val spin by transition.animateFloat(
         initialValue = 0f,
@@ -100,9 +99,14 @@ fun JarvisOrb(
         OrbActivity.ERROR -> androidx.compose.material3.MaterialTheme.colorScheme.error
         else -> accents.orbGlow
     }
+    val pulseRange = JarvisVisualSystem.orbPulse(reduced, intensityPref)
     val liveSpin = if (reduced) 0f else spin
     val liveCounter = if (reduced) 0f else counterSpin
-    val livePulse = if (reduced) 1f else pulse
+    val livePulse = if (reduced) 1f else {
+        val lo = pulseRange.start
+        val hi = pulseRange.endInclusive
+        lo + (pulse - 0.86f) / (1.06f - 0.86f) * (hi - lo)
+    }
 
     val orbModifier = if (contentDescription != null) {
         modifier.semantics { this.contentDescription = contentDescription }

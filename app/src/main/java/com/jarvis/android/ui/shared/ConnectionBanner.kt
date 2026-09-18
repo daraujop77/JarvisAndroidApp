@@ -98,8 +98,8 @@ fun ConnectionBanner(
         val active = snapshot.session.activeRequestCount
         AnimatedVisibility(
             visible = active > 0,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
+            enter = fadeIn(JarvisMotion.standard()) + expandVertically(animationSpec = JarvisMotion.standard<androidx.compose.ui.unit.IntSize>()),
+            exit = fadeOut(JarvisMotion.standard()) + shrinkVertically(animationSpec = JarvisMotion.standard<androidx.compose.ui.unit.IntSize>()),
         ) {
             Text(
                 "$active ACTIVE",

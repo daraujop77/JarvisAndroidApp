@@ -35,6 +35,7 @@ import com.jarvis.android.ui.home.JarvisVisualState
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.shared.authenticateDeviceOwner
 import com.jarvis.android.ui.theme.HudTextStyle
+import com.jarvis.android.ui.theme.JarvisMotion
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import kotlinx.coroutines.launch
 
@@ -113,7 +114,7 @@ fun LockScreen(onUnlocked: () -> Unit) {
                 Text("  Unlock")
             }
 
-            AnimatedVisibility(visible = denied, enter = fadeIn()) {
+            AnimatedVisibility(visible = denied, enter = fadeIn(JarvisMotion.standard())) {
                 Text(
                     "Authentication failed or cancelled.",
                     style = MaterialTheme.typography.labelMedium,

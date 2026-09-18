@@ -20,6 +20,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -43,8 +44,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.fake.FakeScenario
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.shared.OwnerAvatar
+import com.jarvis.android.ui.theme.AnimationIntensity
 import com.jarvis.android.ui.theme.HudTextStyle
+import com.jarvis.android.ui.theme.JarvisVisualSystem
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.UiDensity
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -146,6 +150,56 @@ fun SettingsScreen(vm: JarvisViewModel) {
                     checked = settings.reducedMotion,
                     onChange = vm::setReducedMotion,
                 )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Animation intensity. Stored only on this device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                val intensity = JarvisVisualSystem.intensityOf(settings.animationIntensity)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = intensity == AnimationIntensity.SUBTLE,
+                        onClick = { vm.setAnimationIntensity(JarvisVisualSystem.persist(AnimationIntensity.SUBTLE)) },
+                        enabled = !settings.reducedMotion,
+                        label = { Text("Subtle") },
+                    )
+                    FilterChip(
+                        selected = intensity == AnimationIntensity.STANDARD,
+                        onClick = { vm.setAnimationIntensity(JarvisVisualSystem.persist(AnimationIntensity.STANDARD)) },
+                        enabled = !settings.reducedMotion,
+                        label = { Text("Standard") },
+                    )
+                }
+                if (settings.reducedMotion) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Reduced motion collapses every animation regardless of intensity.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Density. Stored only on this device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                val density = JarvisVisualSystem.densityOf(settings.uiDensity)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = density == UiDensity.COMPACT,
+                        onClick = { vm.setUiDensity(JarvisVisualSystem.persist(UiDensity.COMPACT)) },
+                        label = { Text("Compact") },
+                    )
+                    FilterChip(
+                        selected = density == UiDensity.COMFORTABLE,
+                        onClick = { vm.setUiDensity(JarvisVisualSystem.persist(UiDensity.COMFORTABLE)) },
+                        label = { Text("Comfortable") },
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 var name by remember(settings.ownerName) { mutableStateOf(settings.ownerName) }
                 OutlinedTextField(

@@ -18,8 +18,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.jarvis.android.ui.home.JarvisVisualState
+import com.jarvis.android.ui.theme.LocalAnimationIntensity
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
+import com.jarvis.android.ui.theme.JarvisVisualSystem
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -38,6 +40,7 @@ fun AmbientBackdrop(
 ) {
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
+    val intensityPref = LocalAnimationIntensity.current
     val transition = rememberInfiniteTransition(label = "backdrop")
     val drift by transition.animateFloat(
         initialValue = 0f,
@@ -45,25 +48,10 @@ fun AmbientBackdrop(
         animationSpec = infiniteRepeatable(tween(26_000, easing = LinearEasing), RepeatMode.Restart),
         label = "drift",
     )
-    val frozen = reduced || visualState == JarvisVisualState.OFFLINE
-    val driftScale = when (visualState) {
-        JarvisVisualState.BOOT, JarvisVisualState.THINKING -> 1.25f
-        JarvisVisualState.LISTENING, JarvisVisualState.RESPONDING -> 1.15f
-        JarvisVisualState.EXECUTING, JarvisVisualState.AWAITING_APPROVAL -> 1.1f
-        JarvisVisualState.ERROR -> 0.55f
-        JarvisVisualState.OFFLINE -> 0f
-        JarvisVisualState.IDLE -> 1f
-    }
+    val driftScale = JarvisVisualSystem.ambientDriftScale(visualState, reduced, intensityPref)
+    val frozen = driftScale == 0f
     val phase = if (frozen) 0f else drift * driftScale
-    val bloomBoost = when (visualState) {
-        JarvisVisualState.BOOT, JarvisVisualState.THINKING -> 1.35f
-        JarvisVisualState.LISTENING -> 1.25f
-        JarvisVisualState.RESPONDING -> 1.4f
-        JarvisVisualState.EXECUTING, JarvisVisualState.AWAITING_APPROVAL -> 1.2f
-        JarvisVisualState.ERROR -> 0.55f
-        JarvisVisualState.OFFLINE -> 0.35f
-        JarvisVisualState.IDLE -> 1f
-    }
+    val bloomBoost = JarvisVisualSystem.ambientBloom(visualState, reduced, intensityPref)
     val primaryTint = when (visualState) {
         JarvisVisualState.ERROR -> Color(0x66EF4444)
         JarvisVisualState.OFFLINE -> accents.offline.copy(alpha = 0.10f)

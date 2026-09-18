@@ -53,8 +53,12 @@ import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.home.FixtureProjectsSection
 import com.jarvis.android.ui.home.HomeSnapshot
 import com.jarvis.android.ui.home.hudLabel
+import com.jarvis.android.ui.theme.AdaptiveContent
 import com.jarvis.android.ui.theme.HudTextStyle
+import com.jarvis.android.ui.theme.JarvisVisualSystem
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.LocalUiDensity
+import com.jarvis.android.ui.theme.rememberAdaptiveLayout
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +68,10 @@ fun HomeScreen(
 ) {
     val home by vm.home.collectAsStateWithLifecycle()
     val accents = LocalJarvisAccents.current
+    val density = LocalUiDensity.current
+    val layout = rememberAdaptiveLayout()
+    val pagePad = JarvisVisualSystem.pagePaddingDp(density).dp
+    val sectionGap = JarvisVisualSystem.sectionGapDp(density).dp
 
     LaunchedEffect(Unit) { vm.refreshChatAccess() }
 
@@ -83,17 +91,17 @@ fun HomeScreen(
             )
         },
     ) { pad ->
+        AdaptiveContent(Modifier.padding(pad)) {
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(pad)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = pagePad, vertical = 8.dp)
                 .semantics { contentDescription = HomeA11y.SCREEN },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             JarvisOrb(
-                size = 108.dp,
+                size = layout.orbHeroDp.dp,
                 visualState = home.visualState,
                 contentDescription = HomeA11y.visualState(home.visualState.hudLabel()),
             )
@@ -110,11 +118,11 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(sectionGap))
             StatusRow(home)
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(sectionGap))
             QuickNavRow(onNavigate = onNavigate)
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(sectionGap))
             RecentConversations(
                 items = home.recentConversations,
                 onOpenList = { onNavigate(TopLevelDestination.Conversations.route) },
@@ -131,6 +139,7 @@ fun HomeScreen(
             Spacer(Modifier.height(14.dp))
             CompactDiagnosticsCard(home)
             Spacer(Modifier.height(20.dp))
+        }
         }
     }
 }
@@ -181,10 +190,10 @@ private fun StatusTile(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(JarvisVisualSystem.cardRadiusDp(LocalUiDensity.current).dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
     ) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(JarvisVisualSystem.cardPaddingDp(LocalUiDensity.current).dp)) {
             Text(title, style = HudTextStyle, color = tint)
             Spacer(Modifier.height(6.dp))
             Text(value, style = MaterialTheme.typography.titleMedium, maxLines = 2)
@@ -249,11 +258,11 @@ private fun RecentConversations(
     onOpenChat: (String) -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(JarvisVisualSystem.cardRadiusDp(LocalUiDensity.current).dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(JarvisVisualSystem.cardPaddingDp(LocalUiDensity.current).dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("RECENT CHATS", style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
                 TextButton(onClick = onOpenList) { Text("All") }
@@ -297,11 +306,11 @@ private fun FixtureProjectsCard(
 ) {
     if (section is FixtureProjectsSection.Hidden) return
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(JarvisVisualSystem.cardRadiusDp(LocalUiDensity.current).dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(JarvisVisualSystem.cardPaddingDp(LocalUiDensity.current).dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("PROJECTS", style = HudTextStyle, color = LocalJarvisAccents.current.degraded)
                 TextButton(onClick = onOpen) { Text("Open") }
@@ -329,11 +338,11 @@ private fun FixtureProjectsCard(
 private fun CompactDiagnosticsCard(home: HomeSnapshot) {
     val d = home.diagnostics
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(JarvisVisualSystem.cardRadiusDp(LocalUiDensity.current).dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(JarvisVisualSystem.cardPaddingDp(LocalUiDensity.current).dp)) {
             Text("DIAGNOSTICS", style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
             Spacer(Modifier.height(8.dp))
             Text("PHASE ${d.sessionPhase}", style = HudTextStyle)
