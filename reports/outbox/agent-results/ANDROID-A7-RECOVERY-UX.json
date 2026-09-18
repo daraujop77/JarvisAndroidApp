@@ -1,0 +1,37 @@
+{
+  "PHASE": "A7",
+  "TITLE": "Offline/recovery UX and battery behavior",
+  "BASE_SHA": "23d2421e24b6408ee5076fe1b356e53f37536291",
+  "FINAL_SHA": "d04065d33a727894a3789a988fd83cb6eb53df2c",
+  "BRANCH": "android/r3-r4-productivity-marathon-pcb",
+  "FILES_CHANGED": [
+    "app/src/main/java/com/jarvis/android/data/repo/ConversationRepository.kt",
+    "app/src/main/java/com/jarvis/android/data/repo/JarvisSessionRepository.kt",
+    "app/src/main/java/com/jarvis/android/notify/NotificationCoordinator.kt",
+    "app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt",
+    "app/src/main/java/com/jarvis/android/ui/recovery/RecoveryUx.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/ConversationsScreen.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/DiagnosticsCard.kt",
+    "app/src/main/java/com/jarvis/android/ui/shared/ConnectionBanner.kt",
+    "app/src/test/java/com/jarvis/android/data/repo/NetworkHardeningTest.kt",
+    "app/src/test/java/com/jarvis/android/ui/recovery/RecoveryUxTest.kt"
+  ],
+  "TEST_SUITES": 23,
+  "TEST_COUNT": 221,
+  "TEST_FAILURES": 0,
+  "ASSEMBLE_DEBUG": "PASS",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "SETTINGS_CONFLICT_TOUCHED": false,
+  "PHYSICAL_DEVICE_USED": false,
+  "ROOM_SCHEMA_CHANGED": false,
+  "RESULT": "A7_RECOVERY_UX_PASS",
+  "NOTES": [
+    "Reviewed transport branch was not ported. Existing session restore and send path are unchanged.",
+    "Airplane, reconnecting, and exhausted backoff are distinct and truthful in the banner.",
+    "A recovered completed turn renders from the persisted row only, so it is shown once.",
+    "Every unfinished outbound stays visible until the existing send path finishes.",
+    "A foreground flip while backoff is already running does not open a second connect.",
+    "Notification dedupe status is shown only when the existing ledger already has entries."
+  ]
+}
