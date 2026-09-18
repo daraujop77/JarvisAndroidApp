@@ -3,7 +3,8 @@
   "phase": "A3",
   "branch": "android/r3-r4-productivity-marathon-pcb",
   "BASE_SHA": "18a507995f0ea1adf5f5763b7530ed8e1f96f5bd",
-  "FINAL_SHA": "da27df54c2b2cac3691e724d274e731a778b0ed3",
+  "FINAL_SHA": "6fa447cf3a9a1322177371073ed107f1dda9fa5f",
+  "PRODUCT_SHA": "da27df54c2b2cac3691e724d274e731a778b0ed3",
   "files_changed": [
     "app/src/main/java/com/jarvis/android/ui/JarvisRoot.kt",
     "app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt",
