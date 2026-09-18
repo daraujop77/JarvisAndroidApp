@@ -1,0 +1,22 @@
+{
+  "task_id": "ANDROID-A6-INTEGRATION",
+  "branch": "android/r3-r4-a3-a9-integration",
+  "BASE_SHA": "109bde54938963cf5aa8cf4c93a992d5b68fd083",
+  "A6_SHA": "7f36cda0b7f8df24cf0f5a58e1a6db8412fca54d",
+  "FINAL_SHA": "109bde54938963cf5aa8cf4c93a992d5b68fd083",
+  "cherry_pick": "aborted",
+  "reports_not_picked": ["767837a", "23d2421"],
+  "conflicts": [
+    "app/src/main/java/com/jarvis/android/data/prefs/SettingsStore.kt",
+    "app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"
+  ],
+  "conflict_reason": "A9 (already on this branch) stores animationIntensity as a Float 0.5..1 with compactDensity Boolean. A6 stores animationIntensity as the string subtle|standard and uiDensity as compact|comfortable, on the same DataStore keys. Keeping both would invent a preference model. Choosing one discards the other's visual behavior. Not an import or additive-parameter conflict.",
+  "conflicts_resolved": false,
+  "ROOM_VERSION": 6,
+  "unit_tests": "not run; cherry-pick aborted before product changes",
+  "assemble_debug": "not run",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "MERGED_TO_R2": false,
+  "RESULT": "BLOCKED"
+}
