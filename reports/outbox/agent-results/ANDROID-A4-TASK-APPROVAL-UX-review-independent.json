@@ -1,0 +1,60 @@
+{
+  "task_id": "ANDROID-A4-TASK-APPROVAL-UX",
+  "phase": "A4",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "a0133ff9151f904926cd7db3492c56b7f8aea986",
+  "base_sha": "7b28411011dcb9eac5a5e2c2ff500cc9a9b6b544",
+  "head_at_review": "32cc428f9dc0510f814248afe091a50bf226cecb",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "reviewer": "independent-not-builder",
+  "builder_evidence_commits_ignored": [
+    "32cc428"
+  ],
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "forced_execution": ":app:testDebugUnitTest --no-daemon --rerun-tasks",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "suites": 21,
+    "tests": 197,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "full_suite_rerun": true,
+    "assemble_debug_rerun": false,
+    "emulator_or_device": false,
+    "adb_used": false
+  },
+  "checks": {
+    "tasks_group_by_existing_states_only": true,
+    "progress_does_not_reset_or_run_backwards": true,
+    "local_tap_not_authoritative_server_outcome": true,
+    "requested_resolving_expired_local_server_distinct": true,
+    "duplicate_taps_cannot_send_second_decision": true,
+    "biometric_gate_sensitive_critical_exists": true,
+    "non_owners_cannot_see_approval_list": true,
+    "no_new_approval_power": true,
+    "no_server_outcome_bypass": true,
+    "contract_webv1_byte_identical": true,
+    "app_contract_byte_identical": true,
+    "transport_unchanged": true,
+    "no_destructive_room_change": true,
+    "physical_device_used": false,
+    "adb_used": false,
+    "a5_started": false
+  },
+  "evidence": {
+    "diff": "git diff 7b28411..a0133ff",
+    "task_groups": "TaskApprovalUx.groupOf maps QUEUED/STARTED/RUNNING, COMPLETED, FAILED, CANCELLED from existing TaskStatus only",
+    "progress_path": "stableProgress floors at previousShown for active tasks; TaskCard remembers held progress per taskId and uses zero-duration first frame so recreation does not animate from 0",
+    "approval_phases": "resolutionInFlight is RESOLVING even if a local outcome is copied; SERVER only when outcome is set and not in flight; EXPIRED_LOCAL is device clock only and cannot submit",
+    "duplicate_tap": "canSubmit is REQUESTED only; ApprovalsScreen buttons disabled otherwise; Reducer.resolveApprovalLocally and JarvisSessionRepository.resolveApproval remain no-ops when in-flight or already resolved",
+    "biometric": "Approve still goes through rememberBiometricGate; requiresBiometric remains SENSITIVE and CRITICAL; failed biometric does not call resolveApproval",
+    "owner_only": "visibleApprovals and groupedApprovals return empty for !isOwner; ApprovalsScreen still shows the owner-only empty state",
+    "resolve_path": "ViewModel still delegates to session.resolveApproval which sends MobileRequest.ResolveApproval; no new outcomes or local finalize",
+    "room": "JarvisDatabase, JarvisEntities, and app/schemas unchanged vs 7b28411"
+  }
+}
