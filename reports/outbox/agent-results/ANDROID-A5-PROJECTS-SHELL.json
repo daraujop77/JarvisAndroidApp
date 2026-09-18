@@ -3,7 +3,7 @@
   "phase": "A5",
   "branch": "android/r3-r4-productivity-marathon-pcb",
   "BASE_SHA": "cfea5b2a63c37387f140323877326879634ed380",
-  "FINAL_SHA": "PENDING_COMMIT",
+  "FINAL_SHA": "addf9675c3ed5852803f585ff5c2ab33ba75691b",
   "files_changed": [
     "app/src/main/java/com/jarvis/android/data/projects/ProjectsRepository.kt",
     "app/src/main/java/com/jarvis/android/data/projects/ProjectsWorkspace.kt",
