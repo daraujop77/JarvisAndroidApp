@@ -1,0 +1,31 @@
+{
+  "task_id": "ANDROID-A3-A9-INTEGRATION",
+  "branch": "android/r3-r4-a3-a9-integration",
+  "BASE_SHA": "7b28411011dcb9eac5a5e2c2ff500cc9a9b6b544",
+  "A9_SHA": "f5beefb43b2f80b33f232eff67805440726cc949",
+  "FINAL_SHA": "bac25eb906592f913daf0b6337b2ab37a42a4b2c",
+  "cherry_pick": "clean, no conflicts",
+  "evidence_commits_picked": false,
+  "features_added": false,
+  "unit_tests": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "suites": 21,
+    "tests": 195,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "result": "BUILD SUCCESSFUL"
+  },
+  "assemble_debug": {
+    "command": ":app:assembleDebug --no-daemon",
+    "result": "BUILD SUCCESSFUL"
+  },
+  "jdk": "Android Studio JBR 21.0.10",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "ROOM_VERSION": 5,
+  "credential_reset_added": false,
+  "debug_controls_behind_buildconfig_debug": true,
+  "MERGED_TO_R2": false,
+  "RESULT": "READY_FOR_PC_A_ANDROID_REVIEW"
+}
