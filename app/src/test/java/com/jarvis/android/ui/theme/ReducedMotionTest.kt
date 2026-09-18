@@ -2,6 +2,7 @@ package com.jarvis.android.ui.theme
 
 import com.jarvis.android.ui.screens.ConversationA11y
 import com.jarvis.android.ui.screens.HomeA11y
+import com.jarvis.android.ui.screens.ProjectsA11y
 import com.jarvis.android.ui.screens.TaskApprovalA11y
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -56,6 +57,16 @@ class ReducedMotionTest {
         assertTrue(TaskApprovalA11y.BIOMETRIC_REQUIRED.contains("Not approved"))
         assertTrue(TaskApprovalA11y.PROGRESS_HELD.contains("session state"))
         assertEquals("Task group RUNNING", TaskApprovalA11y.group("RUNNING"))
+        assertEquals(0, JarvisMotion.durationMs(reducedMotion = true, durationMs = 280))
+    }
+
+    @Test
+    fun projectShellHasContentDescriptions() {
+        assertTrue(ProjectsA11y.NOT_LIVE.contains("Not live-backed"))
+        assertTrue(ProjectsA11y.RELEASE_HIDDEN.contains("no live projects contract"))
+        assertTrue(ProjectsA11y.OFFLINE.contains("not a live backend"))
+        assertTrue(ProjectsA11y.ACTIVITY_PLACEHOLDER.contains("Not live-backed"))
+        assertTrue(ProjectsA11y.card("Home", "ACTIVE", "1 linked chat").contains("Not live-backed"))
         assertEquals(0, JarvisMotion.durationMs(reducedMotion = true, durationMs = 280))
     }
 }
