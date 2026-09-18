@@ -111,4 +111,14 @@ interface JarvisDao {
 
     @Query("UPDATE conversations SET lastCursorToken = :cursor WHERE conversationId = :id")
     suspend fun setCursor(id: String, cursor: String)
+
+    /** Local-only management. Messages cascade; pending rows have no FK, so they go explicitly. */
+    @Query("DELETE FROM conversations WHERE conversationId = :id")
+    suspend fun deleteConversation(id: String)
+
+    @Query("DELETE FROM pending_outbound WHERE conversationId = :id")
+    suspend fun deletePendingForConversation(id: String)
+
+    @Query("UPDATE conversations SET title = :title WHERE conversationId = :id")
+    suspend fun renameConversation(id: String, title: String)
 }

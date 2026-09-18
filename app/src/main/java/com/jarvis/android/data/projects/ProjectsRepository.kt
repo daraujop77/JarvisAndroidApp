@@ -20,11 +20,18 @@ data class ProjectConversation(val conversationId: String, val title: String, va
 /** Client-side presentation state; not a claim about server enums. */
 enum class ProjectState { ACTIVE, ARCHIVED }
 
+/**
+ * Client-side grouping only. PC-A has published no projects contract, so this
+ * never leaves the device and must not be read as a server enum.
+ */
+enum class ProjectKind { GENERAL, WRITING, HOME, WORK, LEARNING }
+
 data class ProjectSummary(
     val id: ProjectId,
     val title: String,
     val state: ProjectState,
     val updatedAtMs: Long,
+    val kind: ProjectKind = ProjectKind.GENERAL,
 )
 
 sealed interface ProjectsResult {
@@ -51,9 +58,11 @@ class FakeProjectsRepository(
     enum class Mode { SAMPLES, EMPTY, ERROR }
 
     private val projects = listOf(
-        ProjectSummary(ProjectId("prj_home"), "Home", ProjectState.ACTIVE, 1000L),
-        ProjectSummary(ProjectId("prj_work"), "Work", ProjectState.ACTIVE, 2000L),
-        ProjectSummary(ProjectId("prj_old"), "Old kitchen reno", ProjectState.ARCHIVED, 500L),
+        ProjectSummary(ProjectId("prj_home"), "Home", ProjectState.ACTIVE, 1000L, ProjectKind.HOME),
+        ProjectSummary(ProjectId("prj_work"), "Work", ProjectState.ACTIVE, 2000L, ProjectKind.WORK),
+        ProjectSummary(ProjectId("prj_writing"), "Writing Room", ProjectState.ACTIVE, 3000L, ProjectKind.WRITING),
+        ProjectSummary(ProjectId("prj_learning"), "Learning Room", ProjectState.ACTIVE, 4000L, ProjectKind.LEARNING),
+        ProjectSummary(ProjectId("prj_old"), "Old kitchen reno", ProjectState.ARCHIVED, 500L, ProjectKind.HOME),
     )
 
     private val conversationsByProject = mapOf(
@@ -64,6 +73,10 @@ class FakeProjectsRepository(
         ProjectId("prj_work") to listOf(
             ProjectConversation("conv_fixture_work_1", "Summarize unread email", 700L),
         ),
+        ProjectId("prj_writing") to listOf(
+            ProjectConversation("conv_fixture_writing_1", "Chapter outline", 600L),
+        ),
+        ProjectId("prj_learning") to emptyList(),
         ProjectId("prj_old") to emptyList(),
     )
 

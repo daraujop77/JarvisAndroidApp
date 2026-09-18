@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.data.projects.ProjectKind
 import com.jarvis.android.data.projects.ProjectState
 import com.jarvis.android.data.projects.ProjectSummary
 import com.jarvis.android.data.projects.ProjectsResult
@@ -63,7 +64,11 @@ fun ProjectsScreen(vm: JarvisViewModel) {
 
     val project = openProject
     if (project != null) {
-        ProjectDetailView(vm, project, onBack = { openProject = null })
+        if (project.kind == ProjectKind.LEARNING) {
+            LearningRoomScreen(vm, onBack = { openProject = null })
+        } else {
+            ProjectDetailView(vm, project, onBack = { openProject = null })
+        }
         return
     }
 
@@ -145,6 +150,15 @@ private fun ProjectDetailView(vm: JarvisViewModel, project: ProjectSummary, onBa
     }
 }
 
+/** Short label for the row. Presentation only — not a server value. */
+private fun ProjectKind.label(): String = when (this) {
+    ProjectKind.GENERAL -> "GENERAL"
+    ProjectKind.WRITING -> "WRITING ROOM"
+    ProjectKind.HOME -> "HOME"
+    ProjectKind.WORK -> "WORK"
+    ProjectKind.LEARNING -> "LEARNING ROOM"
+}
+
 @Composable
 private fun ProjectRow(project: ProjectSummary, onClick: () -> Unit) {
     val accents = LocalJarvisAccents.current
@@ -173,7 +187,10 @@ private fun ProjectRow(project: ProjectSummary, onClick: () -> Unit) {
                 Text(project.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    if (project.state == ProjectState.ACTIVE) "ACTIVE" else "ARCHIVED",
+                    listOfNotNull(
+                        project.kind.label(),
+                        if (project.state == ProjectState.ACTIVE) "ACTIVE" else "ARCHIVED",
+                    ).joinToString("  ·  "),
                     style = HudTextStyle,
                     color = if (project.state == ProjectState.ACTIVE) accents.online
                     else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -185,7 +202,7 @@ private fun ProjectRow(project: ProjectSummary, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProjectsScaffold(
+internal fun ProjectsScaffold(
     title: String,
     onBack: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
@@ -222,7 +239,7 @@ private fun ProjectsScaffold(
 }
 
 @Composable
-private fun Centered(content: @Composable () -> Unit) {
+internal fun Centered(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) { content() }
     }

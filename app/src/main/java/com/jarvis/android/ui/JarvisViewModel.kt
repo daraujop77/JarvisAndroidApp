@@ -283,6 +283,26 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun setIsOwner(value: Boolean) = viewModelScope.launch { container.settings.setIsOwner(value) }
 
+    // ---- local conversation management (no gateway contract for this) --------
+
+    fun renameConversation(id: String, title: String) = conversations.renameConversation(id, title)
+
+    fun deleteConversation(id: String) {
+        conversations.deleteConversation(id)
+        if (_conversationId.value == id) _conversationId.value = null
+    }
+
+    /**
+     * Grades one Learning Room answer on the device. Returns whether it was
+     * accepted; a correct answer is recorded so its reward stays unlocked.
+     */
+    fun submitLesson(lessonId: String, attempt: String): Boolean {
+        val accepted = com.jarvis.android.data.learning.LearningCatalog
+            .check(lessonId, attempt, settings.value.completedLessons)
+        if (accepted) viewModelScope.launch { container.settings.completeLesson(lessonId) }
+        return accepted
+    }
+
     /**
      * Bumped whenever the on-disk avatar changes so [rememberOwnerAvatar]
      * reloads. The JPEG itself is never held in the ViewModel.

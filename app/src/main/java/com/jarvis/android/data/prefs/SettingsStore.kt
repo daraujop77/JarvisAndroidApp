@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -38,6 +39,11 @@ class SettingsStore(private val context: Context) {
         val isOwner: Boolean = true,
         /** True once a local avatar JPEG has been written. */
         val hasAvatar: Boolean = false,
+        /**
+         * Lesson ids a child has completed in the on-device Learning Room.
+         * Local only — never sent anywhere.
+         */
+        val completedLessons: Set<String> = emptySet(),
     )
 
     private object Keys {
@@ -50,6 +56,7 @@ class SettingsStore(private val context: Context) {
         val OWNER_NAME = stringPreferencesKey("owner_name")
         val IS_OWNER = booleanPreferencesKey("is_owner")
         val HAS_AVATAR = booleanPreferencesKey("has_avatar")
+        val COMPLETED_LESSONS = stringSetPreferencesKey("completed_lessons")
     }
 
     val settings: Flow<Settings> = context.dataStore.data
@@ -68,6 +75,7 @@ class SettingsStore(private val context: Context) {
                 ownerName = prefs[Keys.OWNER_NAME] ?: "",
                 isOwner = prefs[Keys.IS_OWNER] ?: true,
                 hasAvatar = prefs[Keys.HAS_AVATAR] ?: false,
+                completedLessons = prefs[Keys.COMPLETED_LESSONS] ?: emptySet(),
             )
         }
 
@@ -78,6 +86,11 @@ class SettingsStore(private val context: Context) {
     suspend fun setOwnerName(value: String) = context.dataStore.edit { it[Keys.OWNER_NAME] = value }
     suspend fun setIsOwner(value: Boolean) = context.dataStore.edit { it[Keys.IS_OWNER] = value }
     suspend fun setHasAvatar(value: Boolean) = context.dataStore.edit { it[Keys.HAS_AVATAR] = value }
+
+    /** Records one finished lesson. Adding an id twice changes nothing. */
+    suspend fun completeLesson(lessonId: String) = context.dataStore.edit {
+        it[Keys.COMPLETED_LESSONS] = (it[Keys.COMPLETED_LESSONS] ?: emptySet()) + lessonId
+    }
     suspend fun setPaired(value: Boolean, deviceId: String? = null) = context.dataStore.edit {
         it[Keys.PAIRED] = value
         if (deviceId != null) it[Keys.DEVICE_ID] = deviceId else it.remove(Keys.DEVICE_ID)

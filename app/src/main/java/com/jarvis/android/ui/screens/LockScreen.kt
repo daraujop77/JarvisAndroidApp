@@ -105,7 +105,7 @@ fun LockScreen(onUnlocked: () -> Unit) {
             Spacer(Modifier.height(28.dp))
 
             Button(onClick = { denied = false; prompt() }) {
-                Icon(Icons.Filled.Fingerprint, contentDescription = null)
+                Icon(Icons.Filled.Fingerprint, contentDescription = "Unlock with biometrics")
                 Spacer(Modifier.height(0.dp))
                 Text("  Unlock")
             }

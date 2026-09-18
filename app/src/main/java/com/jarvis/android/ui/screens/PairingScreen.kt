@@ -262,7 +262,7 @@ fun PairingScreen(
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan pairing QR code")
                 Text("  Scan QR — locked until contract freeze")
             }
 

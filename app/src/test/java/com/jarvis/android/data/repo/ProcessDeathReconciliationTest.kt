@@ -275,6 +275,22 @@ private class FakeDao : JarvisDao {
 
     override suspend fun pending(rid: String): PendingOutboundEntity? = pending.value[rid]
 
+    override suspend fun deleteConversation(id: String) {
+        conversations.update { it - id }
+        messages.update { list -> list.filterNot { m -> m.conversationId == id } }
+    }
+
+    override suspend fun deletePendingForConversation(id: String) {
+        pending.update { map -> map.filterValues { it.conversationId != id } }
+    }
+
+    override suspend fun renameConversation(id: String, title: String) {
+        conversations.update { map ->
+            val cur = map[id] ?: return@update map
+            map + (id to cur.copy(title = title))
+        }
+    }
+
     override suspend fun setCursor(id: String, cursor: String) {
         conversations.update { map ->
             val cur = map[id] ?: return@update map

@@ -42,9 +42,12 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -115,7 +118,8 @@ private fun ConversationListView(
 ) {
     val items by vm.conversationList.collectAsStateWithLifecycle()
     val accents = LocalJarvisAccents.current
-    val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
+    var renaming by remember { mutableStateOf<com.jarvis.android.data.repo.ConversationSummary?>(null) }
+    var deleting by remember { mutableStateOf<com.jarvis.android.data.repo.ConversationSummary?>(null) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -136,7 +140,7 @@ private fun ConversationListView(
             ExtendedFloatingActionButton(
                 onClick = onNew,
                 containerColor = MaterialTheme.colorScheme.primary,
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                icon = { Icon(Icons.Filled.Add, contentDescription = "New chat") },
                 text = { Text("New chat") },
             )
         },
@@ -194,12 +198,70 @@ private fun ConversationListView(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            IconButton(onClick = { renaming = c }) {
+                                Icon(Icons.Filled.Edit, contentDescription = "Rename chat", tint = accents.orbGlow)
+                            }
+                            IconButton(onClick = { deleting = c }) {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    contentDescription = "Delete chat",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+
+    renaming?.let { target ->
+        RenameConversationDialog(
+            current = target.title,
+            onDismiss = { renaming = null },
+            onConfirm = { title -> vm.renameConversation(target.conversationId, title); renaming = null },
+        )
+    }
+    deleting?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete this chat?") },
+            text = { Text("\"${target.title}\" and its messages are removed from this phone. This does not reach the Jarvis PC.") },
+            confirmButton = {
+                TextButton(onClick = { vm.deleteConversation(target.conversationId); deleting = null }) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun RenameConversationDialog(
+    current: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var value by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename chat") },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                singleLine = true,
+                label = { Text("Name") },
+                shape = RoundedCornerShape(14.dp),
+                colors = jarvisTextFieldColors(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(value) }, enabled = value.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -531,7 +593,7 @@ private fun MessageBubble(
                         )
                         if (failed.retryable) {
                             TextButton(onClick = onRetry) {
-                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Icon(Icons.Filled.Refresh, contentDescription = "Retry", modifier = Modifier.size(15.dp))
                                 Text(" Retry")
                             }
                         }

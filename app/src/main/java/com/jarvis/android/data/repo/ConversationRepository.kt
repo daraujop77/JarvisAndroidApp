@@ -167,6 +167,29 @@ class ConversationRepository(
         }
     }
 
+    /**
+     * Local-only management. Drops the conversation row (messages cascade),
+     * its unsent outbound, and cancels anything still in flight so a late
+     * reply cannot recreate the row. Nothing is sent to the gateway: the
+     * server has no conversation-delete contract yet.
+     */
+    fun deleteConversation(conversationId: String) {
+        _live.value.session.requests.values
+            .filter { it.conversationId == conversationId && !it.status.isTerminal }
+            .forEach { session.cancel(it.clientRequestId) }
+        scope.launch {
+            dao.deletePendingForConversation(conversationId)
+            dao.deleteConversation(conversationId)
+        }
+    }
+
+    /** Local display name only. Blank input is ignored so a chat can't lose its title. */
+    fun renameConversation(conversationId: String, title: String) {
+        val trimmed = title.trim()
+        if (trimmed.isEmpty()) return
+        scope.launch { dao.renameConversation(conversationId, trimmed.take(80)) }
+    }
+
     fun cancelRequest(clientRequestId: String) = session.cancel(clientRequestId)
 
     /** Resend a failed request as a new message so Room stays the source of truth. */
