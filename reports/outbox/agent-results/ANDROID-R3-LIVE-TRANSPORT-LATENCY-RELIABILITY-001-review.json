@@ -1,0 +1,40 @@
+{
+  "task_id": "ANDROID-R3-LIVE-TRANSPORT-LATENCY-RELIABILITY-001",
+  "RESULT": "CHANGES_REQUIRED",
+  "reviewed_sha": "18de9862f6683f34aaf739db2f197b50de994b00",
+  "base_sha": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "branch": "android/r3-live-transport-latency-pcb",
+  "lane_result_reviewed": "PASS_NO_SAFE_OPTIMIZATION_FOUND",
+  "findings": [
+    {
+      "id": "rejected-optimization-reason-is-false",
+      "severity": "blocking",
+      "claim": "Skip session.restore() on reconnect was rejected because disconnect() must clear a validated flag, otherwise a stale or revoked token stays treated as valid.",
+      "actual": "LiveAppGatewayTransport.disconnect() only cancels active turns and sets _linkState to CLOSED. It does not clear a validated flag. JarvisAppSession has no such flag: restore() always calls GET /api/app/session and clears the store only on local expiry or HTTP 401. Skipping restore() on a later connect() would keep a revoked-but-unexpired token treated as valid because nothing in disconnect() invalidates it. The optimization is unsafe, but not for the reason recorded. The evidence JSON and the new test comment both state the false mechanism."
+    }
+  ],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --tests com.jarvis.android.transport.live.LiveTransportLatencyTest --no-daemon",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "full_suite_rerun": false,
+    "assemble_debug_rerun": false,
+    "emulator_or_device": false
+  },
+  "checks": {
+    "product_code_under_app_src_main_unchanged": true,
+    "diff_files": [
+      "app/src/test/java/com/jarvis/android/transport/live/LiveTransportLatencyTest.kt",
+      "reports/outbox/agent-results/ANDROID-R3-LIVE-TRANSPORT-LATENCY-RELIABILITY-001.json"
+    ],
+    "web_v1_contract_unchanged": true,
+    "ui_unchanged": true,
+    "room_unchanged": true,
+    "baseline_test_encodes_two_session_calls": true,
+    "existing_reconnect_tests_weakened": false,
+    "rejected_optimization_unsafe": true,
+    "rejected_optimization_reason_matches_source": false
+  }
+}
