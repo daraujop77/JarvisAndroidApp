@@ -1,0 +1,35 @@
+{
+  "task_id": "ANDROID-R3-DRAFT-SEARCH-UX-001",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "bc2ab590225f952d7d1309e988e50e7a1673c550",
+  "base_sha": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "branch": "android/r3-draft-search-ux-pcb",
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --tests com.jarvis.android.data.local.DraftSearchTest --no-daemon",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "tests": 6,
+    "failures": 0,
+    "skipped": 0,
+    "full_suite_rerun": false,
+    "assemble_debug_rerun": false,
+    "emulator_or_device": false
+  },
+  "checks": {
+    "migration_3_to_4_creates_conversation_drafts_only": true,
+    "destructive_fallback": false,
+    "migration_chain_preserves_conversations_messages_pending_outbound_cursor": true,
+    "one_draft_per_conversation": true,
+    "switch_cannot_leak_draft": true,
+    "draft_sent_only_by_explicit_send": true,
+    "search_local_title_only": true,
+    "empty_query_preserves_order": true,
+    "transport_byte_identical": true,
+    "web_v1_contract_byte_identical": true,
+    "claimed_unit_tests": "171 across 17 suites; not re-run in full. Source has 171 @Test methods across those 17 files. DraftSearchTest re-run: 6/6 passed.",
+    "claimed_assemble_debug": "not re-run; kspDebugKotlin and compileDebugKotlin were UP-TO-DATE during the unit-test build"
+  }
+}
