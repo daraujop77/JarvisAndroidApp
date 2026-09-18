@@ -1,0 +1,38 @@
+{
+  "schema": "jarvis.android.r3-r4.a4-task-approval-ux.v1",
+  "phase": "A4",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "BASE_SHA": "7b28411011dcb9eac5a5e2c2ff500cc9a9b6b544",
+  "FINAL_SHA": "4e4f875455e97c1647cfd0c45b15be8c2585e715",
+  "files_changed": [
+    "app/src/main/java/com/jarvis/android/ui/screens/ApprovalsTasksScreens.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/TaskApprovalA11y.kt",
+    "app/src/main/java/com/jarvis/android/ui/tasks/TaskApprovalUx.kt",
+    "app/src/test/java/com/jarvis/android/ui/tasks/TaskApprovalUxTest.kt",
+    "app/src/test/java/com/jarvis/android/ui/theme/ReducedMotionTest.kt",
+    "reports/outbox/agent-results/ANDROID-A4-TASK-APPROVAL-UX.json"
+  ],
+  "unit_tests": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "suites": 21,
+    "tests": 197,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0
+  },
+  "assemble_debug": "BUILD SUCCESSFUL",
+  "jdk": "Android Studio JBR 21.0.10",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "PHYSICAL_DEVICE_USED": false,
+  "REAL_SIDE_EFFECTS": false,
+  "RESULT": "A4_TASK_APPROVAL_UX_PASS",
+  "notes": [
+    "Tasks group by running (queued/started/running), completed, failed, and cancelled from existing TaskUiState only.",
+    "Progress rendering starts from persisted session progress and does not animate from 0 after process recreation or run backwards.",
+    "Task detail sheet shows sanitized identifiers and timestamps; payload-like ids are opaque.",
+    "Approval UI distinguishes REQUESTED, RESOLVING (local tap in flight), EXPIRED_LOCAL (device clock), and SERVER outcome. Local tap is never authoritative.",
+    "Duplicate taps are blocked while resolving or after local expiry. Biometric still required for SENSITIVE/CRITICAL. Non-owners see no approval list.",
+    "No Room schema change. contract/webv1 and transport/** were not edited. Phase A5 was not started."
+  ]
+}
