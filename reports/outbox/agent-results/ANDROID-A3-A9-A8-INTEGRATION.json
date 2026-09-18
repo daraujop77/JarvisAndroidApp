@@ -1,0 +1,34 @@
+{
+  "task_id": "ANDROID-A3-A9-A8-INTEGRATION",
+  "branch": "android/r3-r4-a3-a9-integration",
+  "BASE_SHA": "efd12375cedb4f040c1851e8ddfee3319b7909bb",
+  "A8_SHAS": [
+    "730b14832fda67be9a0487a6b7290df805664936",
+    "b956d7ac6e454b5aa08b4c9509b61e1bbafb8803"
+  ],
+  "FINAL_SHA": "3e45542a927bd4d3211bfb260214ec69d2276cfc",
+  "cherry_pick": "clean, no conflicts, in order",
+  "review_json_picked": false,
+  "features_added": false,
+  "ROOM_VERSION": 6,
+  "migration_5_to_6": "additive CREATE TABLE staged_attachments plus index; does not drop conversations, messages, pending_outbound, cursor, drafts, or conversation_local_meta",
+  "binary_upload_server_contract_added": false,
+  "unit_tests": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "suites": 22,
+    "tests": 203,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "result": "BUILD SUCCESSFUL"
+  },
+  "assemble_debug": {
+    "command": ":app:assembleDebug --no-daemon",
+    "result": "BUILD SUCCESSFUL"
+  },
+  "jdk": "Android Studio JBR 21.0.10",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "MERGED_TO_R2": false,
+  "RESULT": "READY_FOR_PC_A_ANDROID_REVIEW"
+}
