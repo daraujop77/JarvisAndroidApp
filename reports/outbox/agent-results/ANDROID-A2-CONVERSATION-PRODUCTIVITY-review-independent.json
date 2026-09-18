@@ -1,0 +1,67 @@
+{
+  "task_id": "ANDROID-A2-CONVERSATION-PRODUCTIVITY",
+  "phase": "A2",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "base_sha": "7e93eb33824a3215848473dc90d8f22c4500b37d",
+  "head_at_review": "aa262e64ef1e48b88c3648245a27451ff76ef334",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "reviewer": "independent-not-builder",
+  "builder_review_files_ignored": [
+    "reports/outbox/agent-results/ANDROID-A2-CONVERSATION-PRODUCTIVITY-review.json",
+    "reports/outbox/agent-results/ANDROID-A2-CONVERSATION-PRODUCTIVITY.json"
+  ],
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "forced_execution": ":app:testDebugUnitTest --no-daemon --rerun-tasks",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "suites": 19,
+    "tests": 182,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "full_suite_rerun": true,
+    "assemble_debug_rerun": false,
+    "emulator_or_device": false,
+    "adb_used": false
+  },
+  "checks": {
+    "pin_rename_recency_hide_are_local_metadata_only": true,
+    "hide_archive_does_not_delete_server_or_room_history": true,
+    "preserved_on_hide": [
+      "conversations",
+      "messages",
+      "pending_outbound",
+      "lastCursorToken",
+      "conversation_drafts"
+    ],
+    "room_migration_4_to_5_additive": true,
+    "destructive_fallback": false,
+    "migration_test_exists": true,
+    "local_metadata_not_presented_as_server_authority": true,
+    "copy_share_buttons_refuse_credentials_and_raw_payloads": true,
+    "contract_webv1_byte_identical": true,
+    "app_contract_byte_identical": true,
+    "transport_unchanged": true,
+    "physical_device_used": false,
+    "adb_used": false,
+    "a3_started": false
+  },
+  "evidence": {
+    "diff": "git diff 7e93eb3..ca494dd",
+    "local_meta_table": "conversation_local_meta via ConversationLocalMetaEntity / ConversationProductivityStore",
+    "hide_path": "setArchived upserts archived=true only; no DELETE of conversations, messages, pending_outbound, drafts, or cursor",
+    "rename_path": "setLocalTitle writes ConversationLocalMetaEntity.localTitle; ConversationEntity.title is unchanged",
+    "recency_path": "lastOpenedAtMs / activitySinceOpen compared to stored updatedAtMs; UI labels on this device, not unread",
+    "copy_share_path": "ShareSafeText.visibleChatText returns null for credential-looking substrings and JSON that looks like an internal envelope; ConversationsScreen.shareOrCopy uses that gate before clipboard or ACTION_SEND",
+    "migration": "MIGRATION_4_5 CREATE TABLE conversation_local_meta plus indexes; Room.databaseBuilder has addMigrations only, no fallbackToDestructiveMigration",
+    "migration_tests": [
+      "CursorMigrationTest.migration1to5ChainPreservesConversationsMessagesPendingCursorAndDrafts",
+      "ConversationProductivityTest.migration4to5AddsLocalMetaWithoutTouchingExistingRows"
+    ]
+  }
+}
