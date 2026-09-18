@@ -30,8 +30,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jarvis.android.ui.components.AmbientBackdrop
+import com.jarvis.android.ui.home.JarvisVisualState
 import com.jarvis.android.ui.components.JarvisOrb
-import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
@@ -78,7 +78,7 @@ fun WelcomeScreen(
         onFinished()
     }
 
-    AmbientBackdrop {
+    AmbientBackdrop(visualState = if (greet) JarvisVisualState.IDLE else JarvisVisualState.BOOT) {
         // Short/landscape windows must not let the centred stack collide with the
         // footer, so the orb scales down and everything stays in one flow.
         val compactHeight = maxHeight < 560.dp
@@ -93,7 +93,7 @@ fun WelcomeScreen(
         ) {
             JarvisOrb(
                 size = orbSize,
-                activity = if (greet) OrbActivity.IDLE else OrbActivity.THINKING,
+                visualState = if (greet) JarvisVisualState.IDLE else JarvisVisualState.BOOT,
                 intensity = progress,
             )
 

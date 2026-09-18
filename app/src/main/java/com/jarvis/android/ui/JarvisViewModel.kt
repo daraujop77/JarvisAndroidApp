@@ -61,6 +61,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         setOpenConversation(id)
     }
 
+    private val _threadOpenNonce = MutableStateFlow(0)
+    val threadOpenNonce: StateFlow<Int> = _threadOpenNonce
+
+    /** Open a conversation and ask the chat surface to show the thread, not the list. */
+    fun openConversationThread(id: String) {
+        setOpenConversation(id)
+        _threadOpenNonce.value += 1
+    }
+
     private fun setOpenConversation(id: String) {
         _conversationId.value = id
         viewModelScope.launch { productivity.markOpened(id) }
@@ -539,6 +548,84 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun onUnlocked() { _unlocked.value = true }
 
+    /**
+     * Home command center. Assembled from already-available local/session
+     * flows only — never invents server counts or model labels.
+     */
+    val home: StateFlow<com.jarvis.android.ui.home.HomeSnapshot> =
+        kotlinx.coroutines.flow.combine(
+            kotlinx.coroutines.flow.combine(
+                bootShown,
+                snapshot,
+                voiceUi,
+                settings,
+                chatAccess,
+            ) { boot, snap, voice, set, access ->
+                HomeHead(
+                    bootShown = boot,
+                    snapshot = snap,
+                    voice = voice,
+                    isOwner = set.isOwner,
+                    voiceInputEnabled = set.voiceInputEnabled,
+                    catalog = access?.entries?.map { entry ->
+                        com.jarvis.android.ui.home.ServerProfileEntry(
+                            profile = entry.profile,
+                            label = entry.label,
+                            model = entry.model,
+                            state = entry.state,
+                        )
+                    },
+                )
+            },
+            chatProfile,
+            visibleConversations,
+            projects,
+        ) { head, profileId, convos, projectsResult ->
+            com.jarvis.android.ui.home.HomeCommandCenter.snapshot(
+                bootShown = head.bootShown,
+                connection = head.snapshot.connection,
+                phaseName = head.snapshot.phase.name,
+                session = head.snapshot.session,
+                voicePhase = if (head.voiceInputEnabled) head.voice.phase else com.jarvis.android.voice.VoicePhase.IDLE,
+                speaking = head.voiceInputEnabled && head.voice.speaking,
+                isOwner = head.isOwner,
+                catalog = head.catalog,
+                selectedProfileId = profileId,
+                conversations = convos,
+                debugBuild = com.jarvis.android.BuildConfig.DEBUG,
+                projects = projectsResult,
+            )
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            com.jarvis.android.ui.home.HomeCommandCenter.snapshot(
+                bootShown = false,
+                connection = com.jarvis.android.data.state.ConnectionState.DISCONNECTED,
+                phaseName = com.jarvis.android.data.repo.SessionPhase.DISCONNECTED.name,
+                session = com.jarvis.android.data.state.SessionState(),
+                voicePhase = com.jarvis.android.voice.VoicePhase.IDLE,
+                speaking = false,
+                isOwner = false,
+                catalog = null,
+                selectedProfileId = "",
+                conversations = emptyList(),
+                debugBuild = com.jarvis.android.BuildConfig.DEBUG,
+                projects = com.jarvis.android.data.projects.ProjectsResult.Loading,
+            ),
+        )
+
+    private val _enterChatOnConversations = MutableStateFlow(false)
+    val enterChatOnConversations: StateFlow<Boolean> = _enterChatOnConversations
+
+    fun openConversationAndShowChat(id: String) {
+        openConversation(id)
+        _enterChatOnConversations.value = true
+    }
+
+    fun consumeEnterChatOnConversations() {
+        _enterChatOnConversations.value = false
+    }
+
     /** Re-arm the lock when the app leaves the foreground. */
     fun relock() {
         if (settings.value.appLockEnabled) _unlocked.value = false
@@ -615,6 +702,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 }
+
+private data class HomeHead(
+    val bootShown: Boolean,
+    val snapshot: SessionSnapshot,
+    val voice: com.jarvis.android.voice.VoiceUiState,
+    val isOwner: Boolean,
+    val voiceInputEnabled: Boolean,
+    val catalog: List<com.jarvis.android.ui.home.ServerProfileEntry>?,
+)
 
 class JarvisViewModelFactory(private val app: JarvisApp) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

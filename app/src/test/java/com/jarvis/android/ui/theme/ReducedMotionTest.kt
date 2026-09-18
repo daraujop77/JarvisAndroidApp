@@ -1,6 +1,7 @@
 package com.jarvis.android.ui.theme
 
 import com.jarvis.android.ui.screens.ConversationA11y
+import com.jarvis.android.ui.screens.HomeA11y
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -29,5 +30,18 @@ class ReducedMotionTest {
         assertTrue(ConversationA11y.EMPTY_CHATS.isNotBlank())
         assertTrue(ConversationA11y.OFFLINE.contains("this device"))
         assertTrue(ConversationA11y.CONNECTION_ERROR.contains("this device"))
+    }
+
+    @Test
+    fun homeCommandCenterHasContentDescriptions() {
+        assertEquals("JARVIS home", HomeA11y.SCREEN)
+        assertTrue(HomeA11y.PROFILE_UNKNOWN.contains("Not reported by server"))
+        assertTrue(HomeA11y.APPROVALS_OWNER_ONLY.contains("owner-only"))
+        assertTrue(HomeA11y.PROJECTS_NOT_LIVE.contains("Not live-backed"))
+        assertTrue(HomeA11y.visualState("Idle").contains("Idle"))
+        assertTrue(HomeA11y.QUICK_CHAT.isNotBlank())
+        assertTrue(HomeA11y.QUICK_TASKS.isNotBlank())
+        assertTrue(HomeA11y.QUICK_APPROVALS.isNotBlank())
+        assertTrue(HomeA11y.QUICK_SETTINGS.isNotBlank())
     }
 }

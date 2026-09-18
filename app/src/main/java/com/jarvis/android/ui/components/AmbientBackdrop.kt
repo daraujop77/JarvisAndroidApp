@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.jarvis.android.ui.home.JarvisVisualState
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
 import kotlin.math.cos
@@ -27,10 +28,12 @@ import kotlin.math.sin
  *
  * Drawn with [drawBehind] so the animation stays in the draw phase and never
  * recomposes children. Blooms are skipped entirely under reduced motion.
+ * [visualState] only changes tint and pace — not session or transport semantics.
  */
 @Composable
 fun AmbientBackdrop(
     modifier: Modifier = Modifier,
+    visualState: JarvisVisualState = JarvisVisualState.IDLE,
     content: @Composable BoxWithConstraintsScope.() -> Unit,
 ) {
     val accents = LocalJarvisAccents.current
@@ -42,14 +45,42 @@ fun AmbientBackdrop(
         animationSpec = infiniteRepeatable(tween(26_000, easing = LinearEasing), RepeatMode.Restart),
         label = "drift",
     )
-    val phase = if (reduced) 0f else drift
+    val frozen = reduced || visualState == JarvisVisualState.OFFLINE
+    val driftScale = when (visualState) {
+        JarvisVisualState.BOOT, JarvisVisualState.THINKING -> 1.25f
+        JarvisVisualState.LISTENING, JarvisVisualState.RESPONDING -> 1.15f
+        JarvisVisualState.EXECUTING, JarvisVisualState.AWAITING_APPROVAL -> 1.1f
+        JarvisVisualState.ERROR -> 0.55f
+        JarvisVisualState.OFFLINE -> 0f
+        JarvisVisualState.IDLE -> 1f
+    }
+    val phase = if (frozen) 0f else drift * driftScale
+    val bloomBoost = when (visualState) {
+        JarvisVisualState.BOOT, JarvisVisualState.THINKING -> 1.35f
+        JarvisVisualState.LISTENING -> 1.25f
+        JarvisVisualState.RESPONDING -> 1.4f
+        JarvisVisualState.EXECUTING, JarvisVisualState.AWAITING_APPROVAL -> 1.2f
+        JarvisVisualState.ERROR -> 0.55f
+        JarvisVisualState.OFFLINE -> 0.35f
+        JarvisVisualState.IDLE -> 1f
+    }
+    val primaryTint = when (visualState) {
+        JarvisVisualState.ERROR -> Color(0x66EF4444)
+        JarvisVisualState.OFFLINE -> accents.offline.copy(alpha = 0.10f)
+        else -> accents.orbGlow.copy(alpha = 0.10f * bloomBoost)
+    }
+    val secondaryTint = when (visualState) {
+        JarvisVisualState.ERROR -> Color(0x33F97316)
+        JarvisVisualState.AWAITING_APPROVAL -> accents.degraded.copy(alpha = 0.10f)
+        else -> accents.orbGlow.copy(alpha = 0.06f * bloomBoost)
+    }
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(accents.backdrop)
             .drawBehind {
-                if (reduced) return@drawBehind
+                if (frozen) return@drawBehind
                 val w = size.width
                 val h = size.height
                 val bloom = { cx: Float, cy: Float, radius: Float, tint: Color ->
@@ -67,13 +98,13 @@ fun AmbientBackdrop(
                     w * (0.22f + 0.10f * cos(phase)),
                     h * (0.16f + 0.05f * sin(phase)),
                     w * 0.75f,
-                    accents.orbGlow.copy(alpha = 0.10f),
+                    primaryTint,
                 )
                 bloom(
                     w * (0.82f + 0.08f * sin(phase * 0.8f)),
                     h * (0.80f + 0.06f * cos(phase * 0.6f)),
                     w * 0.62f,
-                    accents.orbGlow.copy(alpha = 0.06f),
+                    secondaryTint,
                 )
             },
         content = content,

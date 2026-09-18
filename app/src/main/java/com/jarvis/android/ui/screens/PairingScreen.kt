@@ -47,8 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.AmbientBackdrop
+import com.jarvis.android.ui.home.JarvisVisualState
 import com.jarvis.android.ui.components.JarvisOrb
-import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
@@ -77,7 +77,10 @@ fun PairingScreen(
     val accents = LocalJarvisAccents.current
     val liveAuth by vm.liveAuth.collectAsStateWithLifecycle()
 
-    AmbientBackdrop(modifier) {
+    AmbientBackdrop(
+        modifier = modifier,
+        visualState = if (lockedReason != null) JarvisVisualState.ERROR else JarvisVisualState.LISTENING,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -91,7 +94,7 @@ fun PairingScreen(
         ) {
             JarvisOrb(
                 size = 128.dp,
-                activity = if (lockedReason != null) OrbActivity.OFFLINE else OrbActivity.LISTENING,
+                visualState = if (lockedReason != null) JarvisVisualState.ERROR else JarvisVisualState.LISTENING,
             )
             Spacer(Modifier.height(26.dp))
 

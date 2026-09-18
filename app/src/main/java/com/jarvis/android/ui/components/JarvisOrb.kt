@@ -21,6 +21,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.jarvis.android.ui.home.JarvisVisualState
+import com.jarvis.android.ui.home.toOrbActivity
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
 
@@ -40,6 +42,7 @@ fun JarvisOrb(
     modifier: Modifier = Modifier,
     size: Dp = 120.dp,
     activity: OrbActivity = OrbActivity.IDLE,
+    visualState: JarvisVisualState? = null,
     /** 0f..1f — extra intensity, e.g. streaming progress or audio level. */
     intensity: Float = 0f,
     /**
@@ -52,8 +55,9 @@ fun JarvisOrb(
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
     val transition = rememberInfiniteTransition(label = "orb")
+    val resolvedActivity = visualState?.toOrbActivity() ?: activity
 
-    val speed = when (activity) {
+    val speed = when (resolvedActivity) {
         OrbActivity.IDLE -> 1f
         OrbActivity.LISTENING -> 1.8f
         OrbActivity.PROCESSING -> 2.2f
@@ -91,7 +95,7 @@ fun JarvisOrb(
         label = "pulse",
     )
 
-    val tint = when (activity) {
+    val tint = when (resolvedActivity) {
         OrbActivity.OFFLINE -> accents.offline
         OrbActivity.ERROR -> androidx.compose.material3.MaterialTheme.colorScheme.error
         else -> accents.orbGlow

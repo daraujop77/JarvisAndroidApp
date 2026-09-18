@@ -109,7 +109,7 @@ import com.jarvis.android.data.state.ConnectionState
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.JarvisOrb
-import com.jarvis.android.ui.components.OrbActivity
+import com.jarvis.android.ui.home.JarvisVisualState
 import com.jarvis.android.ui.components.TypingDots
 import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.shared.OwnerAvatar
@@ -125,6 +125,15 @@ import kotlinx.coroutines.launch
 fun ConversationsScreen(vm: JarvisViewModel) {
     var showList by rememberSaveable { mutableStateOf(true) }
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
+    val threadOpenNonce by vm.threadOpenNonce.collectAsStateWithLifecycle()
+    val enterChat by vm.enterChatOnConversations.collectAsStateWithLifecycle()
+
+    LaunchedEffect(threadOpenNonce, enterChat) {
+        if ((threadOpenNonce > 0 || enterChat) && conversationId != null) {
+            showList = false
+            if (enterChat) vm.consumeEnterChatOnConversations()
+        }
+    }
 
     if (showList || conversationId == null) {
         ConversationListView(
@@ -364,7 +373,11 @@ private fun ConversationListEmpty(querying: Boolean, showHidden: Boolean) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        JarvisOrb(size = 130.dp, activity = OrbActivity.IDLE, contentDescription = description)
+        JarvisOrb(
+            size = 130.dp,
+            visualState = JarvisVisualState.IDLE,
+            contentDescription = description,
+        )
         Spacer(Modifier.height(24.dp))
         Text(title, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(6.dp))
@@ -423,7 +436,10 @@ private fun ConversationRow(
                     .background(accents.orbGlow.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center,
             ) {
-                JarvisOrb(size = 30.dp, activity = OrbActivity.IDLE)
+                JarvisOrb(
+                    size = 30.dp,
+                    visualState = JarvisVisualState.IDLE,
+                )
             }
             Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f)) {
@@ -547,6 +563,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val streaming = liveRequest != null
     val voice by vm.voiceUi.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val home by vm.home.collectAsStateWithLifecycle()
 
     androidx.compose.runtime.DisposableEffect(Unit) {
         vm.setVoiceChatVisible(true)
@@ -625,18 +642,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         JarvisOrb(
                             size = 30.dp,
-                            activity = when (vm.voiceOrbCue()) {
-                                com.jarvis.android.voice.VoiceOrbCue.LISTENING -> OrbActivity.LISTENING
-                                com.jarvis.android.voice.VoiceOrbCue.PROCESSING -> OrbActivity.PROCESSING
-                                com.jarvis.android.voice.VoiceOrbCue.SPEAKING -> OrbActivity.SPEAKING
-                                com.jarvis.android.voice.VoiceOrbCue.ERROR -> OrbActivity.ERROR
-                                com.jarvis.android.voice.VoiceOrbCue.THINKING -> OrbActivity.THINKING
-                                else -> when {
-                                    streaming -> OrbActivity.THINKING
-                                    !snapshot.connection.isUsable -> OrbActivity.OFFLINE
-                                    else -> OrbActivity.IDLE
-                                }
-                            },
+                            visualState = home.visualState,
                         )
                         Spacer(Modifier.size(10.dp))
                         Column {
@@ -1060,7 +1066,9 @@ private fun MessageBubble(
             Box(Modifier.padding(end = 8.dp, bottom = 2.dp)) {
                 JarvisOrb(
                     size = 28.dp,
-                    activity = if (isStreaming || awaiting) OrbActivity.THINKING else OrbActivity.IDLE,
+                    visualState = if (isStreaming) JarvisVisualState.RESPONDING
+                    else if (awaiting) JarvisVisualState.THINKING
+                    else JarvisVisualState.IDLE,
                     contentDescription = if (isStreaming || awaiting) "JARVIS is responding" else null,
                 )
             }

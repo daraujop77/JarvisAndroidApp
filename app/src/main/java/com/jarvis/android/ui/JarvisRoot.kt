@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
@@ -45,6 +46,7 @@ import com.jarvis.android.data.repo.SessionPhase
 import com.jarvis.android.ui.components.AmbientBackdrop
 import com.jarvis.android.ui.screens.ApprovalsScreen
 import com.jarvis.android.ui.screens.ConversationsScreen
+import com.jarvis.android.ui.screens.HomeScreen
 import com.jarvis.android.ui.screens.LockScreen
 import com.jarvis.android.ui.screens.PairingScreen
 import com.jarvis.android.ui.screens.ProjectsScreen
@@ -55,6 +57,7 @@ import com.jarvis.android.ui.shared.ConnectionBanner
 import com.jarvis.android.ui.theme.LocalReducedMotion
 
 sealed class TopLevelDestination(val route: String, val label: String, val icon: ImageVector) {
+    data object Home : TopLevelDestination("home", "Home", Icons.Filled.Home)
     data object Conversations : TopLevelDestination("conversations", "Chat", Icons.AutoMirrored.Filled.Chat)
     data object Approvals : TopLevelDestination("approvals", "Approvals", Icons.Filled.Person)
     data object Tasks : TopLevelDestination("tasks", "Tasks", Icons.AutoMirrored.Filled.List)
@@ -72,8 +75,8 @@ sealed class TopLevelDestination(val route: String, val label: String, val icon:
          */
         val all: List<TopLevelDestination>
             get() = if (com.jarvis.android.BuildConfig.DEBUG)
-                listOf(Conversations, Projects, Approvals, Tasks, Settings)
-            else listOf(Conversations, Approvals, Tasks, Settings)
+                listOf(Home, Conversations, Projects, Approvals, Tasks, Settings)
+            else listOf(Home, Conversations, Approvals, Tasks, Settings)
     }
 }
 
@@ -169,17 +172,11 @@ private fun MainShell(vm: JarvisViewModel) {
 
     LaunchedEffect(Unit) { vm.seedDemoIfEmpty() }
 
+    val home by vm.home.collectAsStateWithLifecycle()
     // Non-owners never see pending-approval counts (or the cards themselves).
-    val pendingApprovals = if (isOwner) {
-        snapshot.session.approvals.values.count { it.outcome == null }
-    } else 0
-    val runningTasks = snapshot.session.tasks.values.count {
-        it.status == com.jarvis.android.contract.TaskStatus.RUNNING ||
-            it.status == com.jarvis.android.contract.TaskStatus.STARTED ||
-            it.status == com.jarvis.android.contract.TaskStatus.QUEUED
-    }
-
-    AmbientBackdrop {
+    val pendingApprovals = home.pendingApprovalCount ?: 0
+    val runningTasks = home.runningTaskCount
+    AmbientBackdrop(visualState = home.visualState) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = { ConnectionBanner(snapshot, onReconnect = vm::reconnect) },
@@ -224,11 +221,23 @@ private fun MainShell(vm: JarvisViewModel) {
         ) { innerPadding ->
             NavHost(
                 navController = navController,
-                startDestination = TopLevelDestination.Conversations.route,
+                startDestination = TopLevelDestination.Home.route,
                 modifier = Modifier.padding(innerPadding),
                 enterTransition = { fadeIn(tween(220)) },
                 exitTransition = { fadeOut(tween(160)) },
             ) {
+                composable(TopLevelDestination.Home.route) {
+                    HomeScreen(
+                        vm = vm,
+                        onNavigate = { route ->
+                            navController.navigate(route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                    )
+                }
                 composable(TopLevelDestination.Conversations.route) { ConversationsScreen(vm) }
                 composable(TopLevelDestination.Projects.route) { ProjectsScreen(vm) }
                 composable(TopLevelDestination.Approvals.route) { ApprovalsScreen(vm, isOwner = isOwner) }
