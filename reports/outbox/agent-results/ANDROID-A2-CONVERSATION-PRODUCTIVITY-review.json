@@ -1,52 +1,59 @@
 {
-  "task_id": "ANDROID-A2-CONVERSATION-PRODUCTIVITY",
+  "schema": "jarvis.android.r3-r4.a2-conversation-productivity-review.v1",
   "phase": "A2",
-  "RESULT": "PASS_REVIEW",
-  "reviewed_sha": "ca494dd29b458473959ae5d324bfd8ca17f48592",
-  "evidence_sha": "42967ad1256c7e8b884f98be7d13a68aee7a88b6",
-  "base_sha": "7e93eb33824a3215848473dc90d8f22c4500b37d",
-  "head_at_review": "42967ad1256c7e8b884f98be7d13a68aee7a88b6",
+  "task_id": "ANDROID-A2-CONVERSATION-PRODUCTIVITY",
   "branch": "android/r3-r4-productivity-marathon-pcb",
-  "findings": [],
-  "tests_rerun": true,
-  "tests_rerun_detail": {
-    "command": ":app:testDebugUnitTest --no-daemon --no-parallel",
-    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
-    "java_version": "21.0.10",
-    "result": "BUILD SUCCESSFUL",
-    "suites": 19,
-    "tests": 182,
-    "failures": 0,
-    "skipped": 0,
-    "errors": 0,
-    "claimed_suites": 19,
-    "claimed_tests": 182,
-    "claimed_failures": 0,
-    "claim_matched": true,
-    "emulator_or_device": false,
-    "physical_device_used": false,
-    "adb_used": false
-  },
+  "reviewed_product_sha": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "reviewed_head_at_start": "42967ad1256c7e8b884f98be7d13a68aee7a88b6",
+  "BASE_SHA": "7e93eb33824a3215848473dc90d8f22c4500b37d",
+  "RESULT": "PASS_REVIEW",
+  "product_code_modified": false,
+  "a3_started": false,
+  "merged": false,
   "checks": {
-    "pin_rename_recency_hide_are_local_metadata_only": true,
-    "hide_does_not_delete_conversations_messages_pending_outbound_cursor_or_drafts": true,
-    "migration_4_to_5_creates_conversation_local_meta_only": true,
-    "destructive_fallback": false,
-    "migration_test_exists": true,
-    "migration_chain_preserves_conversations_messages_pending_outbound_cursor_and_drafts": true,
-    "local_metadata_not_presented_as_server_authority": true,
-    "copy_share_refuses_credentials_and_raw_internal_payloads": true,
-    "web_v1_contract_byte_identical": true,
-    "transport_byte_identical": true,
-    "no_contract_additions": true,
-    "no_physical_device": true
+    "device_only_metadata": true,
+    "hide_does_not_delete_history": true,
+    "hide_sends_nothing_to_server": true,
+    "local_title_is_overlay": true,
+    "copy_share_refuses_credentials_and_payloads": true,
+    "migration_4_to_5_additive": true,
+    "no_destructive_fallback": true,
+    "migration_test_preserves_existing_tables": true,
+    "web_v1_unchanged": true,
+    "transport_unchanged": true,
+    "empty_offline_error_states": true,
+    "reduced_motion_coverage": true
   },
+  "findings": [
+    "Pin, local rename, hide/archive and last-opened recency live only in conversation_local_meta via ConversationProductivityStore. The UI labels them as on this device.",
+    "setArchived upserts local archived=true and never DELETEs conversations, messages, pending_outbound, cursor or drafts. No transport or contract call is on the hide path.",
+    "setLocalTitle writes ConversationLocalMetaEntity.localTitle only. ConversationEntity.title is unchanged; tests assert the stored title stays put.",
+    "ShareSafeText.visibleChatText returns null for credential-looking substrings and JSON that looks like an internal envelope. Copy/share uses that gate before clipboard or ACTION_SEND.",
+    "MIGRATION_4_5 only CREATE TABLEs conversation_local_meta plus indexes. Room builder has no fallbackToDestructiveMigration. CursorMigrationTest.migration1to5ChainPreservesConversationsMessagesPendingCursorAndDrafts and ConversationProductivityTest.migration4to5AddsLocalMetaWithoutTouchingExistingRows both preserve conversations, messages, pending_outbound, cursor and drafts.",
+    "git diff 7e93eb3..ca494dd touches no contract/webv1, app contract, or app/src/main/java/com/jarvis/android/transport files.",
+    "ConversationsScreen has empty list/search/hidden/thread states, offline and connection-error banners, jump-to-top/latest navigation, TalkBack labels, and reduced-motion scroll/animate collapse with ReducedMotionTest coverage."
+  ],
   "notes": [
-    "Pin, local title, last-opened recency and hide live in conversation_local_meta. Rename is never written onto ConversationEntity.title.",
-    "UI copy labels pin/rename/hide as on this device and states that server history stays.",
-    "activitySinceOpen is local last-opened vs stored updatedAt, not a server unread feed.",
-    "ShareSafeText.visibleChatText refuses credential-looking substrings and JSON-shaped internal payloads; copy/share UI uses that path.",
-    "7e93eb3..ca494dd does not touch contract/webv1, app contract files, or app/src/main/java/com/jarvis/android/transport.",
-    "A3 was not started. This review commits only the review JSON."
-  ]
+    "activitySinceOpen is local last-opened vs stored updatedAtMs, not a server unread count.",
+    "ShareSafeText is deny-by-substring, not a complete secret scanner; that is within A2 scope.",
+    "A second evidence commit 42967ad sits after the product checkpoint; review is of ca494dd."
+  ],
+  "tests_rerun": {
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "jdk": "21.0.10",
+    "gradle": "--no-daemon",
+    "emulator_used": false,
+    "physical_device_used": false,
+    "conversation_productivity": {
+      "command": ":app:testDebugUnitTest --tests com.jarvis.android.data.local.ConversationProductivityTest --no-daemon",
+      "result": "BUILD SUCCESSFUL"
+    },
+    "migration": {
+      "command": ":app:testDebugUnitTest --tests com.jarvis.android.data.local.CursorMigrationTest --no-daemon",
+      "result": "BUILD SUCCESSFUL",
+      "tests": 3,
+      "failures": 0,
+      "ignored": 0
+    }
+  }
 }
