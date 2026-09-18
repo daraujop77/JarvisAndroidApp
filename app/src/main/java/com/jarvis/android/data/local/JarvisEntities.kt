@@ -92,6 +92,28 @@ data class ConversationLocalMetaEntity(
     val lastOpenedAtMs: Long = 0,
 )
 
+/**
+ * Composer-bound staged attachment (A8). Keyed by the opaque attachment id and
+ * scoped to one conversation, so a chip staged in conversation A can never
+ * appear in conversation B, and a process restart restores it only there.
+ *
+ * [fileName] is the private cache file name, never a content URI. Rows exist
+ * only while the attachment is unsent; sending or removing deletes the row.
+ */
+@Entity(
+    tableName = "staged_attachments",
+    indices = [Index("conversationId")],
+)
+data class StagedAttachmentEntity(
+    @PrimaryKey val attachmentId: String,
+    val conversationId: String,
+    val displayName: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val fileName: String,
+    val stagedAtMs: Long,
+)
+
 @Dao
 interface JarvisDao {
 
@@ -160,4 +182,19 @@ interface JarvisDao {
 
     @Upsert
     suspend fun upsertLocalMeta(meta: ConversationLocalMetaEntity)
+
+    @Query("SELECT * FROM staged_attachments WHERE conversationId = :id ORDER BY stagedAtMs ASC")
+    fun observeStagedAttachments(id: String): Flow<List<StagedAttachmentEntity>>
+
+    @Query("SELECT * FROM staged_attachments WHERE conversationId = :id ORDER BY stagedAtMs ASC")
+    suspend fun stagedAttachments(id: String): List<StagedAttachmentEntity>
+
+    @Query("SELECT * FROM staged_attachments WHERE attachmentId = :id")
+    suspend fun stagedAttachment(id: String): StagedAttachmentEntity?
+
+    @Upsert
+    suspend fun upsertStagedAttachment(staged: StagedAttachmentEntity)
+
+    @Query("DELETE FROM staged_attachments WHERE attachmentId = :id")
+    suspend fun deleteStagedAttachment(id: String)
 }

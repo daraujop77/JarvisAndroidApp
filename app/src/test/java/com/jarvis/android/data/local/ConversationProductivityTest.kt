@@ -38,6 +38,12 @@ class ConversationProductivityTest {
             observedMeta.value = this.meta.values.toList()
         }
 
+        override fun observeStagedAttachments(id: String) = error("unused")
+        override suspend fun stagedAttachments(id: String) = error("unused")
+        override suspend fun stagedAttachment(id: String) = error("unused")
+        override suspend fun upsertStagedAttachment(staged: StagedAttachmentEntity) = error("unused")
+        override suspend fun deleteStagedAttachment(id: String) = error("unused")
+
         override fun observeConversations(): Flow<List<ConversationEntity>> =
             MutableStateFlow(conversations.values.toList())
 

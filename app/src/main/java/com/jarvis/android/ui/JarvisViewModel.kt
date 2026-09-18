@@ -8,7 +8,9 @@ import com.jarvis.android.contract.ApprovalOutcome
 import com.jarvis.android.data.local.ConversationEntity
 import com.jarvis.android.data.local.ConversationListItem
 import com.jarvis.android.data.local.ShareSafeText
+import com.jarvis.android.data.media.AttachmentUx
 import com.jarvis.android.data.media.StagedAttachment
+import com.jarvis.android.data.media.StagedAttachmentRef
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.repo.ConversationSummary
 import com.jarvis.android.data.repo.SessionSnapshot
@@ -62,9 +64,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     private fun setOpenConversation(id: String) {
+        val previous = _conversationId.value
         _conversationId.value = id
         viewModelScope.launch { productivity.markOpened(id) }
+        // In-flight staging for the conversation being left must not land in
+        // the one being opened.
+        if (previous != null && previous != id) {
+            viewModelScope.launch { discardStagingFor(previous) }
+        }
     }
+
+    /** Staging jobs still running for a conversation. Cancelled on switch. */
+    private val stagingJobs = mutableMapOf<String, MutableList<kotlinx.coroutines.Job>>()
 
     // ---- local drafts and search (no transport, never sent on their own) ------
 
@@ -171,53 +182,126 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         viewModelScope.launch { drafts.saveDraft(id, "") }
     }
 
-    // ---- AND-W6 attachments ---------------------------------------------------
+    // ---- AND-W6 / A8 attachments ------------------------------------------------
 
-    private val _pendingAttachments = MutableStateFlow<List<StagedAttachment>>(emptyList())
-    val pendingAttachments: StateFlow<List<StagedAttachment>> = _pendingAttachments
+    private val attachmentStaging = container.attachmentStaging
+
+    /**
+     * Composer chips for the open conversation only. Backed by Room, so a
+     * process restart restores them and opening another conversation shows
+     * that conversation's chips — never these.
+     */
+    val pendingAttachments: StateFlow<List<StagedAttachmentRef>> = _conversationId
+        .flatMapLatest { id ->
+            if (id == null) kotlinx.coroutines.flow.flowOf(emptyList())
+            else attachmentStaging.observe(id)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val attachmentStore get() = container.attachmentStore
 
     /**
      * Copy picked image into private storage and strip EXIF. File copy + JPEG
-     * re-encode run on IO — never the main thread.
+     * re-encode run on IO — never the main thread. The chip is recorded for
+     * [conversationId] only, and only if that conversation is still open when
+     * staging finishes.
      */
     fun stageAttachment(uri: Uri) {
-        viewModelScope.launch {
-            val conversationId = _conversationId.value ?: conversations.newConversationId().also {
-                setOpenConversation(it)
-            }
+        val conversationId = _conversationId.value ?: conversations.newConversationId().also {
+            setOpenConversation(it)
+        }
+        val job = viewModelScope.launch {
             val staged = withContext(Dispatchers.IO) {
                 container.attachmentStore.stageFrom(uri)
             } ?: return@launch
-            _pendingAttachments.value = _pendingAttachments.value + staged
-            session.uploadAttachment(
-                attachmentId = staged.attachmentId,
-                conversationId = conversationId,
-                filename = staged.filename,
-                mimeType = staged.mimeType,
-                sizeBytes = staged.sizeBytes,
-            )
+            // Switched away while the copy ran: the chip must not appear in
+            // the conversation now open, and the private file must not linger.
+            if (_conversationId.value != conversationId) {
+                withContext(Dispatchers.IO) { container.attachmentStore.delete(staged.attachmentId) }
+                return@launch
+            }
+            attachmentStaging.rememberStaged(conversationId, staged)
+            declareUploadIntent(conversationId, staged.toRef())
+        }
+        trackStaging(conversationId, job)
+    }
+
+    /** Re-declare the upload intent for a failed attachment. Same opaque id, no new file. */
+    fun retryAttachment(attachmentId: String) {
+        val conversationId = _conversationId.value ?: return
+        viewModelScope.launch {
+            val ref = attachmentStaging.find(attachmentId) ?: return@launch
+            if (ref.conversationId != conversationId) return@launch
+            val current = session.snapshot.value.session.attachments[attachmentId]
+            if (!AttachmentUx.canRetry(current)) return@launch
+            declareUploadIntent(conversationId, ref)
         }
     }
 
     fun removePendingAttachment(attachmentId: String) {
-        _pendingAttachments.value = _pendingAttachments.value.filterNot { it.attachmentId == attachmentId }
-        viewModelScope.launch(Dispatchers.IO) { container.attachmentStore.delete(attachmentId) }
+        viewModelScope.launch {
+            val removed = attachmentStaging.forget(attachmentId) ?: return@launch
+            withContext(Dispatchers.IO) { container.attachmentStore.delete(removed.attachmentId) }
+        }
     }
 
     /** Send text and/or pending attachments (AND-W6: attachment IDs, never paths). */
     fun sendWithAttachments(text: String) {
-        val attachments = _pendingAttachments.value
-        val trimmed = text.trim()
-        if (trimmed.isEmpty() && attachments.isEmpty()) return
-        val ids = attachments.map { it.attachmentId }
-        val body = trimmed.ifBlank { "(photo)" }
-        val id = _conversationId.value ?: conversations.newConversationId().also { setOpenConversation(it) }
-        conversations.send(id, body, ids)
-        _pendingAttachments.value = emptyList()
-        viewModelScope.launch { drafts.saveDraft(id, "") }
+        val conversationId = _conversationId.value ?: conversations.newConversationId().also {
+            setOpenConversation(it)
+        }
+        viewModelScope.launch {
+            val attachments = attachmentStaging.staged(conversationId)
+            val trimmed = text.trim()
+            if (trimmed.isEmpty() && attachments.isEmpty()) return@launch
+            // A failed upload must be retried or removed before it can be sent.
+            val blocked = attachments.any { ref ->
+                val state = session.snapshot.value.session.attachments[ref.attachmentId]
+                state != null && !state.ready && state.error != null
+            }
+            if (blocked) return@launch
+            val ids = attachments.map { it.attachmentId }
+            val body = trimmed.ifBlank { "(photo)" }
+            conversations.send(conversationId, body, ids)
+            attachmentStaging.forgetAll(ids)
+            drafts.saveDraft(conversationId, "")
+        }
     }
+
+    private fun declareUploadIntent(conversationId: String, ref: StagedAttachmentRef) {
+        session.uploadAttachment(
+            attachmentId = ref.attachmentId,
+            conversationId = conversationId,
+            filename = ref.displayName,
+            mimeType = ref.mimeType,
+            sizeBytes = ref.sizeBytes,
+        )
+    }
+
+    private fun trackStaging(conversationId: String, job: kotlinx.coroutines.Job) {
+        val jobs = synchronized(stagingJobs) {
+            stagingJobs.getOrPut(conversationId) { mutableListOf() }.also { it += job }
+        }
+        job.invokeOnCompletion {
+            synchronized(stagingJobs) { jobs.remove(job) }
+        }
+    }
+
+    /** Drop staging that was still running for a conversation being left. */
+    private fun discardStagingFor(conversationId: String) {
+        val jobs = synchronized(stagingJobs) { stagingJobs.remove(conversationId).orEmpty() }
+        jobs.forEach { it.cancel() }
+    }
+
+    private fun StagedAttachment.toRef() = StagedAttachmentRef(
+        attachmentId = attachmentId,
+        conversationId = "",
+        displayName = filename,
+        mimeType = mimeType,
+        sizeBytes = sizeBytes,
+        fileName = file.name,
+        stagedAtMs = 0,
+    )
 
     fun cancel(clientRequestId: String) = conversations.cancelRequest(clientRequestId)
 

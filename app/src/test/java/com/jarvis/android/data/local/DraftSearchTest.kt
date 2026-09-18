@@ -42,6 +42,11 @@ class DraftSearchTest {
         override fun observeLocalMeta() = error("unused")
         override suspend fun localMeta(id: String) = error("unused")
         override suspend fun upsertLocalMeta(meta: ConversationLocalMetaEntity) = error("unused")
+        override fun observeStagedAttachments(id: String) = error("unused")
+        override suspend fun stagedAttachments(id: String) = error("unused")
+        override suspend fun stagedAttachment(id: String) = error("unused")
+        override suspend fun upsertStagedAttachment(staged: StagedAttachmentEntity) = error("unused")
+        override suspend fun deleteStagedAttachment(id: String) = error("unused")
 
         override fun observeConversations() = error("unused")
         override suspend fun conversation(id: String) = error("unused")

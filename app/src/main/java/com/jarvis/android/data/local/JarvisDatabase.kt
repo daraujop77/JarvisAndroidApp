@@ -14,8 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PendingOutboundEntity::class,
         ConversationDraftEntity::class,
         ConversationLocalMetaEntity::class,
+        StagedAttachmentEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class JarvisDatabase : RoomDatabase() {
@@ -169,6 +170,37 @@ abstract class JarvisDatabase : RoomDatabase() {
             )
         }
 
+        /**
+         * v5 → v6: composer-bound staged attachments. Additive only: no existing
+         * table is rewritten and there is no destructive fallback. Rows are
+         * empty after migration; nothing previously staged in memory is invented.
+         */
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                applyMigration5to6(db::execSQL)
+            }
+        }
+
+        fun applyMigration5to6(execSql: (String) -> Unit) {
+            execSql(
+                """
+                CREATE TABLE IF NOT EXISTS `staged_attachments` (
+                    `attachmentId` TEXT NOT NULL,
+                    `conversationId` TEXT NOT NULL,
+                    `displayName` TEXT NOT NULL,
+                    `mimeType` TEXT NOT NULL,
+                    `sizeBytes` INTEGER NOT NULL,
+                    `fileName` TEXT NOT NULL,
+                    `stagedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`attachmentId`)
+                )
+                """.trimIndent(),
+            )
+            execSql(
+                "CREATE INDEX IF NOT EXISTS `index_staged_attachments_conversationId` ON `staged_attachments` (`conversationId`)",
+            )
+        }
+
         fun get(context: Context): JarvisDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -176,7 +208,7 @@ abstract class JarvisDatabase : RoomDatabase() {
                     JarvisDatabase::class.java,
                     "jarvis.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }
