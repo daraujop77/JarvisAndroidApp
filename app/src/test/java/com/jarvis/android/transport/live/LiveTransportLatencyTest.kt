@@ -19,8 +19,10 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Deterministic baseline for live connect cost. Not a device measurement.
  * Each connect revalidates /api/app/session. Skipping that on reconnect is
- * not safe: disconnect clears the validated flag, and a stale token must
- * still fail closed.
+ * not safe: disconnect() only cancels active turns and sets the link CLOSED;
+ * it does not invalidate the stored token. restore() always GET /api/app/session
+ * and clears the store only on local expiry or HTTP 401. Skipping restore() on
+ * a later connect() would keep a revoked-but-unexpired token treated as valid.
  */
 class LiveTransportLatencyTest {
 

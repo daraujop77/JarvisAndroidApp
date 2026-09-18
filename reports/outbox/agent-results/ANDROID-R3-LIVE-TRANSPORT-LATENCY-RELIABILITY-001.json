@@ -12,7 +12,8 @@
     "injected_session_delay_ms": 25,
     "evidence": "LiveTransportLatencyTest.baselineConnectRepeatsSessionValidation"
   },
-  "CANDIDATE_REJECTED": "Skip session.restore() on a reconnect when a previous connect succeeded. Rejected because disconnect() must clear that flag, otherwise a stale or revoked token stays treated as valid. The second /api/app/session call is the fail-closed revalidation, not redundant work.",
+  "CANDIDATE_REJECTED": "Skip session.restore() on a reconnect when a previous connect succeeded. Rejected because disconnect() only cancels active turns and sets the link CLOSED; it does not invalidate the stored token. restore() always GET /api/app/session and clears the store only on local expiry or HTTP 401. Skipping restore() on a later connect() would keep a revoked-but-unexpired token treated as valid. The second /api/app/session call is the fail-closed revalidation, not redundant work.",
+  "reason_corrected_after_review": true,
   "FINAL_METRICS": "unchanged from baseline",
   "DUPLICATE_STREAM_COUNT": 0,
   "DUPLICATE_INFERENCE_COUNT": 0,
