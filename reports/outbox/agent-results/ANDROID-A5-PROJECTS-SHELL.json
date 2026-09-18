@@ -1,0 +1,40 @@
+{
+  "schema": "jarvis.android.r3-r4.a5-projects-shell.v1",
+  "phase": "A5",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "BASE_SHA": "cfea5b2a63c37387f140323877326879634ed380",
+  "FINAL_SHA": "PENDING_COMMIT",
+  "files_changed": [
+    "app/src/main/java/com/jarvis/android/data/projects/ProjectsRepository.kt",
+    "app/src/main/java/com/jarvis/android/data/projects/ProjectsWorkspace.kt",
+    "app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/ProjectsA11y.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/ProjectsScreen.kt",
+    "app/src/test/java/com/jarvis/android/data/projects/ProjectsRepositoryTest.kt",
+    "app/src/test/java/com/jarvis/android/ui/theme/ReducedMotionTest.kt",
+    "reports/outbox/agent-results/ANDROID-A5-PROJECTS-SHELL.json"
+  ],
+  "unit_tests": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "suites": 21,
+    "tests": 201,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0
+  },
+  "assemble_debug": "BUILD SUCCESSFUL",
+  "jdk": "Android Studio JBR 21.0.10",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "PHYSICAL_DEVICE_USED": false,
+  "FIXTURE_LABELED_NOT_LIVE": true,
+  "REAL_SIDE_EFFECTS": false,
+  "RESULT": "A5_PROJECTS_SHELL_READY_FOR_LIVE_ADAPTER",
+  "notes": [
+    "No compatible PC-A project contract was found in contract/webv1 or app contract files. No live adapter was invented.",
+    "ProjectsRepository remains the reusable seam. FakeProjectsRepository stays the only implementation, with activityFor as a local placeholder.",
+    "Debug UI adds richer cards/detail, search/filter/sort, project-local conversation grouping, and empty/loading/error/offline states.",
+    "Release continues to hide the Projects destination and shows no fixture claims. Fixture copy is labeled not live-backed.",
+    "No Room schema change. contract/webv1 and transport/** were not edited. Phase A6 was not started."
+  ]
+}

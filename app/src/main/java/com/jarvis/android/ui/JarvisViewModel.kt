@@ -170,6 +170,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun conversationsFor(projectId: com.jarvis.android.data.projects.ProjectId) =
         container.projectsRepository.conversationsFor(projectId)
 
+    fun activityFor(projectId: com.jarvis.android.data.projects.ProjectId) =
+        container.projectsRepository.activityFor(projectId)
+
     fun startNewConversation(onReady: (String) -> Unit = {}) {
         conversations.newConversation { id ->
             setOpenConversation(id)
