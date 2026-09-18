@@ -1,0 +1,37 @@
+{
+  "task_id": "ANDROID-A6-VISUAL-SYSTEM",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "7f36cda0b7f8df24cf0f5a58e1a6db8412fca54d",
+  "base_sha": "644d625",
+  "evidence_sha_not_authority": "767837a4f91eac449da1abe6d7256f42483f8d08",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "reviewer": "independent",
+  "merged": false,
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --tests com.jarvis.android.ui.theme.VisualSystemTest --tests com.jarvis.android.ui.theme.ReducedMotionTest --no-daemon",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "suites": 2,
+    "tests": 12,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "emulator_or_device": false
+  },
+  "checks": {
+    "tokens_stay_blue_cyan": "JarvisTokens re-home the existing 0xFF22D3EE / 0xFF060B16 HUD values; Theme.kt consumes them unchanged",
+    "reduced_motion_honored_by_touched_animations": "durations route through JarvisVisualSystem.durationMs which returns 0 when reduced; orb and backdrop freeze the drawn phase; ConnectionBanner pulse is gated",
+    "animation_intensity_local_only": "DataStore string subtle|standard, coerced on read and write",
+    "density_local_only": "DataStore string compact|comfortable, spacing only",
+    "no_downloadable_theme": true,
+    "no_network_asset": true,
+    "orb_and_ambient_from_ui_state": "JarvisVisualState and OrbActivity only; no new backend field",
+    "transport_byte_identical": true,
+    "web_v1_contract_byte_identical": true,
+    "no_credential_in_visual_preference": true,
+    "product_files_modified_by_review": false
+  }
+}
