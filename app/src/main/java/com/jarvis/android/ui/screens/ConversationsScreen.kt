@@ -114,7 +114,8 @@ private fun ConversationListView(
     onOpen: (String) -> Unit,
     onNew: () -> Unit,
 ) {
-    val items by vm.conversationList.collectAsStateWithLifecycle()
+    val items by vm.visibleConversations.collectAsStateWithLifecycle()
+    var query by rememberSaveable { mutableStateOf("") }
     val accents = LocalJarvisAccents.current
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
 
@@ -142,9 +143,19 @@ private fun ConversationListView(
             )
         },
     ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it; vm.setSearchQuery(it) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+            placeholder = { Text("Search chats", color = Color(0xFFB7C7DC)) },
+            singleLine = true,
+            shape = RoundedCornerShape(18.dp),
+            colors = jarvisTextFieldColors(),
+        )
         if (items.isEmpty()) {
             Column(
-                Modifier.fillMaxSize().padding(pad).padding(32.dp),
+                Modifier.fillMaxSize().padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -161,7 +172,7 @@ private fun ConversationListView(
             }
         } else {
             LazyColumn(
-                Modifier.fillMaxSize().padding(pad),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -202,6 +213,7 @@ private fun ConversationListView(
                 }
             }
         }
+        }
     }
 }
 
@@ -212,7 +224,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val pendingAttachments by vm.pendingAttachments.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
-    var input by rememberSaveable { mutableStateOf("") }
+    val input by vm.composerDraft.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val accents = LocalJarvisAccents.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -352,10 +364,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     error = voice.error,
                     onDraft = vm::editVoiceDraft,
                     onSend = {
-                        vm.consumeVoiceSend()?.let {
-                            input = ""
-                            vm.send(it)
-                        }
+                        vm.consumeVoiceSend()?.let { vm.send(it) }
                     },
                     onCancel = vm::cancelVoice,
                     onRetry = vm::retryVoice,
@@ -364,7 +373,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
             Composer(
                 input = input,
-                onInput = { input = it },
+                onInput = vm::updateDraft,
                 connected = snapshot.connection.isUsable,
                 streaming = streaming,
                 canSend = input.isNotBlank() || pendingAttachments.isNotEmpty(),
@@ -387,7 +396,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     )
                 },
                 onStop = { liveRequest?.let { vm.cancel(it.clientRequestId) } },
-                onSend = { vm.sendWithAttachments(input); input = "" },
+                onSend = { vm.sendWithAttachments(input) },
             )
         }
     }

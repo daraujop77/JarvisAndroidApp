@@ -54,6 +54,18 @@ data class MessageEntity(
  * is what lets a kill/recreate restore the conversation *without duplicating*
  * the outgoing message (plan AND-W2 gate).
  */
+/**
+ * One unsent composer text per conversation. Local only: it is never an outbound
+ * request and it is never sent by anything other than the explicit Send action.
+ * Keyed by conversation so opening another conversation cannot read it.
+ */
+@Entity(tableName = "conversation_drafts")
+data class ConversationDraftEntity(
+    @PrimaryKey val conversationId: String,
+    val text: String,
+    val updatedAtMs: Long,
+)
+
 @Entity(tableName = "pending_outbound")
 data class PendingOutboundEntity(
     @PrimaryKey val clientRequestId: String,
@@ -111,4 +123,16 @@ interface JarvisDao {
 
     @Query("UPDATE conversations SET lastCursorToken = :cursor WHERE conversationId = :id")
     suspend fun setCursor(id: String, cursor: String)
+
+    @Query("SELECT text FROM conversation_drafts WHERE conversationId = :id")
+    suspend fun draft(id: String): String?
+
+    @Query("SELECT text FROM conversation_drafts WHERE conversationId = :id")
+    fun observeDraft(id: String): Flow<String?>
+
+    @Upsert
+    suspend fun upsertDraft(draft: ConversationDraftEntity)
+
+    @Query("DELETE FROM conversation_drafts WHERE conversationId = :id")
+    suspend fun deleteDraft(id: String)
 }

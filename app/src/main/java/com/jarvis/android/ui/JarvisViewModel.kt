@@ -59,6 +59,40 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _conversationId.value = id
     }
 
+    // ---- local drafts and search (no transport, never sent on their own) ------
+
+    private val drafts = container.drafts
+
+    /** The unsent text of the open conversation, empty when none is open. */
+    val composerDraft: StateFlow<String> = _conversationId
+        .flatMapLatest { id ->
+            if (id == null) kotlinx.coroutines.flow.flowOf("")
+            else drafts.observeDraft(id)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
+
+    /**
+     * Title-only local filter. An empty query keeps the existing recency order.
+     * Nothing here reads message bodies or reaches the server.
+     */
+    val visibleConversations: StateFlow<List<ConversationSummary>> =
+        kotlinx.coroutines.flow.combine(conversationList, _searchQuery) { list, query ->
+            drafts.filter(list, query)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    /** Persists the composer text for the open conversation only. */
+    fun updateDraft(text: String) {
+        val id = _conversationId.value ?: return
+        viewModelScope.launch { drafts.saveDraft(id, text) }
+    }
+
     // ---- AND-W9 Projects shell (Lane F: backend NOT_CONNECTED) ----------------
 
     private val _projectsEpoch = MutableStateFlow(0)
@@ -89,6 +123,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             return
         }
         conversations.send(id, trimmed)
+        viewModelScope.launch { drafts.saveDraft(id, "") }
     }
 
     // ---- AND-W6 attachments ---------------------------------------------------
@@ -136,6 +171,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val id = _conversationId.value ?: conversations.newConversationId().also { _conversationId.value = it }
         conversations.send(id, body, ids)
         _pendingAttachments.value = emptyList()
+        viewModelScope.launch { drafts.saveDraft(id, "") }
     }
 
     fun cancel(clientRequestId: String) = conversations.cancelRequest(clientRequestId)

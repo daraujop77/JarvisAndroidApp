@@ -1,0 +1,37 @@
+{
+  "schema": "jarvis.android.r3-draft-search.v1",
+  "task_id": "ANDROID-R3-DRAFT-SEARCH-UX-001",
+  "lane": "PC-B-4",
+  "base_product_sha": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "branch": "android/r3-draft-search-ux-pcb",
+  "database": {
+    "old_version": 3,
+    "new_version": 4,
+    "migration": "MIGRATION_3_4 creates conversation_drafts only",
+    "destructive_fallback": false,
+    "chain_tested": "v1 -> v2 -> v3 -> v4 preserves conversations, messages, pending_outbound and cursor"
+  },
+  "drafts": {
+    "per_conversation": true,
+    "survives_process_recreation": "persisted in Room, reloaded by conversationId",
+    "sent_only_by_explicit_send": true,
+    "isolation": "keyed by conversationId; switching conversations reads a different row",
+    "empty_clears": true,
+    "max_chars": 4000,
+    "randomized_cycles": 200
+  },
+  "search": {
+    "scope": "conversation title only",
+    "server_requests": 0,
+    "empty_query_preserves_order": true
+  },
+  "unit_tests": { "suites": 17, "tests": 171, "failures": 0, "skipped": 0 },
+  "assemble_debug": "BUILD SUCCESSFUL",
+  "jdk": "Android Studio JBR 21.0.10",
+  "gradle": "--no-daemon --offline",
+  "web_v1_changed": false,
+  "transport_changed": false,
+  "physical_device_used": false,
+  "real_side_effects": false,
+  "result": "PASS_FOR_INDEPENDENT_REVIEW"
+}

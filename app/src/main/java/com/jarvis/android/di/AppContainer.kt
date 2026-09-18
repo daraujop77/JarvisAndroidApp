@@ -105,6 +105,11 @@ class AppContainer(private val context: Context) {
         ConversationRepository(dao, session, scope)
     }
 
+    /** Local drafts and title search. No transport and no server calls. */
+    val drafts: com.jarvis.android.data.local.DraftSearchStore by lazy {
+        com.jarvis.android.data.local.DraftSearchStore(dao)
+    }
+
     /**
      * AND-W9 (Lane F): Projects backend is NOT_CONNECTED. The shell runs on
      * this fake repository; swapping in a real PC-A projects source later is a

@@ -12,8 +12,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ConversationEntity::class,
         MessageEntity::class,
         PendingOutboundEntity::class,
+        ConversationDraftEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class JarvisDatabase : RoomDatabase() {
@@ -111,6 +112,30 @@ abstract class JarvisDatabase : RoomDatabase() {
             )
         }
 
+        /**
+         * v3 → v4: local per-conversation composer drafts. Additive only: the
+         * existing conversations, messages and pending_outbound tables are not
+         * touched, and there is no destructive fallback.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                applyMigration3to4(db::execSQL)
+            }
+        }
+
+        fun applyMigration3to4(execSql: (String) -> Unit) {
+            execSql(
+                """
+                CREATE TABLE IF NOT EXISTS `conversation_drafts` (
+                    `conversationId` TEXT NOT NULL,
+                    `text` TEXT NOT NULL,
+                    `updatedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`conversationId`)
+                )
+                """.trimIndent(),
+            )
+        }
+
         fun get(context: Context): JarvisDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -118,7 +143,7 @@ abstract class JarvisDatabase : RoomDatabase() {
                     JarvisDatabase::class.java,
                     "jarvis.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }

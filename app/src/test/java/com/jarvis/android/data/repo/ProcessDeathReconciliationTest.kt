@@ -1,5 +1,6 @@
 package com.jarvis.android.data.repo
 
+import com.jarvis.android.data.local.ConversationDraftEntity
 import com.jarvis.android.data.local.ConversationEntity
 import com.jarvis.android.data.local.JarvisDao
 import com.jarvis.android.data.local.MessageEntity
@@ -280,5 +281,19 @@ private class FakeDao : JarvisDao {
             val cur = map[id] ?: return@update map
             map + (id to cur.copy(lastCursorToken = cursor))
         }
+    }
+
+    private val drafts = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    override suspend fun draft(id: String): String? = drafts.value[id]
+
+    override fun observeDraft(id: String): Flow<String?> = drafts.map { it[id] }
+
+    override suspend fun upsertDraft(draft: ConversationDraftEntity) {
+        drafts.update { it + (draft.conversationId to draft.text) }
+    }
+
+    override suspend fun deleteDraft(id: String) {
+        drafts.update { it - id }
     }
 }
