@@ -1,0 +1,26 @@
+{
+  "schema": "jarvis.agent-result.v1",
+  "TASK_ID": "ANDROID-R3-LIVE-TRANSPORT-LATENCY-RELIABILITY-001",
+  "RESULT": "PASS_NO_SAFE_OPTIMIZATION_FOUND",
+  "BASE_PRODUCT_SHA": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "PRODUCT_SHA": "ffff724d16463979f79003472cf85b668fa6c9fb",
+  "BRANCH": "android/r3-live-transport-latency-pcb",
+  "BASELINE": {
+    "connect_session_calls": 1,
+    "reconnect_after_disconnect_session_calls": 1,
+    "total_session_calls_for_connect_disconnect_connect": 2,
+    "injected_session_delay_ms": 25,
+    "evidence": "LiveTransportLatencyTest.baselineConnectRepeatsSessionValidation"
+  },
+  "CANDIDATE_REJECTED": "Skip session.restore() on a reconnect when a previous connect succeeded. Rejected because disconnect() must clear that flag, otherwise a stale or revoked token stays treated as valid. The second /api/app/session call is the fail-closed revalidation, not redundant work.",
+  "FINAL_METRICS": "unchanged from baseline",
+  "DUPLICATE_STREAM_COUNT": 0,
+  "DUPLICATE_INFERENCE_COUNT": 0,
+  "PRODUCT_CODE_CHANGED": false,
+  "WEB_V1_CHANGED": false,
+  "PHYSICAL_DEVICE_USED": false,
+  "REAL_SIDE_EFFECTS": false,
+  "UI_CHANGED": false,
+  "ROOM_CHANGED": false,
+  "published_by": "PC-B-2"
+}
