@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.jarvis.android.JarvisApp
 import com.jarvis.android.contract.ApprovalOutcome
 import com.jarvis.android.data.local.ConversationEntity
+import com.jarvis.android.data.local.ConversationListItem
+import com.jarvis.android.data.local.ShareSafeText
 import com.jarvis.android.data.media.StagedAttachment
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.repo.ConversationSummary
@@ -56,12 +58,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), com.jarvis.android.data.prefs.SettingsStore.Settings())
 
     fun openConversation(id: String) {
+        setOpenConversation(id)
+    }
+
+    private fun setOpenConversation(id: String) {
         _conversationId.value = id
+        viewModelScope.launch { productivity.markOpened(id) }
     }
 
     // ---- local drafts and search (no transport, never sent on their own) ------
 
     private val drafts = container.drafts
+    private val productivity = container.productivity
 
     /** The unsent text of the open conversation, empty when none is open. */
     val composerDraft: StateFlow<String> = _conversationId
@@ -74,18 +82,55 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery
 
+    private val _showHidden = MutableStateFlow(false)
+    val showHidden: StateFlow<Boolean> = _showHidden
+
     /**
-     * Title-only local filter. An empty query keeps the existing recency order.
-     * Nothing here reads message bodies or reaches the server.
+     * Local pin/hide/title overlay on the stored conversation list. Hidden
+     * rows stay in Room; this only filters the list on this device.
      */
-    val visibleConversations: StateFlow<List<ConversationSummary>> =
-        kotlinx.coroutines.flow.combine(conversationList, _searchQuery) { list, query ->
-            drafts.filter(list, query)
+    val visibleConversations: StateFlow<List<ConversationListItem>> =
+        kotlinx.coroutines.flow.combine(
+            conversationList,
+            productivity.observeMeta(),
+            _searchQuery,
+            _showHidden,
+        ) { list, meta, query, hidden ->
+            productivity.overlay(list, meta, query, hidden)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val openConversationItem: StateFlow<ConversationListItem?> =
+        kotlinx.coroutines.flow.combine(
+            conversationList,
+            productivity.observeMeta(),
+            _conversationId,
+        ) { list, meta, id ->
+            if (id == null) null
+            else productivity.decorate(list, meta).firstOrNull { it.conversationId == id }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
     }
+
+    fun setShowHidden(value: Boolean) {
+        _showHidden.value = value
+    }
+
+    fun setPinned(conversationId: String, pinned: Boolean) {
+        viewModelScope.launch { productivity.setPinned(conversationId, pinned) }
+    }
+
+    fun setHiddenOnDevice(conversationIds: Collection<String>, hidden: Boolean) {
+        viewModelScope.launch { productivity.setArchived(conversationIds, hidden) }
+    }
+
+    fun renameOnDevice(conversationId: String, title: String) {
+        viewModelScope.launch { productivity.setLocalTitle(conversationId, title) }
+    }
+
+    /** Null when the body looks like a credential or internal payload. */
+    fun shareableMessageText(text: String): String? = ShareSafeText.visibleChatText(text)
 
     /** Persists the composer text for the open conversation only. */
     fun updateDraft(text: String) {
@@ -107,7 +152,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun startNewConversation(onReady: (String) -> Unit = {}) {
         conversations.newConversation { id ->
-            _conversationId.value = id
+            setOpenConversation(id)
             onReady(id)
         }
     }
@@ -117,7 +162,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (trimmed.isEmpty()) return
         val id = _conversationId.value ?: run {
             conversations.newConversation { newId ->
-                _conversationId.value = newId
+                setOpenConversation(newId)
                 conversations.send(newId, trimmed)
             }
             return
@@ -140,7 +185,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun stageAttachment(uri: Uri) {
         viewModelScope.launch {
             val conversationId = _conversationId.value ?: conversations.newConversationId().also {
-                _conversationId.value = it
+                setOpenConversation(it)
             }
             val staged = withContext(Dispatchers.IO) {
                 container.attachmentStore.stageFrom(uri)
@@ -168,7 +213,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (trimmed.isEmpty() && attachments.isEmpty()) return
         val ids = attachments.map { it.attachmentId }
         val body = trimmed.ifBlank { "(photo)" }
-        val id = _conversationId.value ?: conversations.newConversationId().also { _conversationId.value = it }
+        val id = _conversationId.value ?: conversations.newConversationId().also { setOpenConversation(it) }
         conversations.send(id, body, ids)
         _pendingAttachments.value = emptyList()
         viewModelScope.launch { drafts.saveDraft(id, "") }
@@ -522,7 +567,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     /** Sends a scripted prompt through the normal pipeline so the scenario is visible. */
     fun runFakeScenarioNow() {
         val id = _conversationId.value ?: conversations.newConversationId().also {
-            _conversationId.value = it
+            setOpenConversation(it)
         }
         conversations.send(id, "[${fakeScenario.name}] demo prompt")
     }

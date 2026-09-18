@@ -1,5 +1,6 @@
 package com.jarvis.android.ui.screens
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -11,8 +12,10 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,26 +39,42 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,9 +82,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,10 +95,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.data.local.ConversationListItem
 import com.jarvis.android.data.repo.ChatMessage
+import com.jarvis.android.data.state.ConnectionState
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.JarvisOrb
@@ -87,9 +115,11 @@ import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
-import com.jarvis.android.voice.VoicePhase
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.LocalReducedMotion
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.voice.VoicePhase
+import kotlinx.coroutines.launch
 
 @Composable
 fun ConversationsScreen(vm: JarvisViewModel) {
@@ -115,16 +145,25 @@ private fun ConversationListView(
     onNew: () -> Unit,
 ) {
     val items by vm.visibleConversations.collectAsStateWithLifecycle()
-    var query by rememberSaveable { mutableStateOf("") }
-    val accents = LocalJarvisAccents.current
-    val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
+    val snapshot by vm.snapshot.collectAsStateWithLifecycle()
+    val showHidden by vm.showHidden.collectAsStateWithLifecycle()
+    val query by vm.searchQuery.collectAsStateWithLifecycle()
+    val reduced = LocalReducedMotion.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var selecting by rememberSaveable { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    var renameTarget by remember { mutableStateOf<ConversationListItem?>(null) }
 
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text("Chats") },
+                title = {
+                    Text(if (showHidden) "Hidden on this device" else "Chats")
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = Color(0xFFE8EEF8),
@@ -132,92 +171,353 @@ private fun ConversationListView(
                     actionIconContentColor = Color(0xFFE8EEF8),
                 ),
                 windowInsets = WindowInsets(0),
+                actions = {
+                    IconButton(
+                        onClick = {
+                            vm.setShowHidden(!showHidden)
+                            selecting = false
+                            selected = emptySet()
+                        },
+                        modifier = Modifier.semantics {
+                            contentDescription = ConversationA11y.HIDDEN_FILTER
+                        },
+                    ) {
+                        Icon(
+                            if (showHidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = ConversationA11y.HIDDEN_FILTER,
+                        )
+                    }
+                    if (selecting) {
+                        TextButton(onClick = {
+                            selecting = false
+                            selected = emptySet()
+                        }) { Text("Done") }
+                    } else {
+                        TextButton(onClick = { selecting = true }) {
+                            Text("Select", modifier = Modifier.semantics {
+                                contentDescription = ConversationA11y.SELECT_CHAT
+                            })
+                        }
+                    }
+                },
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onNew,
-                containerColor = MaterialTheme.colorScheme.primary,
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("New chat") },
-            )
+            if (selecting && selected.isNotEmpty()) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        val hiding = !showHidden
+                        vm.setHiddenOnDevice(selected, hidden = hiding)
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                if (hiding) ConversationA11y.HIDE_CONFIRMATION
+                                else ConversationA11y.UNHIDE_CONFIRMATION,
+                            )
+                        }
+                        selected = emptySet()
+                        selecting = false
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    icon = {
+                        Icon(
+                            if (showHidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = if (showHidden) {
+                                ConversationA11y.UNHIDE_ON_DEVICE
+                            } else {
+                                ConversationA11y.HIDE_ON_DEVICE
+                            },
+                        )
+                    },
+                    text = {
+                        Text(if (showHidden) "Show on this device" else "Hide on this device")
+                    },
+                )
+            } else if (!showHidden) {
+                ExtendedFloatingActionButton(
+                    onClick = onNew,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    icon = { Icon(Icons.Filled.Add, contentDescription = ConversationA11y.NEW_CHAT) },
+                    text = { Text("New chat") },
+                )
+            }
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it; vm.setSearchQuery(it) },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
-            placeholder = { Text("Search chats", color = Color(0xFFB7C7DC)) },
-            singleLine = true,
-            shape = RoundedCornerShape(18.dp),
-            colors = jarvisTextFieldColors(),
-        )
-        if (items.isEmpty()) {
-            Column(
-                Modifier.fillMaxSize().padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                JarvisOrb(size = 130.dp, activity = OrbActivity.IDLE)
-                Spacer(Modifier.height(24.dp))
-                Text("Ready when you are", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Start a conversation and I'll stream the reply here.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
+            ConversationStatusBanner(snapshot.connection)
+            OutlinedTextField(
+                value = query,
+                onValueChange = vm::setSearchQuery,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .semantics { contentDescription = ConversationA11y.SEARCH_CHATS },
+                placeholder = { Text("Search chats", color = Color(0xFFB7C7DC)) },
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                colors = jarvisTextFieldColors(),
+            )
+            if (items.isEmpty()) {
+                ConversationListEmpty(
+                    querying = query.isNotBlank(),
+                    showHidden = showHidden,
                 )
-            }
-        } else {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                itemsIndexed(items, key = { _, c -> c.conversationId }) { index, c ->
-                    Surface(
-                        onClick = { onOpen(c.conversationId) },
-                        shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
-                        modifier = Modifier.fillMaxWidth().animateItem(),
-                    ) {
-                        Row(
-                            Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(accents.orbGlow.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                JarvisOrb(size = 30.dp, activity = OrbActivity.IDLE)
-                            }
-                            Spacer(Modifier.size(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(c.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    java.text.DateFormat
-                                        .getTimeInstance(java.text.DateFormat.SHORT)
-                                        .format(java.util.Date(c.updatedAtMs)),
-                                    style = HudTextStyle,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+            } else {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    itemsIndexed(items, key = { _, c -> c.conversationId }) { _, c ->
+                        ConversationRow(
+                            item = c,
+                            selecting = selecting,
+                            checked = c.conversationId in selected,
+                            modifier = if (reduced) Modifier else Modifier.animateItem(),
+                            onOpen = { onOpen(c.conversationId) },
+                            onToggleSelect = {
+                                selected = if (c.conversationId in selected) {
+                                    selected - c.conversationId
+                                } else {
+                                    selected + c.conversationId
+                                }
+                            },
+                            onPin = { vm.setPinned(c.conversationId, !c.pinned) },
+                            onHide = {
+                                val hiding = !c.archived
+                                vm.setHiddenOnDevice(listOf(c.conversationId), hidden = hiding)
+                                scope.launch {
+                                    snackbar.showSnackbar(
+                                        if (hiding) ConversationA11y.HIDE_CONFIRMATION
+                                        else ConversationA11y.UNHIDE_CONFIRMATION,
+                                    )
+                                }
+                            },
+                            onRename = { renameTarget = c },
+                        )
                     }
                 }
             }
         }
+    }
+
+    val renaming = renameTarget
+    if (renaming != null) {
+        RenameOnDeviceDialog(
+            current = renaming.displayTitle,
+            onDismiss = { renameTarget = null },
+            onConfirm = { title ->
+                vm.renameOnDevice(renaming.conversationId, title)
+                renameTarget = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun ConversationStatusBanner(connection: ConnectionState) {
+    val (text, color) = when (connection) {
+        ConnectionState.OFFLINE, ConnectionState.DISCONNECTED ->
+            ConversationA11y.OFFLINE to MaterialTheme.colorScheme.onSurfaceVariant
+        ConnectionState.AUTH_EXPIRED, ConnectionState.DEVICE_REVOKED,
+        ConnectionState.PROTOCOL_MISMATCH ->
+            ConversationA11y.CONNECTION_ERROR to MaterialTheme.colorScheme.error
+        else -> return
+    }
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = color,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 4.dp)
+            .semantics { contentDescription = text },
+    )
+}
+
+@Composable
+private fun ConversationListEmpty(querying: Boolean, showHidden: Boolean) {
+    val title: String
+    val body: String
+    val description: String
+    when {
+        querying -> {
+            title = "Nothing matches"
+            body = "Try a different title. Search stays on this device."
+            description = ConversationA11y.EMPTY_SEARCH
+        }
+        showHidden -> {
+            title = "Nothing hidden"
+            body = "Hide is local only. Server history is unchanged."
+            description = ConversationA11y.EMPTY_HIDDEN
+        }
+        else -> {
+            title = "Ready when you are"
+            body = "Start a conversation and I'll stream the reply here."
+            description = ConversationA11y.EMPTY_CHATS
+        }
+    }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(32.dp)
+            .semantics { contentDescription = description },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        JarvisOrb(size = 130.dp, activity = OrbActivity.IDLE, contentDescription = description)
+        Spacer(Modifier.height(24.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            body,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ConversationRow(
+    item: ConversationListItem,
+    selecting: Boolean,
+    checked: Boolean,
+    onOpen: () -> Unit,
+    onToggleSelect: () -> Unit,
+    onPin: () -> Unit,
+    onHide: () -> Unit,
+    onRename: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accents = LocalJarvisAccents.current
+    var menu by remember { mutableStateOf(false) }
+    val rowDescription = ConversationA11y.conversationRow(
+        title = item.displayTitle,
+        pinned = item.pinned,
+        activitySinceOpen = item.activitySinceOpen,
+    )
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = rowDescription }
+            .combinedClickable(
+                onClick = { if (selecting) onToggleSelect() else onOpen() },
+                onLongClick = { if (!selecting) menu = true },
+            ),
+    ) {
+        Row(
+            Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (selecting) {
+                Checkbox(checked = checked, onCheckedChange = { onToggleSelect() })
+                Spacer(Modifier.size(8.dp))
+            }
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(accents.orbGlow.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                JarvisOrb(size = 30.dp, activity = OrbActivity.IDLE)
+            }
+            Spacer(Modifier.size(14.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(item.displayTitle, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    if (item.pinned) {
+                        Spacer(Modifier.size(6.dp))
+                        Icon(
+                            Icons.Filled.PushPin,
+                            contentDescription = ConversationA11y.PIN_ON_DEVICE,
+                            modifier = Modifier.size(14.dp),
+                            tint = accents.orbGlow,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    buildString {
+                        append(
+                            java.text.DateFormat
+                                .getTimeInstance(java.text.DateFormat.SHORT)
+                                .format(java.util.Date(item.updatedAtMs)),
+                        )
+                        if (item.locallyRenamed) append(" · on this device")
+                        if (item.activitySinceOpen) append(" · new since last opened")
+                    },
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box {
+                IconButton(onClick = { menu = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Chat actions")
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (item.pinned) "Unpin on this device" else "Pin on this device") },
+                        onClick = { menu = false; onPin() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Rename on this device") },
+                        onClick = { menu = false; onRename() },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(if (item.archived) "Show on this device" else "Hide on this device")
+                        },
+                        onClick = { menu = false; onHide() },
+                    )
+                }
+            }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun RenameOnDeviceDialog(
+    current: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var value by rememberSaveable(current) { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename on this device") },
+        text = {
+            Column {
+                Text(
+                    ConversationA11y.LOCAL_ONLY_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it.take(80) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = ConversationA11y.RENAME_ON_DEVICE },
+                    colors = jarvisTextFieldColors(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(value) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val messages by vm.messages.collectAsStateWithLifecycle()
@@ -225,9 +525,15 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val pendingAttachments by vm.pendingAttachments.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val input by vm.composerDraft.collectAsStateWithLifecycle()
+    val openItem by vm.openConversationItem.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val accents = LocalJarvisAccents.current
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val reduced = LocalReducedMotion.current
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var renameOpen by remember { mutableStateOf(false) }
 
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -253,19 +559,51 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     LaunchedEffect(Unit) { vm.refreshChatAccess() }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+        if (messages.isNotEmpty()) {
+            if (reduced) listState.scrollToItem(messages.lastIndex)
+            else listState.animateScrollToItem(messages.lastIndex)
+        }
     }
 
     val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(imeVisible) {
         if (imeVisible && messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+            if (reduced) listState.scrollToItem(messages.lastIndex)
+            else listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+
+    val awayFromLatest by remember {
+        derivedStateOf {
+            val last = messages.lastIndex
+            last >= 0 && listState.firstVisibleItemIndex < (last - 2).coerceAtLeast(0)
+        }
+    }
+    val awayFromTop by remember {
+        derivedStateOf { messages.size > 8 && listState.firstVisibleItemIndex > 2 }
+    }
+
+    fun shareOrCopy(text: String, share: Boolean) {
+        val safe = vm.shareableMessageText(text)
+        if (safe == null) {
+            scope.launch { snackbar.showSnackbar(ConversationA11y.SHARE_BLOCKED) }
+            return
+        }
+        if (share) {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, safe)
+            }
+            context.startActivity(Intent.createChooser(intent, ConversationA11y.SHARE_MESSAGE))
+        } else {
+            clipboard.setText(AnnotatedString(safe))
         }
     }
 
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -302,9 +640,18 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         )
                         Spacer(Modifier.size(10.dp))
                         Column {
-                            Text("JARVIS", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (streaming) "responding…" else "ready",
+                                openItem?.displayTitle ?: "JARVIS",
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1,
+                            )
+                            Text(
+                                when {
+                                    streaming -> "responding…"
+                                    openItem?.locallyRenamed == true -> ConversationA11y.LOCAL_ONLY_HINT
+                                    !snapshot.connection.isUsable -> "offline · saved on this device"
+                                    else -> "ready"
+                                },
                                 style = HudTextStyle,
                                 color = if (streaming) accents.orbGlow
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -312,7 +659,73 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         }
                     }
                 },
+                actions = {
+                    val item = openItem
+                    if (item != null) {
+                        IconButton(
+                            onClick = { vm.setPinned(item.conversationId, !item.pinned) },
+                            modifier = Modifier.semantics {
+                                contentDescription = ConversationA11y.pinAction(item.pinned)
+                            },
+                        ) {
+                            Icon(
+                                Icons.Filled.PushPin,
+                                contentDescription = ConversationA11y.pinAction(item.pinned),
+                                tint = if (item.pinned) accents.orbGlow
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(
+                            onClick = { renameOpen = true },
+                            modifier = Modifier.semantics {
+                                contentDescription = ConversationA11y.RENAME_ON_DEVICE
+                            },
+                        ) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = ConversationA11y.RENAME_ON_DEVICE)
+                        }
+                    }
+                },
             )
+        },
+        floatingActionButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                if (awayFromTop) {
+                    FloatingActionButton(
+                        onClick = {
+                            scope.launch {
+                                if (reduced) listState.scrollToItem(0)
+                                else listState.animateScrollToItem(0)
+                            }
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .semantics { contentDescription = ConversationA11y.JUMP_TO_TOP },
+                    ) {
+                        Icon(Icons.Filled.KeyboardArrowUp, contentDescription = ConversationA11y.JUMP_TO_TOP)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (awayFromLatest) {
+                    FloatingActionButton(
+                        onClick = {
+                            scope.launch {
+                                if (messages.isNotEmpty()) {
+                                    if (reduced) listState.scrollToItem(messages.lastIndex)
+                                    else listState.animateScrollToItem(messages.lastIndex)
+                                }
+                            }
+                        },
+                        modifier = Modifier.semantics {
+                            contentDescription = ConversationA11y.JUMP_TO_LATEST
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.KeyboardArrowDown,
+                            contentDescription = ConversationA11y.JUMP_TO_LATEST,
+                        )
+                    }
+                }
+            }
         },
     ) { pad ->
         Column(
@@ -323,27 +736,57 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 // nothing; this is what actually lifts the composer above the IME.
                 .imePadding(),
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
-                    MessageBubble(
-                        msg = msg,
-                        onRetry = { vm.retry(msg.clientRequestId) },
-                        attachmentState = { id -> snapshot.session.attachments[id] },
-                        attachmentStore = vm.attachmentStore,
-                        avatarEpoch = avatarEpoch,
-                        modifier = Modifier.animateItem(),
+            if (messages.isEmpty()) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(32.dp)
+                        .semantics { contentDescription = ConversationA11y.EMPTY_THREAD },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        "No messages yet",
+                        style = MaterialTheme.typography.titleMedium,
                     )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (snapshot.connection.isUsable) {
+                            "Send a message to start this chat."
+                        } else {
+                            ConversationA11y.OFFLINE
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
+                        MessageBubble(
+                            msg = msg,
+                            onRetry = { vm.retry(msg.clientRequestId) },
+                            onCopy = { shareOrCopy(msg.text, share = false) },
+                            onShare = { shareOrCopy(msg.text, share = true) },
+                            attachmentState = { id -> snapshot.session.attachments[id] },
+                            attachmentStore = vm.attachmentStore,
+                            avatarEpoch = avatarEpoch,
+                            modifier = if (reduced) Modifier else Modifier.animateItem(),
+                        )
+                    }
                 }
             }
 
             AnimatedVisibility(
                 visible = pendingAttachments.isNotEmpty(),
-                enter = fadeIn() + slideInVertically { it / 2 },
+                enter = if (reduced) fadeIn() else fadeIn() + slideInVertically { it / 2 },
                 exit = fadeOut(),
             ) {
                 PendingAttachmentStrip(
@@ -399,6 +842,18 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 onSend = { vm.sendWithAttachments(input) },
             )
         }
+    }
+
+    val renaming = openItem
+    if (renameOpen && renaming != null) {
+        RenameOnDeviceDialog(
+            current = renaming.displayTitle,
+            onDismiss = { renameOpen = false },
+            onConfirm = { title ->
+                vm.renameOnDevice(renaming.conversationId, title)
+                renameOpen = false
+            },
+        )
     }
 }
 
@@ -563,7 +1018,11 @@ private fun Composer(
                     ),
                 ) { Icon(Icons.Filled.Stop, contentDescription = "Stop") }
             } else {
-                val scale by animateFloatAsState(if (canSend) 1f else 0.85f, label = "sendScale")
+                val reducedMotion = LocalReducedMotion.current
+                val scale by animateFloatAsState(
+                    targetValue = if (canSend || reducedMotion) 1f else 0.85f,
+                    label = "sendScale",
+                )
                 FilledIconButton(
                     onClick = onSend,
                     enabled = canSend,
@@ -578,6 +1037,8 @@ private fun Composer(
 private fun MessageBubble(
     msg: ChatMessage,
     onRetry: () -> Unit,
+    onCopy: () -> Unit,
+    onShare: () -> Unit,
     attachmentState: (String) -> com.jarvis.android.data.state.AttachmentUiState?,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
     avatarEpoch: Int,
@@ -588,6 +1049,7 @@ private fun MessageBubble(
     val isStreaming = msg.status == RequestStatus.Streaming
     val awaiting = !isUser && msg.text.isEmpty() &&
         (msg.status == RequestStatus.Pending || msg.status == RequestStatus.Accepted)
+    val canExport = msg.text.isNotBlank() && !isStreaming && !awaiting
 
     Row(
         modifier.fillMaxWidth(),
@@ -596,7 +1058,11 @@ private fun MessageBubble(
     ) {
         if (!isUser) {
             Box(Modifier.padding(end = 8.dp, bottom = 2.dp)) {
-                JarvisOrb(size = 28.dp, activity = if (isStreaming || awaiting) OrbActivity.THINKING else OrbActivity.IDLE)
+                JarvisOrb(
+                    size = 28.dp,
+                    activity = if (isStreaming || awaiting) OrbActivity.THINKING else OrbActivity.IDLE,
+                    contentDescription = if (isStreaming || awaiting) "JARVIS is responding" else null,
+                )
             }
         }
         Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
@@ -635,11 +1101,42 @@ private fun MessageBubble(
                         }
                         when {
                             awaiting -> TypingDots()
-                            msg.text.isNotBlank() -> Text(
-                                streamingText(msg.text, isStreaming),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+                            msg.text.isNotBlank() -> SelectionContainer {
+                                Text(
+                                    streamingText(msg.text, isStreaming),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
                         }
+                    }
+                }
+            }
+
+            if (canExport) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onCopy,
+                        modifier = Modifier.size(32.dp).semantics {
+                            contentDescription = ConversationA11y.COPY_MESSAGE
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.ContentCopy,
+                            contentDescription = ConversationA11y.COPY_MESSAGE,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = onShare,
+                        modifier = Modifier.size(32.dp).semantics {
+                            contentDescription = ConversationA11y.SHARE_MESSAGE
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = ConversationA11y.SHARE_MESSAGE,
+                            modifier = Modifier.size(14.dp),
+                        )
                     }
                 }
             }
@@ -656,7 +1153,7 @@ private fun MessageBubble(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("FAILED", style = HudTextStyle, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = onRetry) {
-                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Icon(Icons.Filled.Refresh, contentDescription = "Retry", modifier = Modifier.size(15.dp))
                             Text(" Retry")
                         }
                     }

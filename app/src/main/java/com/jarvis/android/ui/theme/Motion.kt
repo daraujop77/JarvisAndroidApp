@@ -21,6 +21,13 @@ object JarvisMotion {
 
     val EmphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
+    /** JVM-testable: decorative duration collapses to 0 when reduced motion is on. */
+    fun durationMs(reducedMotion: Boolean, durationMs: Int): Int =
+        if (reducedMotion) 0 else durationMs
+
+    fun loopMs(reducedMotion: Boolean, durationMs: Int): Int? =
+        if (reducedMotion) null else durationMs
+
     /** Entrance for chat bubbles and cards. */
     @Composable
     @ReadOnlyComposable
@@ -32,11 +39,11 @@ object JarvisMotion {
     @Composable
     @ReadOnlyComposable
     fun <T> standard(durationMs: Int = 280): FiniteAnimationSpec<T> =
-        tween(if (LocalReducedMotion.current) 0 else durationMs, easing = EmphasizedEasing)
+        tween(durationMs(LocalReducedMotion.current, durationMs), easing = EmphasizedEasing)
 
     /** Loop duration helper: returns null when looping motion should be skipped. */
     @Composable
     @ReadOnlyComposable
     fun loopMs(durationMs: Int): Int? =
-        if (LocalReducedMotion.current) null else durationMs
+        loopMs(LocalReducedMotion.current, durationMs)
 }

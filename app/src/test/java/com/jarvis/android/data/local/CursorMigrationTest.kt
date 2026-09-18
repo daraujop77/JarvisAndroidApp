@@ -181,4 +181,64 @@ class CursorMigrationTest {
             }
         }
     }
+
+    /**
+     * v1 → v5: local pin/hide chrome is additive. Conversations, messages,
+     * pending outbound, cursor token and drafts stay put. No destructive
+     * fallback.
+     */
+    @Test
+    fun migration1to5ChainPreservesConversationsMessagesPendingCursorAndDrafts() {
+        memoryDb().use { conn ->
+            conn.createV1Tables()
+            conn.createStatement().use { st ->
+                st.execute("INSERT INTO conversations VALUES ('cA','Chat A',1,2,77)")
+                st.execute("INSERT INTO messages VALUES (1,'cA','r1','user','hi','Completed',1,'')")
+                st.execute("INSERT INTO pending_outbound VALUES ('r2','cA','queued',2,3)")
+            }
+            exec(conn) { JarvisDatabase.applyMigration1to2(it) }
+            exec(conn) { JarvisDatabase.applyMigration2to3(it) }
+            exec(conn) { JarvisDatabase.applyMigration3to4(it) }
+            conn.createStatement().use { st ->
+                st.execute("INSERT INTO conversation_drafts VALUES ('cA','unsent',9)")
+            }
+            exec(conn) { JarvisDatabase.applyMigration4to5(it) }
+
+            conn.createStatement().use { st ->
+                val cursor = st.executeQuery(
+                    "SELECT lastCursorToken, title FROM conversations WHERE conversationId='cA'",
+                )
+                assertTrue(cursor.next())
+                assertEquals("77", cursor.getString(1))
+                assertEquals("Chat A", cursor.getString(2))
+                cursor.close()
+
+                val messages = st.executeQuery("SELECT COUNT(*) FROM messages")
+                assertTrue(messages.next())
+                assertEquals(1, messages.getInt(1))
+                messages.close()
+
+                val pending = st.executeQuery("SELECT text, attempts, attachmentIds FROM pending_outbound")
+                assertTrue(pending.next())
+                assertEquals("queued", pending.getString(1))
+                assertEquals(3, pending.getInt(2))
+                assertEquals("", pending.getString(3))
+                pending.close()
+
+                val drafts = st.executeQuery("SELECT text FROM conversation_drafts WHERE conversationId='cA'")
+                assertTrue(drafts.next())
+                assertEquals("unsent", drafts.getString(1))
+                drafts.close()
+
+                val meta = st.executeQuery("SELECT COUNT(*) FROM conversation_local_meta")
+                assertTrue(meta.next())
+                assertEquals(0, meta.getInt(1))
+                meta.close()
+            }
+            assertTrue("pinned" in columns(conn, "conversation_local_meta"))
+            assertTrue("archived" in columns(conn, "conversation_local_meta"))
+            assertTrue("localTitle" in columns(conn, "conversation_local_meta"))
+            assertTrue("lastOpenedAtMs" in columns(conn, "conversation_local_meta"))
+        }
+    }
 }

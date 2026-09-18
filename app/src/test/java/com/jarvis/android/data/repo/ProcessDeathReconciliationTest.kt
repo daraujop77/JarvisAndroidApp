@@ -2,6 +2,7 @@ package com.jarvis.android.data.repo
 
 import com.jarvis.android.data.local.ConversationDraftEntity
 import com.jarvis.android.data.local.ConversationEntity
+import com.jarvis.android.data.local.ConversationLocalMetaEntity
 import com.jarvis.android.data.local.JarvisDao
 import com.jarvis.android.data.local.MessageEntity
 import com.jarvis.android.data.local.PendingOutboundEntity
@@ -295,5 +296,16 @@ private class FakeDao : JarvisDao {
 
     override suspend fun deleteDraft(id: String) {
         drafts.update { it - id }
+    }
+
+    private val localMeta = MutableStateFlow<Map<String, ConversationLocalMetaEntity>>(emptyMap())
+
+    override fun observeLocalMeta(): Flow<List<ConversationLocalMetaEntity>> =
+        localMeta.map { it.values.toList() }
+
+    override suspend fun localMeta(id: String): ConversationLocalMetaEntity? = localMeta.value[id]
+
+    override suspend fun upsertLocalMeta(meta: ConversationLocalMetaEntity) {
+        localMeta.update { it + (meta.conversationId to meta) }
     }
 }

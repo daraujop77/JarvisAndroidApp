@@ -1,7 +1,6 @@
 package com.jarvis.android.data.local
 
 import androidx.room.Dao
-import androidx.room.Delete
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -76,6 +75,23 @@ data class PendingOutboundEntity(
     val attachmentIds: String = "",
 )
 
+/**
+ * Device-only conversation chrome. Pin, hide, local display title and
+ * last-opened time never leave this table, so archive/hide cannot delete
+ * server or Room history in `conversations` / `messages`.
+ */
+@Entity(
+    tableName = "conversation_local_meta",
+    indices = [Index("archived"), Index("pinned")],
+)
+data class ConversationLocalMetaEntity(
+    @PrimaryKey val conversationId: String,
+    val pinned: Boolean = false,
+    val archived: Boolean = false,
+    val localTitle: String = "",
+    val lastOpenedAtMs: Long = 0,
+)
+
 @Dao
 interface JarvisDao {
 
@@ -135,4 +151,13 @@ interface JarvisDao {
 
     @Query("DELETE FROM conversation_drafts WHERE conversationId = :id")
     suspend fun deleteDraft(id: String)
+
+    @Query("SELECT * FROM conversation_local_meta")
+    fun observeLocalMeta(): Flow<List<ConversationLocalMetaEntity>>
+
+    @Query("SELECT * FROM conversation_local_meta WHERE conversationId = :id")
+    suspend fun localMeta(id: String): ConversationLocalMetaEntity?
+
+    @Upsert
+    suspend fun upsertLocalMeta(meta: ConversationLocalMetaEntity)
 }

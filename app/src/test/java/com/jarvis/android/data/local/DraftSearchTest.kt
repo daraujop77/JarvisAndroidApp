@@ -39,6 +39,10 @@ class DraftSearchTest {
             observed.value = drafts.mapValues { it.value.text }
         }
 
+        override fun observeLocalMeta() = error("unused")
+        override suspend fun localMeta(id: String) = error("unused")
+        override suspend fun upsertLocalMeta(meta: ConversationLocalMetaEntity) = error("unused")
+
         override fun observeConversations() = error("unused")
         override suspend fun conversation(id: String) = error("unused")
         override suspend fun upsertConversation(conversation: ConversationEntity) = error("unused")

@@ -13,8 +13,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MessageEntity::class,
         PendingOutboundEntity::class,
         ConversationDraftEntity::class,
+        ConversationLocalMetaEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class JarvisDatabase : RoomDatabase() {
@@ -136,6 +137,38 @@ abstract class JarvisDatabase : RoomDatabase() {
             )
         }
 
+        /**
+         * v4 → v5: device-only pin/hide/title/last-opened chrome. Additive
+         * only: conversations, messages, pending_outbound and drafts are not
+         * rewritten, and there is no destructive fallback.
+         */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                applyMigration4to5(db::execSQL)
+            }
+        }
+
+        fun applyMigration4to5(execSql: (String) -> Unit) {
+            execSql(
+                """
+                CREATE TABLE IF NOT EXISTS `conversation_local_meta` (
+                    `conversationId` TEXT NOT NULL,
+                    `pinned` INTEGER NOT NULL,
+                    `archived` INTEGER NOT NULL,
+                    `localTitle` TEXT NOT NULL,
+                    `lastOpenedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`conversationId`)
+                )
+                """.trimIndent(),
+            )
+            execSql(
+                "CREATE INDEX IF NOT EXISTS `index_conversation_local_meta_archived` ON `conversation_local_meta` (`archived`)",
+            )
+            execSql(
+                "CREATE INDEX IF NOT EXISTS `index_conversation_local_meta_pinned` ON `conversation_local_meta` (`pinned`)",
+            )
+        }
+
         fun get(context: Context): JarvisDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -143,7 +176,7 @@ abstract class JarvisDatabase : RoomDatabase() {
                     JarvisDatabase::class.java,
                     "jarvis.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

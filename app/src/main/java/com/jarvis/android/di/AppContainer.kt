@@ -110,6 +110,11 @@ class AppContainer(private val context: Context) {
         com.jarvis.android.data.local.DraftSearchStore(dao)
     }
 
+    /** Pin / hide / local title. Device chrome only — never a server delete. */
+    val productivity: com.jarvis.android.data.local.ConversationProductivityStore by lazy {
+        com.jarvis.android.data.local.ConversationProductivityStore(dao)
+    }
+
     /**
      * AND-W9 (Lane F): Projects backend is NOT_CONNECTED. The shell runs on
      * this fake repository; swapping in a real PC-A projects source later is a
