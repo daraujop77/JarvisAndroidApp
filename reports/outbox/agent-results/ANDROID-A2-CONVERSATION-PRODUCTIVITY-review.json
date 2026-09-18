@@ -1,0 +1,52 @@
+{
+  "task_id": "ANDROID-A2-CONVERSATION-PRODUCTIVITY",
+  "phase": "A2",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "evidence_sha": "42967ad1256c7e8b884f98be7d13a68aee7a88b6",
+  "base_sha": "7e93eb33824a3215848473dc90d8f22c4500b37d",
+  "head_at_review": "42967ad1256c7e8b884f98be7d13a68aee7a88b6",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --no-daemon --no-parallel",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "suites": 19,
+    "tests": 182,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "claimed_suites": 19,
+    "claimed_tests": 182,
+    "claimed_failures": 0,
+    "claim_matched": true,
+    "emulator_or_device": false,
+    "physical_device_used": false,
+    "adb_used": false
+  },
+  "checks": {
+    "pin_rename_recency_hide_are_local_metadata_only": true,
+    "hide_does_not_delete_conversations_messages_pending_outbound_cursor_or_drafts": true,
+    "migration_4_to_5_creates_conversation_local_meta_only": true,
+    "destructive_fallback": false,
+    "migration_test_exists": true,
+    "migration_chain_preserves_conversations_messages_pending_outbound_cursor_and_drafts": true,
+    "local_metadata_not_presented_as_server_authority": true,
+    "copy_share_refuses_credentials_and_raw_internal_payloads": true,
+    "web_v1_contract_byte_identical": true,
+    "transport_byte_identical": true,
+    "no_contract_additions": true,
+    "no_physical_device": true
+  },
+  "notes": [
+    "Pin, local title, last-opened recency and hide live in conversation_local_meta. Rename is never written onto ConversationEntity.title.",
+    "UI copy labels pin/rename/hide as on this device and states that server history stays.",
+    "activitySinceOpen is local last-opened vs stored updatedAt, not a server unread feed.",
+    "ShareSafeText.visibleChatText refuses credential-looking substrings and JSON-shaped internal payloads; copy/share UI uses that path.",
+    "7e93eb3..ca494dd does not touch contract/webv1, app contract files, or app/src/main/java/com/jarvis/android/transport.",
+    "A3 was not started. This review commits only the review JSON."
+  ]
+}
