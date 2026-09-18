@@ -1,0 +1,43 @@
+{
+  "task_id": "ANDROID-A7-INTEGRATION",
+  "branch": "android/r3-r4-a3-a9-integration",
+  "BASE_SHA": "109bde54938963cf5aa8cf4c93a992d5b68fd083",
+  "A7_SHA": "d04065d33a727894a3789a988fd83cb6eb53df2c",
+  "FINAL_SHA": "c3721f375da14757a1ab42e85adeca9c66cb0486",
+  "cherry_pick": "clean, no conflicts",
+  "parent_note": "Branch tip before the pick was 78db1cb, a docs-only commit recording the A6 block. The cherry-pick of d04065d applied onto that tip without merging 78db1cb content into product code; the only non-A7 difference from 109bde5 is reports/outbox/agent-results/ANDROID-A6-INTEGRATION.json.",
+  "reports_not_picked": ["4ec311e", "6f628ac"],
+  "excluded_shas_not_picked": ["7f36cda"],
+  "features_added": false,
+  "conflicts_resolved": false,
+  "ROOM_VERSION": 6,
+  "settings_store_identical_to_base": true,
+  "session_restore_called": true,
+  "unit_tests": {
+    "command": ":app:testDebugUnitTest --no-daemon",
+    "suites": 24,
+    "tests": 229,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "result": "BUILD SUCCESSFUL"
+  },
+  "assemble_debug": {
+    "command": ":app:assembleDebug --no-daemon",
+    "result": "BUILD SUCCESSFUL"
+  },
+  "jdk": "Android Studio JBR (JAVA_HOME)",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "A6_INCLUDED": false,
+  "a6_types_absent": [
+    "JarvisVisualSystem",
+    "JarvisTokens",
+    "UiDensity",
+    "WidthClass",
+    "AdaptiveLayout",
+    "rememberAdaptiveLayout"
+  ],
+  "MERGED_TO_R2": false,
+  "RESULT": "READY_FOR_PC_A_ANDROID_REVIEW"
+}
