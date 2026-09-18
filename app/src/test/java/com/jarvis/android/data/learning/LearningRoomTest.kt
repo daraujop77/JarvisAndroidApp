@@ -37,6 +37,14 @@ class LearningRoomTest {
     }
 
     @Test
+    fun themeStepsUpAndNeverBack() {
+        assertEquals(RewardTheme.DEFAULT, LearningCatalog.themeFor(emptySet()))
+        assertEquals(RewardTheme.NEBULA, LearningCatalog.themeFor(setOf("math-1", "words-1")))
+        assertEquals(RewardTheme.GOLD, LearningCatalog.themeFor(setOf("math-1", "words-1", "science-1", "logic-1")))
+        assertEquals(RewardTheme.DEFAULT, LearningCatalog.themeFor(setOf("not-a-lesson", "also-no")))
+    }
+
+    @Test
     fun championRequiresEveryLesson() {
         val oneShort = LearningCatalog.unlockedCount(LearningCatalog.lessons.size - 1)
         assertFalse(LearningCatalog.rewardsFor(LearningCatalog.lessons.size - 1)

@@ -66,6 +66,33 @@ data class JarvisAccents(
     val grid: Color,
 )
 
+/**
+ * Nebula: earned at 2 completed lessons. Same dark HUD, violet glow, so text
+ * contrast does not change.
+ */
+private val NebulaAccents = JarvisAccents(
+    backdrop = Brush.verticalGradient(listOf(Color(0xFF140C28), DeepSpace, Color(0xFF100A22))),
+    orbGlow = JarvisViolet,
+    userBubble = Brush.linearGradient(listOf(Color(0xFF6D28D9), Color(0xFF4C1D95))),
+    assistantBubble = Surface2,
+    online = JarvisGreen,
+    degraded = JarvisAmber,
+    offline = Color(0xFF8095B0),
+    grid = Color(0x1A8B5CF6),
+)
+
+/** Gold: earned at 4 completed lessons. Amber glow over the same dark surfaces. */
+private val GoldAccents = JarvisAccents(
+    backdrop = Brush.verticalGradient(listOf(Color(0xFF1A1408), DeepSpace, Color(0xFF161008))),
+    orbGlow = JarvisAmber,
+    userBubble = Brush.linearGradient(listOf(Color(0xFFB45309), Color(0xFF92400E))),
+    assistantBubble = Surface2,
+    online = JarvisGreen,
+    degraded = JarvisAmber,
+    offline = Color(0xFF8095B0),
+    grid = Color(0x1AFACC15),
+)
+
 private val DarkAccents = JarvisAccents(
     backdrop = Brush.verticalGradient(listOf(Color(0xFF081020), DeepSpace, Color(0xFF0A1424))),
     orbGlow = JarvisCyan,
@@ -134,16 +161,30 @@ fun jarvisTextFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
     unfocusedTrailingIconColor = HudMuted,
 )
 
+/**
+ * [theme] comes from lessons completed on this device. DEFAULT keeps the
+ * original HUD exactly, so nothing changes until a reward is earned.
+ */
 @Composable
-fun JarvisTheme(content: @Composable () -> Unit) {
+fun JarvisTheme(
+    theme: com.jarvis.android.data.learning.RewardTheme =
+        com.jarvis.android.data.learning.RewardTheme.DEFAULT,
+    content: @Composable () -> Unit,
+) {
+    val accents = when (theme) {
+        com.jarvis.android.data.learning.RewardTheme.NEBULA -> NebulaAccents
+        com.jarvis.android.data.learning.RewardTheme.GOLD -> GoldAccents
+        com.jarvis.android.data.learning.RewardTheme.DEFAULT -> DarkAccents
+    }
+    val scheme = JarvisDark.copy(primary = accents.orbGlow, tertiary = accents.orbGlow)
     MaterialTheme(
-        colorScheme = JarvisDark,
+        colorScheme = scheme,
         typography = JarvisTypography,
     ) {
         // Transparent Scaffolds inherit LocalContentColor; without this it stays
         // the platform default (black) and titles/fields vanish on the HUD.
         CompositionLocalProvider(
-            LocalJarvisAccents provides DarkAccents,
+            LocalJarvisAccents provides accents,
             LocalContentColor provides HudInk,
             content = content,
         )

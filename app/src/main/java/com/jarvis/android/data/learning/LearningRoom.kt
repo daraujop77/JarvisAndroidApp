@@ -26,6 +26,12 @@ data class Reward(
 
 data class RewardStatus(val reward: Reward, val unlocked: Boolean)
 
+/**
+ * The look the app earns. Each step includes the previous one, so finishing
+ * more lessons never takes a reward away.
+ */
+enum class RewardTheme { DEFAULT, NEBULA, GOLD }
+
 object LearningCatalog {
 
     val lessons: List<Lesson> = listOf(
@@ -57,4 +63,14 @@ object LearningCatalog {
 
     fun unlockedCount(completedCount: Int): Int =
         rewards.count { completedCount >= it.lessonsRequired }
+
+    /** Highest theme earned by the lessons actually completed. Unknown ids don't count. */
+    fun themeFor(completed: Set<String>): RewardTheme {
+        val done = completed.count { lesson(it) != null }
+        return when {
+            done >= 4 -> RewardTheme.GOLD
+            done >= 2 -> RewardTheme.NEBULA
+            else -> RewardTheme.DEFAULT
+        }
+    }
 }

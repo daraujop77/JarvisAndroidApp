@@ -5,6 +5,9 @@ import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.fragment.app.FragmentActivity
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.data.learning.LearningCatalog
 import com.jarvis.android.ui.JarvisRoot
 import com.jarvis.android.ui.theme.JarvisTheme
 
@@ -34,8 +37,12 @@ class MainActivity : FragmentActivity() {
             notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         setContent {
-            JarvisTheme {
-                JarvisRoot(app = application as JarvisApp)
+            val app = application as JarvisApp
+            val settings by app.container.settings.settings.collectAsStateWithLifecycle(
+                initialValue = com.jarvis.android.data.prefs.SettingsStore.Settings(),
+            )
+            JarvisTheme(theme = LearningCatalog.themeFor(settings.completedLessons)) {
+                JarvisRoot(app = app)
             }
         }
     }
