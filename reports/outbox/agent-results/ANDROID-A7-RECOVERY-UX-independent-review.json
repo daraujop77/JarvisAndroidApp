@@ -1,0 +1,35 @@
+{
+  "task_id": "ANDROID-A7-RECOVERY-UX",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "d04065d33a727894a3789a988fd83cb6eb53df2c",
+  "base_sha": "23d2421e24b6408ee5076fe1b356e53f37536291",
+  "evidence_sha_not_authority": "4ec311eb6a4517c92022df8eef7314c7435dbd18",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "reviewer": "independent",
+  "merged": false,
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ":app:testDebugUnitTest --tests com.jarvis.android.ui.recovery.RecoveryUxTest --tests com.jarvis.android.data.repo.NetworkHardeningTest --no-daemon",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "suites": 2,
+    "tests": 19,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "emulator_or_device": false
+  },
+  "checks": {
+    "distinct_link_states": "LinkKind.AIRPLANE, RECONNECTING, and BACKOFF_EXHAUSTED are separate; ConnectionBanner renders different headline, detail, pulse, and retry affordance",
+    "recovered_completed_turn_once": "observeMessages skips terminal live requests and distinctBy role+clientRequestId; the persisted assistant row is the only copy",
+    "unfinished_outbound_visible_not_resent": "every non-terminal request stays in the merge; recover() still re-issues only with the same clientRequestId via sendWithId",
+    "foreground_does_not_second_connect": "setForeground returns while reconnectJob is active; NetworkHardeningTest asserts connectCalls unchanged",
+    "transport_byte_identical": true,
+    "web_v1_contract_byte_identical": true,
+    "settings_visual_keys_unchanged": "animationIntensity and uiDensity (compact|comfortable) are absent from 23d2421..d04065d",
+    "session_restore_still_called": "LiveAppGatewayTransport.connect still calls session.restore(); no skip-restore path",
+    "product_files_modified_by_review": false
+  }
+}
