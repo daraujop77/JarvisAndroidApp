@@ -1,0 +1,48 @@
+{
+  "phase": "A8",
+  "task": "ANDROID-A8-MEDIA-UX-independent-review",
+  "reviewer": "independent",
+  "branch": "android/r3-r4-media-ux-pcb",
+  "BASE_SHA": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "reviewed_sha": "b956d7ac6e454b5aa08b4c9509b61e1bbafb8803",
+  "reviewed_commits": [
+    "730b14832fda67be9a0487a6b7290df805664936",
+    "b956d7ac6e454b5aa08b4c9509b61e1bbafb8803"
+  ],
+  "RESULT": "PASS_REVIEW",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "note",
+      "area": "thumbnail-memory",
+      "detail": "AttachmentStore.thumbCache is an access-ordered LinkedHashMap capped at THUMB_CACHE_MAX=16, but evicted Bitmap entries are dropped from the map without recycle(). The cap bounds the count, not the reclaimed native memory, and the disk thumbnail is not deleted on eviction. Acceptable for this phase because the bound exists and remove/delete calls dropThumbnail, which removes the memory entry and the thumbs/ file."
+    }
+  ],
+  "verification": {
+    "preview_remove_retry_states": "AttachmentPhase has PREVIEW_READY, REMOVED and FAILED; AttachmentUx.chip sets canRemove for every non-staging, non-removed phase and canRetry only for FAILED. ConversationsScreen renders a preview dialog, a remove button and a retry button from that model.",
+    "upload_intent_distinct_from_uploaded": "phaseOf maps uploading=true to UPLOAD_INTENT and ready+no error to UPLOADED. isUploaded is true only for UPLOADED. LABEL_UPLOAD_INTENT text states the binary upload waits on the frozen contract.",
+    "failure_recovery_deterministic": "Failed chips always expose retry and remove and never show progress. retryAttachment re-declares the same opaque id only when AttachmentUx.canRetry is true (error set, not uploading, not ready). A ready attachment is never retried.",
+    "thumbnail_cleanup_and_memory_bounds": "Decode is sample-sized, edge-clamped to MAX_THUMB_EDGE=512, cached LRU at 16 entries and persisted under attachments/thumbs/. delete() and dropThumbnail() remove the memory entry and the disk thumbnail.",
+    "no_stale_chip_on_switch_or_recreation": "pendingAttachments is flatMapLatest over the open conversation's Room rows, so a switch shows only that conversation. setOpenConversation cancels in-flight staging jobs for the conversation being left, and stageAttachment deletes the private file if the conversation changed before the copy finished. Rows survive process recreation and are restored only for their conversation. Migration 5->6 is additive and invents no rows.",
+    "exif_gps_stripping_and_opaque_ids": "stripMetadata is unchanged: JPEG re-encode with orientation baked in as pixels. stageFrom still mints att_ plus 12 hex chars. resolve/delete/decodeThumbnail reject ids that fail isOpaqueId, so a path or content URI cannot be resolved.",
+    "no_new_binary_upload_contract": "uploadAttachment still sends the existing MobileRequest.UploadAttachment metadata intent. WebV1Adapter attachment.upload payload is untouched. uploadPending remains true.",
+    "transport_and_webv1_unchanged": "git diff ca494dd..HEAD -- app/src/main/java/com/jarvis/android/contract/webv1 app/src/main/java/com/jarvis/android/transport contract returned no files."
+  },
+  "tests_rerun": {
+    "command": "JAVA_HOME=Android Studio jbr (OpenJDK 21.0.10); .\\gradlew.bat :app:testDebugUnitTest --tests com.jarvis.android.data.media.AttachmentUxTest --no-daemon --offline",
+    "jdk": "openjdk 21.0.10",
+    "result": "BUILD SUCCESSFUL",
+    "suite": "com.jarvis.android.data.media.AttachmentUxTest",
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "emulator": "not started"
+  },
+  "scope": {
+    "product_kotlin_modified": false,
+    "gradle_modified": false,
+    "schema_modified": false,
+    "merged": false
+  }
+}
