@@ -1,0 +1,53 @@
+{
+  "schema": "jarvis.android.r3-r4.a2-conversation-productivity.v1",
+  "phase": "A2",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "BASE_SHA": "7e93eb33824a3215848473dc90d8f22c4500b37d",
+  "FINAL_SHA": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "files_changed": [
+    "app/schemas/com.jarvis.android.data.local.JarvisDatabase/5.json",
+    "app/src/main/java/com/jarvis/android/data/local/ConversationProductivityStore.kt",
+    "app/src/main/java/com/jarvis/android/data/local/JarvisDatabase.kt",
+    "app/src/main/java/com/jarvis/android/data/local/JarvisEntities.kt",
+    "app/src/main/java/com/jarvis/android/data/local/ShareSafeText.kt",
+    "app/src/main/java/com/jarvis/android/di/AppContainer.kt",
+    "app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/ConversationA11y.kt",
+    "app/src/main/java/com/jarvis/android/ui/screens/ConversationsScreen.kt",
+    "app/src/main/java/com/jarvis/android/ui/theme/Motion.kt",
+    "app/src/test/java/com/jarvis/android/data/local/ConversationProductivityTest.kt",
+    "app/src/test/java/com/jarvis/android/data/local/CursorMigrationTest.kt",
+    "app/src/test/java/com/jarvis/android/data/local/DraftSearchTest.kt",
+    "app/src/test/java/com/jarvis/android/data/repo/ProcessDeathReconciliationTest.kt",
+    "app/src/test/java/com/jarvis/android/ui/theme/ReducedMotionTest.kt",
+    "reports/outbox/agent-results/ANDROID-A2-CONVERSATION-PRODUCTIVITY.json"
+  ],
+  "database": {
+    "old_version": 4,
+    "new_version": 5,
+    "migration": "MIGRATION_4_5 creates conversation_local_meta only",
+    "destructive_fallback": false,
+    "chain_tested": "v1 -> v2 -> v3 -> v4 -> v5 preserves conversations, messages, pending_outbound, cursor and conversation_drafts"
+  },
+  "unit_tests": {
+    "suites": 19,
+    "tests": 182,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0
+  },
+  "assemble_debug": "BUILD SUCCESSFUL",
+  "jdk": "Android Studio JBR 21.0.10",
+  "gradle": "--no-daemon",
+  "WEB_V1_CHANGED": false,
+  "TRANSPORT_CHANGED": false,
+  "PHYSICAL_DEVICE_USED": false,
+  "REAL_SIDE_EFFECTS": false,
+  "RESULT": "A2_CONVERSATION_PRODUCTIVITY_PASS",
+  "limitations": [
+    "Pin, rename, hide and last-opened recency are device-only metadata and are labeled as such.",
+    "Hide never deletes Room conversations, messages, pending_outbound, cursor or drafts.",
+    "Copy/share refuses credential-looking text and raw internal payloads.",
+    "Phase A3 was not started."
+  ]
+}
