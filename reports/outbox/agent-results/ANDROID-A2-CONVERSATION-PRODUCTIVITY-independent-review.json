@@ -1,0 +1,54 @@
+{
+  "task_id": "ANDROID-A2-CONVERSATION-PRODUCTIVITY",
+  "RESULT": "PASS_REVIEW",
+  "reviewed_sha": "ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "base_sha": "7e93eb33824a3215848473dc90d8f22c4500b37d",
+  "branch": "android/r3-r4-productivity-marathon-pcb",
+  "reviewer": "independent",
+  "authority_ignored": [
+    "5412f67",
+    "aa262e6"
+  ],
+  "diff_reviewed": "7e93eb33824a3215848473dc90d8f22c4500b37d..ca494dd29b458473959ae5d324bfd8ca17f48592",
+  "findings": [],
+  "tests_rerun": true,
+  "tests_rerun_detail": {
+    "command": ".\\gradlew.bat :app:testDebugUnitTest --tests com.jarvis.android.data.local.ConversationProductivityTest --no-daemon",
+    "java_home": "C:\\Program Files\\Android\\Android Studio\\jbr",
+    "java_version": "21.0.10",
+    "requested_invocation": "BUILD SUCCESSFUL; :app:testDebugUnitTest FROM-CACHE",
+    "executed_invocation": ".\\gradlew.bat :app:testDebugUnitTest --tests com.jarvis.android.data.local.ConversationProductivityTest --no-daemon --rerun-tasks --max-workers=1",
+    "executed_result": "BUILD SUCCESSFUL; :app:testDebugUnitTest executed",
+    "result": "BUILD SUCCESSFUL",
+    "tests": 8,
+    "failures": 0,
+    "skipped": 0,
+    "errors": 0,
+    "xml": "app/build/test-results/testDebugUnitTest/TEST-com.jarvis.android.data.local.ConversationProductivityTest.xml",
+    "xml_timestamp": "2026-09-18T02:42:40.577Z",
+    "emulator_or_device": false,
+    "note": "A parallel --rerun-tasks attempt failed in compileDebugKotlin because processDebugResources removed R.jar mid-compile. That is an environment race, not a product failure. The serial rerun compiled and executed the suite."
+  },
+  "checks": {
+    "pin_local_rename_hide_last_opened_are_device_only_metadata": true,
+    "hide_does_not_delete_conversations_messages_pending_outbound_cursor_or_drafts": true,
+    "hide_sends_no_server_request": true,
+    "local_title_is_overlay_not_written_to_conversation_entity_title": true,
+    "copy_share_refuses_credential_looking_text_and_raw_internal_payloads": true,
+    "room_migration_4_to_5_additive": true,
+    "destructive_fallback": false,
+    "contract_and_transport_unchanged_versus_7e93eb3": true,
+    "empty_offline_error_and_reduced_motion_coverage_exist": true,
+    "phase_a3_not_started": true
+  },
+  "verification": {
+    "source": "Read product diff and current source. Builder review JSON was not used as authority.",
+    "metadata_table": "conversation_local_meta holds pinned, archived, localTitle, lastOpenedAtMs. ConversationProductivityStore writes only upsertLocalMeta.",
+    "hide_path": "ConversationsScreen hide/bulk hide calls JarvisViewModel.setHiddenOnDevice, which calls setArchived. No delete of conversations, messages, pending_outbound, cursor, or drafts, and no transport call.",
+    "title_overlay": "setLocalTitle stores trimmed text on ConversationLocalMetaEntity.localTitle. displayTitle prefers a non-blank overlay and leaves ConversationEntity.title unchanged. Test pinAndLocalTitleDoNotMutateStoredConversation asserts the stored title.",
+    "share": "Copy and share both go through shareOrCopy -> ShareSafeText.visibleChatText. Credential-looking substrings and JSON envelopes that look like internal payloads return null and are not copied or sent.",
+    "migration": "MIGRATION_4_5 only CREATE TABLE IF NOT EXISTS conversation_local_meta and two indexes. Room builder adds MIGRATION_1_2 through MIGRATION_4_5 and has no fallbackToDestructiveMigration. Schema 5.json adds conversation_local_meta only.",
+    "unchanged": "git diff --name-only and git diff --raw for contract, app/.../contract, app/.../contract/webv1, and app/.../transport are empty versus 7e93eb3.",
+    "states": "ConversationListEmpty covers empty chats, empty search, and empty hidden. ConversationStatusBanner covers offline/disconnected and auth/revoked/protocol error. Chat empty thread shows offline copy when the connection is not usable. JarvisMotion.durationMs/loopMs collapse when reduced motion is on, and the list uses scrollToItem instead of animateScrollToItem."
+  }
+}
