@@ -33,22 +33,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.jarvis.android.data.repo.SessionSnapshot
 import com.jarvis.android.data.state.ConnectionState
+import com.jarvis.android.ui.recovery.RecoveryUx
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisMotion
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
-
-private fun ConnectionState.label(): String = when (this) {
-    ConnectionState.ONLINE -> "ONLINE"
-    ConnectionState.DEGRADED -> "DEGRADED"
-    ConnectionState.CONNECTING -> "CONNECTING"
-    ConnectionState.RECONNECTING -> "RECONNECTING"
-    ConnectionState.OFFLINE -> "OFFLINE"
-    ConnectionState.DISCONNECTED -> "DISCONNECTED"
-    ConnectionState.AUTH_EXPIRED -> "AUTH REQUIRED"
-    ConnectionState.DEVICE_REVOKED -> "DEVICE REVOKED"
-    ConnectionState.PROTOCOL_MISMATCH -> "UPDATE REQUIRED"
-}
 
 /**
  * Always-visible HUD strip: a live status dot that breathes while connecting
@@ -62,18 +51,17 @@ fun ConnectionBanner(
 ) {
     val accents = LocalJarvisAccents.current
     val conn = snapshot.connection
+    val link = RecoveryUx.link(snapshot, snapshot.reconnectAttempt, snapshot.reconnectBudget)
 
-    val tint = when (conn) {
-        ConnectionState.ONLINE -> accents.online
-        ConnectionState.DEGRADED -> accents.degraded
-        ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> accents.orbGlow
-        ConnectionState.OFFLINE, ConnectionState.DISCONNECTED -> accents.offline
-        else -> MaterialTheme.colorScheme.error
+    val tint = when (link.kind) {
+        RecoveryUx.LinkKind.ONLINE -> if (conn == ConnectionState.DEGRADED) accents.degraded else accents.online
+        RecoveryUx.LinkKind.RECONNECTING -> accents.orbGlow
+        RecoveryUx.LinkKind.AIRPLANE, RecoveryUx.LinkKind.BACKOFF_EXHAUSTED -> accents.offline
+        RecoveryUx.LinkKind.FAIL_CLOSED -> MaterialTheme.colorScheme.error
     }
     val animatedTint by animateColorAsState(tint, JarvisMotion.standard(), label = "statusTint")
-    val busy = conn == ConnectionState.CONNECTING || conn == ConnectionState.RECONNECTING
-    val canRetry = onReconnect != null &&
-        (conn == ConnectionState.OFFLINE || conn == ConnectionState.DISCONNECTED)
+    val busy = link.kind == RecoveryUx.LinkKind.RECONNECTING
+    val canRetry = onReconnect != null && link.showManualRetry
 
     Row(
         modifier = modifier
@@ -91,7 +79,15 @@ fun ConnectionBanner(
     ) {
         PulseDot(color = animatedTint, pulsing = busy)
         Spacer(Modifier.width(10.dp))
-        Text(conn.label(), style = HudTextStyle, color = animatedTint)
+        Text(link.headline, style = HudTextStyle, color = animatedTint)
+        if (link.detail.isNotBlank()) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                link.detail,
+                style = HudTextStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Spacer(Modifier.weight(1f))
 

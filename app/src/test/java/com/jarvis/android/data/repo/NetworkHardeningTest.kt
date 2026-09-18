@@ -210,4 +210,21 @@ class NetworkHardeningTest {
         assertEquals("mismatch never auto-retries", afterMismatch, transport.connectCalls.get())
         repo.stop()
     }
+
+    @Test
+    fun foregroundFlipWhileBackoffIsRunningDoesNotOpenASecondConnect() {
+        val transport = ScriptedTransport(connectSucceeds = false)
+        val repo = JarvisSessionRepository(transport, scope, backoffMs = listOf(400L, 400L))
+        repo.start()
+        settle(80)
+        val before = transport.connectCalls.get()
+
+        repo.setForeground(false)
+        repo.setForeground(true)
+        settle(80)
+
+        assertEquals(before, transport.connectCalls.get())
+        assertTrue(repo.snapshot.value.reconnectAttempt < repo.snapshot.value.reconnectBudget)
+        repo.stop()
+    }
 }

@@ -23,7 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.data.state.DiagnosticEntry
+import com.jarvis.android.notify.NotifyPolicy
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.recovery.RecoveryUx
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 
@@ -68,6 +70,17 @@ fun DiagnosticsCard(vm: JarvisViewModel, diagnostics: List<DiagnosticEntry>) {
                     "PHASE ${snapshot.phase.name}",
                     style = HudTextStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val dedupe = RecoveryUx.dedupeStatus(
+                NotifyPolicy.State.fromPersisted(vm.notificationDedupeLedger()),
+            )
+            if (dedupe.visible) {
+                Text(
+                    dedupe.label,
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
