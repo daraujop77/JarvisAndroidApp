@@ -318,7 +318,7 @@ class LiveAppGatewayTransport(
         deviceId: String,
         sessionId: String,
     ): String = buildJsonObject {
-        put("route", "local")
+        put("route", "hermes")
         put("profile", session.chatProfileFor(req.conversationId))
         put("session_id", sessionId)
         put("conversation_id", req.conversationId)
