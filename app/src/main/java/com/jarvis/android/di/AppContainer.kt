@@ -29,6 +29,24 @@ class AppContainer(private val context: Context) {
 
     enum class TransportMode { FAKE, HTTP, LIVE, WSS }
 
+    companion object {
+        /**
+         * Pure transport policy used by both startup and tests.
+         *
+         * A valid authenticated LIVE session always wins over developer simulation.
+         * FAKE is an explicit debug-only opt-in; otherwise fail safe to HTTP.
+         */
+        internal fun selectTransportMode(
+            debug: Boolean,
+            useFake: Boolean,
+            liveAuthenticated: Boolean,
+        ): TransportMode = when {
+            liveAuthenticated -> TransportMode.LIVE
+            debug && useFake -> TransportMode.FAKE
+            else -> TransportMode.HTTP
+        }
+    }
+
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val db: JarvisDatabase by lazy { JarvisDatabase.get(context) }
@@ -72,22 +90,38 @@ class AppContainer(private val context: Context) {
     private val live by lazy { LiveAppGatewayTransport(liveSession, scope) }
 
     /**
-     * Resolved fully in [start] on a background coroutine. The pre-start value
-     * is fail-safe: release builds default to HTTP (never FAKE) with no disk
-     * I/O on the main thread, and [resolveMode] still promotes to LIVE once the
-     * stored token is read.
+     * Safe pre-start mode.
+     *
+     * The old DEBUG default was FAKE, which allowed the lazy transport/session graph
+     * to capture FakeGateway before the async settings read completed. A persisted
+     * authenticated LIVE session is synchronously observable and must therefore be
+     * honored immediately. Otherwise HTTP is the safe pre-start fallback; FAKE can
+     * only be selected explicitly after settings are read.
      */
     @Volatile
     var transportMode: TransportMode =
-        if (com.jarvis.android.BuildConfig.DEBUG) TransportMode.FAKE else TransportMode.HTTP
+        selectTransportMode(
+            debug = com.jarvis.android.BuildConfig.DEBUG,
+            useFake = false,
+            liveAuthenticated = liveSession.isAuthenticated,
+        )
         private set
 
     /**
-     * Swappable transport seam. Lazy so [start] resolves the mode from settings
-     * first; changing the mode requires an app restart (documented V1 limitation).
+     * Swappable transport seam.
+     *
+     * Re-check LIVE authentication at materialization time so an authenticated
+     * session can never be captured as FakeGateway because of startup ordering.
+     * Changing the non-LIVE developer mode still requires an app restart.
      */
     val transport: GatewayTransport by lazy {
-        when (transportMode) {
+        val materializedMode = if (liveSession.isAuthenticated) {
+            TransportMode.LIVE
+        } else {
+            transportMode
+        }
+        transportMode = materializedMode
+        when (materializedMode) {
             TransportMode.FAKE -> fake
             TransportMode.HTTP -> http
             TransportMode.LIVE -> live
@@ -115,9 +149,9 @@ class AppContainer(private val context: Context) {
     }
 
     /**
-     * Called from Application.onCreate, so nothing here may block the main
-     * thread: the transport mode is resolved on a background coroutine before
-     * the session (and its lazy transport) is first touched.
+     * Called from Application.onCreate. Settings resolution stays on the
+     * background scope. Real authenticated sessions are already pinned to LIVE
+     * before this coroutine runs, preventing the former DEBUG->FAKE race.
      */
     fun start() {
         scope.launch {
@@ -128,16 +162,16 @@ class AppContainer(private val context: Context) {
     }
 
     /**
-     * FAKE is a debug-only surface (Lane E): a release build never runs against
-     * the simulator even if a stray preference asked for it. LIVE applies while
-     * the PC-A app-session token is valid; HTTP remains the frozen /api/v1
-     * target for when PC-A activates it.
+     * LIVE has authority over the debug simulator whenever a persisted
+     * authenticated app session exists. FAKE remains an explicit debug-only
+     * development path; otherwise HTTP is the fail-safe default.
      */
-    fun resolveMode(useFake: Boolean): TransportMode = when {
-        com.jarvis.android.BuildConfig.DEBUG && useFake -> TransportMode.FAKE
-        liveSession.isAuthenticated -> TransportMode.LIVE
-        else -> TransportMode.HTTP
-    }
+    fun resolveMode(useFake: Boolean): TransportMode =
+        selectTransportMode(
+            debug = com.jarvis.android.BuildConfig.DEBUG,
+            useFake = useFake,
+            liveAuthenticated = liveSession.isAuthenticated,
+        )
 
     val liveTransport: LiveAppGatewayTransport get() = live
 }
