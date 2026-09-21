@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -123,7 +124,7 @@ private fun ConversationListView(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text("Chats") },
+                title = { Text("Conversations", style = MaterialTheme.typography.titleLarge) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = Color(0xFFE8EEF8),
@@ -162,14 +163,15 @@ private fun ConversationListView(
         } else {
             LazyColumn(
                 Modifier.fillMaxSize().padding(pad),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 itemsIndexed(items, key = { _, c -> c.conversationId }) { index, c ->
                     Surface(
                         onClick = { onOpen(c.conversationId) },
-                        shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                        border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.16f)),
                         modifier = Modifier.fillMaxWidth().animateItem(),
                     ) {
                         Row(
@@ -489,15 +491,17 @@ private fun MessageBubble(
         }
         Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
             Box(Modifier.widthIn(max = 320.dp)) {
+                val bubbleShape = RoundedCornerShape(
+                    topStart = 22.dp,
+                    topEnd = if (isUser) 8.dp else 22.dp,
+                    bottomStart = if (isUser) 22.dp else 8.dp,
+                    bottomEnd = 22.dp,
+                )
                 Surface(
                     color = if (isUser) Color.Transparent else accents.assistantBubble,
                     contentColor = if (isUser) Color.White else Color(0xFFE8EEF8),
-                    shape = RoundedCornerShape(
-                        topStart = 20.dp,
-                        topEnd = if (isUser) 6.dp else 20.dp,
-                        bottomStart = if (isUser) 20.dp else 6.dp,
-                        bottomEnd = 20.dp,
-                    ),
+                    shape = bubbleShape,
+                    border = if (isUser) null else BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.14f)),
                     modifier = if (isUser) {
                         Modifier.background(
                             accents.userBubble,

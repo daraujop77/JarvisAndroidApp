@@ -1,5 +1,6 @@
 package com.jarvis.android.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -119,13 +120,20 @@ private fun CharacterPage(character: CharacterEntry, onBack: () -> Unit) {
 }
 
 @Composable
+private fun roomCardColor() = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+
+@Composable
+private fun roomCardBorder() = BorderStroke(1.dp, LocalJarvisAccents.current.orbGlow.copy(alpha = 0.16f))
+
+@Composable
 private fun FactBlock(label: String, body: String) {
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        color = roomCardColor(),
+        border = roomCardBorder(),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Text(label.uppercase(), style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
             Spacer(Modifier.height(4.dp))
             Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -146,10 +154,11 @@ private fun SectionLabel(title: String, caption: String) {
 private fun CouncilSeat(seat: Seat) {
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        color = roomCardColor(),
+        border = roomCardBorder(),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(seat.role, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(2.dp))
@@ -165,10 +174,11 @@ private fun CharacterRow(character: CharacterEntry, onOpen: () -> Unit) {
     Surface(
         onClick = onOpen,
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        color = roomCardColor(),
+        border = roomCardBorder(),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(character.name, style = MaterialTheme.typography.titleMedium)
                 Text(character.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -182,10 +192,11 @@ private fun CharacterRow(character: CharacterEntry, onOpen: () -> Unit) {
 private fun EmptyCanon(accent: androidx.compose.ui.graphics.Color) {
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        color = roomCardColor(),
+        border = roomCardBorder(),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Text("NO CANON LOADED", style = HudTextStyle, color = accent)
             Spacer(Modifier.height(4.dp))
             Text(
