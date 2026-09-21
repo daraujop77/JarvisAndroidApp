@@ -124,18 +124,32 @@ class ConversationRepository(
     }
 
     /**
-     * PCB-LIVE-2: bounded conversation history for multi-turn context, matching
-     * PC-A's own web client (last turns, completed only, current text excluded).
+     * Completed conversation history for multi-turn context. Android keeps a
+     * defensive envelope only; the backend remains authoritative for the final
+     * model context budget.
      */
     private suspend fun historyContext(
         conversationId: String,
-        limit: Int = 12,
-    ): List<com.jarvis.android.contract.ChatTurn> =
-        dao.messages(conversationId)
+        maxMessages: Int = 256,
+        maxChars: Int = 180_000,
+    ): List<com.jarvis.android.contract.ChatTurn> {
+        val eligible = dao.messages(conversationId)
             .filter { it.status == RequestStatus.Completed.dbName }
-            .takeLast(limit)
             .map { com.jarvis.android.contract.ChatTurn(role = it.role, content = it.text) }
             .filter { it.content.isNotBlank() }
+
+        val selectedReverse = ArrayList<com.jarvis.android.contract.ChatTurn>()
+        var usedChars = 0
+        for (index in eligible.indices.reversed()) {
+            if (selectedReverse.size >= maxMessages) break
+            val turn = eligible[index]
+            if (usedChars + turn.content.length > maxChars) break
+            selectedReverse += turn
+            usedChars += turn.content.length
+        }
+        selectedReverse.reverse()
+        return selectedReverse
+    }
 
     /**
      * The conversation row must exist before the message row: `messages` has a
