@@ -65,6 +65,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -211,6 +212,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val pendingAttachments by vm.pendingAttachments.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
+    var autoFollow by rememberSaveable { mutableStateOf(true) }
     val listState = rememberLazyListState()
     val accents = LocalJarvisAccents.current
 
@@ -223,14 +225,31 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { vm.refreshChatAccess() }
 
-    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val layout = listState.layoutInfo
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val atBottom = layout.totalItemsCount == 0 || lastVisible >= layout.totalItemsCount - 1
+            listState.isScrollInProgress to atBottom
+        }.collect { (scrolling, atBottom) ->
+            if (scrolling) {
+                autoFollow = atBottom
+            } else if (atBottom) {
+                autoFollow = true
+            }
+        }
+    }
+
+    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length, autoFollow) {
+        if (autoFollow && messages.isNotEmpty()) {
+            listState.scrollToItem(messages.lastIndex)
+        }
     }
 
     val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(imeVisible) {
-        if (imeVisible && messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+        if (imeVisible && autoFollow && messages.isNotEmpty()) {
+            listState.scrollToItem(messages.lastIndex)
         }
     }
 
