@@ -20,6 +20,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -75,11 +78,56 @@ fun streamingText(text: String, streaming: Boolean): AnnotatedString {
     )
     val show = streaming && (reduced || blink < 0.55f)
     return buildAnnotatedString {
-        append(text)
+        // While a reply is still arriving the markers are incomplete, so the
+        // raw text stays. A finished reply is styled. Fenced code is never
+        // touched, so a sample that mentions **bold** stays literal.
+        if (streaming) append(text) else append(renderInlineMarkdown(text, accents.orbGlow))
         if (show) {
             withStyle(SpanStyle(color = accents.orbGlow)) { append("▌") }
         }
     }
+}
+
+/**
+ * Inline Markdown only: `code`, **bold** and *italic*. Fenced blocks pass
+ * through untouched. This is presentation, not a parser and not a contract.
+ * Unclosed markers are left as typed.
+ */
+internal fun renderInlineMarkdown(source: String, codeColor: Color): AnnotatedString {
+    val code = SpanStyle(fontFamily = FontFamily.Monospace, color = codeColor)
+    val bold = SpanStyle(fontWeight = FontWeight.SemiBold)
+    val italic = SpanStyle(fontStyle = FontStyle.Italic)
+    return buildAnnotatedString {
+        val fence = Regex("```[\\s\\S]*?```")
+        var cursor = 0
+        for (block in fence.findAll(source)) {
+            appendStyled(source.substring(cursor, block.range.first), code, bold, italic)
+            withStyle(code) { append(block.value) }
+            cursor = block.range.last + 1
+        }
+        appendStyled(source.substring(cursor), code, bold, italic)
+    }
+}
+
+private fun AnnotatedString.Builder.appendStyled(
+    text: String,
+    code: SpanStyle,
+    bold: SpanStyle,
+    italic: SpanStyle,
+) {
+    val token = Regex("`[^`\\n]+`|\\*\\*[^*\\n]+\\*\\*|\\*[^*\\n]+\\*")
+    var cursor = 0
+    for (match in token.findAll(text)) {
+        append(text.substring(cursor, match.range.first))
+        val raw = match.value
+        when {
+            raw.startsWith("**") -> withStyle(bold) { append(raw.removeSurrounding("**")) }
+            raw.startsWith("`") -> withStyle(code) { append(raw.removeSurrounding("`")) }
+            else -> withStyle(italic) { append(raw.removeSurrounding("*")) }
+        }
+        cursor = match.range.last + 1
+    }
+    append(text.substring(cursor))
 }
 
 /** Thin animated scanline used as a section divider / activity hint. */
