@@ -31,7 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.jarvis.android.ui.components.AmbientBackdrop
-import com.jarvis.android.ui.components.JarvisOrb
+import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.shared.authenticateDeviceOwner
 import com.jarvis.android.ui.theme.HudTextStyle
@@ -84,7 +84,7 @@ fun LockScreen(onUnlocked: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            JarvisOrb(size = 132.dp, activity = if (denied) OrbActivity.OFFLINE else OrbActivity.LISTENING)
+            JarvisBrain(size = 132.dp, activity = if (denied) OrbActivity.OFFLINE else OrbActivity.LISTENING)
 
             Spacer(Modifier.height(30.dp))
             Text("LOCKED", style = HudTextStyle, color = accents.orbGlow)

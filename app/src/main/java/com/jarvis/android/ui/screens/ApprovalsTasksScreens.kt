@@ -49,6 +49,7 @@ import com.jarvis.android.contract.ApprovalTier
 import com.jarvis.android.contract.TaskStatus
 import com.jarvis.android.data.state.ApprovalUiState
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.shared.rememberBiometricGate
@@ -86,14 +87,14 @@ fun ApprovalsScreen(vm: JarvisViewModel, isOwner: Boolean = true) {
     ) { pad ->
         if (!isOwner) {
             EmptyState(
-                icon = { JarvisOrb(size = 110.dp, activity = OrbActivity.OFFLINE) },
+                icon = { JarvisBrain(size = 110.dp, activity = OrbActivity.OFFLINE) },
                 title = "Owner only",
                 body = "PC-action approvals are visible only to the OWNER of this Jarvis installation. This device is signed in as a guest.",
                 modifier = Modifier.padding(pad),
             )
         } else if (pending.isEmpty()) {
             EmptyState(
-                icon = { JarvisOrb(size = 110.dp, activity = OrbActivity.IDLE) },
+                icon = { JarvisBrain(size = 110.dp, activity = OrbActivity.IDLE) },
                 title = "Nothing to approve",
                 body = "When JARVIS wants to act on your PC, the request appears here for you to allow or deny.",
                 modifier = Modifier.padding(pad),
@@ -237,7 +238,7 @@ fun TasksScreen(vm: JarvisViewModel) {
     ) { pad ->
         if (tasks.isEmpty()) {
             EmptyState(
-                icon = { JarvisOrb(size = 110.dp, activity = OrbActivity.IDLE) },
+                icon = { JarvisBrain(size = 110.dp, activity = OrbActivity.IDLE) },
                 title = "No running tasks",
                 body = "Long jobs show their progress here and keep running even if the connection drops.",
                 modifier = Modifier.padding(pad),

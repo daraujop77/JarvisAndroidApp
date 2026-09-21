@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">JARVIS</string>
+    <string name="screen_vision_description">Lets JARVIS read the current screen and tap a control, but only for an action you have approved. It does nothing on its own and stores nothing it sees. You can turn it off here at any time.</string>
 </resources>

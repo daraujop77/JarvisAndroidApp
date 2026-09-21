@@ -51,6 +51,21 @@ private fun ConnectionState.label(): String = when (this) {
 }
 
 /**
+ * Daily v1: the control plane and the home PC fail differently, and the owner
+ * must be able to tell which one is down. Cloud chat survives a dark PC;
+ * a dark control plane does not. The detail string is what the transport
+ * already reports — this only reads it, it never invents a cause.
+ */
+private fun failureHint(detail: String?): String? {
+    val text = detail?.lowercase() ?: return null
+    return when {
+        "pc_worker_offline" in text || "pc worker" in text -> "PC offline — cloud still available"
+        "control_plane_unavailable" in text || "control plane" in text -> "Control plane unreachable"
+        else -> null
+    }
+}
+
+/**
  * Always-visible HUD strip: a live status dot that breathes while connecting
  * and holds steady when online, plus an inline retry when the link is down.
  */
@@ -92,6 +107,10 @@ fun ConnectionBanner(
         PulseDot(color = animatedTint, pulsing = busy)
         Spacer(Modifier.width(10.dp))
         Text(conn.label(), style = HudTextStyle, color = animatedTint)
+        failureHint(snapshot.session.connectionDetail)?.let { hint ->
+            Spacer(Modifier.width(8.dp))
+            Text(hint, style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
 
         Spacer(Modifier.weight(1f))
 

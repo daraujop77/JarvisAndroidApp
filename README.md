@@ -119,6 +119,21 @@ App runs on the Fake transport by default (Settings → "Use Fake Gateway"). Pic
 scenario (Settings screen dropdown) and press "Re-run scenario now" to drive the client
 through the §7 matrix without a live backend.
 
+## The brain
+
+The holographic brain is one field with two bodies. The contract (`BrainDrive`:
+energy, focus, tempo, coherence, warmth) and the aperiodic three-angle field are
+shared; neither renderer invents its own motion. Law: `windows/jarvis-brain/BRAIN.md`.
+How to call it and drive it: `windows/jarvis-brain/USAGE.md`.
+Where the client stands against the Daily v1 plan: `docs/planning/DAILY-V1-ANDROID-STATUS.md`.
+
+- **Android** — `ui/components/JarvisBrain.kt`, a Compose `Canvas`. It is the hero
+  mark (welcome, pairing, lock, empty states). Below 72dp it falls back to
+  `JarvisOrb`, so chat avatars stay crisp. Honors `LocalReducedMotion`.
+- **Windows** — `windows/jarvis-brain/index.html`, the full 3D viewer (neural
+  lattice, fresnel hologram shell, bloom). Run `JarvisBrain.bat`, or open the
+  file directly; drag to orbit.
+
 ## Look & feel
 
 - **Boot/welcome**: animated arc-reactor orb, staged startup lines, then a greeting

@@ -88,7 +88,15 @@ object Reducer {
             is GatewayEvent.ApprovalRequired -> onApprovalRequired(marked, e.payload)
             is GatewayEvent.ApprovalResolved -> onApprovalResolved(marked, e.payload, nowMs)
             is GatewayEvent.TaskUpdated -> onTask(marked, e.payload, nowMs)
-            is GatewayEvent.ConnectionState -> marked.copy(connection = mapConnection(e.payload))
+            is GatewayEvent.ConnectionState -> {
+                val connection = mapConnection(e.payload)
+                marked.copy(
+                    connection = connection,
+                    // Keep the transport's reason so the banner can tell a dark PC
+                    // from a dark control plane. Cleared once the link is usable.
+                    connectionDetail = if (connection.isUsable) "" else e.payload.reason.orEmpty(),
+                )
+            }
             is GatewayEvent.AttachmentReady -> onAttachment(marked, e.payload, ready = true)
             is GatewayEvent.AttachmentFailed -> onAttachment(marked, e.payload, ready = false)
             is GatewayEvent.Unknown -> marked.withDiagnostic(

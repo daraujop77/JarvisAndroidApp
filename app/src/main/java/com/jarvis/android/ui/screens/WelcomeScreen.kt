@@ -30,7 +30,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jarvis.android.ui.components.AmbientBackdrop
-import com.jarvis.android.ui.components.JarvisOrb
+import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -91,7 +91,7 @@ fun WelcomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            JarvisOrb(
+            JarvisBrain(
                 size = orbSize,
                 activity = if (greet) OrbActivity.IDLE else OrbActivity.THINKING,
                 intensity = progress,

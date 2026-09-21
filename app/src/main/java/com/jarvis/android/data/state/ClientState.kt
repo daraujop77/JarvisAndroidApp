@@ -122,6 +122,12 @@ data class DiagnosticEntry(
  */
 data class SessionState(
     val connection: ConnectionState = ConnectionState.DISCONNECTED,
+    /**
+     * Why the link is down, in the transport's own words. The banner reads two
+     * markers out of it: `pc_worker_offline` and `control_plane_unavailable`.
+     * Empty when the link is fine or the cause is unknown.
+     */
+    val connectionDetail: String = "",
     /** Opaque Web V1 replay token. Empty means "from the beginning". */
     val lastCursorToken: String = "",
     /** Legacy numeric cursor used only by the in-process Fake Gateway path. */

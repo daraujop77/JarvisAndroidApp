@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JARVIS — Cerebro</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #04070d; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hud {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+    padding: 16px 12px 20px;
+    font: 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.12em;
+  }
+  button {
+    background: rgba(8,16,28,0.55); color: #9fb4cc;
+    border: 1px solid #22384f; border-radius: 2px;
+    padding: 8px 14px; cursor: pointer; letter-spacing: 0.14em;
+    backdrop-filter: blur(6px);
+  }
+  button.on { color: #04121a; background: #4fd8ef; border-color: #7fe8f9; }
+  #readout {
+    position: fixed; top: 16px; left: 18px;
+    color: #5f7790; font: 11px/1.7 ui-monospace, Consolas, monospace;
+    letter-spacing: 0.08em; pointer-events: none; white-space: pre;
+  }
+  #hint {
+    position: fixed; top: 16px; right: 18px;
+    color: #3f5468; font: 10px/1.6 ui-monospace, Consolas, monospace;
+    letter-spacing: 0.1em; pointer-events: none;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="readout"></div>
+<div id="hint">arrastra para orbitar &middot; rueda para acercar</div>
+<div id="hud"></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// Hologram discipline: one hue family. Luminance carries the information,
+// not a second colour. Violet appears only as a thin high-activity accent.
+const CYAN   = new THREE.Color(0x3fd3ec);
+const PALE   = new THREE.Color(0xa9ecf7);
+const TEAL   = new THREE.Color(0x0d5f74);
+const ACCENT = new THREE.Color(0x7c6cf0); // used sparingly, high activity only
+const WARM   = new THREE.Color(0xffb257); // speech only, small
+
+const MODES = [
+  { id: 'IDLE',      label: 'IDLE' },
+  { id: 'LISTENING', label: 'ESCUCHA' },
+  { id: 'THINKING',  label: 'PIENSA' },
+  { id: 'SPEAKING',  label: 'HABLA' },
+  { id: 'WAITING',   label: 'ESPERA' },
+  { id: 'OFFLINE',   label: 'OFFLINE' },
+];
+
+const DRIVE = {
+  IDLE:      { energy: 0.28, focus: 0.15, tempo: 0.55, coherence: 0.35, warmth: 0.04 },
+  LISTENING: { energy: 0.55, focus: 0.75, tempo: 0.90, coherence: 0.66, warmth: 0.10 },
+  THINKING:  { energy: 1.00, focus: 0.18, tempo: 1.70, coherence: 0.06, warmth: 0.08 },
+  SPEAKING:  { energy: 0.70, focus: 0.86, tempo: 1.05, coherence: 0.80, warmth: 0.55 },
+  WAITING:   { energy: 0.18, focus: 0.30, tempo: 0.32, coherence: 0.50, warmth: 0.00 },
+  OFFLINE:   { energy: 0.05, focus: 0.00, tempo: 0.12, coherence: 0.92, warmth: 0.00 },
+};
+
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x04070d);
+scene.fog = new THREE.FogExp2(0x04070d, 0.055);
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.3;
+
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 60);
+camera.position.set(0.8, 0.55, 4.4);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 1.4;
+controls.maxDistance = 12;
+controls.enablePan = false;
+
+scene.add(new THREE.AmbientLight(0x101d2e, 0.5));
+const keyLight = new THREE.PointLight(0x8fe4ff, 18, 10, 2);
+keyLight.position.set(1.8, 1.9, 2.2);
+scene.add(keyLight);
+const fillLight = new THREE.PointLight(0x2f7f99, 10, 9, 2);
+fillLight.position.set(-2.3, 0.2, 1.0);
+scene.add(fillLight);
+const backLight = new THREE.PointLight(0x1f5ea8, 12, 12, 2);
+backLight.position.set(-0.6, 0.9, -3.2);
+scene.add(backLight);
+const warmLight = new THREE.PointLight(0xffb257, 0, 7, 2);
+warmLight.position.set(0.2, -1.7, 1.3);
+scene.add(warmLight);
+
+const root = new THREE.Group();
+scene.add(root);
+
+const uTime = { value: 0 };
+const uEnergy = { value: 0.3 };
+const uCoherence = { value: 0.4 };
+
+// ------------------------------------------------------- hologram shell ---
+// Fresnel rim + horizontal scanlines + a travelling scan band. This is the
+// classic volumetric-projection read: bright only at grazing angles, so the
+// silhouette glows and the middle stays see-through.
+const holoMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  // FrontSide only: with DoubleSide the additive pass accumulates twice and
+  // the shell blows out into a white ball that hides the lattice.
+  side: THREE.FrontSide,
+  uniforms: {
+    uTime, uEnergy, uCoherence,
+    uColor: { value: CYAN.clone() },
+    uAccent: { value: ACCENT.clone() },
+  },
+  vertexShader: `
+    varying vec3 vNormal; varying vec3 vView; varying vec3 vLocal;
+    void main() {
+      vLocal = position;
+      vNormal = normalize(normalMatrix * normal);
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      vView = -mv.xyz;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform float uTime; uniform float uEnergy; uniform float uCoherence;
+    uniform vec3 uColor; uniform vec3 uAccent;
+    varying vec3 vNormal; varying vec3 vView; varying vec3 vLocal;
+    void main() {
+      // tight rim only — the middle must stay clear so the lattice shows
+      float fres = pow(1.0 - abs(dot(normalize(vNormal), normalize(vView))), 4.5);
+      float lines = sin(vLocal.y * 190.0) * 0.5 + 0.5;
+      lines = smoothstep(0.7, 1.0, lines) * 0.05;
+      float band = smoothstep(0.02, 0.0, abs(fract(vLocal.y * 0.7 - uTime * 0.11) - 0.5) - 0.48);
+      vec3 col = mix(uColor, uAccent, (1.0 - uCoherence) * 0.35);
+      float glow = fres * (0.5 + uEnergy * 0.35) + lines + band * 0.25;
+      gl_FragColor = vec4(col * glow, glow);
+    }`,
+});
+const holo = new THREE.Mesh(new THREE.SphereGeometry(0.62, 72, 52), holoMat);
+root.add(holo);
+
+// ---------------------------------------------------------- inner cores ---
+const coreGeo = new THREE.IcosahedronGeometry(0.30, 4);
+const coreMat = new THREE.MeshPhysicalMaterial({
+  color: 0x061a26, emissive: CYAN, emissiveIntensity: 0.7,
+  roughness: 0.3, metalness: 0.4, clearcoat: 1, clearcoatRoughness: 0.12,
+  // translucent so signals crossing behind the core stay readable
+  transparent: true, opacity: 0.45, depthWrite: false,
+});
+const core = new THREE.Mesh(coreGeo, coreMat);
+root.add(core);
+const coreRest = new Float32Array(coreGeo.attributes.position.array);
+
+// geodesic cage over the core — structure, the thing a "brain" needs to not
+// look like a ball of gas
+const cage = new THREE.LineSegments(
+  new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(0.40, 2)),
+  new THREE.LineBasicMaterial({ color: 0x4fd8ef, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }),
+);
+root.add(cage);
+
+const ember = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(0.11, 3),
+  new THREE.MeshStandardMaterial({ color: 0x05131a, emissive: PALE, emissiveIntensity: 2.4, roughness: 0.5 }),
+);
+root.add(ember);
+const emberGeo = ember.geometry;
+const emberRest = new Float32Array(emberGeo.attributes.position.array);
+
+// ------------------------------------------------------- neural lattice ---
+// Nodes on a Fibonacci sphere, wired to nearest neighbours. Activations
+// travel the wiring, so you literally watch signals cross the volume.
+const NODE_N = reduced ? 48 : 110;
+const nodePos = [];
+for (let i = 0; i < NODE_N; i++) {
+  const y = 1 - (i / (NODE_N - 1)) * 2;
+  const rad = Math.sqrt(Math.max(0, 1 - y * y));
+  const th = GOLDEN * i;
+  const r = 0.74 + (i % 3) * 0.07;
+  nodePos.push(new THREE.Vector3(Math.cos(th) * rad * r, y * r, Math.sin(th) * rad * r));
+}
+
+const edges = [];
+for (let i = 0; i < NODE_N; i++) {
+  const d = [];
+  for (let j = 0; j < NODE_N; j++) if (i !== j) d.push([nodePos[i].distanceTo(nodePos[j]), j]);
+  d.sort((p, q) => p[0] - q[0]);
+  for (let k = 0; k < 3; k++) {
+    const j = d[k][1];
+    if (i < j) edges.push([i, j]);
+  }
+}
+
+const edgePos = new Float32Array(edges.length * 6);
+const edgeCol = new Float32Array(edges.length * 6);
+edges.forEach(([i, j], e) => {
+  edgePos.set([nodePos[i].x, nodePos[i].y, nodePos[i].z, nodePos[j].x, nodePos[j].y, nodePos[j].z], e * 6);
+});
+const edgeGeo = new THREE.BufferGeometry();
+edgeGeo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3));
+edgeGeo.setAttribute('color', new THREE.BufferAttribute(edgeCol, 3));
+const edgeMesh = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({
+  vertexColors: true, transparent: true, opacity: 0.9,
+  blending: THREE.AdditiveBlending, depthWrite: false,
+}));
+root.add(edgeMesh);
+
+const nodeGeo = new THREE.BufferGeometry();
+const nodeArr = new Float32Array(NODE_N * 3);
+const nodeCol = new Float32Array(NODE_N * 3);
+nodePos.forEach((p, i) => nodeArr.set([p.x, p.y, p.z], i * 3));
+nodeGeo.setAttribute('position', new THREE.BufferAttribute(nodeArr, 3));
+nodeGeo.setAttribute('color', new THREE.BufferAttribute(nodeCol, 3));
+const nodeMesh = new THREE.Points(nodeGeo, new THREE.PointsMaterial({
+  size: 0.042, vertexColors: true, transparent: true, opacity: 1,
+  blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+}));
+root.add(nodeMesh);
+
+// node activation levels; signals hop along edges
+const act = new Float32Array(NODE_N);
+const adj = Array.from({ length: NODE_N }, () => []);
+edges.forEach(([i, j]) => { adj[i].push(j); adj[j].push(i); });
+let fireAcc = 0;
+
+// ---------------------------------------------------------------- rings ---
+// The JarvisOrb sweeps, plus instrument geometry so it is not only semicircles.
+const ARCS = [
+  { r: 1.06, start: 0,   sweep: 70,  tilt: 66,  roll: 14,  tube: 0.020, dir: 1,  pale: 0.0 },
+  { r: 1.06, start: 100, sweep: 55,  tilt: 66,  roll: 14,  tube: 0.020, dir: 1,  pale: 0.5 },
+  { r: 1.06, start: 185, sweep: 80,  tilt: 66,  roll: 14,  tube: 0.020, dir: 1,  pale: 0.0 },
+  { r: 1.06, start: 290, sweep: 40,  tilt: 66,  roll: 14,  tube: 0.020, dir: 1,  pale: 0.8 },
+  { r: 0.90, start: 20,  sweep: 120, tilt: 108, roll: -24, tube: 0.013, dir: -1, pale: 0.3 },
+  { r: 0.90, start: 175, sweep: 95,  tilt: 108, roll: -24, tube: 0.013, dir: -1, pale: 0.3 },
+  { r: 0.90, start: 300, sweep: 45,  tilt: 108, roll: -24, tube: 0.013, dir: -1, pale: 0.6 },
+  { r: 1.48, start: 60,  sweep: 150, tilt: 24,  roll: 52,  tube: 0.008, dir: -1, pale: 0.4 },
+  { r: 1.48, start: 250, sweep: 90,  tilt: 24,  roll: 52,  tube: 0.008, dir: -1, pale: 0.4 },
+];
+
+function arcGeometry(radius, sweepDeg, tube) {
+  const sweep = THREE.MathUtils.degToRad(sweepDeg);
+  const n = Math.max(32, Math.round(sweepDeg / 1.5));
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = -sweep / 2 + sweep * (i / n);
+    pts.push(new THREE.Vector3(Math.cos(t) * radius, 0, Math.sin(t) * radius));
+  }
+  const curve = new THREE.CatmullRomCurve3(pts);
+  curve.curveType = 'centripetal';
+  return new THREE.TubeGeometry(curve, n * 2, tube, 14, false);
+}
+
+const arcs = ARCS.map(spec => {
+  const tint = CYAN.clone().lerp(PALE, spec.pale);
+  const mesh = new THREE.Mesh(
+    arcGeometry(spec.r, spec.sweep, spec.tube),
+    new THREE.MeshPhysicalMaterial({
+      color: tint.clone().multiplyScalar(0.14),
+      emissive: tint, emissiveIntensity: 0.7,
+      roughness: 0.16, metalness: 1,
+      clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1.5,
+    }),
+  );
+  mesh.rotation.order = 'YXZ';
+  mesh.rotation.y = THREE.MathUtils.degToRad(spec.start);
+  mesh.rotation.x = THREE.MathUtils.degToRad(spec.tilt);
+  mesh.rotation.z = THREE.MathUtils.degToRad(spec.roll);
+  mesh.userData.base = spec;
+  root.add(mesh);
+  return mesh;
+});
+
+// instrument ticks: 64 short bars on a ring, alternating lengths. Reads as a
+// measuring device, which is what makes a HUD feel like a machine.
+const tickGroup = new THREE.Group();
+const tickMat = new THREE.MeshBasicMaterial({ color: 0x66dff2, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false });
+for (let i = 0; i < 64; i++) {
+  const long = i % 8 === 0;
+  const h = long ? 0.075 : 0.032;
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.006, h), tickMat);
+  const t = (i / 64) * Math.PI * 2;
+  bar.position.set(Math.cos(t) * 1.22, 0, Math.sin(t) * 1.22);
+  bar.lookAt(0, 0, 0);
+  tickGroup.add(bar);
+}
+tickGroup.rotation.x = THREE.MathUtils.degToRad(80);
+root.add(tickGroup);
+
+// orbital chips: flat panes that catch light edge-on — breaks the all-round
+// silhouette so the shape is not only circles
+const chipMat = new THREE.MeshPhysicalMaterial({
+  color: 0x0a2230, emissive: CYAN, emissiveIntensity: 0.35,
+  roughness: 0.2, metalness: 1, side: THREE.DoubleSide,
+  transparent: true, opacity: 0.75, envMapIntensity: 1.4,
+});
+const chips = [];
+for (let i = 0; i < 7; i++) {
+  const w = 0.10 + (i % 3) * 0.05;
+  const chip = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.38), chipMat);
+  chip.userData = { rad: 1.28 + (i % 3) * 0.16, phase: i * GOLDEN, incl: (i / 7 - 0.5) * 1.5, spin: 0.4 + i * 0.07 };
+  chips.push(chip);
+  root.add(chip);
+}
+
+const equator = new THREE.Mesh(
+  new THREE.TorusGeometry(0.66, 0.008, 18, 160),
+  new THREE.MeshPhysicalMaterial({
+    color: 0x07202c, emissive: CYAN, emissiveIntensity: 0.5,
+    roughness: 0.2, metalness: 1, clearcoat: 1, envMapIntensity: 1.4,
+  }),
+);
+equator.rotation.x = Math.PI / 2.4;
+root.add(equator);
+
+// ------------------------------------------------------------ dust haze ---
+function makeCloud(count, rMin, rMax, size, opacity) {
+  const seeds = new Float32Array(count), radii = new Float32Array(count);
+  const incl = new Float32Array(count), phase = new Float32Array(count);
+  const pos = new Float32Array(count * 3), col = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    seeds[i] = i * GOLDEN;
+    radii[i] = rMin + Math.pow(Math.random(), 0.6) * (rMax - rMin);
+    incl[i] = (Math.random() - 0.5) * Math.PI;
+    phase[i] = Math.random() * Math.PI * 2;
+    const t = TEAL.clone().lerp(PALE, Math.random() * 0.8);
+    col.set([t.r, t.g, t.b], i * 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mesh = new THREE.Points(geo, new THREE.PointsMaterial({
+    size, vertexColors: true, transparent: true, opacity,
+    depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+  }));
+  root.add(mesh);
+  return { geo, seeds, radii, incl, phase, count };
+}
+const near = makeCloud(reduced ? 100 : 320, 0.55, 1.20, 0.020, 0.55);
+const far  = makeCloud(reduced ? 80  : 340, 1.30, 2.80, 0.013, 0.30);
+
+// ---------------------------------------------------------------- bloom ---
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.5, 1.0);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------- state ---
+let mode = 'IDLE';
+const drive = { ...DRIVE.IDLE };
+const clock = new THREE.Clock();
+let sim = 0;
+const lerp = (a, b, k) => a + (b - a) * k;
+
+// Colour scratch, allocated once. Color.lerp returns a new object when chained,
+// so per-frame colour math is done on plain channels — nothing here allocates.
+const mix = { r: 0, g: 0, b: 0 };
+function setMix(from, to, t) {
+  mix.r = from.r + (to.r - from.r) * t;
+  mix.g = from.g + (to.g - from.g) * t;
+  mix.b = from.b + (to.b - from.b) * t;
+}
+
+function driftCloud(cl, a, c, spreadK, inclK) {
+  const arr = cl.geo.attributes.position.array;
+  for (let i = 0; i < cl.count; i++) {
+    const ang = cl.phase[i] + a * (0.35 + (i % 7) * 0.04) * (0.5 + drive.tempo);
+    const spread = cl.radii[i] * spreadK + Math.sin(c + cl.seeds[i]) * drive.energy * 0.16;
+    const inc = cl.incl[i] * inclK;
+    arr[i * 3] = Math.cos(ang) * spread;
+    arr[i * 3 + 1] = Math.sin(inc) * spread * 0.72;
+    arr[i * 3 + 2] = Math.sin(ang) * Math.cos(inc) * spread;
+  }
+  cl.geo.attributes.position.needsUpdate = true;
+}
+
+function step(dt) {
+  const target = DRIVE[mode];
+  const k = 1 - Math.exp(-dt * 2.4);
+  for (const key of Object.keys(drive)) drive[key] = lerp(drive[key], target[key], k);
+
+  sim += dt * (0.25 + drive.tempo);
+  const a = sim * 0.37, b = sim * 0.37 * Math.SQRT2, c = sim * 0.37 * Math.PI * 0.5;
+
+  uTime.value = sim;
+  uEnergy.value = drive.energy;
+  uCoherence.value = drive.coherence;
+  holoMat.uniforms.uColor.value.copy(CYAN).lerp(WARM, drive.warmth * 0.35);
+  holo.scale.setScalar(1 + Math.sin(sim * 1.1) * 0.012 * drive.energy);
+
+  // core
+  const breathe = 1 + (reduced ? 0 : Math.sin(sim * 1.7) * 0.03 * (0.4 + drive.energy));
+  core.scale.setScalar(breathe * (1 + drive.focus * 0.05));
+  coreMat.emissive.copy(CYAN).lerp(ACCENT, (1 - drive.coherence) * 0.35).lerp(WARM, drive.warmth * 0.4);
+  coreMat.emissiveIntensity = 0.3 + drive.energy * 1.3;
+
+  const cp = coreGeo.attributes.position.array;
+  const amp = reduced ? 0 : 0.01 + drive.energy * 0.08 * (1 - drive.coherence * 0.65);
+  for (let i = 0; i < coreRest.length; i += 3) {
+    const x = coreRest[i], y = coreRest[i + 1], z = coreRest[i + 2];
+    const n = Math.sin(x * 3.1 + a) * Math.cos(y * 2.7 + b) * Math.sin(z * 3.4 + c);
+    const s = 1 + n * amp;
+    cp[i] = x * s; cp[i + 1] = y * s; cp[i + 2] = z * s;
+  }
+  coreGeo.attributes.position.needsUpdate = true;
+  // normals are NOT recomputed. The rest pose normals are a correct enough
+  // lighting approximation, and computeVertexNormals allocates every frame,
+  // which is what made the collector pause the render thread.
+
+  const ep = emberGeo.attributes.position.array;
+  const eAmp = reduced ? 0 : 0.05 + drive.energy * 0.18;
+  for (let i = 0; i < emberRest.length; i += 3) {
+    const x = emberRest[i], y = emberRest[i + 1], z = emberRest[i + 2];
+    const s = 1 + Math.sin(x * 6 + b * 2) * Math.cos(y * 5 + c * 2) * eAmp;
+    ep[i] = x * s; ep[i + 1] = y * s; ep[i + 2] = z * s;
+  }
+  emberGeo.attributes.position.needsUpdate = true;
+  ember.material.emissive.copy(PALE).lerp(WARM, drive.warmth);
+  ember.material.emissiveIntensity = 1.0 + drive.energy * 2.4;
+
+  cage.scale.setScalar(1 + Math.sin(b * 0.9) * 0.02);
+  cage.rotation.y = -a * 0.35;
+  cage.rotation.x = Math.sin(c * 0.4) * 0.25;
+  cage.material.opacity = 0.10 + drive.coherence * 0.22;
+
+  // --- neural traffic: fire new signals, decay old, spread along edges ---
+  // slow decay leaves a visible trail, so a signal reads as a path across the
+  // volume rather than a node blinking on its own
+  const decay = Math.exp(-dt * (0.75 + drive.tempo * 0.5));
+  for (let i = 0; i < NODE_N; i++) act[i] *= decay;
+  fireAcc += dt * (2 + drive.energy * 26);
+  while (fireAcc >= 1) {
+    fireAcc -= 1;
+    const seed = (Math.random() * NODE_N) | 0;
+    act[seed] = 1;
+    for (const nb of adj[seed]) {
+      act[nb] = Math.max(act[nb], 0.7);
+      // second hop, weaker: the wavefront spreads two steps out
+      for (const nb2 of adj[nb]) act[nb2] = Math.max(act[nb2], 0.34);
+    }
+  }
+
+  const ncol = nodeGeo.attributes.color.array;
+  const accentMix = 1 - drive.coherence;
+  for (let i = 0; i < NODE_N; i++) {
+    const v = act[i];
+    setMix(TEAL, CYAN, v);
+    mix.r += (PALE.r - mix.r) * v * v;
+    mix.g += (PALE.g - mix.g) * v * v;
+    mix.b += (PALE.b - mix.b) * v * v;
+    if (v > 0.8) {
+      const k = (v - 0.8) * 2 * accentMix;
+      mix.r += (ACCENT.r - mix.r) * k;
+      mix.g += (ACCENT.g - mix.g) * k;
+      mix.b += (ACCENT.b - mix.b) * k;
+    }
+    const dim = 0.28 + v * 2.4 + drive.energy * 0.15;
+    ncol[i * 3] = mix.r * dim; ncol[i * 3 + 1] = mix.g * dim; ncol[i * 3 + 2] = mix.b * dim;
+  }
+  nodeGeo.attributes.color.needsUpdate = true;
+
+  const ecol = edgeGeo.attributes.color.array;
+  const edgeCount = edges.length;
+  for (let e = 0; e < edgeCount; e++) {
+    const i = edges[e][0], j = edges[e][1];
+    const vi = act[i], vj = act[j];
+    const base = 0.16 + drive.coherence * 0.12;
+    const gi = base + vi * 2.2, gj = base + vj * 2.2;
+    ecol[e * 6]     = (TEAL.r + (PALE.r - TEAL.r) * vi) * gi;
+    ecol[e * 6 + 1] = (TEAL.g + (PALE.g - TEAL.g) * vi) * gi;
+    ecol[e * 6 + 2] = (TEAL.b + (PALE.b - TEAL.b) * vi) * gi;
+    ecol[e * 6 + 3] = (TEAL.r + (PALE.r - TEAL.r) * vj) * gj;
+    ecol[e * 6 + 4] = (TEAL.g + (PALE.g - TEAL.g) * vj) * gj;
+    ecol[e * 6 + 5] = (TEAL.b + (PALE.b - TEAL.b) * vj) * gj;
+  }
+  edgeGeo.attributes.color.needsUpdate = true;
+
+  edgeMesh.rotation.y = a * 0.18;
+  edgeMesh.rotation.x = Math.sin(b * 0.3) * 0.2;
+  nodeMesh.rotation.copy(edgeMesh.rotation);
+  const netScale = 1 - drive.focus * 0.12;
+  edgeMesh.scale.setScalar(netScale);
+  nodeMesh.scale.setScalar(netScale);
+
+  // rings
+  arcs.forEach((mesh, i) => {
+    const spec = mesh.userData.base;
+    const wobble = reduced ? 0 : Math.sin(b * 1.4 + i * 0.8) * (1 - drive.coherence) * 0.8;
+    mesh.rotation.y = THREE.MathUtils.degToRad(spec.start) + spec.dir * a * (0.6 + i * 0.05);
+    mesh.rotation.x = THREE.MathUtils.degToRad(spec.tilt) + wobble * (1 - drive.focus);
+    mesh.material.emissiveIntensity = (0.28 + drive.energy * 1.0) * (mode === 'OFFLINE' ? 0.22 : 1);
+  });
+  equator.rotation.z = c * 0.15;
+  equator.material.emissiveIntensity = 0.2 + drive.coherence * 0.7;
+
+  tickGroup.rotation.y = -a * 0.5;
+  tickGroup.rotation.z = Math.sin(c * 0.25) * 0.3;
+  tickMat.opacity = 0.18 + drive.focus * 0.5;
+
+  chips.forEach((chip, i) => {
+    const d = chip.userData;
+    const ang = d.phase + a * d.spin;
+    const rad = d.rad * (1 - drive.focus * 0.1);
+    chip.position.set(Math.cos(ang) * rad, Math.sin(d.incl + b * 0.3) * 0.5, Math.sin(ang) * rad);
+    chip.lookAt(0, 0, 0);
+    chip.rotateZ(b * (0.5 + i * 0.1));
+  });
+  chipMat.emissiveIntensity = 0.2 + drive.energy * 0.8;
+
+  driftCloud(near, a, c, 1.05 - drive.focus * 0.25, 1 - drive.coherence * 0.5);
+  driftCloud(far, a * 0.4, c * 0.6, 1.0, 1);
+
+  root.rotation.y = a * 0.25;
+  root.rotation.x = Math.sin(b * 0.5) * 0.16;
+  root.rotation.z = Math.sin(c * 0.3) * 0.05;
+
+  keyLight.intensity = 9 + drive.energy * 14;
+  fillLight.intensity = 4 + (1 - drive.coherence) * 10;
+  backLight.intensity = 6 + drive.focus * 10;
+  warmLight.intensity = drive.warmth * 14;
+  bloom.strength = 0.32 + drive.energy * 0.38;
+}
+
+// The readout is text over the canvas. Rewriting it on its own timer forces a
+// DOM style recalc that stalls the render thread for a frame, which the eye
+// reads as the brain freezing. Fold it into the render loop and only touch the
+// DOM when the text actually changed.
+let readoutTick = 0;
+let readoutLast = '';
+
+function paintReadout() {
+  readoutTick += 1;
+  if (readoutTick % 20 !== 0) return;
+  const f = (n) => drive[n].toFixed(2);
+  let live = 0;
+  for (let i = 0; i < NODE_N; i++) if (act[i] > 0.25) live++;
+  const text =
+    `MODO ${mode}\n` +
+    `energia ${f('energy')}   foco ${f('focus')}\n` +
+    `tempo ${f('tempo')}   coherencia ${f('coherence')}\n` +
+    `nodos ${String(live).padStart(3)} / ${NODE_N}   enlaces ${edges.length}\n` +
+    `campo aperiodico - 3 angulos inconmensurables`;
+  if (text !== readoutLast) {
+    readout.textContent = text;
+    readoutLast = text;
+  }
+}
+
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  step(reduced ? 0.0001 : dt);
+  controls.update();
+  composer.render();
+  paintReadout();
+  requestAnimationFrame(frame);
+}
+frame();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+
+// ------------------------------------------------------------------ hud ---
+const hud = document.getElementById('hud');
+const readout = document.getElementById('readout');
+MODES.forEach(m => {
+  const btn = document.createElement('button');
+  btn.textContent = m.label;
+  btn.dataset.id = m.id;
+  btn.onclick = () => setMode(m.id);
+  hud.appendChild(btn);
+});
+function setMode(id) {
+  mode = id;
+  for (const btn of hud.children) btn.classList.toggle('on', btn.dataset.id === id);
+}
+setMode('THINKING');
+</script>
+</body>
+</html>

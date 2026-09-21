@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -79,6 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.components.TypingDots
@@ -146,7 +148,7 @@ private fun ConversationListView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                JarvisOrb(size = 130.dp, activity = OrbActivity.IDLE)
+                JarvisBrain(size = 130.dp, activity = OrbActivity.IDLE)
                 Spacer(Modifier.height(24.dp))
                 Text("Ready when you are", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
@@ -227,6 +229,13 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
 
+    val bubbleActivity = when {
+        streaming -> OrbActivity.THINKING
+        !snapshot.connection.isUsable -> OrbActivity.OFFLINE
+        else -> OrbActivity.IDLE
+    }
+    LaunchedEffect(bubbleActivity) { vm.updateBubble(bubbleActivity) }
+
     val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(imeVisible) {
         if (imeVisible && messages.isNotEmpty()) {
@@ -271,6 +280,16 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    }
+                },
+                actions = {
+                    // Summon the floating brain from the conversation itself.
+                    // If the overlay grant is missing, this sends the owner to
+                    // the one system screen that can give it.
+                    IconButton(onClick = {
+                        if (!vm.setFloatingBubble(true)) vm.requestOverlayPermission()
+                    }) {
+                        Icon(Icons.Filled.OpenInNew, contentDescription = "Float JARVIS")
                     }
                 },
             )

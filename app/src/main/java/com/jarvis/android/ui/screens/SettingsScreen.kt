@@ -139,6 +139,33 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 OutlinedButton(onClick = vm::unpair) { Text("Revoke & re-pair") }
             }
 
+            SettingsCard("FLOATING BRAIN") {
+                val bubbleGranted = com.jarvis.android.overlay.FloatingBubbleService.canDraw(
+                    androidx.compose.ui.platform.LocalContext.current,
+                )
+                SwitchRow(
+                    title = "Floating bubble",
+                    subtitle = if (bubbleGranted)
+                        "Keep the brain on screen over other apps, and open the conversation from it"
+                    else
+                        "Needs permission to draw over other apps. You grant it once in system Settings.",
+                    checked = settings.floatingBubbleEnabled && bubbleGranted,
+                    onChange = { want ->
+                        if (want && !bubbleGranted) vm.requestOverlayPermission()
+                        else vm.setFloatingBubble(want)
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (com.jarvis.android.overlay.ScreenVisionService.isEnabled)
+                        "Screen vision is on. It only reads or taps when you approve an action."
+                    else
+                        "Screen vision is off. Enable it under Settings, Accessibility, if you want JARVIS to see and act on this screen — always with your approval first.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             SettingsCard("APPEARANCE") {
                 SwitchRow(
                     title = "Reduce motion",

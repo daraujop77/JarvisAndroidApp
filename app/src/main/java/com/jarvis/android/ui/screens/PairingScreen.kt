@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.AmbientBackdrop
-import com.jarvis.android.ui.components.JarvisOrb
+import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -71,7 +71,13 @@ fun PairingScreen(
     var code by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var deviceId by remember { mutableStateOf<String?>(null) }
-    var baseUrl by remember { mutableStateOf("http://desktop-l59hjk4/") }
+    // Daily v1: one normal entry point, the VPS. Start from the last front door
+    // that actually authenticated. Never a hard-coded PC — that is what made a
+    // fresh install walk CONNECTING -> DISCONNECTED against the home machine.
+    val rememberedDoor by vm.settings.collectAsStateWithLifecycle()
+    var baseUrl by remember(rememberedDoor.lastControlPlaneUrl) {
+        mutableStateOf(rememberedDoor.lastControlPlaneUrl)
+    }
     var user by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val accents = LocalJarvisAccents.current
@@ -89,7 +95,7 @@ fun PairingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top,
         ) {
-            JarvisOrb(
+            JarvisBrain(
                 size = 128.dp,
                 activity = if (lockedReason != null) OrbActivity.OFFLINE else OrbActivity.LISTENING,
             )
@@ -183,15 +189,15 @@ fun PairingScreen(
 
             // PCB-LIVE-1: PC-A authenticated app session over the private front door.
             Text(
-                "OR CONNECT TO YOUR JARVIS PC",
+                "OR CONNECT TO JARVIS",
                 style = HudTextStyle,
                 color = accents.orbGlow,
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "Uses the existing PC-A /api/app session over your private Tailscale network. " +
-                    "Only the short-lived token PC-A returns is stored on this device — never the password. " +
-                    "The cryptographic pairing protocol is still owned by PC-A.",
+                "One front door: the JARVIS control plane on your private Tailscale network. " +
+                    "It routes to the cloud or to your PC — this phone does not choose. " +
+                    "Only the short-lived token is stored on this device, never the password.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -200,7 +206,8 @@ fun PairingScreen(
             OutlinedTextField(
                 value = baseUrl,
                 onValueChange = { baseUrl = it },
-                label = { Text("Private front door URL") },
+                label = { Text("Control plane URL") },
+                placeholder = { Text("https://jarvis.your-tailnet.ts.net") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
                 modifier = Modifier.fillMaxWidth().scrollIntoViewOnFocus(),
@@ -240,7 +247,7 @@ fun PairingScreen(
                 Text(
                     when (liveAuth) {
                         JarvisViewModel.LiveAuthState.Busy -> "Signing in…"
-                        else -> "Connect to Jarvis PC"
+                        else -> "Connect"
                     },
                 )
             }

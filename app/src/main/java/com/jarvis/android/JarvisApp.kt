@@ -42,6 +42,10 @@ class JarvisApp : Application() {
 
         container.start()
 
+        // Bring the floating brain back if the owner left it on. No-op without
+        // the overlay grant, so a revoked permission never resurrects it.
+        com.jarvis.android.overlay.FloatingBubbleService.restoreIfEnabled(this)
+
         // Emit notification-worthy transitions off every snapshot.
         container.scope.launch {
             container.session.snapshot.collect(notifications::onSnapshot)

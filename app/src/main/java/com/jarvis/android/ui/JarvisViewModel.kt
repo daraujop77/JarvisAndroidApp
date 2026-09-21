@@ -33,6 +33,9 @@ import kotlinx.coroutines.launch
 class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private val container = app.container
+
+    /** Non-secret settings. Screens read this to remember the front door. */
+    val settings = container.settings.settings
     private val session = container.session
     private val conversations = container.conversations
 
@@ -162,6 +165,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 container.settings.setPaired(true, container.deviceIdentity.provision())
                 container.settings.setUseFake(false)
                 container.settings.setBaseUrl(container.liveSession.baseUrl)
+                // The front door that authenticated becomes the next launch's
+                // starting point, so the phone stops defaulting to the home PC.
+                container.settings.setLastControlPlaneUrl(container.liveSession.baseUrl)
                 _liveAuth.value = LiveAuthState.Authed(result.getOrThrow().username)
                 onDone(true)
                 // Transport mode is resolved once at startup (existing V1
@@ -278,6 +284,39 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun setAppLock(value: Boolean) = viewModelScope.launch { container.settings.setAppLock(value) }
 
     fun setReducedMotion(value: Boolean) = viewModelScope.launch { container.settings.setReducedMotion(value) }
+
+    /**
+     * Raise or lower the floating brain. The overlay grant is the owner's to
+     * give, so when it is missing this only reports that and changes nothing.
+     * Returns true when the bubble actually changed state.
+     */
+    fun setFloatingBubble(enabled: Boolean): Boolean {
+        val context = getApplication<android.app.Application>()
+        if (enabled && !com.jarvis.android.overlay.FloatingBubbleService.canDraw(context)) {
+            return false
+        }
+        viewModelScope.launch { container.settings.setFloatingBubble(enabled) }
+        if (enabled) com.jarvis.android.overlay.FloatingBubbleService.start(context)
+        else com.jarvis.android.overlay.FloatingBubbleService.stop(context)
+        return true
+    }
+
+    /** Point the owner at the system screen where the overlay grant lives. */
+    fun requestOverlayPermission() {
+        val context = getApplication<android.app.Application>()
+        val intent = android.content.Intent(
+            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            android.net.Uri.parse("package:${context.packageName}"),
+        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
+
+    /** Let the bubble show what the conversation is doing right now. */
+    fun updateBubble(activity: com.jarvis.android.ui.components.OrbActivity) {
+        val context = getApplication<android.app.Application>()
+        if (!com.jarvis.android.overlay.FloatingBubbleService.canDraw(context)) return
+        com.jarvis.android.overlay.FloatingBubbleService.setActivity(context, activity)
+    }
 
     fun setOwnerName(value: String) = viewModelScope.launch { container.settings.setOwnerName(value.trim()) }
 

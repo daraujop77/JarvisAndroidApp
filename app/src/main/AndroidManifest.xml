@@ -4,6 +4,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Draw over other apps. Granted by the owner from system Settings, never
+         at install, and only used for the floating brain bubble. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".JarvisApp"
@@ -26,6 +31,30 @@
         <receiver
             android:name=".notify.ApprovalActionReceiver"
             android:exported="false" />
+
+        <service
+            android:name=".overlay.FloatingBubbleService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Floating JARVIS brain the owner summons to talk without leaving the current app" />
+        </service>
+
+        <!-- Screen vision. Dormant: it reads or touches nothing until an action
+             is handed to it with an owner approval token. The owner enables it
+             by hand under Settings > Accessibility. -->
+        <service
+            android:name=".overlay.ScreenVisionService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/screen_vision_config" />
+        </service>
     </application>
 
 </manifest>

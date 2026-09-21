@@ -24,6 +24,12 @@ class SettingsStore(private val context: Context) {
     data class Settings(
         val useFakeGateway: Boolean = true,
         val gatewayBaseUrl: String = "",
+        /**
+         * Last front door that authenticated. Daily v1 has one normal entry
+         * point — the VPS — so the phone must not fall back to a hard-coded PC
+         * address on the next launch. Empty until the first successful login.
+         */
+        val lastControlPlaneUrl: String = "",
         val reducedMotion: Boolean = false,
         val paired: Boolean = false,
         val deviceId: String? = null,
@@ -38,11 +44,14 @@ class SettingsStore(private val context: Context) {
         val isOwner: Boolean = true,
         /** True once a local avatar JPEG has been written. */
         val hasAvatar: Boolean = false,
+        /** The floating brain bubble is up over other apps. */
+        val floatingBubbleEnabled: Boolean = false,
     )
 
     private object Keys {
         val USE_FAKE = booleanPreferencesKey("use_fake_gateway")
         val BASE_URL = stringPreferencesKey("gateway_base_url")
+        val LAST_CONTROL_PLANE = stringPreferencesKey("last_control_plane_url")
         val REDUCED_MOTION = booleanPreferencesKey("reduced_motion")
         val PAIRED = booleanPreferencesKey("paired")
         val DEVICE_ID = stringPreferencesKey("device_id")
@@ -50,6 +59,7 @@ class SettingsStore(private val context: Context) {
         val OWNER_NAME = stringPreferencesKey("owner_name")
         val IS_OWNER = booleanPreferencesKey("is_owner")
         val HAS_AVATAR = booleanPreferencesKey("has_avatar")
+        val FLOATING_BUBBLE = booleanPreferencesKey("floating_bubble_enabled")
     }
 
     val settings: Flow<Settings> = context.dataStore.data
@@ -61,6 +71,7 @@ class SettingsStore(private val context: Context) {
             Settings(
                 useFakeGateway = prefs[Keys.USE_FAKE] ?: true,
                 gatewayBaseUrl = prefs[Keys.BASE_URL] ?: "",
+                lastControlPlaneUrl = prefs[Keys.LAST_CONTROL_PLANE] ?: "",
                 reducedMotion = prefs[Keys.REDUCED_MOTION] ?: false,
                 paired = prefs[Keys.PAIRED] ?: false,
                 deviceId = prefs[Keys.DEVICE_ID],
@@ -68,16 +79,23 @@ class SettingsStore(private val context: Context) {
                 ownerName = prefs[Keys.OWNER_NAME] ?: "",
                 isOwner = prefs[Keys.IS_OWNER] ?: true,
                 hasAvatar = prefs[Keys.HAS_AVATAR] ?: false,
+                floatingBubbleEnabled = prefs[Keys.FLOATING_BUBBLE] ?: false,
             )
         }
 
     suspend fun setUseFake(value: Boolean) = context.dataStore.edit { it[Keys.USE_FAKE] = value }
     suspend fun setBaseUrl(value: String) = context.dataStore.edit { it[Keys.BASE_URL] = value }
+
+    /** Remember the front door that actually authenticated. Never a guess. */
+    suspend fun setLastControlPlaneUrl(value: String) = context.dataStore.edit {
+        it[Keys.LAST_CONTROL_PLANE] = value
+    }
     suspend fun setReducedMotion(value: Boolean) = context.dataStore.edit { it[Keys.REDUCED_MOTION] = value }
     suspend fun setAppLock(value: Boolean) = context.dataStore.edit { it[Keys.APP_LOCK] = value }
     suspend fun setOwnerName(value: String) = context.dataStore.edit { it[Keys.OWNER_NAME] = value }
     suspend fun setIsOwner(value: Boolean) = context.dataStore.edit { it[Keys.IS_OWNER] = value }
     suspend fun setHasAvatar(value: Boolean) = context.dataStore.edit { it[Keys.HAS_AVATAR] = value }
+    suspend fun setFloatingBubble(value: Boolean) = context.dataStore.edit { it[Keys.FLOATING_BUBBLE] = value }
     suspend fun setPaired(value: Boolean, deviceId: String? = null) = context.dataStore.edit {
         it[Keys.PAIRED] = value
         if (deviceId != null) it[Keys.DEVICE_ID] = deviceId else it.remove(Keys.DEVICE_ID)
