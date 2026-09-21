@@ -15,8 +15,9 @@ class ProjectsRepositoryTest {
         repo.observeProjects().test {
             assertEquals(ProjectsResult.Loading, awaitItem())
             val loaded = awaitItem() as ProjectsResult.Loaded
-            assertEquals(3, loaded.projects.size)
-            assertEquals("Work", loaded.projects.first().title) // most recently updated first
+            assertEquals(4, loaded.projects.size)
+            assertEquals("The Long Return", loaded.projects.first().title) // most recently updated first
+            assertEquals(ProjectKind.WRITING_ROOM, loaded.projects.first().kind)
             assertTrue(loaded.projects.any { it.state == ProjectState.ARCHIVED })
             awaitComplete()
         }

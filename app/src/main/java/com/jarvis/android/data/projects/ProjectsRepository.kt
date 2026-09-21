@@ -17,6 +17,12 @@ data class ProjectId(val value: String)
 
 data class ProjectConversation(val conversationId: String, val title: String, val updatedAtMs: Long)
 
+/**
+ * What kind of workspace a project opens. Presentation only: no server enum
+ * exists yet, and [WRITING_ROOM] is a local preview until M3 publishes one.
+ */
+enum class ProjectKind { GENERAL, WRITING_ROOM }
+
 /** Client-side presentation state; not a claim about server enums. */
 enum class ProjectState { ACTIVE, ARCHIVED }
 
@@ -25,6 +31,7 @@ data class ProjectSummary(
     val title: String,
     val state: ProjectState,
     val updatedAtMs: Long,
+    val kind: ProjectKind = ProjectKind.GENERAL,
 )
 
 sealed interface ProjectsResult {
@@ -51,12 +58,14 @@ class FakeProjectsRepository(
     enum class Mode { SAMPLES, EMPTY, ERROR }
 
     private val projects = listOf(
+        ProjectSummary(ProjectId("prj_story"), "The Long Return", ProjectState.ACTIVE, 3000L, ProjectKind.WRITING_ROOM),
         ProjectSummary(ProjectId("prj_home"), "Home", ProjectState.ACTIVE, 1000L),
         ProjectSummary(ProjectId("prj_work"), "Work", ProjectState.ACTIVE, 2000L),
         ProjectSummary(ProjectId("prj_old"), "Old kitchen reno", ProjectState.ARCHIVED, 500L),
     )
 
     private val conversationsByProject = mapOf(
+        ProjectId("prj_story") to emptyList(),
         ProjectId("prj_home") to listOf(
             ProjectConversation("conv_fixture_home_1", "Order replacement filter", 900L),
             ProjectConversation("conv_fixture_home_2", "Garage door sensor battery", 800L),

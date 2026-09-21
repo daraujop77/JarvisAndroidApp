@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.data.projects.ProjectKind
 import com.jarvis.android.data.projects.ProjectState
 import com.jarvis.android.data.projects.ProjectSummary
 import com.jarvis.android.data.projects.ProjectsResult
@@ -105,6 +106,12 @@ fun ProjectsScreen(vm: JarvisViewModel) {
 @Composable
 private fun ProjectDetailView(vm: JarvisViewModel, project: ProjectSummary, onBack: () -> Unit) {
     val conversations by vm.conversationsFor(project.id).collectAsStateWithLifecycle(initialValue = null)
+    if (project.kind == ProjectKind.WRITING_ROOM) {
+        ProjectsScaffold(title = project.title.uppercase(), onBack = onBack) {
+            WritingRoomPreview(project.title)
+        }
+        return
+    }
     ProjectsScaffold(title = project.title.uppercase(), onBack = onBack) {
         val list = conversations
         if (list == null) {
@@ -173,7 +180,11 @@ private fun ProjectRow(project: ProjectSummary, onClick: () -> Unit) {
                 Text(project.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    if (project.state == ProjectState.ACTIVE) "ACTIVE" else "ARCHIVED",
+                    when {
+                        project.kind == ProjectKind.WRITING_ROOM -> "WRITING ROOM · PREVIEW"
+                        project.state == ProjectState.ACTIVE -> "ACTIVE"
+                        else -> "ARCHIVED"
+                    },
                     style = HudTextStyle,
                     color = if (project.state == ProjectState.ACTIVE) accents.online
                     else MaterialTheme.colorScheme.onSurfaceVariant,
