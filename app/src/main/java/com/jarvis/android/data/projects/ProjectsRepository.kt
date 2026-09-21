@@ -58,7 +58,7 @@ class FakeProjectsRepository(
     enum class Mode { SAMPLES, EMPTY, ERROR }
 
     private val projects = listOf(
-        ProjectSummary(ProjectId("prj_story"), "The Long Return", ProjectState.ACTIVE, 3000L, ProjectKind.WRITING_ROOM),
+        ProjectSummary(ProjectId("prj_story"), "Alexander History", ProjectState.ACTIVE, 3000L, ProjectKind.WRITING_ROOM),
         ProjectSummary(ProjectId("prj_home"), "Home", ProjectState.ACTIVE, 1000L),
         ProjectSummary(ProjectId("prj_work"), "Work", ProjectState.ACTIVE, 2000L),
         ProjectSummary(ProjectId("prj_old"), "Old kitchen reno", ProjectState.ARCHIVED, 500L),
