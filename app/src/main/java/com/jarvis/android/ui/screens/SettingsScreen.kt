@@ -40,7 +40,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.BuildConfig
 import com.jarvis.android.transport.fake.FakeScenario
+import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.theme.HudTextStyle
@@ -54,6 +56,7 @@ fun SettingsScreen(vm: JarvisViewModel) {
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val health by vm.healthStatus.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
+    val appUpdate by vm.appUpdateState.collectAsStateWithLifecycle()
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { vm.setAvatar(it) } }
@@ -159,6 +162,94 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = { vm.setOwnerName(name) }) { Text("Save name") }
+            }
+
+            SettingsCard("APP UPDATE") {
+                Text(
+                    "Installed ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color(0xFFE8EEF8),
+                )
+                Spacer(Modifier.height(8.dp))
+                when (val update = appUpdate) {
+                    AppUpdateState.Idle -> {
+                        Text(
+                            "Updates are delivered through your private JARVIS VPS.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = vm::checkForAppUpdate) { Text("Check for update") }
+                    }
+                    AppUpdateState.Checking -> {
+                        Text("Checking for update…", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = {}, enabled = false) { Text("Checking…") }
+                    }
+                    is AppUpdateState.UpToDate -> {
+                        Text(
+                            "JARVIS is up to date (${update.versionName}).",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(onClick = vm::checkForAppUpdate) { Text("Check again") }
+                    }
+                    is AppUpdateState.Available -> {
+                        Text(
+                            "Update available: ${update.manifest.version_name} " +
+                                "(${update.manifest.version_code})",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = vm::downloadAppUpdate) { Text("Download update") }
+                    }
+                    is AppUpdateState.Downloading -> {
+                        Text(
+                            "Downloading ${update.manifest.version_name}: ${update.percent}%",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = {}, enabled = false) { Text("Downloading…") }
+                    }
+                    is AppUpdateState.ReadyToInstall -> {
+                        Text(
+                            "Download verified. Android will ask you to confirm the update.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = vm::installDownloadedAppUpdate) { Text("Install update") }
+                    }
+                    is AppUpdateState.PermissionRequired -> {
+                        Text(
+                            "Android needs permission for JARVIS to hand verified APKs to the installer.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = vm::requestAppUpdateInstallPermission) {
+                                Text("Allow installs")
+                            }
+                            OutlinedButton(onClick = vm::installDownloadedAppUpdate) {
+                                Text("Continue")
+                            }
+                        }
+                    }
+                    is AppUpdateState.Installing -> {
+                        Text(
+                            "Android installer opened for ${update.versionName}. Confirm Update to keep your data.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    is AppUpdateState.Error -> {
+                        Text(
+                            update.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(onClick = vm::checkForAppUpdate) { Text("Try again") }
+                    }
+                }
             }
 
             SettingsCard("CONNECTION") {
