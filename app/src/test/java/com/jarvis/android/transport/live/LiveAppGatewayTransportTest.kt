@@ -321,6 +321,7 @@ class LiveAppGatewayTransportTest {
         )
         await { repo.snapshot.value.session.requests[cid]?.status?.isTerminal == true }
         val streamBody = postedBodies.last { it.contains("/api/app/chat/stream") }
+        assertTrue(streamBody.contains("\"route\":\"hermes\""))
         assertTrue(streamBody.contains("first question"))
         assertTrue(streamBody.contains("first answer"))
         assertTrue(streamBody.contains("what did I ask before?"))
