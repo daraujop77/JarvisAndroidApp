@@ -52,6 +52,7 @@ sealed interface AppUpdateState {
 class AppUpdateManager(
     context: Context,
     private val session: JarvisAppSession,
+    private val baseUrlProvider: () -> String = { "" },
     private val client: OkHttpClient = JarvisAppSession.defaultClient(),
 ) {
     private val appContext = context.applicationContext
@@ -90,7 +91,9 @@ class AppUpdateManager(
             temp.delete()
             target.delete()
 
-            val request = authenticatedRequest(session.baseUrl + manifest.download_path).build()
+            val base = updateBaseUrl()
+            requirePrivateUpdateBase(base)
+            val request = privateUpdateRequest(base + manifest.download_path).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw TransportException("update download HTTP ${response.code}")
@@ -199,12 +202,9 @@ class AppUpdateManager(
     }
 
     private fun fetchManifest(): AppUpdateManifest {
-        val base = session.baseUrl
-        if (!session.isAuthenticated) throw TransportException("sign in to JARVIS before checking updates")
-        if (!JarvisAppSession.isAllowedLiveHost(base)) {
-            throw TransportException("update server is not on the private JARVIS network")
-        }
-        val request = authenticatedRequest(base + MANIFEST_PATH).build()
+        val base = updateBaseUrl()
+        requirePrivateUpdateBase(base)
+        val request = privateUpdateRequest(base + MANIFEST_PATH).build()
         return client.newCall(request).execute().use { response ->
             if (response.code == 404) throw TransportException("no JARVIS update is published")
             if (!response.isSuccessful) throw TransportException("update check HTTP ${response.code}")
@@ -213,14 +213,37 @@ class AppUpdateManager(
         }
     }
 
-    private fun authenticatedRequest(url: String): Request.Builder {
-        val auth = session.authHeader() ?: throw TransportException("JARVIS session is not authenticated")
-        return Request.Builder()
+    private fun updateBaseUrl(): String =
+        session.baseUrl.ifBlank { baseUrlProvider() }.trim().trimEnd('/')
+
+    private fun requirePrivateUpdateBase(base: String) {
+        if (base.isBlank()) {
+            throw TransportException("JARVIS update server is not configured")
+        }
+        if (!JarvisAppSession.isAllowedLiveHost(base)) {
+            throw TransportException("update server is not on the private JARVIS network")
+        }
+    }
+
+    /**
+     * Update delivery is intentionally independent from chat authentication.
+     * The VPS update surface is reachable only through the private JARVIS/Tailscale
+     * front door, while the downloaded APK is still verified by size, SHA-256,
+     * package name, version and Android signing certificate before install.
+     *
+     * If a valid app session exists we send it for backwards compatibility, but
+     * an expired/missing chat session must never deadlock the updater.
+     */
+    private fun privateUpdateRequest(url: String): Request.Builder =
+        Request.Builder()
             .url(url)
             .header("Accept", "application/json, application/vnd.android.package-archive")
-            .header("Authorization", auth)
             .header("Cache-Control", "no-store")
-    }
+            .apply {
+                if (session.isAuthenticated) {
+                    session.authHeader()?.let { header("Authorization", it) }
+                }
+            }
 
     private fun validateManifest(manifest: AppUpdateManifest) {
         if (manifest.schema != SCHEMA || !manifest.available) {
