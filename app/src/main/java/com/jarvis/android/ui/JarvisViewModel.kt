@@ -12,6 +12,8 @@ import com.jarvis.android.data.repo.ConversationSummary
 import com.jarvis.android.data.repo.SessionSnapshot
 import com.jarvis.android.di.AppContainer
 import com.jarvis.android.transport.fake.FakeScenario
+import com.jarvis.android.update.AppUpdateManager
+import com.jarvis.android.update.AppUpdateState
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -54,6 +56,34 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     val settings = container.settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), com.jarvis.android.data.prefs.SettingsStore.Settings())
+
+    private val appUpdateManager = AppUpdateManager(app, container.liveSession)
+    val appUpdateState: StateFlow<AppUpdateState> = appUpdateManager.state
+
+    fun checkForAppUpdate() = viewModelScope.launch {
+        appUpdateManager.checkForUpdate()
+    }
+
+    fun downloadAppUpdate() = viewModelScope.launch {
+        val current = appUpdateState.value
+        if (current is AppUpdateState.Available) {
+            appUpdateManager.downloadUpdate(current.manifest)
+        }
+    }
+
+    fun requestAppUpdateInstallPermission() {
+        appUpdateManager.requestInstallPermission()
+    }
+
+    fun installDownloadedAppUpdate() {
+        when (val current = appUpdateState.value) {
+            is AppUpdateState.ReadyToInstall ->
+                appUpdateManager.installDownloaded(current.manifest, current.apk)
+            is AppUpdateState.PermissionRequired ->
+                appUpdateManager.installDownloaded(current.manifest, current.apk)
+            else -> Unit
+        }
+    }
 
     fun openConversation(id: String) {
         _conversationId.value = id
