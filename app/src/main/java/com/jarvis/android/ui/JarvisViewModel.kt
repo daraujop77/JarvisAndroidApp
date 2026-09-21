@@ -57,7 +57,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val settings = container.settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), com.jarvis.android.data.prefs.SettingsStore.Settings())
 
-    private val appUpdateManager = AppUpdateManager(app, container.liveSession)
+    private val appUpdateManager = AppUpdateManager(
+        app,
+        container.liveSession,
+        baseUrlProvider = { settings.value.gatewayBaseUrl },
+    )
     val appUpdateState: StateFlow<AppUpdateState> = appUpdateManager.state
 
     fun checkForAppUpdate() = viewModelScope.launch {
