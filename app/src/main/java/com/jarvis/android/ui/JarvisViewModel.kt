@@ -34,8 +34,6 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private val container = app.container
 
-    /** Non-secret settings. Screens read this to remember the front door. */
-    val settings = container.settings.settings
     private val session = container.session
     private val conversations = container.conversations
 
@@ -291,7 +289,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
      * Returns true when the bubble actually changed state.
      */
     fun setFloatingBubble(enabled: Boolean): Boolean {
-        val context = getApplication<android.app.Application>()
+        val context = app
         if (enabled && !com.jarvis.android.overlay.FloatingBubbleService.canDraw(context)) {
             return false
         }
@@ -303,7 +301,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     /** Point the owner at the system screen where the overlay grant lives. */
     fun requestOverlayPermission() {
-        val context = getApplication<android.app.Application>()
+        val context = app
         val intent = android.content.Intent(
             android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             android.net.Uri.parse("package:${context.packageName}"),
@@ -313,7 +311,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     /** Let the bubble show what the conversation is doing right now. */
     fun updateBubble(activity: com.jarvis.android.ui.components.OrbActivity) {
-        val context = getApplication<android.app.Application>()
+        val context = app
         if (!com.jarvis.android.overlay.FloatingBubbleService.canDraw(context)) return
         com.jarvis.android.overlay.FloatingBubbleService.setActivity(context, activity)
     }

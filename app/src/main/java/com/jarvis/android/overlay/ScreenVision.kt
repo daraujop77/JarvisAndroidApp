@@ -64,6 +64,7 @@ class ScreenVisionService : AccessibilityService() {
         val root = rootInActiveWindow ?: return false
         return try {
             when (action) {
+                is ScreenAction.Observe -> false
                 is ScreenAction.Tap -> actOn(root, action.targetText, AccessibilityNodeInfo.ACTION_CLICK)
                 is ScreenAction.Focus -> actOn(root, action.targetText, AccessibilityNodeInfo.ACTION_FOCUS)
                 is ScreenAction.ScrollForward ->
