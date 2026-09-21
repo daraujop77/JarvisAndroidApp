@@ -242,6 +242,11 @@ class LiveAppGatewayTransport(
             .url(session.baseUrl + "/api/app/chat/stream")
             .header("Accept", "text/event-stream")
             .header("Authorization", session.authHeader() ?: throw TransportException("no token"))
+            .header("X-Jarvis-User-Id", session.userId)
+            .header("X-Jarvis-Device-Id", deviceId)
+            .header("X-Jarvis-Session-Id", sessionId)
+            .header("X-Jarvis-Conversation-Id", req.conversationId)
+            .header("X-Jarvis-Trace-Id", traceId)
             .post(payload.toRequestBody(JarvisAppSession.JSON_MEDIA))
             .build()
 
@@ -389,6 +394,7 @@ class LiveAppGatewayTransport(
         turn.ctl.cancelRequested = true
         scope.launch(Dispatchers.IO) {
             val body = buildJsonObject {
+                put("route", "hermes")
                 put("user_id", session.userId)
                 put("device_id", turn.deviceId)
                 put("session_id", turn.sessionId)
@@ -424,6 +430,7 @@ class LiveAppGatewayTransport(
                 header("X-Jarvis-Session-Id", stored.sessionId)
                 header("X-Jarvis-Conversation-Id", stored.conversationId)
                 header("X-Jarvis-Trace-Id", stored.traceId)
+                header("X-Jarvis-Route", "hermes")
             }
             .build()
         return withContext(Dispatchers.IO) {
