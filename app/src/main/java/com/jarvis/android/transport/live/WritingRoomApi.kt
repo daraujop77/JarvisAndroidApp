@@ -337,7 +337,7 @@ suspend fun JarvisAppSession.writingRoomChapterStart(
             put("objective", clean)
             put("story_point", storyPoint.trim())
             put("characters", buildJsonArray {
-                characters.map(String::trim).filter(String::isNotEmpty).take(12).forEach { add(it) }
+                characters.map(String::trim).filter(String::isNotEmpty).take(12).forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
             })
             put("must_have", mustHave.trim())
             put("must_avoid", mustAvoid.trim())
