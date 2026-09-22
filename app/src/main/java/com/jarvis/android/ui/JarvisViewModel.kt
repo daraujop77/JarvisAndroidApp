@@ -80,6 +80,43 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun conversationsFor(projectId: com.jarvis.android.data.projects.ProjectId) =
         container.projectsRepository.conversationsFor(projectId)
 
+    sealed interface WritingRoomState {
+        data object Idle : WritingRoomState
+        data class Running(val participant: String) : WritingRoomState
+        data class Success(val turn: com.jarvis.android.transport.live.JarvisAppSession.WritingRoomTurn) : WritingRoomState
+        data class Error(val message: String) : WritingRoomState
+    }
+
+    private val _writingRoomState = MutableStateFlow<WritingRoomState>(WritingRoomState.Idle)
+    val writingRoomState: StateFlow<WritingRoomState> = _writingRoomState
+
+    fun runWritingRoomTurn(
+        projectId: String,
+        projectTitle: String,
+        participant: String,
+        prompt: String,
+    ) {
+        val cleanPrompt = prompt.trim()
+        if (cleanPrompt.isEmpty()) return
+        _writingRoomState.value = WritingRoomState.Running(participant)
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomTurn(
+                projectId = projectId,
+                projectTitle = projectTitle,
+                participant = participant,
+                prompt = cleanPrompt,
+            )
+            _writingRoomState.value = result.fold(
+                onSuccess = { WritingRoomState.Success(it) },
+                onFailure = { WritingRoomState.Error(it.message ?: "Writing Room request failed") },
+            )
+        }
+    }
+
+    fun clearWritingRoomTurn() {
+        _writingRoomState.value = WritingRoomState.Idle
+    }
+
     fun startNewConversation(onReady: (String) -> Unit = {}) {
         conversations.newConversation { id ->
             _conversationId.value = id
