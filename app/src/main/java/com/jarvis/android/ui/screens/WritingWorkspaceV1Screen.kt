@@ -802,6 +802,7 @@ private fun SimpleField(
         onValueChange = onValueChange,
         label = { Text(label) },
         minLines = minLines,
+        colors = jarvisTextFieldColors(),
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -809,19 +810,135 @@ private fun SimpleField(
 @Composable
 private fun WorkspaceCard(
     title: String,
+    accent: Color? = null,
     content: @Composable () -> Unit,
 ) {
+    val cardAccent = accent ?: LocalJarvisAccents.current.orbGlow
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        tonalElevation = 1.dp,
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
+        border = BorderStroke(1.dp, cardAccent.copy(alpha = 0.28f)),
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(15.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(7.dp))
             content()
         }
     }
+}
+
+@Composable
+private fun MiniPill(text: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = color.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.38f)),
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            style = HudTextStyle,
+            color = color,
+        )
+    }
+}
+
+@Composable
+private fun AuthorityStat(
+    title: String,
+    count: Int,
+    subtitle: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.30f)),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(count.toString(), style = MaterialTheme.typography.headlineSmall, color = color)
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun RichModelText(text: String) {
+    val lines = text.replace("\r\n", "\n").split("\n")
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        lines.forEach { raw ->
+            val line = raw.trimEnd()
+            when {
+                line.isBlank() -> Spacer(Modifier.height(3.dp))
+                line.startsWith("### ") -> Text(
+                    line.removePrefix("### "),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = JarvisCyan,
+                )
+                line.startsWith("## ") -> Text(
+                    line.removePrefix("## "),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = JarvisCyan,
+                )
+                line.startsWith("# ") -> Text(
+                    line.removePrefix("# "),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = JarvisCyan,
+                )
+                line.startsWith("- ") || line.startsWith("* ") -> Row(
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text("•", color = JarvisCyan)
+                    Spacer(Modifier.size(7.dp))
+                    Text(inlineMarkdown(line.drop(2)), modifier = Modifier.weight(1f))
+                }
+                line.matches(Regex("^\\d+[.)]\\s+.*")) -> {
+                    val split = line.indexOf(' ')
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text(line.take(split), color = JarvisCyan, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.size(7.dp))
+                        Text(inlineMarkdown(line.drop(split + 1)), modifier = Modifier.weight(1f))
+                    }
+                }
+                else -> Text(inlineMarkdown(line), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+private fun inlineMarkdown(text: String): AnnotatedString = buildAnnotatedString {
+    var index = 0
+    val regex = Regex("\\*\\*(.+?)\\*\\*")
+    regex.findAll(text).forEach { match ->
+        if (match.range.first > index) append(text.substring(index, match.range.first))
+        pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = JarvisCyan))
+        append(match.groupValues[1])
+        pop()
+        index = match.range.last + 1
+    }
+    if (index < text.length) append(text.substring(index))
+}
+
+private fun authorityColor(status: String): Color = when (status.uppercase()) {
+    "OFFICIAL_CANON" -> JarvisGreen
+    "APPROVED_PLAN", "LOCKED_FUTURE" -> JarvisAmber
+    "PROPOSED", "HUMAN_SELECTED" -> JarvisViolet
+    "REFERENCE" -> JarvisCyan
+    else -> Color(0xFF9CA3AF)
+}
+
+private fun authorityLabel(status: String): String = when (status.uppercase()) {
+    "OFFICIAL_CANON" -> "CANON OFICIAL"
+    "REFERENCE" -> "REFERENCIA"
+    "APPROVED_PLAN" -> "PLAN APROBADO · FUTURO"
+    "LOCKED_FUTURE" -> "FUTURO BLOQUEADO"
+    "PROPOSED" -> "PROPUESTA"
+    "HUMAN_SELECTED" -> "SELECCIONADO"
+    else -> status.ifBlank { "SOURCE" }
 }
 
 private enum class WorkspaceTab(val label: String) {
