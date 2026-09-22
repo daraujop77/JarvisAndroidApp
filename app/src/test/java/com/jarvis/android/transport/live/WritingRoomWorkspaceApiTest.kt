@@ -25,6 +25,50 @@ class WritingRoomWorkspaceApiTest {
                     return MockResponse().setResponseCode(401)
                 }
                 return when (request.path) {
+                    "/api/app/writing-room/wiki/home" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.wiki.home.v1",
+                          "project_id":"prj_story",
+                          "authority":"human_only",
+                          "latest_official_chapter":{"chapter_number":37,"title":"Chapter 37"},
+                          "authority_counts":{"OFFICIAL_CANON":6,"REFERENCE":7,"APPROVED_PLAN":5,"PROPOSED":2},
+                          "categories":[
+                            {"id":"characters","label":"Personajes","subtitle":"Profiles","query":"characters","source_count":1}
+                          ],
+                          "featured":[
+                            {
+                              "document_id":"canon1",
+                              "title":"CANON & CONTINUITY.md",
+                              "category":"01-canon",
+                              "canon_status":"OFFICIAL_CANON",
+                              "authority":"canon"
+                            }
+                          ],
+                          "legend":[
+                            {"status":"OFFICIAL_CANON","label":"Canon oficial","meaning":"Established fact."}
+                          ]
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/chat/stream" -> MockResponse()
+                        .setHeader("Content-Type", "text/event-stream")
+                        .setBody(
+                            """
+                            event: ready
+                            data: {"request_id":"r1"}
+
+                            event: delta
+                            data: {"delta":"Hello "}
+
+                            event: delta
+                            data: {"delta":"world"}
+
+                            event: complete
+                            data: {"schema":"jarvis.writing-room.chat.v1","classification":{"task_class":"NORMAL","depth":"normal","source":"default_general_chat"},"selected_participant":"moderator","turn":{"schema":"jarvis.writing-room.turn.v1","project_id":"prj_story","project_title":"Alexander History","participant":{"id":"moderator","label":"Moderator"},"routing":{"requested_mode":"normal","resolved_profile":"normal","destination":"hermes_cloud","provider":"nous","model":"deepseek/deepseek-v4-flash"},"canon":{"connected":true,"authority":"human_only","story_id":"STORY-001","documents":23,"chunks":276,"sources":[]},"response":{"text":"Hello world"},"metrics":{"total_ms":2000}}}
+
+                            """.trimIndent(),
+                        )
                     "/api/app/writing-room/overview" -> MockResponse().setBody(
                         """
                         {
@@ -167,6 +211,31 @@ class WritingRoomWorkspaceApiTest {
             ),
         )
         return JarvisAppSession(store)
+    }
+
+    @Test
+    fun wikiHomeSeparatesAuthorityAndProvidesTopics() = runBlocking(Dispatchers.IO) {
+        val home = session().writingRoomWikiHome("prj_story").getOrThrow()
+        assertEquals(37, home.latest_official_chapter?.chapter_number)
+        assertEquals(6, home.authority_counts["OFFICIAL_CANON"])
+        assertEquals("characters", home.categories.single().id)
+        assertEquals("OFFICIAL_CANON", home.featured.single().canon_status)
+    }
+
+    @Test
+    fun autoChatStreamEmitsDeltasBeforeCompletion() = runBlocking(Dispatchers.IO) {
+        val deltas = mutableListOf<String>()
+        val chat = session().writingRoomAutoChatStream(
+            projectId = "prj_story",
+            projectTitle = "Alexander History",
+            prompt = "Talk about the story",
+            onDelta = { deltas += it },
+        ).getOrThrow()
+
+        assertEquals(listOf("Hello ", "world"), deltas)
+        assertEquals("Hello world", chat.turn.response.text)
+        assertEquals("moderator", chat.selected_participant)
+        assertEquals("nous", chat.turn.routing.provider)
     }
 
     @Test
