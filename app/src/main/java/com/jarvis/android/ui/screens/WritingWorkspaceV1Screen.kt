@@ -78,45 +78,72 @@ fun WritingWorkspaceV1Screen(
         vm.refreshWritingWorkspace(projectId)
     }
 
-    Column(modifier.fillMaxSize()) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+    Column(
+        modifier
+            .fillMaxSize()
+            .background(LocalJarvisAccents.current.backdrop),
+    ) {
+        val accents = LocalJarvisAccents.current
+        val overview = state.overview
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+            border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.28f)),
         ) {
-            Text(title, style = MaterialTheme.typography.headlineSmall)
-            val overview = state.overview
-            Text(
-                when {
-                    state.busy -> state.busyLabel.ifBlank { "Working" }
-                    overview != null -> {
-                        val chapter = overview.latest_official_chapter?.chapter_number?.let { "Chapter $it" } ?: "Canon loaded"
-                        "$chapter · ${overview.sources.total} sources · human authority"
-                    }
-                    else -> "Writing Room v1"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (state.busy) {
-                Spacer(Modifier.height(8.dp))
-                CircularProgressIndicator()
-            }
-            if (state.error != null) {
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
-                ) {
+            Row(
+                Modifier.fillMaxWidth().padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                JarvisOrb(
+                    size = 70.dp,
+                    activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
+                    intensity = if (state.streamingText.isNotBlank()) 0.9f else 0.15f,
+                    contentDescription = "Writing Room status",
+                )
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "WRITING ROOM · STORY-001",
+                        style = HudTextStyle,
+                        color = accents.orbGlow,
+                    )
+                    Spacer(Modifier.height(5.dp))
                     Row(
-                        Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(
-                            state.error.orEmpty(),
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        val chapter = overview?.latest_official_chapter?.chapter_number
+                        MiniPill(
+                            if (chapter != null) "CANON · CH $chapter" else "CANON",
+                            JarvisGreen,
                         )
-                        TextButton(onClick = vm::clearWritingWorkspaceError) { Text("Dismiss") }
+                        MiniPill(
+                            if (state.busy) state.busyLabel.ifBlank { "WORKING" } else "READY",
+                            if (state.busy) JarvisAmber else accents.online,
+                        )
                     }
+                }
+            }
+        }
+        if (state.error != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        state.error.orEmpty(),
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(onClick = vm::clearWritingWorkspaceError) { Text("Dismiss") }
                 }
             }
         }
