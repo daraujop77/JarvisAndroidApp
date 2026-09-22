@@ -558,38 +558,124 @@ private fun WikiSection(
     vm: JarvisViewModel,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    val home = state.wikiHome
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item { SimpleField(query, { query = it }, "Search canon / lore / continuity", 3) }
         item {
-            Button(
+            WorkspaceCard("Story Wiki", JarvisCyan) {
+                Text(
+                    "Explore the project by topic. Search stays available for a precise fact, but the Wiki opens as a knowledge dashboard.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                home?.latest_official_chapter?.chapter_number?.let { chapter ->
+                    Spacer(Modifier.height(8.dp))
+                    MiniPill("LATEST CANON · CH $chapter", JarvisGreen)
+                }
+            }
+        }
+
+        if (home != null) {
+            item { Text("Explore", style = MaterialTheme.typography.titleMedium) }
+            items(home.categories) { category ->
+                WikiCategoryCard(category) {
+                    query = category.query
+                    vm.searchWritingWiki(projectId, category.query)
+                }
+            }
+
+            item { Text("Authority", style = MaterialTheme.typography.titleMedium) }
+            items(home.legend) { legend ->
+                WorkspaceCard(legend.label, authorityColor(legend.status)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        MiniPill(
+                            "${home.authority_counts[legend.status] ?: 0}",
+                            authorityColor(legend.status),
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text(legend.meaning, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            if (home.featured.isNotEmpty()) {
+                item { Text("Featured knowledge", style = MaterialTheme.typography.titleMedium) }
+                items(home.featured) { source ->
+                    WorkspaceCard(source.title, authorityColor(source.canon_status)) {
+                        MiniPill(authorityLabel(source.canon_status), authorityColor(source.canon_status))
+                        if (source.authority.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(source.authority, style = HudTextStyle)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search specific story knowledge") },
+                minLines = 2,
+                colors = jarvisTextFieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            OutlinedButton(
                 onClick = { vm.searchWritingWiki(projectId, query) },
                 enabled = query.isNotBlank() && !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Search Wiki") }
         }
-        val wiki = state.wiki
-        if (wiki != null) {
+
+        state.wiki?.let { wiki ->
             item {
                 Text(
-                    if (wiki.connected) "${wiki.results.size} grounded results · human authority" else "RAG unavailable",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (wiki.connected) "${wiki.results.size} grounded results" else "RAG unavailable",
+                    style = HudTextStyle,
+                    color = LocalJarvisAccents.current.orbGlow,
                 )
             }
             items(wiki.results) { source ->
-                WorkspaceCard(source.canon_status.ifBlank { "Source" }) {
-                    Text(source.title, style = MaterialTheme.typography.titleSmall)
-                    if (!source.heading.isNullOrBlank()) Text(source.heading.orEmpty())
+                WorkspaceCard(source.title, authorityColor(source.canon_status)) {
+                    MiniPill(authorityLabel(source.canon_status), authorityColor(source.canon_status))
+                    if (!source.heading.isNullOrBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(source.heading.orEmpty(), style = MaterialTheme.typography.titleSmall)
+                    }
                     if (source.excerpt.isNotBlank()) {
                         Spacer(Modifier.height(6.dp))
-                        Text(source.excerpt, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        RichModelText(source.excerpt)
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun WikiCategoryCard(category: WritingWikiCategory, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
+        border = BorderStroke(1.dp, LocalJarvisAccents.current.orbGlow.copy(alpha = 0.22f)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(category.label, style = MaterialTheme.typography.titleMedium)
+                Text(category.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.size(8.dp))
+            MiniPill("${category.source_count}", JarvisCyan)
         }
     }
 }
