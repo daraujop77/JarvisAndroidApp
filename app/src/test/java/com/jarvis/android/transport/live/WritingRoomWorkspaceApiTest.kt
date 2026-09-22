@@ -94,6 +94,23 @@ class WritingRoomWorkspaceApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/library/export" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.library.export.v1",
+                          "project_id":"prj_story",
+                          "document_id":"doc37",
+                          "authority":"derived_from_official_canon",
+                          "vps_persistence":"none",
+                          "format":"pdf",
+                          "filename":"Chapter 37.pdf",
+                          "mime_type":"application/pdf",
+                          "size_bytes":9,
+                          "sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                          "data_base64":"JVBERi0xLjQK"
+                        }
+                        """.trimIndent(),
+                    )
                     "/api/app/writing-room/chapter/start" -> MockResponse().setBody(
                         """
                         {
@@ -168,6 +185,15 @@ class WritingRoomWorkspaceApiTest {
         assertEquals("planned", library.exports["pdf"])
         assertEquals("OFFICIAL_CANON", library.items.single().canon_status)
 
+        val export = session.writingRoomLibraryExport(
+            projectId = "prj_story",
+            documentId = "doc37",
+            format = "pdf",
+        ).getOrThrow()
+        assertEquals("pdf", export.format)
+        assertEquals("application/pdf", export.mime_type)
+        assertEquals("none", export.vps_persistence)
+
         val chapter = session.writingRoomChapterStart(
             projectId = "prj_story",
             title = "Chapter 38",
@@ -182,8 +208,8 @@ class WritingRoomWorkspaceApiTest {
         assertEquals("BRIEF_READY", chapter.chapter.status)
         assertEquals(listOf("Alexander", "Melody"), chapter.chapter.characters)
 
-        assertEquals(4, server.requestCount)
-        repeat(4) {
+        assertEquals(5, server.requestCount)
+        repeat(5) {
             val recorded = server.takeRequest()
             assertEquals("Bearer test-token", recorded.getHeader("Authorization"))
         }
