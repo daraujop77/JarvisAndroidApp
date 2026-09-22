@@ -107,7 +107,7 @@ fun JarvisRoot(app: JarvisApp) {
     val shell = when {
         !bootShown -> Shell.BOOT
         settings.appLockEnabled && !unlocked -> Shell.LOCKED
-        !settings.paired || credentialsInvalid -> Shell.PAIRING
+        !settings.paired || !vm.liveAuthenticated || credentialsInvalid -> Shell.PAIRING
         else -> Shell.MAIN
     }
 
