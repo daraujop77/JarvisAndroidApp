@@ -199,6 +199,40 @@ class ConversationRepository(
         }
     }
 
+    /** Persist one generated image as a normal user/assistant pair in the current conversation. */
+    fun recordGeneratedImage(conversationId: String, prompt: String, attachmentId: String) {
+        val requestId = "img_" + UUID.randomUUID().toString()
+        val now = clock()
+        scope.launch {
+            ensureConversation(conversationId, prompt, now)
+            dao.insertMessage(
+                MessageEntity(
+                    conversationId = conversationId,
+                    clientRequestId = requestId,
+                    role = "user",
+                    text = prompt,
+                    status = RequestStatus.Completed.dbName,
+                    createdAtMs = now,
+                ),
+            )
+            dao.insertMessage(
+                MessageEntity(
+                    conversationId = conversationId,
+                    clientRequestId = requestId,
+                    role = "assistant",
+                    text = "",
+                    status = RequestStatus.Completed.dbName,
+                    createdAtMs = now + 1,
+                    attachmentIds = attachmentId,
+                ),
+            )
+            val existing = dao.conversation(conversationId)
+            if (existing != null) {
+                dao.upsertConversation(existing.copy(updatedAtMs = clock()))
+            }
+        }
+    }
+
     fun cancelRequest(clientRequestId: String) = session.cancel(clientRequestId)
 
     /** Resend a failed request as a new message so Room stays the source of truth. */
