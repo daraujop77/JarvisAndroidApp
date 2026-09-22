@@ -801,6 +801,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         private set
 
     val transportMode: AppContainer.TransportMode get() = container.transportMode
+    val liveAuthenticated: Boolean get() = container.liveSession.isAuthenticated
 
     private val _healthStatus = MutableStateFlow<String?>(null)
     val healthStatus: StateFlow<String?> = _healthStatus
