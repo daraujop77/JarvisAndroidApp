@@ -274,6 +274,36 @@ class JarvisAppSession(
         }.getOrNull()
     }
 
+    data class ScreenVisionReply(val text: String, val model: String)
+
+    suspend fun analyzeScreen(
+        imageBase64: String,
+        prompt: String = "",
+    ): Result<ScreenVisionReply> = withContext(Dispatchers.IO) {
+        if (!isAuthenticated) {
+            return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
+        }
+        val root = baseUrl
+        if (!isAllowedLiveHost(root)) {
+            return@withContext Result.failure(
+                TransportException("screen vision server is not on the private JARVIS network"),
+            )
+        }
+        runCatching {
+            val body = buildJsonObject {
+                put("image_base64", imageBase64)
+                if (prompt.isNotBlank()) put("prompt", prompt)
+            }.toString()
+            val response = post(root, "/api/app/vision", body, auth = authHeader())
+            requireOk(response)
+            val obj = json.parseToJsonElement(response.second).jsonObject
+            val text = obj["text"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val model = obj["model"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (text.isBlank()) throw TransportException("screen vision returned an empty description")
+            ScreenVisionReply(text = text, model = model)
+        }
+    }
+
     data class ImageGenerationReply(
         val mimeType: String,
         val dataBase64: String,
