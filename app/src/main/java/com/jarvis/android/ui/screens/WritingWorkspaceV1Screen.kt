@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -299,7 +300,7 @@ private fun WriteSection(
                         title = chapterTitle,
                         objective = objective,
                         storyPoint = storyPoint,
-                        characters = characters.split(',').map(String::trim).filter(String::isNotEmpty),
+                        characters = characters.split(',').map { it.trim() }.filter { it.isNotEmpty() },
                         mustHave = mustHave,
                         mustAvoid = mustAvoid,
                         tone = tone,
