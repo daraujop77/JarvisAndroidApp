@@ -109,7 +109,7 @@ private fun ProjectDetailView(vm: JarvisViewModel, project: ProjectSummary, onBa
     val conversations by vm.conversationsFor(project.id).collectAsStateWithLifecycle(initialValue = null)
     if (project.kind == ProjectKind.WRITING_ROOM) {
         ProjectsScaffold(title = project.title.uppercase(), onBack = onBack) {
-            WritingRoomPreview(vm = vm, projectId = project.id.value, title = project.title)
+            WritingWorkspaceV1Screen(vm = vm, projectId = project.id.value, title = project.title)
         }
         return
     }
