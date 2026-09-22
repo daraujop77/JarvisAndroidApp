@@ -14,6 +14,7 @@ import com.jarvis.android.di.AppContainer
 import com.jarvis.android.transport.fake.FakeScenario
 import com.jarvis.android.transport.live.*
 import android.net.Uri
+import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
@@ -129,6 +130,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val activeChapter: WritingChapter? = null,
         val library: WritingLibraryList? = null,
         val document: WritingLibraryDocument? = null,
+        val pendingExport: WritingLibraryExport? = null,
+        val exportMessage: String? = null,
         val error: String? = null,
     )
 
@@ -385,6 +388,64 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 onFailure = ::writingWorkspaceError,
             )
         }
+    }
+
+    fun requestWritingLibraryExport(projectId: String, documentId: String, format: String) {
+        writingWorkspaceBusy("Preparing ${format.uppercase()} export")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomLibraryExport(projectId, documentId, format)
+            result.fold(
+                onSuccess = {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        pendingExport = it,
+                        exportMessage = null,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun savePendingWritingExport(uri: Uri) {
+        val pending = _writingWorkspace.value.pendingExport ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val bytes = Base64.decode(pending.data_base64, Base64.DEFAULT)
+                require(bytes.size == pending.size_bytes) { "Export size verification failed" }
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(bytes)
+                    .joinToString("") { "%02x".format(it) }
+                require(digest.equals(pending.sha256, ignoreCase = true)) {
+                    "Export SHA-256 verification failed"
+                }
+                app.contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(bytes)
+                    output.flush()
+                } ?: error("Could not open the selected destination")
+            }.fold(
+                onSuccess = {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        pendingExport = null,
+                        exportMessage = "Saved ${pending.filename}",
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        pendingExport = null,
+                        exportMessage = null,
+                        error = error.message ?: "Could not save export",
+                    )
+                },
+            )
+        }
+    }
+
+    fun cancelPendingWritingExport() {
+        _writingWorkspace.value = _writingWorkspace.value.copy(pendingExport = null)
     }
 
     fun startNewConversation(onReady: (String) -> Unit = {}) {
