@@ -12,6 +12,7 @@ import com.jarvis.android.data.repo.ConversationSummary
 import com.jarvis.android.data.repo.SessionSnapshot
 import com.jarvis.android.di.AppContainer
 import com.jarvis.android.transport.fake.FakeScenario
+import com.jarvis.android.transport.live.*
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -115,6 +116,275 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun clearWritingRoomTurn() {
         _writingRoomState.value = WritingRoomState.Idle
+    }
+
+    data class WritingWorkspaceState(
+        val busy: Boolean = false,
+        val busyLabel: String = "",
+        val overview: WritingRoomOverview? = null,
+        val chat: WritingRoomAutoChat? = null,
+        val wiki: WritingWikiSearch? = null,
+        val plans: List<WritingPlanItem> = emptyList(),
+        val chapters: List<WritingChapterSummary> = emptyList(),
+        val activeChapter: WritingChapter? = null,
+        val library: WritingLibraryList? = null,
+        val document: WritingLibraryDocument? = null,
+        val error: String? = null,
+    )
+
+    private val _writingWorkspace = MutableStateFlow(WritingWorkspaceState())
+    val writingWorkspace: StateFlow<WritingWorkspaceState> = _writingWorkspace
+
+    private fun writingWorkspaceBusy(label: String) {
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            busy = true,
+            busyLabel = label,
+            error = null,
+        )
+    }
+
+    private fun writingWorkspaceError(error: Throwable?) {
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            busy = false,
+            busyLabel = "",
+            error = error?.message ?: "Writing Room request failed",
+        )
+    }
+
+    fun clearWritingWorkspaceError() {
+        _writingWorkspace.value = _writingWorkspace.value.copy(error = null)
+    }
+
+    fun refreshWritingWorkspace(projectId: String) {
+        writingWorkspaceBusy("Loading workspace")
+        viewModelScope.launch {
+            val overview = container.liveSession.writingRoomOverview(projectId)
+            val plans = container.liveSession.writingRoomPlanList(projectId)
+            val chapters = container.liveSession.writingRoomChapterList(projectId)
+            val library = container.liveSession.writingRoomLibraryList(projectId)
+            val failure = listOf(overview, plans, chapters, library).firstOrNull { it.isFailure }
+            if (failure != null) {
+                writingWorkspaceError(failure.exceptionOrNull())
+                return@launch
+            }
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                overview = overview.getOrNull(),
+                plans = plans.getOrNull()?.items.orEmpty(),
+                chapters = chapters.getOrNull()?.items.orEmpty(),
+                library = library.getOrNull(),
+                error = null,
+            )
+        }
+    }
+
+    fun runWritingRoomAutoChat(
+        projectId: String,
+        projectTitle: String,
+        prompt: String,
+        room: String = "chat",
+    ) {
+        val clean = prompt.trim()
+        if (clean.isEmpty()) return
+        writingWorkspaceBusy("Routing Writing Room task")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomAutoChat(
+                projectId = projectId,
+                projectTitle = projectTitle,
+                prompt = clean,
+                room = room,
+            )
+            result.fold(
+                onSuccess = {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        chat = it,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun searchWritingWiki(projectId: String, query: String) {
+        val clean = query.trim()
+        if (clean.isEmpty()) return
+        writingWorkspaceBusy("Searching canon")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomWikiSearch(projectId, clean)
+            result.fold(
+                onSuccess = {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        wiki = it,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun createWritingPlan(projectId: String, title: String, body: String) {
+        val clean = body.trim()
+        if (clean.isEmpty()) return
+        writingWorkspaceBusy("Saving plan")
+        viewModelScope.launch {
+            val created = container.liveSession.writingRoomPlanCreate(projectId, title, clean)
+            if (created.isFailure) {
+                writingWorkspaceError(created.exceptionOrNull())
+                return@launch
+            }
+            val list = container.liveSession.writingRoomPlanList(projectId)
+            list.fold(
+                onSuccess = {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        plans = it.items,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun setWritingPlanStatus(projectId: String, itemId: String, status: String) {
+        writingWorkspaceBusy("Updating plan authority")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomPlanStatus(projectId, itemId, status)
+            result.fold(
+                onSuccess = { response ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        plans = _writingWorkspace.value.plans.map {
+                            if (it.item_id == response.item.item_id) response.item else it
+                        },
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun startWritingChapter(
+        projectId: String,
+        title: String,
+        objective: String,
+        storyPoint: String,
+        characters: List<String>,
+        mustHave: String,
+        mustAvoid: String,
+        tone: String,
+        desiredEnd: String,
+    ) {
+        val clean = objective.trim()
+        if (clean.isEmpty()) return
+        writingWorkspaceBusy("Building Story State Brief")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomChapterStart(
+                projectId = projectId,
+                title = title,
+                objective = clean,
+                storyPoint = storyPoint,
+                characters = characters,
+                mustHave = mustHave,
+                mustAvoid = mustAvoid,
+                tone = tone,
+                desiredEnd = desiredEnd,
+            )
+            if (result.isFailure) {
+                writingWorkspaceError(result.exceptionOrNull())
+                return@launch
+            }
+            val chapter = result.getOrThrow().chapter
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                activeChapter = chapter,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                error = list.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun runWritingChapterStep(projectId: String, chapterId: String, step: String) {
+        writingWorkspaceBusy(
+            when (step) {
+                "showrunner" -> "Building chapter brief"
+                "write" -> "Writing grounded draft"
+                "review" -> "Running reviewer and canon audit"
+                else -> "Running chapter step"
+            },
+        )
+        viewModelScope.launch {
+            val result = when (step) {
+                "showrunner" -> container.liveSession.writingRoomChapterShowrunner(projectId, chapterId)
+                "write" -> container.liveSession.writingRoomChapterWrite(projectId, chapterId)
+                "review" -> container.liveSession.writingRoomChapterReview(projectId, chapterId)
+                else -> {
+                    writingWorkspaceError(IllegalArgumentException("Unknown chapter step"))
+                    return@launch
+                }
+            }
+            if (result.isFailure) {
+                writingWorkspaceError(result.exceptionOrNull())
+                return@launch
+            }
+            val chapter = result.getOrThrow().chapter
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                activeChapter = chapter,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                error = list.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun saveWritingChapterDraft(projectId: String, chapterId: String, draftText: String) {
+        writingWorkspaceBusy("Saving draft")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomSaveDraft(projectId, chapterId, draftText)
+            result.fold(
+                onSuccess = {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        activeChapter = it.chapter,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun readWritingLibraryDocument(projectId: String, documentId: String) {
+        writingWorkspaceBusy("Opening official chapter")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomLibraryRead(projectId, documentId)
+            result.fold(
+                onSuccess = {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        document = it.document,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
     }
 
     fun startNewConversation(onReady: (String) -> Unit = {}) {
