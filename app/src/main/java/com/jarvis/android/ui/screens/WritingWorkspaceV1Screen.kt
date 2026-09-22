@@ -466,17 +466,17 @@ private fun ActiveChapterCard(chapter: WritingChapter) {
     WorkspaceCard("${chapter.title} · ${chapter.status}") {
         if (chapter.showrunner_brief.isNotBlank()) {
             Text("Showrunner brief", style = MaterialTheme.typography.titleSmall)
-            Text(chapter.showrunner_brief)
+            RichModelText(chapter.showrunner_brief)
             Spacer(Modifier.height(8.dp))
         }
         if (chapter.reviewer_text.isNotBlank()) {
             Text("Reviewer", style = MaterialTheme.typography.titleSmall)
-            Text(chapter.reviewer_text)
+            RichModelText(chapter.reviewer_text)
             Spacer(Modifier.height(8.dp))
         }
         if (chapter.canon_review_text.isNotBlank()) {
             Text("Canon audit", style = MaterialTheme.typography.titleSmall)
-            Text(chapter.canon_review_text)
+            RichModelText(chapter.canon_review_text)
         }
         if (chapter.context_pack_id.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
@@ -536,8 +536,10 @@ private fun PlanningCard(
     busy: Boolean,
     onStatus: (String) -> Unit,
 ) {
-    WorkspaceCard("${item.title} · ${item.status}") {
-        Text(item.body)
+    WorkspaceCard("${item.title} · ${item.status}", authorityColor(item.status)) {
+        MiniPill(authorityLabel(item.status), authorityColor(item.status))
+        Spacer(Modifier.height(7.dp))
+        RichModelText(item.body)
         Spacer(Modifier.height(8.dp))
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -740,8 +742,8 @@ private fun LibrarySection(
         }
         if (library != null) {
             items(library.items) { item ->
-                WorkspaceCard(item.title) {
-                    Text(item.canon_status)
+                WorkspaceCard(item.title, JarvisGreen) {
+                    MiniPill("CANON OFICIAL", JarvisGreen)
                     val range = when {
                         item.chapter_min != null && item.chapter_max != null && item.chapter_min != item.chapter_max ->
                             "Chapters ${item.chapter_min}–${item.chapter_max}"
@@ -780,10 +782,10 @@ private fun LibrarySection(
         }
         state.document?.let { document ->
             item {
-                WorkspaceCard(document.title) {
-                    Text(document.canon_status)
+                WorkspaceCard(document.title, JarvisGreen) {
+                    MiniPill("CANON OFICIAL", JarvisGreen)
                     Spacer(Modifier.height(8.dp))
-                    Text(document.text)
+                    RichModelText(document.text)
                 }
             }
         }
