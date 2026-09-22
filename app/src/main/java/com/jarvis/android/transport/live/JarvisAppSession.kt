@@ -234,15 +234,19 @@ class JarvisAppSession(
      */
     data class ProfileEntry(val profile: String, val label: String, val model: String, val state: String)
 
-    data class ChatAccess(val ownerModelSelection: Boolean, val entries: List<ProfileEntry>)
+    data class ChatAccess(
+        val ownerModelSelection: Boolean,
+        val entries: List<ProfileEntry>,
+        val capabilityStates: Map<String, String> = emptyMap(),
+    )
 
     suspend fun fetchChatAccess(): ChatAccess? = withContext(Dispatchers.IO) {
         val t = token ?: return@withContext null
         runCatching {
             val resp = get(baseUrl, "/api/app/status", auth = authHeader())
             if (resp.first !in 200..299) return@runCatching null
-            val chat = json.parseToJsonElement(resp.second).jsonObject["chat"]?.jsonObject
-                ?: return@runCatching null
+            val root = json.parseToJsonElement(resp.second).jsonObject
+            val chat = root["chat"]?.jsonObject ?: return@runCatching null
             val models = (chat["models"] as? JsonArray).orEmpty().mapNotNull { el ->
                 val o = el as? JsonObject ?: return@mapNotNull null
                 val profile = o["profile"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
@@ -255,8 +259,67 @@ class JarvisAppSession(
             }
             val ownerSel = chat["access"]?.jsonObject
                 ?.get("owner_model_selection")?.jsonPrimitive?.booleanOrNull ?: false
-            ChatAccess(ownerModelSelection = ownerSel, entries = models)
+            val capabilityStates = root["capabilities"]?.jsonObject
+                ?.mapValues { (_, value) ->
+                    runCatching {
+                        value.jsonObject["state"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+                    }.getOrDefault("unknown")
+                }
+                .orEmpty()
+            ChatAccess(
+                ownerModelSelection = ownerSel,
+                entries = models,
+                capabilityStates = capabilityStates,
+            )
         }.getOrNull()
+    }
+
+    data class ImageGenerationReply(
+        val mimeType: String,
+        val dataBase64: String,
+        val sizeBytes: Long,
+        val provider: String,
+        val route: String,
+    )
+
+    suspend fun generateImage(prompt: String): Result<ImageGenerationReply> = withContext(Dispatchers.IO) {
+        if (!isAuthenticated) {
+            return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
+        }
+        val root = baseUrl
+        if (!isAllowedLiveHost(root)) {
+            return@withContext Result.failure(
+                TransportException("image generation server is not on the private JARVIS network"),
+            )
+        }
+        val cleanPrompt = prompt.trim()
+        if (cleanPrompt.isBlank()) {
+            return@withContext Result.failure(TransportException("image prompt is empty"))
+        }
+
+        runCatching {
+            val body = buildJsonObject {
+                put("prompt", cleanPrompt)
+            }.toString()
+            val response = post(root, "/api/app/images/generations", body, auth = authHeader())
+            requireOk(response)
+            val obj = json.parseToJsonElement(response.second).jsonObject
+            val mimeType = obj["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val dataBase64 = obj["data_base64"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val sizeBytes = obj["size_bytes"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+            val provider = obj["provider"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val route = obj["route"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            if (mimeType.isBlank() || dataBase64.isBlank() || sizeBytes <= 0L) {
+                throw TransportException("image generation returned an invalid image")
+            }
+            ImageGenerationReply(
+                mimeType = mimeType,
+                dataBase64 = dataBase64,
+                sizeBytes = sizeBytes,
+                provider = provider,
+                route = route,
+            )
+        }
     }
 
     @Serializable
