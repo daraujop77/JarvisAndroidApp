@@ -182,43 +182,55 @@ private fun OverviewSection(
     vm: JarvisViewModel,
 ) {
     val overview = state.overview
+    val counts = overview?.sources?.by_status.orEmpty()
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            WorkspaceCard("Current story state") {
+            WorkspaceCard("Current story state", JarvisCyan) {
                 if (overview == null) {
                     Text("No workspace snapshot loaded.")
                 } else {
-                    Text(overview.project.title, style = MaterialTheme.typography.titleMedium)
-                    Text("Story: ${overview.project.story_id}")
-                    Text("Authority: ${overview.project.authority}")
                     val latest = overview.latest_official_chapter
                     Text(
-                        if (latest?.chapter_number != null) {
-                            "Latest official chapter: ${latest.chapter_number} · ${latest.title}"
-                        } else {
-                            "Latest official chapter: unavailable"
-                        },
+                        latest?.title ?: "Latest official chapter unavailable",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (latest?.chapter_number != null) "Official timeline through chapter ${latest.chapter_number}" else "Official timeline loaded",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
         item {
-            WorkspaceCard("Workspace") {
-                Text("Planning items: ${overview?.workflow?.planning_items ?: 0}")
-                Text("Chapter sessions: ${overview?.workflow?.chapter_sessions ?: 0}")
-                Text("Versioned story sources: ${overview?.sources?.total ?: 0}")
+            Text("Authority map", style = MaterialTheme.typography.titleMedium)
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AuthorityStat("Canon", counts["OFFICIAL_CANON"] ?: 0, "established", JarvisGreen, Modifier.weight(1f))
+                AuthorityStat("Reference", counts["REFERENCE"] ?: 0, "context only", JarvisCyan, Modifier.weight(1f))
             }
         }
         item {
-            WorkspaceCard("Authority rules") {
-                Text("OFFICIAL_CANON is established fact.")
-                Text("APPROVED_PLAN is approved future direction, not an occurred event.")
-                Text("PROPOSED material does not become canon automatically.")
-                Text("Only a human approval can promote story authority.")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AuthorityStat("Approved", counts["APPROVED_PLAN"] ?: 0, "future plan", JarvisAmber, Modifier.weight(1f))
+                AuthorityStat("Proposed", counts["PROPOSED"] ?: 0, "candidate", JarvisViolet, Modifier.weight(1f))
+            }
+        }
+        item {
+            WorkspaceCard("Workspace", JarvisCyan) {
+                Text("Planning items: ${overview?.workflow?.planning_items ?: 0}")
+                Text("Chapter sessions: ${overview?.workflow?.chapter_sessions ?: 0}")
+                Text("Versioned sources: ${overview?.sources?.total ?: 0}")
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "A document being present in Drive or RAG does not make it canon. Its explicit authority status controls how JARVIS may use it.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         item {
@@ -226,7 +238,7 @@ private fun OverviewSection(
                 onClick = { vm.refreshWritingWorkspace(projectId) },
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Refresh workspace") }
+            ) { Text("Refresh story state") }
         }
     }
 }
