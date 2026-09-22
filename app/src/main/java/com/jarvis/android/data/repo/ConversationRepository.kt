@@ -97,7 +97,9 @@ class ConversationRepository(
         _live,
     ) { stored, snap ->
         val live = liveRequestFor(snap, conversationId)
-        val persisted = stored.map {
+        val persisted = stored
+            .filterNot { isFakeGatewayArtifact(it.role, it.text) }
+            .map {
             ChatMessage(
                 clientRequestId = it.clientRequestId,
                 role = it.role,
@@ -112,7 +114,18 @@ class ConversationRepository(
             val row = ChatMessage(live.clientRequestId, "assistant", live.text, live.status, live.startedAtMs)
             if (i >= 0) persisted[i] = row else persisted += row
         }
-        persisted.sortedWith(compareBy({ it.createdAtMs }, { if (it.role == "user") 0 else 1 }))
+        // Render each turn as USER -> JARVIS even while the assistant row is live.
+        val turnTime = persisted.groupBy { it.clientRequestId }.mapValues { (_, rows) ->
+            rows.firstOrNull { it.role == "user" }?.createdAtMs
+                ?: rows.minOf { it.createdAtMs }
+        }
+        persisted.sortedWith(
+            compareBy<ChatMessage>(
+                { turnTime[it.clientRequestId] ?: it.createdAtMs },
+                { if (it.role == "user") 0 else 1 },
+                { it.createdAtMs },
+            ),
+        )
     }
 
     fun newConversation(onCreated: (String) -> Unit = {}) {
@@ -151,6 +164,7 @@ class ConversationRepository(
     ): List<com.jarvis.android.contract.ChatTurn> =
         dao.messages(conversationId)
             .filter { it.status == RequestStatus.Completed.dbName }
+            .filterNot { isFakeGatewayArtifact(it.role, it.text) }
             .takeLast(limit)
             .map { com.jarvis.android.contract.ChatTurn(role = it.role, content = it.text) }
             .filter { it.content.isNotBlank() }
@@ -166,7 +180,7 @@ class ConversationRepository(
         text: String,
         attachmentIds: List<String>,
     ) {
-        val now = clock()
+        val now = _live.value.session.requests[cid]?.startedAtMs ?: clock()
         val joined = attachmentIds.joinToString(",")
         scope.launch {
             ensureConversation(conversationId, text, now)
@@ -309,8 +323,19 @@ class ConversationRepository(
         }
     }
 
+    private fun isFakeGatewayArtifact(role: String, text: String): Boolean {
+        if (role != "assistant") return false
+        val normalized = text.trim()
+        if (normalized.isBlank()) return false
+        return FAKE_WORDS.matches(normalized)
+    }
+
     private fun liveRequestFor(snap: SessionSnapshot, conversationId: String): RequestState? =
         snap.session.requests.values
             .filter { it.conversationId == conversationId }
             .maxByOrNull { it.startedAtMs }
+
+    private companion object {
+        val FAKE_WORDS = Regex("""^(?:word\d+\s*)+$""")
+    }
 }
