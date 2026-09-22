@@ -159,6 +159,16 @@ fun WritingWorkspaceV1Screen(
                     selected = tab == item,
                     onClick = { tab = item },
                     label = { Text(item.label) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = LocalJarvisAccents.current.orbGlow.copy(alpha = 0.18f),
+                        selectedLabelColor = LocalJarvisAccents.current.orbGlow,
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = tab == item,
+                        borderColor = LocalJarvisAccents.current.grid.copy(alpha = 0.9f),
+                        selectedBorderColor = LocalJarvisAccents.current.orbGlow.copy(alpha = 0.5f),
+                    ),
                 )
             }
         }
