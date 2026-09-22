@@ -166,7 +166,7 @@ fun JarvisBrain(
     contentDescription: String? = null,
 ) {
     if (size < HERO_MIN) {
-        JarvisOrb(modifier, size, activity, intensity, contentDescription)
+        JarvisMiniBrain(modifier, size, activity, intensity, contentDescription)
         return
     }
 
