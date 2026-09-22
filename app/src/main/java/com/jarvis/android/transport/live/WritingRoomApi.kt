@@ -209,6 +209,21 @@ data class WritingLibraryDocumentResponse(
     val document: WritingLibraryDocument = WritingLibraryDocument(),
 )
 
+@Serializable
+data class WritingLibraryExport(
+    val schema: String = "",
+    val project_id: String = "",
+    val document_id: String = "",
+    val authority: String = "",
+    val vps_persistence: String = "",
+    val format: String = "",
+    val filename: String = "",
+    val mime_type: String = "application/octet-stream",
+    val size_bytes: Int = 0,
+    val sha256: String = "",
+    val data_base64: String = "",
+)
+
 private suspend inline fun <reified T> JarvisAppSession.writingPost(
     path: String,
     body: JsonObject,
@@ -404,5 +419,20 @@ suspend fun JarvisAppSession.writingRoomLibraryRead(
         buildJsonObject {
             put("project_id", projectId)
             put("document_id", documentId)
+        },
+    )
+
+
+suspend fun JarvisAppSession.writingRoomLibraryExport(
+    projectId: String,
+    documentId: String,
+    format: String,
+): Result<WritingLibraryExport> =
+    writingPost(
+        "/api/app/writing-room/library/export",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("document_id", documentId)
+            put("format", format)
         },
     )
