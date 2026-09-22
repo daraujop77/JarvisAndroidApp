@@ -68,6 +68,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -79,6 +80,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
@@ -218,6 +220,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val accents = LocalJarvisAccents.current
 
     val photoPicker = rememberLauncherForActivityResult(
@@ -322,20 +325,36 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 // nothing; this is what actually lifts the composer above the IME.
                 .imePadding(),
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
-                    MessageBubble(
-                        msg = msg,
-                        onRetry = { vm.retry(msg.clientRequestId) },
-                        attachmentState = { id -> snapshot.session.attachments[id] },
-                        attachmentStore = vm.attachmentStore,
-                        avatarEpoch = avatarEpoch,
-                        modifier = Modifier.animateItem(),
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
+                        MessageBubble(
+                            msg = msg,
+                            onRetry = { vm.retry(msg.clientRequestId) },
+                            attachmentState = { id -> snapshot.session.attachments[id] },
+                            attachmentStore = vm.attachmentStore,
+                            avatarEpoch = avatarEpoch,
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
+                }
+
+                // Only offered while the reader is away from the newest turn,
+                // so following silently is never a dead end.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !following && messages.isNotEmpty(),
+                    enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
+                ) {
+                    JumpToLatest(
+                        streaming = streaming,
+                        onClick = { scope.launch { listState.animateScrollToItem(messages.lastIndex) } },
                     )
                 }
             }
@@ -483,6 +502,36 @@ private fun Composer(
                     modifier = Modifier.size((44 * scale).dp),
                 ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
             }
+        }
+    }
+}
+
+/**
+ * Shown only when auto-follow is off. While a reply is streaming it says so,
+ * because the reason to go back down is that something is still arriving.
+ */
+@Composable
+private fun JumpToLatest(streaming: Boolean, onClick: () -> Unit) {
+    val accents = LocalJarvisAccents.current
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.45f)),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (streaming) {
+                TypingDots()
+                Spacer(Modifier.size(8.dp))
+            }
+            Text(
+                if (streaming) "Jarvis is replying" else "Jump to latest",
+                style = MaterialTheme.typography.labelLarge,
+                color = accents.orbGlow,
+            )
         }
     }
 }
