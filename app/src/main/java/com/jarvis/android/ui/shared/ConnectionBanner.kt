@@ -115,10 +115,13 @@ fun ConnectionBanner(
         Spacer(Modifier.weight(1f))
 
         val active = snapshot.session.activeRequestCount
+        val reduced = LocalReducedMotion.current
         AnimatedVisibility(
             visible = active > 0,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
+            enter = fadeIn(JarvisMotion.standard()) +
+                expandVertically(if (reduced) tween(0) else JarvisMotion.standard()),
+            exit = fadeOut(JarvisMotion.standard(160)) +
+                shrinkVertically(if (reduced) tween(0) else JarvisMotion.standard(160)),
         ) {
             Text(
                 "$active ACTIVE",

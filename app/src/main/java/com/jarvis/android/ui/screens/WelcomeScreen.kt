@@ -109,7 +109,8 @@ fun WelcomeScreen(
 
             AnimatedVisibility(
                 visible = greet,
-                enter = fadeIn(tween(500)) + slideInVertically(tween(500)) { it / 3 },
+                enter = fadeIn(tween(if (reduced) 0 else 500)) +
+                    slideInVertically(tween(if (reduced) 0 else 500)) { it / 3 },
             ) {
                 Text(
                     if (ownerName.isNullOrBlank()) "Welcome back." else "Welcome back, $ownerName.",

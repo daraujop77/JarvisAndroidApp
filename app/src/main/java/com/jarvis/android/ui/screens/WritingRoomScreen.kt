@@ -1,5 +1,9 @@
 package com.jarvis.android.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,9 +18,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,63 +39,195 @@ import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisAmber
+import com.jarvis.android.ui.theme.JarvisMotion
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.ui.writing.LoreSearch
 
 /**
  * Daily v1 Writing Room for Alexander History, preview only.
  *
- * Names and seats come from the Story Workspace design. Facts do not: no
+ * Seats and names come from the Story Workspace design. Facts do not: no
  * manuscript is in this repo, M3 has not published a project contract, and M4
- * has not chosen where canon lives. So a page says what is *not* loaded rather
- * than inventing a biography. Nothing here is retrieved, embedded, or stored,
- * and nothing can write canon.
- *
- * The brain stays [OrbActivity.IDLE]: present, not thinking, because there is
- * no session to think about.
+ * has not chosen where canon lives. Every page says what is *not* loaded
+ * rather than inventing a biography. Nothing here retrieves, embeds, stores,
+ * or writes canon.
  */
 @Composable
 fun WritingRoomPreview(title: String, modifier: Modifier = Modifier) {
+    var tab by rememberSaveable { mutableStateOf(RoomTab.LORE) }
     var openCharacter by rememberSaveable { mutableStateOf<String?>(null) }
+
     val character = CHARACTERS.firstOrNull { it.name == openCharacter }
     if (character != null) {
         CharacterPage(character, onBack = { openCharacter = null })
         return
     }
 
-    val accents = LocalJarvisAccents.current
-    LazyColumn(
-        modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    Column(modifier.fillMaxSize()) {
+        RoomHeader(title)
+        RoomTabs(tab, onSelect = { tab = it })
+        val tabIn = JarvisMotion.standard<Float>(180)
+        val tabOut = JarvisMotion.standard<Float>(120)
+        AnimatedContent(
+            targetState = tab,
+            transitionSpec = { fadeIn(tabIn) togetherWith fadeOut(tabOut) },
+            label = "room-tab",
+        ) { target ->
+            when (target) {
+                RoomTab.LORE -> LoreTab(onOpenCharacter = { openCharacter = it })
+                RoomTab.COUNCIL -> CouncilTab()
+                RoomTab.CANON -> CanonTab()
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoomHeader(title: String) {
+    Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        item {
-            JarvisBrain(
-                size = 148.dp,
-                activity = OrbActivity.IDLE,
-                contentDescription = "Jarvis, waiting. The writing room is not connected.",
+        JarvisBrain(
+            size = 120.dp,
+            activity = OrbActivity.IDLE,
+            contentDescription = "Jarvis, waiting. The writing room is not connected.",
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+        Text("PREVIEW — NOT CONNECTED", style = HudTextStyle, color = JarvisAmber)
+    }
+}
+
+@Composable
+private fun RoomTabs(selected: RoomTab, onSelect: (RoomTab) -> Unit) {
+    val accents = LocalJarvisAccents.current
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RoomTab.entries.forEach { entry ->
+            FilterChip(
+                selected = entry == selected,
+                onClick = { onSelect(entry) },
+                label = { Text(entry.label) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = accents.orbGlow.copy(alpha = 0.18f),
+                    selectedLabelColor = accents.orbGlow,
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = entry == selected,
+                    borderColor = accents.orbGlow.copy(alpha = 0.22f),
+                    selectedBorderColor = accents.orbGlow.copy(alpha = 0.5f),
+                ),
             )
-            Spacer(Modifier.height(8.dp))
-            Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-            Text("PREVIEW — NOT CONNECTED", style = HudTextStyle, color = JarvisAmber)
         }
-        item { SectionLabel("Council", "Seats are reserved. Nobody is in session.") }
-        items(COUNCIL.size) { i -> CouncilSeat(COUNCIL[i]) }
-        item { SectionLabel("Characters", "Open a page. It shows what the room does not know yet.") }
-        items(CHARACTERS.size) { i ->
-            CharacterRow(CHARACTERS[i]) { openCharacter = CHARACTERS[i].name }
-        }
-        item { SectionLabel("Canon", "No source is loaded, so nothing here is authoritative.") }
-        item { EmptyCanon(accents.orbGlow) }
+    }
+}
+
+/** The interactive wiki. Search filters names and roles only — no canon is loaded. */
+@Composable
+private fun LoreTab(onOpenCharacter: (String) -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val results = LoreSearch.filter(CHARACTERS.map { it.name to it.role }, query)
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         item {
-            Text(
-                "A character only ever knows what the story has shown them. " +
-                    "Author secrets and locked future events stay out of a character page. " +
-                    "Retrieval and the story database arrive with the control plane.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                label = { Text("Search the lore") },
+                colors = jarvisTextFieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (results.isEmpty()) {
+            item {
+                Text(
+                    "Nothing matches \"$query\".",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        items(results.size) { i ->
+            val (name, role) = results[i]
+            RoomCard(onClick = { onOpenCharacter(name) }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(name, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            role,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text("OPEN", style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CouncilTab() {
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item { Caption("Seats are reserved. Nobody is in session.") }
+        items(COUNCIL.size) { i ->
+            val seat = COUNCIL[i]
+            RoomCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(seat.role, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            seat.brief,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text("EMPTY", style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CanonTab() {
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            RoomCard {
+                Column {
+                    Text("NO CANON LOADED", style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Facts appear only after a source is imported and marked authoritative. " +
+                            "A draft can never outrank one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        item {
+            Caption(
+                "A character only ever knows what the story has shown them. Author secrets and " +
+                    "locked future events stay out of a character page.",
             )
         }
     }
@@ -120,20 +259,9 @@ private fun CharacterPage(character: CharacterEntry, onBack: () -> Unit) {
 }
 
 @Composable
-private fun roomCardColor() = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
-
-@Composable
-private fun roomCardBorder() = BorderStroke(1.dp, LocalJarvisAccents.current.orbGlow.copy(alpha = 0.16f))
-
-@Composable
 private fun FactBlock(label: String, body: String) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = roomCardColor(),
-        border = roomCardBorder(),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp)) {
+    RoomCard {
+        Column {
             Text(label.uppercase(), style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
             Spacer(Modifier.height(4.dp))
             Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -142,70 +270,35 @@ private fun FactBlock(label: String, body: String) {
 }
 
 @Composable
-private fun SectionLabel(title: String, caption: String) {
-    Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-        Text(title.uppercase(), style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
-        Spacer(Modifier.height(2.dp))
-        Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+private fun Caption(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 2.dp),
+    )
 }
 
 @Composable
-private fun CouncilSeat(seat: Seat) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = roomCardColor(),
-        border = roomCardBorder(),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(seat.role, style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(2.dp))
-                Text(seat.brief, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text("EMPTY", style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun RoomCard(onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    val color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+    val border = BorderStroke(1.dp, LocalJarvisAccents.current.orbGlow.copy(alpha = 0.16f))
+    if (onClick != null) {
+        Surface(onClick = onClick, shape = shape, color = color, border = border, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) { content() }
+        }
+    } else {
+        Surface(shape = shape, color = color, border = border, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) { content() }
         }
     }
 }
 
-@Composable
-private fun CharacterRow(character: CharacterEntry, onOpen: () -> Unit) {
-    Surface(
-        onClick = onOpen,
-        shape = RoundedCornerShape(16.dp),
-        color = roomCardColor(),
-        border = roomCardBorder(),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(character.name, style = MaterialTheme.typography.titleMedium)
-                Text(character.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text("OPEN", style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
-        }
-    }
-}
-
-@Composable
-private fun EmptyCanon(accent: androidx.compose.ui.graphics.Color) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = roomCardColor(),
-        border = roomCardBorder(),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text("NO CANON LOADED", style = HudTextStyle, color = accent)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Facts appear here only after a source is imported and marked authoritative. A draft can never outrank one.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+private enum class RoomTab(val label: String) {
+    LORE("Lore"),
+    COUNCIL("Council"),
+    CANON("Canon"),
 }
 
 private data class Seat(val role: String, val brief: String)
