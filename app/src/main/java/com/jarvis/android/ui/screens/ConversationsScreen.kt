@@ -64,6 +64,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +82,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.chat.AutoFollow
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
@@ -227,8 +229,23 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { vm.refreshChatAccess() }
 
+    // Follow the stream only while the reader is at the bottom. Scrolling up
+    // to re-read stops it; coming back resumes it.
+    val atBottom by remember {
+        derivedStateOf {
+            AutoFollow.atBottom(
+                lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index,
+                lastIndex = messages.lastIndex,
+            )
+        }
+    }
+    var following by remember { mutableStateOf(true) }
+    LaunchedEffect(atBottom) { following = AutoFollow.next(following, atBottom, justSent = false) }
+
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+        if (AutoFollow.shouldScroll(following, messages.isNotEmpty())) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
     }
 
     val bubbleActivity = when {
@@ -240,7 +257,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
     val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(imeVisible) {
-        if (imeVisible && messages.isNotEmpty()) {
+        if (imeVisible && AutoFollow.shouldScroll(following, messages.isNotEmpty())) {
             listState.animateScrollToItem(messages.lastIndex)
         }
     }
@@ -350,7 +367,13 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     )
                 },
                 onStop = { liveRequest?.let { vm.cancel(it.clientRequestId) } },
-                onSend = { vm.sendWithAttachments(input); input = "" },
+                onSend = {
+                    // Sending is an explicit request to see the newest turn,
+                    // even if the reader had scrolled up.
+                    following = AutoFollow.next(following, atBottom, justSent = true)
+                    vm.sendWithAttachments(input)
+                    input = ""
+                },
             )
         }
     }
