@@ -365,6 +365,47 @@ class JarvisAppSession(
                 .build(),
         )
 
+    internal fun postSse(
+        base: String,
+        path: String,
+        body: String,
+        auth: String?,
+        onEvent: (event: String, data: String) -> Unit,
+    ): Int {
+        val request = Request.Builder()
+            .url(base + path)
+            .header("Accept", "text/event-stream")
+            .post(body.toRequestBody(JSON_MEDIA))
+            .apply { auth?.let { header("Authorization", it) } }
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code !in 200..299) return response.code
+            val source = response.body?.source() ?: return response.code
+            var eventName = ""
+            val data = StringBuilder()
+            fun flush() {
+                if (eventName.isNotBlank() || data.isNotEmpty()) {
+                    onEvent(eventName.ifBlank { "message" }, data.toString())
+                }
+                eventName = ""
+                data.setLength(0)
+            }
+            while (true) {
+                val line = source.readUtf8Line() ?: break
+                when {
+                    line.isEmpty() -> flush()
+                    line.startsWith("event:") -> eventName = line.removePrefix("event:").trim()
+                    line.startsWith("data:") -> {
+                        if (data.isNotEmpty()) data.append('\n')
+                        data.append(line.removePrefix("data:").trimStart())
+                    }
+                }
+            }
+            flush()
+            return response.code
+        }
+    }
+
     private fun execute(request: Request): Pair<Int, String> =
         client.newCall(request).execute().use { resp -> resp.code to resp.body?.string().orEmpty() }
 
