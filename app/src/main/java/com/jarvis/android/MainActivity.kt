@@ -19,13 +19,12 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        // Lane E: recents/task-switcher and screenshots must not show chat,
-        // approvals or tokens. FLAG_SECURE blanks the preview and blocks
-        // capture; the lock screen still re-arms on onStop.
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE,
-        )
+        // Manual screenshots are intentionally allowed while JARVIS is in the
+        // foreground so the owner can capture UI/debug evidence. Keep the task
+        // switcher private without applying FLAG_SECURE to the whole activity.
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            setRecentsScreenshotEnabled(false)
+        }
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(
                 this, android.Manifest.permission.POST_NOTIFICATIONS,
@@ -40,9 +39,24 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (android.os.Build.VERSION.SDK_INT < 33) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    override fun onPause() {
+        if (android.os.Build.VERSION.SDK_INT < 33) {
+            // Older Android releases do not expose the dedicated Recents
+            // screenshot API. Protect the task snapshot only while leaving.
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        super.onPause()
+    }
+
     /**
-     * Re-arm the biometric lock as soon as the app leaves the foreground, so a
-     * task-switcher peek can't expose conversations.
+     * Re-arm the biometric lock as soon as the app leaves the foreground.
      */
     override fun onStop() {
         super.onStop()
