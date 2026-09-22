@@ -1,5 +1,7 @@
 package com.jarvis.android.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -506,6 +508,32 @@ private fun LibrarySection(
     vm: JarvisViewModel,
 ) {
     val library = state.library
+    val pdfLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val docxLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val epubLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/epub+zip"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val markdownLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/markdown"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+
+    LaunchedEffect(state.pendingExport?.sha256) {
+        val export = state.pendingExport ?: return@LaunchedEffect
+        when (export.format) {
+            "pdf" -> pdfLauncher.launch(export.filename)
+            "docx" -> docxLauncher.launch(export.filename)
+            "epub" -> epubLauncher.launch(export.filename)
+            "markdown" -> markdownLauncher.launch(export.filename)
+            else -> vm.cancelPendingWritingExport()
+        }
+    }
+
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -520,10 +548,15 @@ private fun LibrarySection(
                 Text("Markdown: ${exports["markdown"] ?: "not available"}")
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Only official chapter sources appear here. Planned export formats are shown but not faked as working.",
+                    "Exports are generated on demand from official chapter sources. " +
+                        "Saving a file does not change canon or write story content back to the VPS.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (!state.exportMessage.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(state.exportMessage.orEmpty(), color = MaterialTheme.colorScheme.primary)
+                }
             }
         }
         if (library != null) {
@@ -538,10 +571,31 @@ private fun LibrarySection(
                     }
                     if (range.isNotBlank()) Text(range)
                     Spacer(Modifier.height(6.dp))
-                    TextButton(
-                        onClick = { vm.readWritingLibraryDocument(projectId, item.document_id) },
-                        enabled = !state.busy,
-                    ) { Text("Open") }
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        TextButton(
+                            onClick = { vm.readWritingLibraryDocument(projectId, item.document_id) },
+                            enabled = !state.busy,
+                        ) { Text("Open") }
+                        TextButton(
+                            onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "pdf") },
+                            enabled = !state.busy && library.exports["pdf"] == "ready",
+                        ) { Text("PDF") }
+                        TextButton(
+                            onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "docx") },
+                            enabled = !state.busy && library.exports["docx"] == "ready",
+                        ) { Text("DOCX") }
+                        TextButton(
+                            onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "epub") },
+                            enabled = !state.busy && library.exports["epub"] == "ready",
+                        ) { Text("EPUB") }
+                        TextButton(
+                            onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "markdown") },
+                            enabled = !state.busy && library.exports["markdown"] == "ready",
+                        ) { Text("MD") }
+                    }
                 }
             }
         }
