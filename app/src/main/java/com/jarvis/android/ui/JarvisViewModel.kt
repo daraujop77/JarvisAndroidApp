@@ -124,6 +124,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val busyLabel: String = "",
         val overview: WritingRoomOverview? = null,
         val chat: WritingRoomAutoChat? = null,
+        val streamingText: String = "",
+        val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
         val plans: List<WritingPlanItem> = emptyList(),
         val chapters: List<WritingChapterSummary> = emptyList(),
@@ -162,10 +164,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         writingWorkspaceBusy("Loading workspace")
         viewModelScope.launch {
             val overview = container.liveSession.writingRoomOverview(projectId)
+            val wikiHome = container.liveSession.writingRoomWikiHome(projectId)
             val plans = container.liveSession.writingRoomPlanList(projectId)
             val chapters = container.liveSession.writingRoomChapterList(projectId)
             val library = container.liveSession.writingRoomLibraryList(projectId)
-            val failure = listOf(overview, plans, chapters, library).firstOrNull { it.isFailure }
+            val failure = listOf(overview, wikiHome, plans, chapters, library).firstOrNull { it.isFailure }
             if (failure != null) {
                 writingWorkspaceError(failure.exceptionOrNull())
                 return@launch
@@ -174,6 +177,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 busy = false,
                 busyLabel = "",
                 overview = overview.getOrNull(),
+                wikiHome = wikiHome.getOrNull(),
                 plans = plans.getOrNull()?.items.orEmpty(),
                 chapters = chapters.getOrNull()?.items.orEmpty(),
                 library = library.getOrNull(),
@@ -190,13 +194,23 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val clean = prompt.trim()
         if (clean.isEmpty()) return
-        writingWorkspaceBusy("Routing Writing Room task")
+        writingWorkspaceBusy("JARVIS is routing the Writing Room task")
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            chat = null,
+            streamingText = "",
+        )
         viewModelScope.launch {
-            val result = container.liveSession.writingRoomAutoChat(
+            val result = container.liveSession.writingRoomAutoChatStream(
                 projectId = projectId,
                 projectTitle = projectTitle,
                 prompt = clean,
                 room = room,
+                onDelta = { delta ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        streamingText = _writingWorkspace.value.streamingText + delta,
+                        busyLabel = "Streaming response",
+                    )
+                },
             )
             result.fold(
                 onSuccess = {
@@ -204,10 +218,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         busy = false,
                         busyLabel = "",
                         chat = it,
+                        streamingText = "",
                         error = null,
                     )
                 },
-                onFailure = ::writingWorkspaceError,
+                onFailure = {
+                    val partial = _writingWorkspace.value.streamingText
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        streamingText = partial,
+                        error = it.message ?: "Writing Room request failed",
+                    )
+                },
             )
         }
     }
