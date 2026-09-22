@@ -259,6 +259,98 @@ class JarvisAppSession(
         }.getOrNull()
     }
 
+    @Serializable
+    data class WritingRoomParticipant(
+        val id: String = "",
+        val label: String = "",
+    )
+
+    @Serializable
+    data class WritingRoomRouting(
+        val requested_mode: String = "",
+        val resolved_profile: String = "",
+        val destination: String = "",
+        val provider: String = "",
+        val model: String = "",
+    )
+
+    @Serializable
+    data class WritingRoomSource(
+        val chunk_id: String? = null,
+        val title: String = "",
+        val heading: String? = null,
+        val canon_status: String = "",
+        val authority: String = "",
+        val drive_url: String = "",
+    )
+
+    @Serializable
+    data class WritingRoomCanon(
+        val connected: Boolean = false,
+        val authority: String = "",
+        val story_id: String? = null,
+        val documents: Int = 0,
+        val chunks: Int = 0,
+        val sources: List<WritingRoomSource> = emptyList(),
+    )
+
+    @Serializable
+    data class WritingRoomText(val text: String = "")
+
+    @Serializable
+    data class WritingRoomMetrics(
+        val total_ms: Int = 0,
+        val rag_source_count: Int = 0,
+    )
+
+    @Serializable
+    data class WritingRoomTurn(
+        val schema: String = "",
+        val project_id: String = "",
+        val project_title: String = "",
+        val participant: WritingRoomParticipant = WritingRoomParticipant(),
+        val routing: WritingRoomRouting = WritingRoomRouting(),
+        val canon: WritingRoomCanon = WritingRoomCanon(),
+        val response: WritingRoomText = WritingRoomText(),
+        val metrics: WritingRoomMetrics = WritingRoomMetrics(),
+    )
+
+    /** One grounded Council turn over the already-authenticated private app session. */
+    suspend fun writingRoomTurn(
+        projectId: String,
+        projectTitle: String,
+        participant: String,
+        prompt: String,
+    ): Result<WritingRoomTurn> = withContext(Dispatchers.IO) {
+        if (expired) {
+            clear()
+            return@withContext Result.failure(TransportException("session expired"))
+        }
+        val auth = authHeader()
+            ?: return@withContext Result.failure(TransportException("no live session"))
+        if (prompt.isBlank()) {
+            return@withContext Result.failure(TransportException("Writing Room prompt is empty"))
+        }
+        if (prompt.length > 6000) {
+            return@withContext Result.failure(TransportException("Writing Room prompt is too long"))
+        }
+        runCatching {
+            val body = buildJsonObject {
+                put("project_id", projectId)
+                put("project_title", projectTitle)
+                put("participant", participant)
+                put("prompt", prompt)
+            }.toString()
+            val resp = post(baseUrl, "/api/app/writing-room/council", body, auth)
+            if (resp.first == 401) {
+                clear()
+                throw TransportException("session expired")
+            }
+            requireOk(resp)
+            json.decodeFromString(WritingRoomTurn.serializer(), resp.second)
+        }
+    }
+
     // ---- HTTP plumbing shared with the transport ------------------------------
 
     internal fun get(base: String, path: String, auth: String?): Pair<Int, String> =
