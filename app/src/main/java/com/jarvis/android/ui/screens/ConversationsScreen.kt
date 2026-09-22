@@ -85,7 +85,10 @@ import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.chat.AutoFollow
+import com.jarvis.android.ui.components.MarkdownBlock
 import com.jarvis.android.ui.components.JarvisBrain
+import com.jarvis.android.ui.components.markdownBlocks
+import com.jarvis.android.ui.components.renderInlineMarkdown
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.components.TypingDots
@@ -119,7 +122,10 @@ private fun ConversationListView(
     onOpen: (String) -> Unit,
     onNew: () -> Unit,
 ) {
-    val items by vm.conversationList.collectAsStateWithLifecycle()
+    val listState by vm.conversationListState.collectAsStateWithLifecycle()
+    val items = (listState as? com.jarvis.android.data.repo.ConversationListState.Ready)?.conversations
+        ?: emptyList()
+    val loading = listState is com.jarvis.android.data.repo.ConversationListState.Loading
     val accents = LocalJarvisAccents.current
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
 
@@ -147,7 +153,21 @@ private fun ConversationListView(
             )
         },
     ) { pad ->
-        if (items.isEmpty()) {
+        if (loading) {
+            Column(
+                Modifier.fillMaxSize().padding(pad),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator(Modifier.size(28.dp), color = accents.orbGlow)
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "Loading conversations",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else if (items.isEmpty()) {
             Column(
                 Modifier.fillMaxSize().padding(pad).padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -510,6 +530,50 @@ private fun Composer(
  * Shown only when auto-follow is off. While a reply is streaming it says so,
  * because the reason to go back down is that something is still arriving.
  */
+/**
+ * A finished reply, broken into the blocks [markdownBlocks] found. Headings,
+ * bullets and fenced code get their own line; everything else keeps inline
+ * styling. Streaming replies never reach here — their markers are incomplete.
+ */
+@Composable
+private fun MarkdownBody(text: String) {
+    val accents = LocalJarvisAccents.current
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (block in markdownBlocks(text)) {
+            when (block) {
+                is MarkdownBlock.Heading -> Text(
+                    block.text,
+                    style = if (block.level == 1) MaterialTheme.typography.titleMedium
+                    else MaterialTheme.typography.titleSmall,
+                    color = accents.orbGlow,
+                )
+                is MarkdownBlock.Bullet -> Text(
+                    "•  " + renderInlineMarkdown(block.text, accents.orbGlow),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                is MarkdownBlock.Code -> Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        block.text,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        ),
+                        color = accents.orbGlow,
+                        modifier = Modifier.padding(10.dp),
+                    )
+                }
+                is MarkdownBlock.Paragraph -> Text(
+                    renderInlineMarkdown(block.text, accents.orbGlow),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun JumpToLatest(streaming: Boolean, onClick: () -> Unit) {
     val accents = LocalJarvisAccents.current
@@ -599,10 +663,11 @@ private fun MessageBubble(
                         }
                         when {
                             awaiting -> TypingDots()
-                            msg.text.isNotBlank() -> Text(
-                                streamingText(msg.text, isStreaming),
+                            msg.text.isNotBlank() && isStreaming -> Text(
+                                streamingText(msg.text, streaming = true),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
+                            msg.text.isNotBlank() -> MarkdownBody(msg.text)
                         }
                     }
                 }

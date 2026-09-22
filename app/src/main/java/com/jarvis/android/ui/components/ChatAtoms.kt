@@ -88,10 +88,70 @@ fun streamingText(text: String, streaming: Boolean): AnnotatedString {
     }
 }
 
+/** One line of a reply, after the block structure has been decided. */
+internal sealed interface MarkdownBlock {
+    data class Paragraph(val text: String) : MarkdownBlock
+    data class Heading(val level: Int, val text: String) : MarkdownBlock
+    data class Bullet(val text: String) : MarkdownBlock
+    data class Code(val text: String) : MarkdownBlock
+}
+
 /**
- * Inline Markdown only: `code`, **bold** and *italic*. Fenced blocks pass
- * through untouched. This is presentation, not a parser and not a contract.
- * Unclosed markers are left as typed.
+ * Split a finished reply into blocks. Fenced code is taken whole, headings and
+ * bullets are single lines, and everything else stays a paragraph so inline
+ * styling can run over it. A fence that never closes is left as text: a reply
+ * that ends mid-sample must not swallow the rest.
+ */
+internal fun markdownBlocks(source: String): List<MarkdownBlock> {
+    val blocks = mutableListOf<MarkdownBlock>()
+    val paragraph = StringBuilder()
+    fun flushParagraph() {
+        val text = paragraph.toString().trim('\n')
+        if (text.isNotEmpty()) blocks += MarkdownBlock.Paragraph(text)
+        paragraph.clear()
+    }
+
+    var i = 0
+    val lines = source.split('\n')
+    while (i < lines.size) {
+        val line = lines[i]
+        if (line.startsWith("```")) {
+            val end = (i + 1 until lines.size).firstOrNull { lines[it].startsWith("```") }
+            if (end == null) {
+                paragraph.append(lines.subList(i, lines.size).joinToString("\n"))
+                break
+            }
+            flushParagraph()
+            blocks += MarkdownBlock.Code(lines.subList(i + 1, end).joinToString("\n"))
+            i = end + 1
+            continue
+        }
+        val heading = Regex("^(#{1,3})\\s+(\\S.*)$").find(line)
+        val bullet = Regex("^[-*]\\s+(\\S.*)$").find(line)
+        when {
+            heading != null -> {
+                flushParagraph()
+                blocks += MarkdownBlock.Heading(heading.groupValues[1].length, heading.groupValues[2])
+            }
+            bullet != null -> {
+                flushParagraph()
+                blocks += MarkdownBlock.Bullet(bullet.groupValues[1])
+            }
+            else -> {
+                if (paragraph.isNotEmpty()) paragraph.append('\n')
+                paragraph.append(line)
+            }
+        }
+        i++
+    }
+    flushParagraph()
+    return blocks
+}
+
+/**
+ * Inline Markdown: `code`, **bold** and *italic*. Fenced blocks are handled by
+ * [markdownBlocks] and never reach here, so a sample that mentions **bold**
+ * stays literal. Unclosed markers are left as typed.
  */
 internal fun renderInlineMarkdown(source: String, codeColor: Color): AnnotatedString {
     val code = SpanStyle(fontFamily = FontFamily.Monospace, color = codeColor)

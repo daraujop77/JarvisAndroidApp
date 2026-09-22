@@ -1,6 +1,7 @@
 package com.jarvis.android.ui.components
 
 import androidx.compose.ui.graphics.Color
+import com.jarvis.android.ui.components.MarkdownBlock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,5 +35,21 @@ class InlineMarkdownTest {
     @Test
     fun unclosedMarkerStaysLiteral() {
         assertEquals("a **b", renderInlineMarkdown("a **b", cyan).text)
+    }
+
+    @Test
+    fun headingsBulletsAndCodeBecomeTheirOwnBlocks() {
+        val blocks = markdownBlocks("# Title\n\n- one\n\n```\ncode\n```\n\nafter")
+        assertTrue(blocks[0] is MarkdownBlock.Heading)
+        assertEquals(1, (blocks[0] as MarkdownBlock.Heading).level)
+        assertTrue(blocks[1] is MarkdownBlock.Bullet)
+        assertEquals("code", (blocks[2] as MarkdownBlock.Code).text)
+        assertTrue(blocks[3] is MarkdownBlock.Paragraph)
+    }
+
+    @Test
+    fun anUnclosedFenceDoesNotSwallowTheRest() {
+        val blocks = markdownBlocks("```\ncode without an end\nstill text")
+        assertTrue(blocks.single() is MarkdownBlock.Paragraph)
     }
 }

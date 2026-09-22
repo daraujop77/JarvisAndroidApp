@@ -21,4 +21,27 @@ object LoreSearch {
             name.contains(needle, ignoreCase = true) || role.contains(needle, ignoreCase = true)
         }
     }
+
+    /**
+     * What a character is allowed to see. Scope is enforced before anything is
+     * rendered, so the screen cannot accidentally show an author secret or a
+     * locked future event on a character's page. When the control plane is
+     * connected this decision moves server-side; the rule stays the same.
+     */
+    fun visibleFacts(facts: List<LoreFact>, character: String): List<LoreFact> =
+        facts.filter { fact ->
+            when (fact.scope) {
+                "author" -> false
+                "locked" -> false
+                "character" -> fact.knownTo.contains(character)
+                else -> true
+            }
+        }
 }
+
+/** A fact and who may see it. `knownTo` only matters for character scope. */
+data class LoreFact(
+    val claim: String,
+    val scope: String,
+    val knownTo: Set<String> = emptySet(),
+)

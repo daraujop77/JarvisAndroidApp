@@ -46,6 +46,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         conversations.observeConversations()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val conversationListState: StateFlow<com.jarvis.android.data.repo.ConversationListState> =
+        conversations.observeConversationList()
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                com.jarvis.android.data.repo.ConversationListState.Loading,
+            )
+
     val messages: StateFlow<List<ChatMessage>> = _conversationId
         .flatMapLatest { id ->
             if (id == null) kotlinx.coroutines.flow.flowOf(emptyList())

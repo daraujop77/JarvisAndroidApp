@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -78,6 +80,7 @@ fun WritingRoomPreview(title: String, modifier: Modifier = Modifier) {
                 RoomTab.LORE -> LoreTab(onOpenCharacter = { openCharacter = it })
                 RoomTab.COUNCIL -> CouncilTab()
                 RoomTab.CANON -> CanonTab()
+                RoomTab.STUDIO -> StudioTab()
             }
         }
     }
@@ -104,7 +107,7 @@ private fun RoomHeader(title: String) {
 private fun RoomTabs(selected: RoomTab, onSelect: (RoomTab) -> Unit) {
     val accents = LocalJarvisAccents.current
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         RoomTab.entries.forEach { entry ->
@@ -233,6 +236,41 @@ private fun CanonTab() {
     }
 }
 
+/**
+ * The production surface, preview only. The draft lives in this composition
+ * and nowhere else: it is not saved, not sent, and not eligible to become
+ * canon. That promotion stays a human action in the control plane.
+ */
+@Composable
+private fun StudioTab() {
+    var draft by rememberSaveable { mutableStateOf("") }
+    val words = draft.trim().split(Regex("\\s+")).count { it.isNotEmpty() }
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item { Caption("A local draft. Nothing here is saved or can become canon.") }
+        item {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                label = { Text("Scene draft") },
+                minLines = 8,
+                colors = jarvisTextFieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            Text(
+                "$words WORDS · NOT SAVED",
+                style = HudTextStyle,
+                color = JarvisAmber,
+            )
+        }
+    }
+}
+
 @Composable
 private fun CharacterPage(character: CharacterEntry, onBack: () -> Unit) {
     LazyColumn(
@@ -299,6 +337,7 @@ private enum class RoomTab(val label: String) {
     LORE("Lore"),
     COUNCIL("Council"),
     CANON("Canon"),
+    STUDIO("Studio"),
 }
 
 private data class Seat(val role: String, val brief: String)

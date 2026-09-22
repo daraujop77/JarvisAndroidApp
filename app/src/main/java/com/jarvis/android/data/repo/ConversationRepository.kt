@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -31,6 +32,12 @@ data class ConversationSummary(
     val title: String,
     val updatedAtMs: Long,
 )
+
+/** First read of the conversation list. Ready replaces Loading and never goes back. */
+sealed interface ConversationListState {
+    data object Loading : ConversationListState
+    data class Ready(val conversations: List<ConversationSummary>) : ConversationListState
+}
 
 /**
  * Room-backed conversation store + reconciliation (plan AND-W2):
@@ -72,6 +79,17 @@ class ConversationRepository(
         dao.observeConversations().map { list ->
             list.map { ConversationSummary(it.conversationId, it.title, it.updatedAtMs) }
         }
+
+    /**
+     * The conversation list plus whether the first read has happened. Room
+     * emits its current rows immediately, so [ConversationListState.Loading]
+     * only shows in the gap before that first emission — which on a cold start
+     * over Tailscale is exactly when the screen would otherwise look frozen.
+     */
+    fun observeConversationList(): Flow<ConversationListState> =
+        observeConversations()
+            .map<List<ConversationSummary>, ConversationListState> { ConversationListState.Ready(it) }
+            .onStart { emit(ConversationListState.Loading) }
 
     /** Persisted history for [conversationId] merged with the live streaming request. */
     fun observeMessages(conversationId: String): Flow<List<ChatMessage>> = combine(
