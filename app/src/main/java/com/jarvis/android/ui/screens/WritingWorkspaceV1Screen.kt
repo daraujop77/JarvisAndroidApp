@@ -253,23 +253,25 @@ private fun ChatSection(
     var prompt by rememberSaveable { mutableStateOf("") }
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Text(
-                "General story chat uses the Task Classifier to choose the right Writing Room seat automatically.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            WorkspaceCard("JARVIS Auto Routing", JarvisCyan) {
+                Text(
+                    "Ask naturally. The Task Classifier chooses the Writing Room seat and the reply streams as it is generated.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         item {
             OutlinedTextField(
                 value = prompt,
                 onValueChange = { if (it.length <= 6000) prompt = it },
-                label = { Text("Ask about the story") },
+                label = { Text("What do you want to work on?") },
                 supportingText = { Text("${prompt.length}/6000") },
-                minLines = 4,
+                minLines = 3,
+                colors = jarvisTextFieldColors(),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -278,29 +280,64 @@ private fun ChatSection(
                 onClick = { vm.runWritingRoomAutoChat(projectId, title, prompt) },
                 enabled = prompt.isNotBlank() && !state.busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Send") }
+            ) { Text("Send to Writing Room") }
         }
+
+        if (state.streamingText.isNotBlank()) {
+            item {
+                WorkspaceCard("JARVIS · STREAMING", JarvisAmber) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Response arriving live", style = HudTextStyle, color = JarvisAmber)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    RichModelText(state.streamingText)
+                }
+            }
+        }
+
         state.chat?.let { chat ->
             item {
-                WorkspaceCard("Task routing") {
-                    Text("Class: ${chat.classification.task_class}")
-                    Text("Seat: ${chat.selected_participant}")
-                    if (chat.classification.depth.isNotBlank()) Text("Depth: ${chat.classification.depth}")
-                    Text("${chat.turn.routing.provider} · ${chat.turn.routing.model}")
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    MiniPill(chat.classification.task_class.ifBlank { "NORMAL" }, JarvisCyan)
+                    MiniPill(chat.selected_participant.uppercase(), JarvisViolet)
+                    MiniPill(chat.turn.routing.model, JarvisGreen)
                 }
             }
             item {
-                WorkspaceCard(chat.turn.participant.label.ifBlank { "Response" }) {
-                    Text(chat.turn.response.text)
+                WorkspaceCard(chat.turn.participant.label.ifBlank { "JARVIS" }, JarvisCyan) {
+                    Text(
+                        "${chat.turn.routing.provider} · ${chat.turn.routing.model}",
+                        style = HudTextStyle,
+                        color = JarvisCyan,
+                    )
+                    Spacer(Modifier.height(9.dp))
+                    RichModelText(chat.turn.response.text)
                 }
             }
-            if (chat.turn.canon.sources.isNotEmpty()) {
-                item { Text("Grounding", style = MaterialTheme.typography.titleMedium) }
-                items(chat.turn.canon.sources) { source ->
-                    WorkspaceCard(source.canon_status.ifBlank { "Source" }) {
-                        Text(source.title)
-                        if (!source.heading.isNullOrBlank()) {
-                            Text(source.heading.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            val grouped = chat.turn.canon.sources.groupBy { it.canon_status.ifBlank { "REFERENCE" } }
+            listOf("OFFICIAL_CANON", "REFERENCE", "APPROVED_PLAN", "PROPOSED").forEach { authority ->
+                val entries = grouped[authority].orEmpty()
+                if (entries.isNotEmpty()) {
+                    item {
+                        Text(
+                            authorityLabel(authority),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = authorityColor(authority),
+                        )
+                    }
+                    items(entries.take(5)) { source ->
+                        WorkspaceCard(source.title, authorityColor(authority)) {
+                            MiniPill(authorityLabel(authority), authorityColor(authority))
+                            if (!source.heading.isNullOrBlank()) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(source.heading.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
