@@ -8,6 +8,9 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -79,6 +82,34 @@ data class WritingRoomRagSource(
     val authority: String = "",
     val drive_url: String = "",
     val excerpt: String = "",
+)
+
+@Serializable
+data class WritingWikiCategory(
+    val id: String = "",
+    val label: String = "",
+    val subtitle: String = "",
+    val query: String = "",
+    val source_count: Int = 0,
+)
+
+@Serializable
+data class WritingWikiLegendItem(
+    val status: String = "",
+    val label: String = "",
+    val meaning: String = "",
+)
+
+@Serializable
+data class WritingWikiHome(
+    val schema: String = "",
+    val project_id: String = "",
+    val authority: String = "",
+    val latest_official_chapter: WritingLatestChapter? = null,
+    val authority_counts: Map<String, Int> = emptyMap(),
+    val categories: List<WritingWikiCategory> = emptyList(),
+    val featured: List<WritingRoomRagSource> = emptyList(),
+    val legend: List<WritingWikiLegendItem> = emptyList(),
 )
 
 @Serializable
@@ -270,6 +301,73 @@ suspend fun JarvisAppSession.writingRoomAutoChat(
         },
     )
 }
+
+suspend fun JarvisAppSession.writingRoomAutoChatStream(
+    projectId: String,
+    projectTitle: String,
+    prompt: String,
+    room: String = "chat",
+    onDelta: (String) -> Unit,
+): Result<WritingRoomAutoChat> = withContext(Dispatchers.IO) {
+    val clean = prompt.trim()
+    if (clean.isEmpty()) return@withContext Result.failure(TransportException("Writing Room prompt is empty"))
+    if (clean.length > 6000) return@withContext Result.failure(TransportException("Writing Room prompt is too long"))
+    if (expired) {
+        clear()
+        return@withContext Result.failure(TransportException("session expired"))
+    }
+    val auth = authHeader()
+        ?: return@withContext Result.failure(TransportException("no live session"))
+    val body = buildJsonObject {
+        put("project_id", projectId)
+        put("project_title", projectTitle)
+        put("room", room)
+        put("prompt", clean)
+        put("request_id", java.util.UUID.randomUUID().toString())
+    }.toString()
+
+    runCatching {
+        var completed: WritingRoomAutoChat? = null
+        var streamError: String? = null
+        val status = postSse(
+            baseUrl,
+            "/api/app/writing-room/chat/stream",
+            body,
+            auth,
+        ) { event, data ->
+            when (event) {
+                "delta" -> {
+                    val obj = writingRoomJson.parseToJsonElement(data).jsonObject
+                    obj["delta"]?.jsonPrimitive?.contentOrNull?.let(onDelta)
+                }
+                "complete" -> {
+                    completed = writingRoomJson.decodeFromString<WritingRoomAutoChat>(data)
+                }
+                "error" -> {
+                    val obj = runCatching { writingRoomJson.parseToJsonElement(data).jsonObject }.getOrNull()
+                    streamError = obj?.get("message")?.jsonPrimitive?.contentOrNull
+                        ?: obj?.get("error")?.jsonPrimitive?.contentOrNull
+                        ?: "Writing Room stream failed"
+                }
+            }
+        }
+        if (status == 401) {
+            clear()
+            throw TransportException("session expired")
+        }
+        if (status !in 200..299) throw TransportException("HTTP $status")
+        streamError?.let { throw TransportException(it) }
+        completed ?: throw TransportException("Writing Room stream ended without completion")
+    }
+}
+
+suspend fun JarvisAppSession.writingRoomWikiHome(
+    projectId: String,
+): Result<WritingWikiHome> =
+    writingPost(
+        "/api/app/writing-room/wiki/home",
+        buildJsonObject { put("project_id", projectId) },
+    )
 
 suspend fun JarvisAppSession.writingRoomWikiSearch(
     projectId: String,
