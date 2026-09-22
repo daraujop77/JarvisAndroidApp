@@ -71,7 +71,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val appUpdateManager = AppUpdateManager(
         app,
         container.liveSession,
-        baseUrlProvider = { settings.value.gatewayBaseUrl },
+        baseUrlProvider = {
+            settings.value.lastControlPlaneUrl.ifBlank { settings.value.gatewayBaseUrl }
+        },
     )
     val appUpdateState: StateFlow<AppUpdateState> = appUpdateManager.state
 
@@ -639,11 +641,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _liveAuth = MutableStateFlow<LiveAuthState>(LiveAuthState.Idle)
     val liveAuth: StateFlow<LiveAuthState> = _liveAuth
 
-    /** Log in to the existing PC-A /api/app surface over the private front door. */
-    fun liveLogin(base: String, user: String, password: String, onDone: (Boolean) -> Unit = {}) {
+    /**
+     * Daily has one owner front door. The login UI intentionally does not ask
+     * users for infrastructure addresses; provider/server details stay hidden
+     * behind the JARVIS identity.
+     */
+    fun liveLogin(user: String, password: String, onDone: (Boolean) -> Unit = {}) {
         _liveAuth.value = LiveAuthState.Busy
         viewModelScope.launch {
-            val result = container.liveSession.login(base, user, password)
+            val result = container.liveSession.login(DEFAULT_CONTROL_PLANE_URL, user, password)
             if (result.isSuccess) {
                 container.settings.setPaired(true, container.deviceIdentity.provision())
                 container.settings.setUseFake(false)
@@ -919,6 +925,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 }
+
+private const val DEFAULT_CONTROL_PLANE_URL = "https://vps-8817149e.tail6eec63.ts.net"
 
 class JarvisViewModelFactory(private val app: JarvisApp) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
