@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Base64
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.util.UUID
@@ -52,6 +53,27 @@ class AttachmentStore(context: Context) {
             filename = name,
             mimeType = "image/jpeg", // re-encode normalizes to JPEG
             sizeBytes = out.length().takeIf { it > 0 } ?: size,
+        )
+    }.getOrNull()
+
+    /** Save a generated image returned by the trusted JARVIS VPS into app-private storage. */
+    fun stageGeneratedBase64(dataBase64: String): StagedAttachment? = runCatching {
+        val raw = Base64.decode(dataBase64, Base64.DEFAULT)
+        require(raw.isNotEmpty() && raw.size <= 12 * 1024 * 1024)
+        val bitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size)
+            ?: return@runCatching null
+        val id = "gen_" + UUID.randomUUID().toString().take(12)
+        val out = File(dir, "$id.jpg")
+        out.outputStream().use { stream ->
+            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream))
+        }
+        bitmap.recycle()
+        StagedAttachment(
+            attachmentId = id,
+            file = out,
+            filename = "generated-image.jpg",
+            mimeType = "image/jpeg",
+            sizeBytes = out.length(),
         )
     }.getOrNull()
 

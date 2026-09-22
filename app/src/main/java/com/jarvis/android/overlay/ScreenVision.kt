@@ -1,8 +1,13 @@
 package com.jarvis.android.overlay
 
 import android.accessibilityservice.AccessibilityService
+import android.graphics.Bitmap
+import android.os.Build
+import android.util.Base64
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.io.ByteArrayOutputStream
 
 /**
  * Screen vision and action, wired but dormant.
@@ -42,6 +47,69 @@ class ScreenVisionService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
+    /**
+     * Capture exactly one owner-approved frame. Nothing is written to disk.
+     * Android 14+ captures the active target window so our floating overlay is
+     * not baked into the image; Android 11-13 falls back to the default display.
+     */
+    fun captureOnce(callback: (Result<ScreenCapture>) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            callback(Result.failure(IllegalStateException("screen capture requires Android 11 or newer")))
+            return
+        }
+
+        val screenshotCallback = object : AccessibilityService.TakeScreenshotCallback {
+            override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                val buffer = screenshot.hardwareBuffer
+                try {
+                    val hardware = Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace)
+                        ?: throw IllegalStateException("Android returned an unreadable screenshot")
+                    val maxEdge = maxOf(hardware.width, hardware.height).coerceAtLeast(1)
+                    val scale = (1280f / maxEdge.toFloat()).coerceAtMost(1f)
+                    val width = (hardware.width * scale).toInt().coerceAtLeast(1)
+                    val height = (hardware.height * scale).toInt().coerceAtLeast(1)
+                    val software = Bitmap.createScaledBitmap(hardware, width, height, true)
+                    val bytes = ByteArrayOutputStream().use { out ->
+                        if (!software.compress(Bitmap.CompressFormat.JPEG, 72, out)) {
+                            throw IllegalStateException("screen JPEG encoding failed")
+                        }
+                        out.toByteArray()
+                    }
+                    if (software !== hardware) software.recycle()
+                    callback(
+                        Result.success(
+                            ScreenCapture(
+                                imageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
+                                width = width,
+                                height = height,
+                            ),
+                        ),
+                    )
+                } catch (error: Throwable) {
+                    callback(Result.failure(error))
+                } finally {
+                    buffer.close()
+                }
+            }
+
+            override fun onFailure(errorCode: Int) {
+                callback(Result.failure(IllegalStateException("screen capture failed ($errorCode)")))
+            }
+        }
+
+        val executor = mainExecutor
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val windowId = rootInActiveWindow?.windowId
+            if (windowId == null) {
+                callback(Result.failure(IllegalStateException("no active window to capture")))
+                return
+            }
+            takeScreenshotOfWindow(windowId, executor, screenshotCallback)
+        } else {
+            takeScreenshot(Display.DEFAULT_DISPLAY, executor, screenshotCallback)
+        }
+    }
+
     /** A one-shot description of the screen. Empty when nothing is approved. */
     fun describe(): ScreenSnapshot {
         val root = rootInActiveWindow ?: return ScreenSnapshot.EMPTY
@@ -65,6 +133,7 @@ class ScreenVisionService : AccessibilityService() {
         return try {
             when (action) {
                 is ScreenAction.Observe -> false
+                is ScreenAction.Capture -> false
                 is ScreenAction.Tap -> actOn(root, action.targetText, AccessibilityNodeInfo.ACTION_CLICK)
                 is ScreenAction.Focus -> actOn(root, action.targetText, AccessibilityNodeInfo.ACTION_FOCUS)
                 is ScreenAction.ScrollForward ->
@@ -139,6 +208,26 @@ class ScreenVisionService : AccessibilityService() {
             return instance?.describe()
         }
 
+        /**
+         * Capture one frame only when the owner-approved token covers Capture.
+         * The callback receives the in-memory JPEG; no screenshot is persisted.
+         */
+        fun captureApproved(
+            approvalToken: ApprovalToken?,
+            callback: (Result<ScreenCapture>) -> Unit,
+        ) {
+            if (approvalToken == null || !approvalToken.covers(ScreenAction.Capture)) {
+                callback(Result.failure(IllegalStateException("screen capture was not approved")))
+                return
+            }
+            val service = instance
+            if (service == null) {
+                callback(Result.failure(IllegalStateException("screen vision accessibility service is off")))
+                return
+            }
+            service.captureOnce(callback)
+        }
+
         /** Perform one approved action. False when not approved or not possible. */
         fun performApproved(approvalToken: ApprovalToken?, action: ScreenAction): Boolean {
             if (approvalToken == null || !approvalToken.covers(action)) return false
@@ -160,12 +249,15 @@ class ApprovalToken internal constructor(private val allowed: Set<String>) {
 
 sealed class ScreenAction(val key: String) {
     data object Observe : ScreenAction("observe")
+    data object Capture : ScreenAction("capture")
     data class Tap(val targetText: String) : ScreenAction("tap:$targetText")
     data class Focus(val targetText: String) : ScreenAction("focus:$targetText")
     data class ScrollForward(val targetText: String) : ScreenAction("scroll:$targetText")
 }
 
 data class ScreenControl(val text: String, val clickable: Boolean, val editable: Boolean)
+
+data class ScreenCapture(val imageBase64: String, val width: Int, val height: Int)
 
 data class ScreenSnapshot(val packageName: String, val controls: List<ScreenControl>) {
     companion object {

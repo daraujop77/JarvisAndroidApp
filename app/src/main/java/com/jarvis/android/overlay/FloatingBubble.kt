@@ -20,10 +20,16 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +48,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.jarvis.android.MainActivity
 import com.jarvis.android.R
 import com.jarvis.android.data.prefs.SettingsStore
+import com.jarvis.android.transport.live.JarvisAppSession
 import com.jarvis.android.ui.components.JarvisMiniBrain
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.theme.JarvisTheme
@@ -49,11 +56,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * The floating brain. A small bubble that stays above other apps so the owner
+ * The floating MiniBrain. A compact body of the same current brain stays above other apps so the owner
  * can talk to JARVIS without leaving the screen they are on.
  *
  * It is only a door. Tapping it opens the app on the conversation. It does not
@@ -71,6 +79,10 @@ class FloatingBubbleService : Service() {
     private var owner: OverlayOwner? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var activity by mutableStateOf(OrbActivity.IDLE)
+    private var expanded by mutableStateOf(false)
+    private var visionBusy by mutableStateOf(false)
+    private var visionQuestion by mutableStateOf("")
+    private var visionStatus by mutableStateOf<String?>(null)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -110,6 +122,7 @@ class FloatingBubbleService : Service() {
             gravity = Gravity.TOP or Gravity.START
             x = 48
             y = 240
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
 
         val host = OverlayOwner()
@@ -129,10 +142,17 @@ class FloatingBubbleService : Service() {
 
     @androidx.compose.runtime.Composable
     private fun BubbleContent(params: WindowManager.LayoutParams) {
-        var expanded by androidx.compose.runtime.remember { mutableStateOf(false) }
         JarvisTheme {
             Column(horizontalAlignment = Alignment.End) {
-                if (expanded) BubblePanel(onClose = { expanded = false })
+                if (expanded) {
+                    BubblePanel(
+                        params = params,
+                        onClose = {
+                            visionStatus = null
+                            setExpanded(false, params)
+                        },
+                    )
+                }
                 Box(
                     Modifier
                         .size(72.dp)
@@ -144,7 +164,7 @@ class FloatingBubbleService : Service() {
                                 bubble?.let { windowManager.updateViewLayout(it, params) }
                             }
                         }
-                        .clickable { expanded = !expanded },
+                        .clickable { setExpanded(!expanded, params) },
                     contentAlignment = Alignment.Center,
                 ) {
                     JarvisMiniBrain(
@@ -158,21 +178,61 @@ class FloatingBubbleService : Service() {
     }
 
     @androidx.compose.runtime.Composable
-    private fun BubblePanel(onClose: () -> Unit) {
+    private fun BubblePanel(
+        params: WindowManager.LayoutParams,
+        onClose: () -> Unit,
+    ) {
         Column(
             Modifier
                 .padding(bottom = 8.dp)
+                .widthIn(min = 280.dp, max = 360.dp)
+                .heightIn(max = 520.dp)
                 .clip(RoundedCornerShape(18.dp))
                 .background(Color(0xF20B1622))
                 .border(1.dp, Color(0xFF23465C), RoundedCornerShape(18.dp))
+                .verticalScroll(rememberScrollState())
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("JARVIS", color = Color(0xFF3FD3EC))
+
+            PanelButton("Close") { onClose() }
+
             PanelButton("Open conversation") {
-                onClose()
+                setExpanded(false, params)
                 openApp()
             }
+
+            if (ScreenVisionService.isEnabled) {
+                OutlinedTextField(
+                    value = visionQuestion,
+                    onValueChange = { visionQuestion = it },
+                    label = { Text("Ask about this screen…") },
+                    placeholder = { Text("What should I do here?") },
+                    enabled = !visionBusy,
+                    minLines = 1,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                PanelButton(if (visionBusy) "Looking…" else "Ask JARVIS") {
+                    if (!visionBusy) seeThisScreen(visionQuestion, params)
+                }
+            } else {
+                PanelButton("Enable screen vision") {
+                    visionStatus = "Enable JARVIS Screen Vision in Android Accessibility, then come back."
+                    openAccessibilitySettings()
+                }
+            }
+
+            visionStatus?.let { status ->
+                Text(
+                    status,
+                    color = Color(0xFFB7C7DC),
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+                PanelButton("Clear result") { visionStatus = null }
+            }
+
             PanelButton("Hide bubble") {
                 scope.launch { SettingsStore(this@FloatingBubbleService).setFloatingBubble(false) }
                 stopSelf()
@@ -196,8 +256,83 @@ class FloatingBubbleService : Service() {
     private fun openApp() {
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            putExtra(MainActivity.EXTRA_OPEN_CONVERSATION, true)
         }
         startActivity(intent)
+    }
+
+    private fun openAccessibilitySettings() {
+        startActivity(
+            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
+    private fun setExpanded(value: Boolean, params: WindowManager.LayoutParams) {
+        expanded = value
+        params.flags = if (value) {
+            params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        } else {
+            params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        bubble?.let { runCatching { windowManager.updateViewLayout(it, params) } }
+    }
+
+    /**
+     * One explicit user request authorizes exactly one screenshot. The panel is
+     * hidden first so Android captures the app underneath, not JARVIS itself.
+     */
+    private fun seeThisScreen(question: String, params: WindowManager.LayoutParams) {
+        if (visionBusy) return
+        if (!ScreenVisionService.isEnabled) {
+            visionStatus = "Screen Vision is off."
+            return
+        }
+
+        visionBusy = true
+        visionStatus = "Capturing one frame…"
+        setExpanded(false, params)
+
+        scope.launch {
+            // Give focus and IME time to return to the app beneath the overlay.
+            delay(220)
+            val approval = ApprovalToken.forActions(setOf(ScreenAction.Capture))
+            ScreenVisionService.captureApproved(approval) { captured ->
+                val frame = captured.getOrElse { error ->
+                    visionBusy = false
+                    visionStatus = error.message ?: "Could not capture this screen."
+                    setExpanded(true, params)
+                    return@captureApproved
+                }
+
+                visionStatus = "JARVIS is looking…"
+                scope.launch {
+                    val session = JarvisAppSession.forContext(this@FloatingBubbleService)
+                    val prompt = question.trim().ifBlank {
+                        "Help me with this screen. Tell me briefly what is important and the most useful next action."
+                    }
+                    val reply = session.analyzeScreen(frame.imageBase64, prompt)
+                    reply.fold(
+                        onSuccess = { result ->
+                            val model = result.model.takeIf { it.isNotBlank() }
+                            visionStatus = buildString {
+                                append(result.text.take(1600))
+                                if (model != null) append("\n\nModel: ").append(model)
+                            }
+                        },
+                        onFailure = { error ->
+                            visionStatus = when {
+                                error.message?.contains("not authenticated", ignoreCase = true) == true ->
+                                    "Sign in to JARVIS first, then try again."
+                                else -> error.message ?: "Screen vision failed."
+                            }
+                        },
+                    )
+                    visionBusy = false
+                    setExpanded(true, params)
+                }
+            }
+        }
     }
 
     private fun buildNotification(): Notification {

@@ -12,6 +12,8 @@ import com.jarvis.android.data.repo.ConversationSummary
 import com.jarvis.android.data.repo.SessionSnapshot
 import com.jarvis.android.di.AppContainer
 import com.jarvis.android.transport.fake.FakeScenario
+import com.jarvis.android.update.AppUpdateManager
+import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.transport.live.*
 import android.net.Uri
 import android.util.Base64
@@ -65,6 +67,40 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     val settings = container.settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), com.jarvis.android.data.prefs.SettingsStore.Settings())
+
+    private val appUpdateManager = AppUpdateManager(
+        app,
+        container.liveSession,
+        baseUrlProvider = {
+            settings.value.lastControlPlaneUrl.ifBlank { settings.value.gatewayBaseUrl }
+        },
+    )
+    val appUpdateState: StateFlow<AppUpdateState> = appUpdateManager.state
+
+    fun checkForAppUpdate() = viewModelScope.launch {
+        appUpdateManager.checkForUpdate()
+    }
+
+    fun downloadAppUpdate() = viewModelScope.launch {
+        val current = appUpdateState.value
+        if (current is AppUpdateState.Available) {
+            appUpdateManager.downloadUpdate(current.manifest)
+        }
+    }
+
+    fun requestAppUpdateInstallPermission() {
+        appUpdateManager.requestInstallPermission()
+    }
+
+    fun installDownloadedAppUpdate() {
+        when (val current = appUpdateState.value) {
+            is AppUpdateState.ReadyToInstall ->
+                appUpdateManager.installDownloaded(current.manifest, current.apk)
+            is AppUpdateState.PermissionRequired ->
+                appUpdateManager.installDownloaded(current.manifest, current.apk)
+            else -> Unit
+        }
+    }
 
     fun openConversation(id: String) {
         _conversationId.value = id
@@ -471,6 +507,56 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _writingWorkspace.value = _writingWorkspace.value.copy(pendingExport = null)
     }
 
+    sealed interface ImageGenerationState {
+        data object Idle : ImageGenerationState
+        data object Busy : ImageGenerationState
+        data class Error(val message: String) : ImageGenerationState
+    }
+
+    private val _imageGenerationState = MutableStateFlow<ImageGenerationState>(ImageGenerationState.Idle)
+    val imageGenerationState: StateFlow<ImageGenerationState> = _imageGenerationState
+
+    fun generateImage(prompt: String) {
+        val clean = prompt.trim()
+        if (clean.isBlank() || _imageGenerationState.value is ImageGenerationState.Busy) return
+        val conversationId = _conversationId.value ?: conversations.newConversationId().also {
+            _conversationId.value = it
+        }
+        _imageGenerationState.value = ImageGenerationState.Busy
+        viewModelScope.launch {
+            container.liveSession.generateImage(clean).fold(
+                onSuccess = { reply ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
+                    }
+                    if (staged == null) {
+                        _imageGenerationState.value = ImageGenerationState.Error(
+                            "JARVIS generated an image, but Android could not decode it.",
+                        )
+                    } else {
+                        conversations.recordGeneratedImage(
+                            conversationId = conversationId,
+                            prompt = clean,
+                            attachmentId = staged.attachmentId,
+                        )
+                        _imageGenerationState.value = ImageGenerationState.Idle
+                    }
+                },
+                onFailure = { error ->
+                    _imageGenerationState.value = ImageGenerationState.Error(
+                        error.message ?: "Image generation failed",
+                    )
+                },
+            )
+        }
+    }
+
+    fun clearImageGenerationError() {
+        if (_imageGenerationState.value is ImageGenerationState.Error) {
+            _imageGenerationState.value = ImageGenerationState.Idle
+        }
+    }
+
     fun startNewConversation(onReady: (String) -> Unit = {}) {
         conversations.newConversation { id ->
             _conversationId.value = id
@@ -511,13 +597,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 container.attachmentStore.stageFrom(uri)
             } ?: return@launch
             _pendingAttachments.value = _pendingAttachments.value + staged
-            session.uploadAttachment(
-                attachmentId = staged.attachmentId,
-                conversationId = conversationId,
-                filename = staged.filename,
-                mimeType = staged.mimeType,
-                sizeBytes = staged.sizeBytes,
-            )
+            if (container.transportMode != AppContainer.TransportMode.LIVE) {
+                session.uploadAttachment(
+                    attachmentId = staged.attachmentId,
+                    conversationId = conversationId,
+                    filename = staged.filename,
+                    mimeType = staged.mimeType,
+                    sizeBytes = staged.sizeBytes,
+                )
+            }
         }
     }
 
@@ -553,11 +641,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _liveAuth = MutableStateFlow<LiveAuthState>(LiveAuthState.Idle)
     val liveAuth: StateFlow<LiveAuthState> = _liveAuth
 
-    /** Log in to the existing PC-A /api/app surface over the private front door. */
-    fun liveLogin(base: String, user: String, password: String, onDone: (Boolean) -> Unit = {}) {
+    /**
+     * Daily has one owner front door. The login UI intentionally does not ask
+     * users for infrastructure addresses; provider/server details stay hidden
+     * behind the JARVIS identity.
+     */
+    fun liveLogin(user: String, password: String, onDone: (Boolean) -> Unit = {}) {
         _liveAuth.value = LiveAuthState.Busy
         viewModelScope.launch {
-            val result = container.liveSession.login(base, user, password)
+            val result = container.liveSession.login(DEFAULT_CONTROL_PLANE_URL, user, password)
             if (result.isSuccess) {
                 container.settings.setPaired(true, container.deviceIdentity.provision())
                 container.settings.setUseFake(false)
@@ -767,6 +859,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         private set
 
     val transportMode: AppContainer.TransportMode get() = container.transportMode
+    val liveAuthenticated: Boolean get() = container.liveSession.isAuthenticated
 
     private val _healthStatus = MutableStateFlow<String?>(null)
     val healthStatus: StateFlow<String?> = _healthStatus
@@ -832,6 +925,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 }
+
+private const val DEFAULT_CONTROL_PLANE_URL = "https://vps-8817149e.tail6eec63.ts.net"
 
 class JarvisViewModelFactory(private val app: JarvisApp) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

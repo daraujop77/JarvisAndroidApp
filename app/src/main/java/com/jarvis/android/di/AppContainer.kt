@@ -69,7 +69,7 @@ class AppContainer(private val context: Context) {
     /** PC-A authenticated app session (PCB-LIVE-1). Persists only the bearer token. */
     val liveSession: JarvisAppSession by lazy { JarvisAppSession.forContext(context) }
 
-    private val live by lazy { LiveAppGatewayTransport(liveSession, scope) }
+    private val live by lazy { LiveAppGatewayTransport(liveSession, scope, attachmentStore) }
 
     /**
      * Resolved fully in [start] on a background coroutine. The pre-start value
@@ -79,7 +79,7 @@ class AppContainer(private val context: Context) {
      */
     @Volatile
     var transportMode: TransportMode =
-        if (com.jarvis.android.BuildConfig.DEBUG) TransportMode.FAKE else TransportMode.HTTP
+        if (liveSession.isAuthenticated) TransportMode.LIVE else TransportMode.HTTP
         private set
 
     /**
@@ -120,8 +120,12 @@ class AppContainer(private val context: Context) {
      * the session (and its lazy transport) is first touched.
      */
     fun start() {
+        // Resolve synchronously before any lazy session/transport can be touched.
+        // Daily builds must never race through the FakeGateway simply because
+        // they are debug-signed.
+        transportMode = resolveMode(useFake = false)
         scope.launch {
-            transportMode = resolveMode(settings.settings.first().useFakeGateway)
+            runCatching { settings.setUseFake(false) }
             session.start()
             runCatching { conversations.recover() }
         }
@@ -134,7 +138,6 @@ class AppContainer(private val context: Context) {
      * target for when PC-A activates it.
      */
     fun resolveMode(useFake: Boolean): TransportMode = when {
-        com.jarvis.android.BuildConfig.DEBUG && useFake -> TransportMode.FAKE
         liveSession.isAuthenticated -> TransportMode.LIVE
         else -> TransportMode.HTTP
     }

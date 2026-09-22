@@ -97,7 +97,9 @@ class ConversationRepository(
         _live,
     ) { stored, snap ->
         val live = liveRequestFor(snap, conversationId)
-        val persisted = stored.map {
+        val persisted = stored
+            .filterNot { isFakeGatewayArtifact(it.role, it.text) }
+            .map {
             ChatMessage(
                 clientRequestId = it.clientRequestId,
                 role = it.role,
@@ -112,7 +114,18 @@ class ConversationRepository(
             val row = ChatMessage(live.clientRequestId, "assistant", live.text, live.status, live.startedAtMs)
             if (i >= 0) persisted[i] = row else persisted += row
         }
-        persisted.sortedWith(compareBy({ it.createdAtMs }, { if (it.role == "user") 0 else 1 }))
+        // Render each turn as USER -> JARVIS even while the assistant row is live.
+        val turnTime = persisted.groupBy { it.clientRequestId }.mapValues { (_, rows) ->
+            rows.firstOrNull { it.role == "user" }?.createdAtMs
+                ?: rows.minOf { it.createdAtMs }
+        }
+        persisted.sortedWith(
+            compareBy<ChatMessage>(
+                { turnTime[it.clientRequestId] ?: it.createdAtMs },
+                { if (it.role == "user") 0 else 1 },
+                { it.createdAtMs },
+            ),
+        )
     }
 
     fun newConversation(onCreated: (String) -> Unit = {}) {
@@ -142,18 +155,33 @@ class ConversationRepository(
     }
 
     /**
-     * PCB-LIVE-2: bounded conversation history for multi-turn context, matching
-     * PC-A's own web client (last turns, completed only, current text excluded).
+     * Completed conversation history for multi-turn context. Android keeps a
+     * defensive envelope only; the backend remains authoritative for the final
+     * model context budget.
      */
     private suspend fun historyContext(
         conversationId: String,
-        limit: Int = 12,
-    ): List<com.jarvis.android.contract.ChatTurn> =
-        dao.messages(conversationId)
+        maxMessages: Int = 256,
+        maxChars: Int = 180_000,
+    ): List<com.jarvis.android.contract.ChatTurn> {
+        val eligible = dao.messages(conversationId)
             .filter { it.status == RequestStatus.Completed.dbName }
-            .takeLast(limit)
+            .filterNot { isFakeGatewayArtifact(it.role, it.text) }
             .map { com.jarvis.android.contract.ChatTurn(role = it.role, content = it.text) }
             .filter { it.content.isNotBlank() }
+
+        val selectedReverse = ArrayList<com.jarvis.android.contract.ChatTurn>()
+        var usedChars = 0
+        for (index in eligible.indices.reversed()) {
+            if (selectedReverse.size >= maxMessages) break
+            val turn = eligible[index]
+            if (usedChars + turn.content.length > maxChars) break
+            selectedReverse += turn
+            usedChars += turn.content.length
+        }
+        selectedReverse.reverse()
+        return selectedReverse
+    }
 
     /**
      * The conversation row must exist before the message row: `messages` has a
@@ -166,7 +194,7 @@ class ConversationRepository(
         text: String,
         attachmentIds: List<String>,
     ) {
-        val now = clock()
+        val now = _live.value.session.requests[cid]?.startedAtMs ?: clock()
         val joined = attachmentIds.joinToString(",")
         scope.launch {
             ensureConversation(conversationId, text, now)
@@ -182,6 +210,40 @@ class ConversationRepository(
                     attachmentIds = joined,
                 )
             )
+        }
+    }
+
+    /** Persist one generated image as a normal user/assistant pair in the current conversation. */
+    fun recordGeneratedImage(conversationId: String, prompt: String, attachmentId: String) {
+        val requestId = "img_" + UUID.randomUUID().toString()
+        val now = clock()
+        scope.launch {
+            ensureConversation(conversationId, prompt, now)
+            dao.insertMessage(
+                MessageEntity(
+                    conversationId = conversationId,
+                    clientRequestId = requestId,
+                    role = "user",
+                    text = prompt,
+                    status = RequestStatus.Completed.dbName,
+                    createdAtMs = now,
+                ),
+            )
+            dao.insertMessage(
+                MessageEntity(
+                    conversationId = conversationId,
+                    clientRequestId = requestId,
+                    role = "assistant",
+                    text = "",
+                    status = RequestStatus.Completed.dbName,
+                    createdAtMs = now + 1,
+                    attachmentIds = attachmentId,
+                ),
+            )
+            val existing = dao.conversation(conversationId)
+            if (existing != null) {
+                dao.upsertConversation(existing.copy(updatedAtMs = clock()))
+            }
         }
     }
 
@@ -309,8 +371,19 @@ class ConversationRepository(
         }
     }
 
+    private fun isFakeGatewayArtifact(role: String, text: String): Boolean {
+        if (role != "assistant") return false
+        val normalized = text.trim()
+        if (normalized.isBlank()) return false
+        return FAKE_WORDS.matches(normalized)
+    }
+
     private fun liveRequestFor(snap: SessionSnapshot, conversationId: String): RequestState? =
         snap.session.requests.values
             .filter { it.conversationId == conversationId }
             .maxByOrNull { it.startedAtMs }
+
+    private companion object {
+        val FAKE_WORDS = Regex("""^(?:word\d+\s*)+$""")
+    }
 }

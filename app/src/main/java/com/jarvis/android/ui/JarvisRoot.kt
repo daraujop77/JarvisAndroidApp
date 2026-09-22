@@ -81,7 +81,11 @@ sealed class TopLevelDestination(val route: String, val label: String, val icon:
 private enum class Shell { BOOT, LOCKED, PAIRING, MAIN }
 
 @Composable
-fun JarvisRoot(app: JarvisApp) {
+fun JarvisRoot(
+    app: JarvisApp,
+    openConversationRequest: kotlinx.coroutines.flow.StateFlow<Long>? = null,
+    onSensitiveScreenChanged: (Boolean) -> Unit = {},
+) {
     val vm: JarvisViewModel = viewModel(factory = JarvisViewModelFactory(app))
 
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
@@ -107,8 +111,12 @@ fun JarvisRoot(app: JarvisApp) {
     val shell = when {
         !bootShown -> Shell.BOOT
         settings.appLockEnabled && !unlocked -> Shell.LOCKED
-        !settings.paired || credentialsInvalid -> Shell.PAIRING
+        !settings.paired || !vm.liveAuthenticated || credentialsInvalid -> Shell.PAIRING
         else -> Shell.MAIN
+    }
+
+    LaunchedEffect(shell) {
+        onSensitiveScreenChanged(shell != Shell.MAIN)
     }
 
     CompositionLocalProvider(LocalReducedMotion provides settings.reducedMotion) {
@@ -138,7 +146,7 @@ fun JarvisRoot(app: JarvisApp) {
                     },
                 )
 
-                Shell.MAIN -> MainShell(vm)
+                Shell.MAIN -> MainShell(vm, openConversationRequest)
             }
         }
     }
@@ -146,7 +154,10 @@ fun JarvisRoot(app: JarvisApp) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MainShell(vm: JarvisViewModel) {
+private fun MainShell(
+    vm: JarvisViewModel,
+    openConversationRequest: kotlinx.coroutines.flow.StateFlow<Long>? = null,
+) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
@@ -154,8 +165,19 @@ private fun MainShell(vm: JarvisViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val isOwner = settings.isOwner
     val imeVisible = WindowInsets.isImeVisible
+    val openConversationNonce by (openConversationRequest
+        ?: kotlinx.coroutines.flow.MutableStateFlow(0L)).collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { vm.seedDemoIfEmpty() }
+    LaunchedEffect(openConversationNonce) {
+        if (openConversationNonce > 0L) {
+            navController.navigate(TopLevelDestination.Conversations.route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     // Non-owners never see pending-approval counts (or the cards themselves).
     val pendingApprovals = if (isOwner) {
@@ -217,7 +239,9 @@ private fun MainShell(vm: JarvisViewModel) {
                 enterTransition = { fadeIn(tween(220)) },
                 exitTransition = { fadeOut(tween(160)) },
             ) {
-                composable(TopLevelDestination.Conversations.route) { ConversationsScreen(vm) }
+                composable(TopLevelDestination.Conversations.route) {
+                    ConversationsScreen(vm, openConversationRequest = openConversationNonce)
+                }
                 composable(TopLevelDestination.Projects.route) { ProjectsScreen(vm) }
                 composable(TopLevelDestination.Approvals.route) { ApprovalsScreen(vm, isOwner = isOwner) }
                 composable(TopLevelDestination.Tasks.route) { TasksScreen(vm) }

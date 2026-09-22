@@ -100,9 +100,19 @@ import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
 @Composable
-fun ConversationsScreen(vm: JarvisViewModel) {
+fun ConversationsScreen(
+    vm: JarvisViewModel,
+    openConversationRequest: Long = 0L,
+) {
     var showList by rememberSaveable { mutableStateOf(true) }
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
+
+    LaunchedEffect(openConversationRequest) {
+        if (openConversationRequest > 0L) {
+            showList = false
+            if (conversationId == null) vm.startNewConversation()
+        }
+    }
 
     if (showList || conversationId == null) {
         ConversationListView(
@@ -237,6 +247,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val messages by vm.messages.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val pendingAttachments by vm.pendingAttachments.collectAsStateWithLifecycle()
+    val chatAccess by vm.chatAccess.collectAsStateWithLifecycle()
+    val imageGenerationState by vm.imageGenerationState.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -248,7 +260,11 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     ) { uri -> uri?.let { vm.stageAttachment(it) } }
 
     val liveRequest = snapshot.session.requests.values.firstOrNull { !it.status.isTerminal }
-    val streaming = liveRequest != null
+    val chatStreaming = liveRequest != null
+    val imageGenerating = imageGenerationState is JarvisViewModel.ImageGenerationState.Busy
+    val busy = chatStreaming || imageGenerating
+    val imageInputReady = chatAccess?.capabilityStates?.get("image_input") == "ready"
+    val imageGenerationReady = chatAccess?.capabilityStates?.get("image_generation") == "ready"
 
     LaunchedEffect(Unit) { vm.refreshChatAccess() }
 
@@ -272,7 +288,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     }
 
     val bubbleActivity = when {
-        streaming -> OrbActivity.THINKING
+        busy -> OrbActivity.THINKING
         !snapshot.connection.isUsable -> OrbActivity.OFFLINE
         else -> OrbActivity.IDLE
     }
@@ -307,7 +323,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         JarvisOrb(
                             size = 30.dp,
                             activity = when {
-                                streaming -> OrbActivity.THINKING
+                                busy -> OrbActivity.THINKING
                                 !snapshot.connection.isUsable -> OrbActivity.OFFLINE
                                 else -> OrbActivity.IDLE
                             },
@@ -316,9 +332,9 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         Column {
                             Text("JARVIS", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (streaming) "responding…" else "ready",
+                                if (imageGenerating) "creating image…" else if (chatStreaming) "responding…" else "ready",
                                 style = HudTextStyle,
-                                color = if (streaming) accents.orbGlow
+                                color = if (busy) accents.orbGlow
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -373,7 +389,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
                 ) {
                     JumpToLatest(
-                        streaming = streaming,
+                        streaming = chatStreaming,
                         onClick = { scope.launch { listState.animateScrollToItem(messages.lastIndex) } },
                     )
                 }
@@ -392,23 +408,38 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 )
             }
 
+            if (imageGenerationState is JarvisViewModel.ImageGenerationState.Error) {
+                Text(
+                    (imageGenerationState as JarvisViewModel.ImageGenerationState.Error).message,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+
             ProfileChipRow(vm)
 
             Composer(
                 input = input,
-                onInput = { input = it },
+                onInput = { input = it; vm.clearImageGenerationError() },
                 connected = snapshot.connection.isUsable,
-                streaming = streaming,
-                canSend = input.isNotBlank() || pendingAttachments.isNotEmpty(),
+                streaming = chatStreaming,
+                generatingImage = imageGenerating,
+                canSend = (input.isNotBlank() || pendingAttachments.isNotEmpty()) && !imageGenerating,
+                canPickPhoto = imageInputReady && pendingAttachments.isEmpty() && !imageGenerating,
+                canGenerateImage = imageGenerationReady && input.isNotBlank() &&
+                    pendingAttachments.isEmpty() && !chatStreaming && !imageGenerating,
                 onPickPhoto = {
                     photoPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
                 },
+                onGenerateImage = {
+                    vm.generateImage(input)
+                    input = ""
+                },
                 onStop = { liveRequest?.let { vm.cancel(it.clientRequestId) } },
                 onSend = {
-                    // Sending is an explicit request to see the newest turn,
-                    // even if the reader had scrolled up.
                     following = AutoFollow.next(following, atBottom, justSent = true)
                     vm.sendWithAttachments(input)
                     input = ""
@@ -467,8 +498,12 @@ private fun Composer(
     onInput: (String) -> Unit,
     connected: Boolean,
     streaming: Boolean,
+    generatingImage: Boolean,
     canSend: Boolean,
+    canPickPhoto: Boolean,
+    canGenerateImage: Boolean,
     onPickPhoto: () -> Unit,
+    onGenerateImage: () -> Unit,
     onStop: () -> Unit,
     onSend: () -> Unit,
 ) {
@@ -478,12 +513,31 @@ private fun Composer(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        IconButton(onClick = onPickPhoto) {
+        IconButton(
+            onClick = onPickPhoto,
+            enabled = canPickPhoto,
+        ) {
             Icon(
                 Icons.Filled.AddPhotoAlternate,
-                contentDescription = "Attach photo",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                contentDescription = if (canPickPhoto) "Attach photo" else "Image input unavailable",
+                tint = if (canPickPhoto) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
             )
+        }
+        IconButton(
+            onClick = onGenerateImage,
+            enabled = canGenerateImage,
+        ) {
+            if (generatingImage) {
+                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    Icons.Filled.Image,
+                    contentDescription = if (canGenerateImage) "Generate image" else "Image generation unavailable",
+                    tint = if (canGenerateImage) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                )
+            }
         }
         OutlinedTextField(
             value = input,
@@ -656,6 +710,7 @@ private fun MessageBubble(
                                         attachmentId = id,
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
+                                        generated = !isUser && msg.clientRequestId.startsWith("img_"),
                                     )
                                 }
                             }
@@ -710,9 +765,11 @@ private fun AttachmentChip(
     attachmentId: String,
     state: com.jarvis.android.data.state.AttachmentUiState?,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
+    generated: Boolean = false,
 ) {
     val thumb by rememberAttachmentThumb(attachmentId, attachmentStore)
     val statusText = when {
+        generated && state == null -> "GENERATED"
         state == null -> "STAGED"
         state.uploading -> "UPLOADING"
         state.ready -> "ATTACHED"

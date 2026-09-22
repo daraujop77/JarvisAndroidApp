@@ -1,5 +1,6 @@
 package com.jarvis.android.transport.live
 
+import com.jarvis.android.data.media.AttachmentStore
 import com.jarvis.android.contract.ConnectionPayload
 import com.jarvis.android.contract.ContractVersion
 import com.jarvis.android.contract.ErrorEnvelope
@@ -37,6 +38,7 @@ import okhttp3.Call
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -58,7 +60,12 @@ import java.util.concurrent.ConcurrentHashMap
 class LiveAppGatewayTransport(
     private val session: JarvisAppSession,
     private val scope: CoroutineScope,
+    private val attachmentStore: AttachmentStore? = null,
 ) : GatewayTransport {
+
+    private companion object {
+        const val MAX_INLINE_IMAGE_BYTES = 3_500_000
+    }
 
     private val _frames = Channel<String>(Channel.UNLIMITED)
     override val frames: Flow<String> = _frames.receiveAsFlow()
@@ -317,27 +324,54 @@ class LiveAppGatewayTransport(
         traceId: String,
         deviceId: String,
         sessionId: String,
-    ): String = buildJsonObject {
-        put("route", "local")
-        put("profile", session.chatProfileFor(req.conversationId))
-        put("session_id", sessionId)
-        put("conversation_id", req.conversationId)
-        put("device_id", deviceId)
-        put("request_id", req.clientRequestId)
-        put("trace_id", traceId)
-        put("messages", buildJsonArray {
-            req.context.forEach { turn ->
-                addJsonObject {
-                    put("role", turn.role)
-                    put("content", turn.content)
+    ): String {
+        if (req.attachmentIds.size > 1) {
+            throw TransportException("JARVIS currently supports one image per turn")
+        }
+        val inlineImages = req.attachmentIds.map { attachmentId ->
+            val store = attachmentStore
+                ?: throw TransportException("image attachments are unavailable on this transport")
+            val file = store.resolve(attachmentId)
+                ?: throw TransportException("image attachment is missing from private storage")
+            val bytes = file.readBytes()
+            if (bytes.isEmpty() || bytes.size > MAX_INLINE_IMAGE_BYTES) {
+                throw TransportException("image attachment is too large for this JARVIS version")
+            }
+            Base64.getEncoder().encodeToString(bytes)
+        }
+
+        return buildJsonObject {
+            put("mode", "auto")
+            put("profile", session.chatProfileFor(req.conversationId))
+            put("session_id", sessionId)
+            put("conversation_id", req.conversationId)
+            put("device_id", deviceId)
+            put("request_id", req.clientRequestId)
+            put("trace_id", traceId)
+            put("messages", buildJsonArray {
+                req.context.forEach { turn ->
+                    addJsonObject {
+                        put("role", turn.role)
+                        put("content", turn.content)
+                    }
                 }
+                addJsonObject {
+                    put("role", "user")
+                    put("content", req.text)
+                }
+            })
+            if (inlineImages.isNotEmpty()) {
+                put("images", buildJsonArray {
+                    inlineImages.forEach { imageBase64 ->
+                        addJsonObject {
+                            put("mime_type", "image/jpeg")
+                            put("data_base64", imageBase64)
+                        }
+                    }
+                })
             }
-            addJsonObject {
-                put("role", "user")
-                put("content", req.text)
-            }
-        })
-    }.toString()
+        }.toString()
+    }
 
     /** Returns true when this frame is the terminal `complete`. */
     private suspend fun handleSFrame(event: String, data: String, requestId: String, seq: Int): Boolean {
