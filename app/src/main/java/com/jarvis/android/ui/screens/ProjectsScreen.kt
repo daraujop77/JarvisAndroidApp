@@ -109,7 +109,7 @@ private fun ProjectDetailView(vm: JarvisViewModel, project: ProjectSummary, onBa
     val conversations by vm.conversationsFor(project.id).collectAsStateWithLifecycle(initialValue = null)
     if (project.kind == ProjectKind.WRITING_ROOM) {
         ProjectsScaffold(title = project.title.uppercase(), onBack = onBack) {
-            WritingRoomPreview(project.title)
+            WritingRoomPreview(vm = vm, projectId = project.id.value, title = project.title)
         }
         return
     }
@@ -183,7 +183,7 @@ private fun ProjectRow(project: ProjectSummary, onClick: () -> Unit) {
                 Spacer(Modifier.height(2.dp))
                 Text(
                     when {
-                        project.kind == ProjectKind.WRITING_ROOM -> "WRITING ROOM · PREVIEW"
+                        project.kind == ProjectKind.WRITING_ROOM -> "WRITING ROOM · LIVE"
                         project.state == ProjectState.ACTIVE -> "ACTIVE"
                         else -> "ARCHIVED"
                     },
