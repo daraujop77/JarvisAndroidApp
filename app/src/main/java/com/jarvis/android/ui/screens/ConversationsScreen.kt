@@ -100,9 +100,19 @@ import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
 @Composable
-fun ConversationsScreen(vm: JarvisViewModel) {
+fun ConversationsScreen(
+    vm: JarvisViewModel,
+    openConversationRequest: Long = 0L,
+) {
     var showList by rememberSaveable { mutableStateOf(true) }
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
+
+    LaunchedEffect(openConversationRequest) {
+        if (openConversationRequest > 0L) {
+            showList = false
+            if (conversationId == null) vm.startNewConversation()
+        }
+    }
 
     if (showList || conversationId == null) {
         ConversationListView(
