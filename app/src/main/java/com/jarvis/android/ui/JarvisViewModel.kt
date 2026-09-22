@@ -505,6 +505,56 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _writingWorkspace.value = _writingWorkspace.value.copy(pendingExport = null)
     }
 
+    sealed interface ImageGenerationState {
+        data object Idle : ImageGenerationState
+        data object Busy : ImageGenerationState
+        data class Error(val message: String) : ImageGenerationState
+    }
+
+    private val _imageGenerationState = MutableStateFlow<ImageGenerationState>(ImageGenerationState.Idle)
+    val imageGenerationState: StateFlow<ImageGenerationState> = _imageGenerationState
+
+    fun generateImage(prompt: String) {
+        val clean = prompt.trim()
+        if (clean.isBlank() || _imageGenerationState.value is ImageGenerationState.Busy) return
+        val conversationId = _conversationId.value ?: conversations.newConversationId().also {
+            _conversationId.value = it
+        }
+        _imageGenerationState.value = ImageGenerationState.Busy
+        viewModelScope.launch {
+            container.liveSession.generateImage(clean).fold(
+                onSuccess = { reply ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
+                    }
+                    if (staged == null) {
+                        _imageGenerationState.value = ImageGenerationState.Error(
+                            "JARVIS generated an image, but Android could not decode it.",
+                        )
+                    } else {
+                        conversations.recordGeneratedImage(
+                            conversationId = conversationId,
+                            prompt = clean,
+                            attachmentId = staged.attachmentId,
+                        )
+                        _imageGenerationState.value = ImageGenerationState.Idle
+                    }
+                },
+                onFailure = { error ->
+                    _imageGenerationState.value = ImageGenerationState.Error(
+                        error.message ?: "Image generation failed",
+                    )
+                },
+            )
+        }
+    }
+
+    fun clearImageGenerationError() {
+        if (_imageGenerationState.value is ImageGenerationState.Error) {
+            _imageGenerationState.value = ImageGenerationState.Idle
+        }
+    }
+
     fun startNewConversation(onReady: (String) -> Unit = {}) {
         conversations.newConversation { id ->
             _conversationId.value = id
@@ -545,13 +595,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 container.attachmentStore.stageFrom(uri)
             } ?: return@launch
             _pendingAttachments.value = _pendingAttachments.value + staged
-            session.uploadAttachment(
-                attachmentId = staged.attachmentId,
-                conversationId = conversationId,
-                filename = staged.filename,
-                mimeType = staged.mimeType,
-                sizeBytes = staged.sizeBytes,
-            )
+            if (container.transportMode != AppContainer.TransportMode.LIVE) {
+                session.uploadAttachment(
+                    attachmentId = staged.attachmentId,
+                    conversationId = conversationId,
+                    filename = staged.filename,
+                    mimeType = staged.mimeType,
+                    sizeBytes = staged.sizeBytes,
+                )
+            }
         }
     }
 
