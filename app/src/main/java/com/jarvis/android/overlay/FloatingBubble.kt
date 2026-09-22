@@ -42,7 +42,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.jarvis.android.MainActivity
 import com.jarvis.android.R
 import com.jarvis.android.data.prefs.SettingsStore
-import com.jarvis.android.ui.components.JarvisBrain
+import com.jarvis.android.ui.components.JarvisMiniBrain
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.theme.JarvisTheme
 import kotlinx.coroutines.CoroutineScope
@@ -147,7 +147,7 @@ class FloatingBubbleService : Service() {
                         .clickable { expanded = !expanded },
                     contentAlignment = Alignment.Center,
                 ) {
-                    JarvisBrain(
+                    JarvisMiniBrain(
                         size = 68.dp,
                         activity = activity,
                         contentDescription = "JARVIS",
