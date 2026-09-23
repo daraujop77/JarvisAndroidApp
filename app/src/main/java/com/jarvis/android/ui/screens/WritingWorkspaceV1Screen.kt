@@ -1104,7 +1104,7 @@ private fun WriteSection(
                         value = chapterBrief,
                         onValueChange = { chapterBrief = it },
                         label = { Text("Brief o resumen de la escena (Requerido)") },
-                        placeholder = { Text("Ej: Alejandro reúne a sus generales tras la batalla para decidir el cruce del río. Filotas cuestiona la prudencia del avance, mientras Hefestión apoya el plan...") },
+                        placeholder = { Text("Ej: El protagonista reúne a su equipo tras la batalla para decidir el siguiente movimiento y resolver una tensión interna...") },
                         minLines = 4,
                         colors = jarvisTextFieldColors(),
                         modifier = Modifier.fillMaxWidth(),
