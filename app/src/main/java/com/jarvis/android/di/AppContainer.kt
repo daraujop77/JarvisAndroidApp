@@ -105,13 +105,8 @@ class AppContainer(private val context: Context) {
         ConversationRepository(dao, session, scope)
     }
 
-    /**
-     * AND-W9 (Lane F): Projects backend is NOT_CONNECTED. The shell runs on
-     * this fake repository; swapping in a real PC-A projects source later is a
-     * one-property change, no UI edits.
-     */
     val projectsRepository: com.jarvis.android.data.projects.ProjectsRepository by lazy {
-        com.jarvis.android.data.projects.FakeProjectsRepository()
+        com.jarvis.android.data.projects.LiveProjectsRepository(liveSession)
     }
 
     /**

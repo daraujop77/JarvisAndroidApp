@@ -1,0 +1,19 @@
+---
+description: Main worker reads only what the current task needs
+alwaysApply: true
+---
+
+# Minimum context
+
+Do the task. Do not tour the repo.
+
+- Do not read README, `PCB-*.md`, `DEVICE-*.md`, runbooks, or git history unless the user named that file.
+- Do not fetch `tia://` guides or call TIA tools unless the task is a TIA Portal change.
+- Do not launch explore or research subagents for a one-file fix or a phone bug.
+- Search once, narrow. Read the file you will change, plus the one caller or test that proves it.
+- Long file: read the symbol, not the file. Use a line offset.
+- Phone debug: `adb devices`, logcat filtered to this app, one screenshot. Do not dump full logcat.
+- Stop reading when you can name the edit. Then edit. Verify only the failing check.
+
+Wrong: open the tree, then the reports, then every screen, then fix a button.
+Right: search the button label, read that composable, edit it, rebuild or re-screenshot.

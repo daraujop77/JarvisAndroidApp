@@ -7,16 +7,24 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -24,14 +32,17 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -56,7 +67,7 @@ import com.jarvis.android.ui.theme.LocalReducedMotion
 
 sealed class TopLevelDestination(val route: String, val label: String, val icon: ImageVector) {
     data object Conversations : TopLevelDestination("conversations", "Chat", Icons.AutoMirrored.Filled.Chat)
-    data object Approvals : TopLevelDestination("approvals", "Approvals", Icons.Filled.Person)
+    data object Approvals : TopLevelDestination("approvals", "Approvals", Icons.Filled.Shield)
     data object Tasks : TopLevelDestination("tasks", "Tasks", Icons.AutoMirrored.Filled.List)
     data object Settings : TopLevelDestination("settings", "Settings", Icons.Filled.Settings)
 
@@ -194,40 +205,75 @@ private fun MainShell(
             containerColor = Color.Transparent,
             topBar = { ConnectionBanner(snapshot, onReconnect = vm::reconnect) },
             bottomBar = {
-                AnimatedVisibility(visible = !imeVisible) {
-                    NavigationBar(containerColor = Color.Transparent) {
-                    TopLevelDestination.all.forEach { dest ->
-                        val badge = when (dest) {
-                            TopLevelDestination.Approvals -> pendingApprovals
-                            TopLevelDestination.Tasks -> runningTasks
-                            else -> 0
-                        }
-                        NavigationBarItem(
-                            selected = currentDestination?.hierarchy?.any { it.route == dest.route } == true,
-                            onClick = {
-                                navController.navigate(dest.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = {
-                                BadgedBox(badge = {
-                                    if (badge > 0) Badge { Text(badge.toString()) }
-                                }) {
-                                    Icon(dest.icon, contentDescription = dest.label)
-                                }
-                            },
-                            label = { Text(dest.label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Color(0xFF22D3EE),
-                                selectedTextColor = Color(0xFFE8EEF8),
-                                unselectedIconColor = Color(0xFF9FB3CE),
-                                unselectedTextColor = Color(0xFF9FB3CE),
-                                indicatorColor = Color(0x3322D3EE),
+                AnimatedVisibility(
+                    visible = !imeVisible,
+                    enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 2 },
+                    exit = fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 2 },
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = Color(0xDD0D1626),
+                            border = BorderStroke(
+                                1.dp,
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color(0x3322D3EE),
+                                        Color(0x228B5CF6),
+                                        Color(0x3322D3EE),
+                                    )
+                                )
                             ),
-                        )
-                    }
+                            shadowElevation = 8.dp,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            NavigationBar(
+                                containerColor = Color.Transparent,
+                                windowInsets = WindowInsets(0),
+                                modifier = Modifier.height(64.dp),
+                            ) {
+                                TopLevelDestination.all.forEach { dest ->
+                                    val badge = when (dest) {
+                                        TopLevelDestination.Approvals -> pendingApprovals
+                                        TopLevelDestination.Tasks -> runningTasks
+                                        else -> 0
+                                    }
+                                    NavigationBarItem(
+                                        selected = currentDestination?.hierarchy?.any { it.route == dest.route } == true,
+                                        onClick = {
+                                            navController.navigate(dest.route) {
+                                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        },
+                                        icon = {
+                                            BadgedBox(badge = {
+                                                if (badge > 0) Badge(
+                                                    containerColor = Color(0xFF22D3EE),
+                                                    contentColor = Color(0xFF041018),
+                                                ) { Text(badge.toString()) }
+                                            }) {
+                                                Icon(dest.icon, contentDescription = dest.label)
+                                            }
+                                        },
+                                        label = { Text(dest.label) },
+                                        colors = NavigationBarItemDefaults.colors(
+                                            selectedIconColor = Color(0xFF22D3EE),
+                                            selectedTextColor = Color(0xFFE8EEF8),
+                                            unselectedIconColor = Color(0xFF8BA2BE),
+                                            unselectedTextColor = Color(0xFF8BA2BE),
+                                            indicatorColor = Color(0x2E22D3EE),
+                                        ),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             },

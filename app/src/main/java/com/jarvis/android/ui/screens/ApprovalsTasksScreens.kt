@@ -189,9 +189,10 @@ private fun ApprovalCard(
     }
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = if (resolved) 0.6f else 0.85f),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xCC0E182A).copy(alpha = if (resolved) 0.6f else 0.8f),
         border = BorderStroke(1.dp, topBarAccent.copy(alpha = if (resolved) 0.18f else 0.35f)),
+        shadowElevation = 3.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
         Column {
@@ -488,9 +489,10 @@ fun TasksScreen(vm: JarvisViewModel) {
                         label = "taskProgress",
                     )
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xCC0E182A),
                         border = BorderStroke(1.dp, tint.copy(alpha = 0.25f)),
+                        shadowElevation = 2.dp,
                         modifier = Modifier.fillMaxWidth().animateItem(),
                     ) {
                         Column {

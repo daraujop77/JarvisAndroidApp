@@ -69,8 +69,8 @@ data class JarvisAccents(
 private val DarkAccents = JarvisAccents(
     backdrop = Brush.verticalGradient(listOf(Color(0xFF081020), DeepSpace, Color(0xFF0A1424))),
     orbGlow = JarvisCyan,
-    userBubble = Brush.linearGradient(listOf(Color(0xFF0E7490), Color(0xFF155E75))),
-    assistantBubble = Surface2, // always a dark fill so on-surface text stays light
+    userBubble = Brush.linearGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9), Color(0xFF0891B2))),
+    assistantBubble = Color(0xF0121D30), // dark glassmorphic fill so on-surface text stays crisp
     online = JarvisGreen,
     degraded = JarvisAmber,
     offline = Color(0xFF8095B0),

@@ -583,6 +583,40 @@ suspend fun JarvisAppSession.writingRoomLibraryRead(
     )
 
 
+suspend fun JarvisAppSession.writingRoomProjectCreate(title: String): Result<WritingRoomOverview> =
+    writingPost(
+        "/api/app/writing-room/project/create",
+        buildJsonObject {
+            put("title", title.trim())
+            put("kind", "WRITING_ROOM")
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomProjectRename(
+    projectId: String,
+    title: String,
+): Result<WritingRoomOverview> =
+    writingPost(
+        "/api/app/writing-room/project/update",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("title", title.trim())
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomProjectDelete(projectId: String): Result<Unit> =
+    writingPost<WritingProjectDeleteAck>(
+        "/api/app/writing-room/project/delete",
+        buildJsonObject { put("project_id", projectId) },
+    ).map { }
+
+@Serializable
+private data class WritingProjectDeleteAck(
+    val schema: String = "",
+    val project_id: String = "",
+    val deleted: Boolean = false,
+)
+
 suspend fun JarvisAppSession.writingRoomLibraryExport(
     projectId: String,
     documentId: String,
