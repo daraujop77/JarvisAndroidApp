@@ -647,7 +647,7 @@ private fun ChatSection(
                             )
                             Spacer(Modifier.height(6.dp))
                             val suggestions = listOf(
-                                "¿Cuál es el estado de Alejandro tras el Cap. 37?",
+                                "¿Cuál es el estado de Alexander tras el Cap. 37?",
                                 "¿Qué facciones y generales tienen tensiones activas?",
                                 "Sugiere un punto de partida para el siguiente capítulo",
                             )
@@ -2474,11 +2474,11 @@ private fun CharacterDirectoryCard(
 }
 
 private enum class DossierSubTab(val label: String) {
+    TODOS("Ficha completa"),
     GENERAL("General"),
     PODERES("Poderes"),
     HISTORIA("Historia"),
     VINCULOS("Vínculos"),
-    TODOS("Todos"),
 }
 
 @Composable
@@ -2534,7 +2534,7 @@ private fun CharacterDetailWiki(
     onBack: () -> Unit,
     onSelectCharacter: (String) -> Unit,
 ) {
-    var currentSubTab by rememberSaveable(character.id) { mutableStateOf(DossierSubTab.GENERAL) }
+    var currentSubTab by rememberSaveable(character.id) { mutableStateOf(DossierSubTab.TODOS) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -2754,19 +2754,38 @@ private fun CharacterDetailWiki(
             }
 
             item {
-                WorkspaceCard("Poderes & Estilo de Combate", accent = JarvisCyan) {
-                    Text(
-                        character.powersOverview,
-                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                        color = Color(0xFFF1F5F9),
-                    )
-                    if (character.signatureTechniques.isNotEmpty()) {
-                        Spacer(Modifier.height(14.dp))
+                WorkspaceCard("Habilidades, Técnicas & Límites", accent = JarvisCyan) {
+                    if (character.canonicalAbilities.isNotEmpty()) {
+                        Text("HABILIDADES CANÓNICAS", style = HudTextStyle, color = JarvisCyan)
+                        Spacer(Modifier.height(8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            character.canonicalAbilities.forEach { ability ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0x66060D1A),
+                                    border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.28f)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        "• $ability",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color(0xFFF1F5F9),
+                                    )
+                                }
+                            }
+                        }
+                    } else {
                         Text(
-                            "TÉCNICAS DISTINTIVAS & LÍMITES",
-                            style = HudTextStyle,
-                            color = JarvisCyan,
+                            character.powersOverview,
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                            color = Color(0xFFF1F5F9),
                         )
+                    }
+
+                    if (character.signatureTechniques.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("TÉCNICAS REGISTRADAS", style = HudTextStyle, color = JarvisCyan)
                         Spacer(Modifier.height(8.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             character.signatureTechniques.forEach { (name, desc) ->
@@ -2782,13 +2801,38 @@ private fun CharacterDetailWiki(
                                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                             color = character.themeColor,
                                         )
-                                        Spacer(Modifier.height(3.dp))
-                                        Text(
-                                            desc,
-                                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
-                                            color = Color(0xFFCBD5E1),
-                                        )
+                                        if (desc.isNotBlank()) {
+                                            Spacer(Modifier.height(3.dp))
+                                            Text(
+                                                desc,
+                                                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                                                color = Color(0xFFCBD5E1),
+                                            )
+                                        }
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    if (character.canonicalLimitations.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("LÍMITES & COSTOS", style = HudTextStyle, color = JarvisRed)
+                        Spacer(Modifier.height(8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            character.canonicalLimitations.forEach { limitation ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = JarvisRed.copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, JarvisRed.copy(alpha = 0.30f)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        "• $limitation",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                                        color = Color(0xFFF1F5F9),
+                                    )
                                 }
                             }
                         }
@@ -2806,12 +2850,114 @@ private fun CharacterDetailWiki(
             }
 
             item {
-                WorkspaceCard("Trayectoria Narrativa Cronológica (Capítulos 1–37)", accent = JarvisGreen) {
-                    Text(
-                        character.storyHistory,
-                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                        color = Color(0xFFF1F5F9),
-                    )
+                WorkspaceCard("Historia Canónica · Línea de Tiempo", accent = JarvisGreen) {
+                    if (character.historyTimeline.isNotEmpty()) {
+                        Text(
+                            "Sólo se muestran hechos documentados. Las etapas sin información canónica se marcan explícitamente para no inventar datos.",
+                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                            color = Color(0xFF94A3B8),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            character.historyTimeline.forEachIndexed { index, stage ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0x66060D1A),
+                                    border = BorderStroke(1.dp, JarvisGreen.copy(alpha = 0.30f)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Column(Modifier.padding(12.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            MiniPill("${index + 1}", JarvisGreen)
+                                            Text(
+                                                stage.label.ifBlank { stage.period },
+                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = Color(0xFFF8FAFC),
+                                            )
+                                        }
+                                        if (stage.period.isNotBlank()) {
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                stage.period,
+                                                style = HudTextStyle,
+                                                color = JarvisGreen.copy(alpha = 0.85f),
+                                            )
+                                        }
+                                        if (stage.summary.isNotBlank()) {
+                                            Spacer(Modifier.height(7.dp))
+                                            Text(
+                                                stage.summary,
+                                                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
+                                                color = Color(0xFFCBD5E1),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            character.storyHistory,
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                            color = Color(0xFFF1F5F9),
+                        )
+                    }
+                }
+            }
+
+            if (character.canonAppearances.isNotEmpty() || character.mentionedChapters.isNotEmpty()) {
+                item {
+                    WorkspaceCard("Apariciones & Capítulos", accent = JarvisCyan) {
+                        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                            character.canonAppearances.forEach { appearance ->
+                                val chapterLabel = if (appearance.chapters.isEmpty()) {
+                                    "Aparición"
+                                } else {
+                                    "Cap. " + appearance.chapters.joinToString(", ")
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0x66060D1A),
+                                    border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.25f)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Column(Modifier.padding(11.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Text(
+                                                chapterLabel,
+                                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                                color = JarvisCyan,
+                                            )
+                                            if (appearance.kind.isNotBlank()) {
+                                                MiniPill(appearance.kind, Color(0xFF94A3B8))
+                                            }
+                                        }
+                                        if (appearance.summary.isNotBlank()) {
+                                            Spacer(Modifier.height(5.dp))
+                                            Text(
+                                                appearance.summary,
+                                                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                                                color = Color(0xFFCBD5E1),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            if (character.mentionedChapters.isNotEmpty()) {
+                                Text(
+                                    "Menciones adicionales: capítulos ${character.mentionedChapters.joinToString(", ")}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF94A3B8),
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
