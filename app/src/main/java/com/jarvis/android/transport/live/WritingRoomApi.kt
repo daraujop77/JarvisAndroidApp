@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -101,6 +102,115 @@ data class WritingWikiLegendItem(
 )
 
 @Serializable
+data class WritingWikiRelationship(
+    val target: String = "",
+    val kind: String = "",
+)
+
+@Serializable
+data class WritingWikiHistoryItem(
+    val period: String = "",
+    val label: String = "",
+    val summary: String = "",
+    val source_refs: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingWikiAppearanceItem(
+    val chapters: List<Int> = emptyList(),
+    val kind: String = "",
+    val summary: String = "",
+)
+
+@Serializable
+data class WritingWikiFutureNote(
+    val authority: String = "",
+    val chapter_refs: List<Int> = emptyList(),
+    val summary: String = "",
+    val source_refs: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingWikiEntity(
+    val id: String = "",
+    val type: String = "",
+    val name: String = "",
+    val canonical_name: String = "",
+    val name_locked: Boolean = false,
+    val authority: String = "",
+    val role: String = "",
+    val summary: String = "",
+    val appearance: String = "",
+    val current_state: String = "",
+    val traits: List<String> = emptyList(),
+    val abilities: List<String> = emptyList(),
+    val techniques: List<String> = emptyList(),
+    val limitations: List<String> = emptyList(),
+    val relationships: List<WritingWikiRelationship> = emptyList(),
+    val history: List<WritingWikiHistoryItem> = emptyList(),
+    val appearances: List<WritingWikiAppearanceItem> = emptyList(),
+    val chapter_refs: List<Int> = emptyList(),
+    val mentions: List<Int> = emptyList(),
+    val future_refs: List<Int> = emptyList(),
+    val future_notes: List<WritingWikiFutureNote> = emptyList(),
+    val central_wound: String = "",
+    val desire_vs_need: String = "",
+    val internal_contradiction: String = "",
+)
+
+@Serializable
+data class WritingStructuredWikiHome(
+    val schema: String = "",
+    val story_id: String = "",
+    val entry_count: Int = 0,
+    val by_type: Map<String, Int> = emptyMap(),
+    val by_authority: Map<String, Int> = emptyMap(),
+    val occurred_count: Int = 0,
+    val future_count: Int = 0,
+    val featured: List<WritingWikiEntity> = emptyList(),
+)
+
+@Serializable
+data class WritingWikiNameLock(
+    val entry_id: String = "",
+    val canonical_name: String = "",
+)
+
+@Serializable
+data class WritingWikiBrowse(
+    val schema: String = "",
+    val project_id: String = "",
+    val authority: String = "",
+    val entry_type: String? = null,
+    val filter_authority: String? = null,
+    val entries: List<WritingWikiEntity> = emptyList(),
+)
+
+@Serializable
+data class WritingWikiEntryNameLock(
+    val canonical_name: String = "",
+    val locked: Boolean = false,
+)
+
+@Serializable
+data class WritingWikiEntrySection(
+    val id: String = "",
+    val label: String = "",
+    val temporal_scope: String = "",
+    val content: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class WritingWikiEntryResponse(
+    val schema: String = "",
+    val project_id: String = "",
+    val authority: String = "",
+    val entry: WritingWikiEntity = WritingWikiEntity(),
+    val name_lock: WritingWikiEntryNameLock? = null,
+    val sections: List<WritingWikiEntrySection> = emptyList(),
+)
+
+@Serializable
 data class WritingWikiHome(
     val schema: String = "",
     val project_id: String = "",
@@ -109,6 +219,7 @@ data class WritingWikiHome(
     val authority_counts: Map<String, Int> = emptyMap(),
     val categories: List<WritingWikiCategory> = emptyList(),
     val featured: List<WritingRoomRagSource> = emptyList(),
+    val structured_wiki: WritingStructuredWikiHome? = null,
     val legend: List<WritingWikiLegendItem> = emptyList(),
 )
 
@@ -118,6 +229,10 @@ data class WritingWikiSearch(
     val project_id: String = "",
     val connected: Boolean = false,
     val authority: String = "",
+    val structured_priority: Boolean = false,
+    val entities: List<WritingWikiEntity> = emptyList(),
+    val name_locks: List<WritingWikiNameLock> = emptyList(),
+    val rules: List<String> = emptyList(),
     val results: List<WritingRoomRagSource> = emptyList(),
 )
 
@@ -444,6 +559,37 @@ suspend fun JarvisAppSession.writingRoomWikiSearch(
             put("project_id", projectId)
             put("query", clean)
             put("top_k", topK.coerceIn(1, 12))
+        },
+    )
+}
+
+suspend fun JarvisAppSession.writingRoomWikiBrowse(
+    projectId: String,
+    entryType: String? = null,
+    authority: String? = null,
+    topK: Int = 100,
+): Result<WritingWikiBrowse> =
+    writingPost(
+        "/api/app/writing-room/wiki/browse",
+        buildJsonObject {
+            put("project_id", projectId)
+            if (!entryType.isNullOrBlank()) put("entry_type", entryType.trim())
+            if (!authority.isNullOrBlank()) put("authority", authority.trim())
+            put("top_k", topK.coerceIn(1, 100))
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomWikiEntry(
+    projectId: String,
+    entryId: String,
+): Result<WritingWikiEntryResponse> {
+    val clean = entryId.trim()
+    if (clean.isEmpty()) return Result.failure(TransportException("Wiki entry id is empty"))
+    return writingPost(
+        "/api/app/writing-room/wiki/entry",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("entry_id", clean)
         },
     )
 }
