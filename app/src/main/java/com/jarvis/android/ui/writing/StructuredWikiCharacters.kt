@@ -44,6 +44,36 @@ fun mergeStructuredCharacter(
                 else -> item.label
             }
         }
+    val appearances = entity.appearances
+        .filter { it.chapters.isNotEmpty() || it.summary.isNotBlank() }
+        .joinToString("\n") { appearance ->
+            val chapters = appearance.chapters.joinToString(", ")
+            val prefix = if (chapters.isNotBlank()) "Capítulos $chapters" else "Aparición"
+            val kind = appearance.kind.takeIf { it.isNotBlank() }?.let { " [$it]" }.orEmpty()
+            if (appearance.summary.isBlank()) "$prefix$kind" else "$prefix$kind: ${appearance.summary}"
+        }
+    val narrativeHistory = buildString {
+        if (history.isNotBlank()) append(history)
+        if (appearances.isNotBlank()) {
+            if (isNotEmpty()) append("\n\n")
+            append("Apariciones canónicas:\n").append(appearances)
+        }
+        if (entity.mentions.isNotEmpty()) {
+            if (isNotEmpty()) append("\n\n")
+            append("Menciones adicionales: capítulos ").append(entity.mentions.joinToString(", "))
+        }
+    }
+    val psychology = listOfNotNull(
+        entity.central_wound.takeIf { it.isNotBlank() }?.let { "Herida central: $it" },
+        entity.desire_vs_need.takeIf { it.isNotBlank() }?.let { "Deseo vs. necesidad: $it" },
+        entity.internal_contradiction.takeIf { it.isNotBlank() }?.let { "Contradicción interna: $it" },
+    ).joinToString("\n\n")
+    val powers = buildList {
+        addAll(entity.abilities)
+        if (entity.limitations.isNotEmpty()) {
+            add("Límites y costos: " + entity.limitations.joinToString(" · "))
+        }
+    }.joinToString(" · ")
 
     val relationshipText = entity.relationships
         .filter { it.target.isNotBlank() }
@@ -64,11 +94,7 @@ fun mergeStructuredCharacter(
         statusDetail = entity.current_state.ifBlank { base?.statusDetail.orEmpty() },
         appearance = entity.appearance.ifBlank { base?.appearance.orEmpty() },
         essence = entity.summary.ifBlank { base?.essence.orEmpty() },
-        powersOverview = if (entity.abilities.isNotEmpty()) {
-            entity.abilities.joinToString(" · ")
-        } else {
-            base?.powersOverview.orEmpty()
-        },
+        powersOverview = powers.ifBlank { base?.powersOverview.orEmpty() },
         signatureTechniques = if (entity.techniques.isNotEmpty()) {
             entity.techniques.map { technique ->
                 technique to "Técnica canónica registrada en la Wiki estructurada."
@@ -76,8 +102,8 @@ fun mergeStructuredCharacter(
         } else {
             base?.signatureTechniques.orEmpty()
         },
-        storyHistory = history.ifBlank { base?.storyHistory.orEmpty() },
-        centralWound = entity.central_wound.ifBlank { base?.centralWound.orEmpty() }.ifBlank { null },
+        storyHistory = narrativeHistory.ifBlank { base?.storyHistory.orEmpty() },
+        centralWound = psychology.ifBlank { base?.centralWound.orEmpty() }.ifBlank { null },
         relationships = relationshipText.ifBlank { base?.relationships.orEmpty() }.ifBlank { null },
         avatarInitial = base?.avatarInitial
             ?: canonicalName.firstOrNull()?.uppercaseChar()?.toString()
