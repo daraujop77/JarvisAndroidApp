@@ -89,7 +89,7 @@ sealed class TopLevelDestination(val route: String, val label: String, val icon:
     data object Tasks : TopLevelDestination("tasks", "Tasks", Icons.Filled.Checklist)
     data object Settings : TopLevelDestination("settings", "Settings", Icons.Filled.Tune)
 
-    /** AND-W9 shell: fake repository until PC-A publishes the projects contract. */
+    /** Projects is the production entry point for Writing Room and other live workspaces. */
     data object Projects : TopLevelDestination("projects", "Projects", Icons.Filled.AutoStories)
 
     fun localizedLabel(strings: AppStrings): String = when (this) {
@@ -102,15 +102,12 @@ sealed class TopLevelDestination(val route: String, val label: String, val icon:
 
     companion object {
         /**
-         * Getter, not a val: a companion val can capture nulls before the
-         * nested objects exist. Projects is a debug-only preview until PC-A
-         * publishes the projects contract (the shell runs on fixture data, so
-         * release users must not see it as if it were real).
+         * Production navigation must expose Projects because Writing Room is
+         * routed through ProjectsScreen. Keep this list build-type invariant:
+         * hiding Projects in release makes the signed app lose Writing Room.
          */
         val all: List<TopLevelDestination>
-            get() = if (com.jarvis.android.BuildConfig.DEBUG)
-                listOf(Conversations, Projects, Approvals, Tasks, Settings)
-            else listOf(Conversations, Approvals, Tasks, Settings)
+            get() = listOf(Conversations, Projects, Approvals, Tasks, Settings)
     }
 }
 

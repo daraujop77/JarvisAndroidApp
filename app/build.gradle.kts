@@ -28,8 +28,8 @@ android {
         applicationId = "com.jarvis.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.1.16-writing-room-v17"
+        versionCode = 18
+        versionName = "0.1.17-writing-room-v18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Checked-in schemas are what Lane C migration tests diff against.
