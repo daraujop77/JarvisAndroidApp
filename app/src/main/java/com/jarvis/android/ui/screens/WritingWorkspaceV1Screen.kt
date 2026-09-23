@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.live.WritingChapter
+import com.jarvis.android.transport.live.WritingEngineReviewEnvelope
 import com.jarvis.android.transport.live.WritingPlanItem
 import com.jarvis.android.transport.live.WritingWikiCategory
 import com.jarvis.android.ui.JarvisViewModel
@@ -390,6 +391,36 @@ private fun WriteSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        item {
+            WorkspaceCard("JARVIS Writing Engine · WR-1–5", JarvisCyan) {
+                Text(
+                    "The engine builds a frozen evidence pack, keeps future plans separate from occurred canon, and runs advisory editorial + continuity checks before human approval.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    MiniPill("CONTEXT", JarvisCyan)
+                    MiniPill("WRITER", JarvisGreen)
+                    MiniPill("STYLE", JarvisViolet)
+                    MiniPill("CANON", JarvisGreen)
+                    MiniPill("TIMELINE", JarvisAmber)
+                    MiniPill("KNOWLEDGE", JarvisCyan)
+                    MiniPill("POWER", JarvisAmber)
+                    MiniPill("COUNCIL", JarvisViolet)
+                }
+                if (!active?.context_pack_id.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Frozen Context Pack: ${active?.context_pack_id}",
+                        style = HudTextStyle,
+                        color = JarvisCyan,
+                    )
+                }
+            }
+        }
         item { SimpleField(chapterTitle, { chapterTitle = it }, "Chapter title") }
         item { SimpleField(objective, { objective = it }, "Author objective (required)", 4) }
         item { SimpleField(storyPoint, { storyPoint = it }, "Story point / where this begins") }
@@ -450,6 +481,9 @@ private fun WriteSection(
 
         if (active != null) {
             item { ActiveChapterCard(active) }
+            state.engineReview?.let { review ->
+                item { WritingEngineReviewCard(review) }
+            }
             if (active.draft_text.isNotBlank() || active.status == "DRAFT" || active.status == "REVIEW") {
                 item {
                     OutlinedTextField(
@@ -498,6 +532,161 @@ private fun ActiveChapterCard(chapter: WritingChapter) {
             )
         }
     }
+}
+
+@Composable
+private fun WritingEngineReviewCard(review: WritingEngineReviewEnvelope) {
+    val result = review.result
+    val blocking = result.severity_counts["blocking"] ?: 0
+    val warnings = result.severity_counts["warning"] ?: 0
+    val info = result.severity_counts["info"] ?: 0
+    val statusColor = when {
+        result.status == "reviewed" && blocking == 0 -> JarvisGreen
+        result.status == "incomplete" -> JarvisViolet
+        blocking > 0 -> MaterialTheme.colorScheme.error
+        warnings > 0 -> JarvisAmber
+        else -> JarvisCyan
+    }
+
+    WorkspaceCard("Writing Engine · Structured Review", statusColor) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MiniPill(result.status.ifBlank { "UNKNOWN" }.uppercase(), statusColor)
+            MiniPill("$blocking BLOCK", if (blocking > 0) MaterialTheme.colorScheme.error else JarvisGreen)
+            MiniPill("$warnings WARN", if (warnings > 0) JarvisAmber else JarvisGreen)
+            MiniPill("$info INFO", JarvisCyan)
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Context Pack: ${review.context_pack_id.ifBlank { result.context_pack_id }}",
+            style = HudTextStyle,
+            color = JarvisCyan,
+        )
+        Text(
+            "Read-only review · no auto-rewrite · no canon promotion · human decision required",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        val checks = result.check_order.ifEmpty { result.check_status.keys.toList() }
+        if (checks.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("Checks", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(5.dp))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                checks.forEach { check ->
+                    val status = result.check_status[check] ?: "unknown"
+                    val color = when (status) {
+                        "ok" -> JarvisGreen
+                        "missing_required", "error" -> MaterialTheme.colorScheme.error
+                        "unavailable" -> JarvisViolet
+                        else -> JarvisCyan
+                    }
+                    MiniPill("${reviewCheckLabel(check)} · ${status.uppercase()}", color)
+                }
+            }
+        }
+
+        if (result.missing_required_checks.isNotEmpty() || result.failed_required_checks.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Review incomplete: required factual checks are missing or failed. Do not treat this as approval.",
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        val prioritized = result.findings
+            .sortedBy {
+                when (it.severity) {
+                    "blocking" -> 0
+                    "warning" -> 1
+                    else -> 2
+                }
+            }
+        if (prioritized.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text("Findings", style = MaterialTheme.typography.titleSmall)
+            prioritized.forEach { finding ->
+                Spacer(Modifier.height(8.dp))
+                val findingColor = when (finding.severity) {
+                    "blocking" -> MaterialTheme.colorScheme.error
+                    "warning" -> JarvisAmber
+                    else -> JarvisCyan
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = findingColor.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, findingColor.copy(alpha = 0.30f)),
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            MiniPill(finding.severity.uppercase(), findingColor)
+                            MiniPill(reviewCheckLabel(finding.check), JarvisCyan)
+                            if (finding.evidence_bound == true) {
+                                MiniPill("EVIDENCE BOUND", JarvisGreen)
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(finding.message)
+                        val refs = finding.evidence
+                            .mapNotNull { it.source_ref?.takeIf(String::isNotBlank) }
+                            .distinct()
+                        if (refs.isNotEmpty()) {
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                "Evidence: ${refs.joinToString()}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else if (finding.evidence_required) {
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                "No bound evidence in this finding.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        if (finding.suggestions.isNotEmpty()) {
+                            Spacer(Modifier.height(5.dp))
+                            finding.suggestions.take(3).forEach { suggestion ->
+                                Text("• $suggestion", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "No structured findings were returned by the completed checks.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun reviewCheckLabel(check: String): String = when (check) {
+    "grammar" -> "GRAMMAR"
+    "prose" -> "PROSE"
+    "style" -> "STYLE"
+    "canon" -> "CANON"
+    "timeline" -> "TIMELINE"
+    "character_knowledge" -> "KNOWLEDGE"
+    "power_cost" -> "POWER"
+    "open_threads" -> "THREADS"
+    "reviewer" -> "REVIEWER"
+    else -> check.uppercase()
 }
 
 @Composable

@@ -186,6 +186,107 @@ class WritingRoomWorkspaceApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/chapter/review" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.chapter.review.v1",
+                          "engine_review":{
+                            "schema":"jarvis.writing-room.engine-review.v1",
+                            "authority":"human_only",
+                            "canon_mutation":"forbidden",
+                            "context_pack_id":"wcp_test_pack",
+                            "frozen_context_chars":18240,
+                            "result":{
+                              "schema":"jarvis.writing.review.result.v1",
+                              "project_id":"prj_story",
+                              "chapter_id":"chapter_1",
+                              "context_pack_id":"wcp_test_pack",
+                              "authority":"human_only",
+                              "read_only":true,
+                              "canon_mutation":"forbidden",
+                              "auto_rewrite":false,
+                              "auto_approve":false,
+                              "status":"needs_attention",
+                              "check_order":["grammar","prose","style","canon","timeline","character_knowledge","power_cost","open_threads","reviewer"],
+                              "check_status":{
+                                "grammar":"ok",
+                                "prose":"ok",
+                                "style":"ok",
+                                "canon":"ok",
+                                "timeline":"ok",
+                                "character_knowledge":"ok",
+                                "power_cost":"ok",
+                                "open_threads":"unavailable",
+                                "reviewer":"unavailable"
+                              },
+                              "missing_required_checks":[],
+                              "failed_required_checks":[],
+                              "severity_counts":{"blocking":1,"warning":1,"info":0},
+                              "finding_count":2,
+                              "findings":[
+                                {
+                                  "schema":"jarvis.writing.review.finding.v1",
+                                  "finding_id":"review_1",
+                                  "check":"canon",
+                                  "category":"continuity",
+                                  "severity":"blocking",
+                                  "message":"This line conflicts with Chapter 37.",
+                                  "suggestions":["Keep Bee's current status unchanged."],
+                                  "evidence":[
+                                    {
+                                      "source_ref":"canon37:bee",
+                                      "excerpt":"Bee remains conscious in Suna."
+                                    }
+                                  ],
+                                  "evidence_required":true,
+                                  "evidence_missing":false,
+                                  "evidence_source_binding_enforced":true,
+                                  "evidence_bound":true,
+                                  "evidence_unbound":false,
+                                  "authority":"ADVISORY",
+                                  "canon_mutation":"forbidden",
+                                  "auto_apply":false,
+                                  "resolved":false
+                                },
+                                {
+                                  "schema":"jarvis.writing.review.finding.v1",
+                                  "finding_id":"review_2",
+                                  "check":"power_cost",
+                                  "category":"power_cost",
+                                  "severity":"warning",
+                                  "message":"Confirm the cost of the damaged arm before escalating power.",
+                                  "suggestions":[],
+                                  "evidence":[],
+                                  "evidence_required":true,
+                                  "evidence_missing":true,
+                                  "evidence_source_binding_enforced":true,
+                                  "evidence_bound":false,
+                                  "evidence_unbound":false,
+                                  "authority":"ADVISORY",
+                                  "canon_mutation":"forbidden",
+                                  "auto_apply":false,
+                                  "resolved":false
+                                }
+                              ],
+                              "human_decision_required":true
+                            }
+                          },
+                          "chapter":{
+                            "chapter_id":"chapter_1",
+                            "project_id":"prj_story",
+                            "title":"Chapter 38",
+                            "objective":"Move the contingency forward.",
+                            "story_point":"After chapter 37",
+                            "status":"REVIEW",
+                            "context_pack_id":"wcp_test_pack",
+                            "draft_text":"Draft text",
+                            "reviewer_text":"Reviewer notes",
+                            "canon_review_text":"Structured review summary",
+                            "characters":["Alexander","Melody"]
+                          }
+                        }
+                        """.trimIndent(),
+                    )
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -236,6 +337,27 @@ class WritingRoomWorkspaceApiTest {
         assertEquals("Hello world", chat.turn.response.text)
         assertEquals("moderator", chat.selected_participant)
         assertEquals("nous", chat.turn.routing.provider)
+    }
+
+    @Test
+    fun structuredChapterReviewDecodesEngineFindingsAndBoundEvidence() = runBlocking(Dispatchers.IO) {
+        val review = session().writingRoomChapterReview(
+            projectId = "prj_story",
+            chapterId = "chapter_1",
+        ).getOrThrow()
+
+        assertEquals("REVIEW", review.chapter.status)
+        val engine = requireNotNull(review.engine_review)
+        assertEquals("wcp_test_pack", engine.context_pack_id)
+        assertEquals("needs_attention", engine.result.status)
+        assertEquals(1, engine.result.severity_counts["blocking"])
+        assertEquals("ok", engine.result.check_status["canon"])
+        assertTrue(engine.result.human_decision_required)
+        val canonFinding = engine.result.findings.first { it.check == "canon" }
+        assertEquals("blocking", canonFinding.severity)
+        assertEquals(true, canonFinding.evidence_bound)
+        assertEquals("canon37:bee", canonFinding.evidence.single().source_ref)
+        assertTrue(!canonFinding.auto_apply)
     }
 
     @Test

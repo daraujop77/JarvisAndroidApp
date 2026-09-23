@@ -200,9 +200,71 @@ data class WritingChapterResponse(
 )
 
 @Serializable
+data class WritingReviewEvidence(
+    val source_ref: String? = null,
+    val excerpt: String? = null,
+    val offset: Int? = null,
+    val length: Int? = null,
+)
+
+@Serializable
+data class WritingReviewFinding(
+    val schema: String = "",
+    val finding_id: String = "",
+    val check: String = "",
+    val category: String = "",
+    val severity: String = "",
+    val message: String = "",
+    val suggestions: List<String> = emptyList(),
+    val evidence: List<WritingReviewEvidence> = emptyList(),
+    val evidence_required: Boolean = false,
+    val evidence_missing: Boolean = false,
+    val evidence_source_binding_enforced: Boolean = false,
+    val evidence_bound: Boolean? = null,
+    val evidence_unbound: Boolean = false,
+    val authority: String = "",
+    val canon_mutation: String = "",
+    val auto_apply: Boolean = false,
+    val resolved: Boolean = false,
+)
+
+@Serializable
+data class WritingEngineReviewResult(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val context_pack_id: String = "",
+    val authority: String = "",
+    val read_only: Boolean = true,
+    val canon_mutation: String = "",
+    val auto_rewrite: Boolean = false,
+    val auto_approve: Boolean = false,
+    val status: String = "",
+    val check_order: List<String> = emptyList(),
+    val check_status: Map<String, String> = emptyMap(),
+    val missing_required_checks: List<String> = emptyList(),
+    val failed_required_checks: List<String> = emptyList(),
+    val severity_counts: Map<String, Int> = emptyMap(),
+    val finding_count: Int = 0,
+    val findings: List<WritingReviewFinding> = emptyList(),
+    val human_decision_required: Boolean = true,
+)
+
+@Serializable
+data class WritingEngineReviewEnvelope(
+    val schema: String = "",
+    val authority: String = "",
+    val canon_mutation: String = "",
+    val context_pack_id: String = "",
+    val frozen_context_chars: Int = 0,
+    val result: WritingEngineReviewResult = WritingEngineReviewResult(),
+)
+
+@Serializable
 data class WritingChapterAction(
     val schema: String = "",
     val chapter: WritingChapter = WritingChapter(),
+    val engine_review: WritingEngineReviewEnvelope? = null,
 )
 
 @Serializable

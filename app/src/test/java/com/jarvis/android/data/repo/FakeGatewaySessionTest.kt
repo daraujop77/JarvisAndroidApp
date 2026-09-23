@@ -156,6 +156,7 @@ class FakeGatewaySessionTest {
 
     @Test
     fun protocolMismatchFailsClosed() {
+        awaitConnection(ConnectionState.ONLINE)
         fake.config = FakeConfig(emitProtocolMismatchFirst = true)
         val cid = repo.send("c1", "hello")
         // mismatch arrives as first frame
