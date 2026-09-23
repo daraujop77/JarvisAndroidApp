@@ -17,6 +17,18 @@ enum class CharacterLifeStatus(val label: String, val color: Color) {
     PLANNED("CANON · UPCOMING INTRODUCTION", JarvisViolet),
 }
 
+data class CharacterHistoryStage(
+    val period: String,
+    val label: String,
+    val summary: String,
+)
+
+data class CharacterAppearanceRecord(
+    val chapters: List<Int>,
+    val kind: String,
+    val summary: String,
+)
+
 data class StoryCharacter(
     val id: String,
     val name: String,
@@ -35,6 +47,11 @@ data class StoryCharacter(
     val avatarInitial: String,
     val themeColor: Color,
     val relatedCharacterIds: List<String> = emptyList(),
+    val canonicalAbilities: List<String> = emptyList(),
+    val canonicalLimitations: List<String> = emptyList(),
+    val historyTimeline: List<CharacterHistoryStage> = emptyList(),
+    val canonAppearances: List<CharacterAppearanceRecord> = emptyList(),
+    val mentionedChapters: List<Int> = emptyList(),
 )
 
 val CANON_CHARACTERS = listOf(
