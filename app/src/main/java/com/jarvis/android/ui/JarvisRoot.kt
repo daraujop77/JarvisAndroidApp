@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -42,7 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -54,6 +58,9 @@ import androidx.navigation.compose.rememberNavController
 import com.jarvis.android.JarvisApp
 import com.jarvis.android.data.repo.SessionPhase
 import com.jarvis.android.ui.components.AmbientBackdrop
+import com.jarvis.android.ui.i18n.AppStrings
+import com.jarvis.android.ui.i18n.LocalAppStrings
+import com.jarvis.android.ui.i18n.resolveAppStrings
 import com.jarvis.android.ui.screens.ApprovalsScreen
 import com.jarvis.android.ui.screens.ConversationsScreen
 import com.jarvis.android.ui.screens.LockScreen
@@ -73,6 +80,14 @@ sealed class TopLevelDestination(val route: String, val label: String, val icon:
 
     /** AND-W9 shell: fake repository until PC-A publishes the projects contract. */
     data object Projects : TopLevelDestination("projects", "Projects", Icons.Filled.Folder)
+
+    fun localizedLabel(strings: AppStrings): String = when (this) {
+        Conversations -> strings.navChat
+        Projects -> strings.navProjects
+        Approvals -> strings.navApprovals
+        Tasks -> strings.navTasks
+        Settings -> strings.navSettings
+    }
 
     companion object {
         /**
@@ -130,7 +145,12 @@ fun JarvisRoot(
         onSensitiveScreenChanged(shell != Shell.MAIN)
     }
 
-    CompositionLocalProvider(LocalReducedMotion provides settings.reducedMotion) {
+    val currentStrings = resolveAppStrings(settings.appLanguage)
+
+    CompositionLocalProvider(
+        LocalReducedMotion provides settings.reducedMotion,
+        LocalAppStrings provides currentStrings,
+    ) {
         AnimatedContent(
             targetState = shell,
             transitionSpec = {
@@ -169,6 +189,7 @@ private fun MainShell(
     vm: JarvisViewModel,
     openConversationRequest: kotlinx.coroutines.flow.StateFlow<Long>? = null,
 ) {
+    val strings = LocalAppStrings.current
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
@@ -243,8 +264,10 @@ private fun MainShell(
                                         TopLevelDestination.Tasks -> runningTasks
                                         else -> 0
                                     }
+                                    val destinationLabel = dest.localizedLabel(strings)
+                                    val isSelected = currentDestination?.hierarchy?.any { it.route == dest.route } == true
                                     NavigationBarItem(
-                                        selected = currentDestination?.hierarchy?.any { it.route == dest.route } == true,
+                                        selected = isSelected,
                                         onClick = {
                                             navController.navigate(dest.route) {
                                                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -259,10 +282,22 @@ private fun MainShell(
                                                     contentColor = Color(0xFF041018),
                                                 ) { Text(badge.toString()) }
                                             }) {
-                                                Icon(dest.icon, contentDescription = dest.label)
+                                                Icon(dest.icon, contentDescription = destinationLabel)
                                             }
                                         },
-                                        label = { Text(dest.label) },
+                                        label = {
+                                            Text(
+                                                destinationLabel,
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    letterSpacing = 0.1.sp,
+                                                ),
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        },
                                         colors = NavigationBarItemDefaults.colors(
                                             selectedIconColor = Color(0xFF22D3EE),
                                             selectedTextColor = Color(0xFFE8EEF8),

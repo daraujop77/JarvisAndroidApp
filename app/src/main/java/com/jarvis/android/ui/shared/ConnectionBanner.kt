@@ -42,21 +42,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jarvis.android.data.repo.SessionSnapshot
 import com.jarvis.android.data.state.ConnectionState
+import com.jarvis.android.ui.i18n.AppStrings
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisMotion
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
 
-private fun ConnectionState.label(): String = when (this) {
-    ConnectionState.ONLINE -> "ONLINE"
-    ConnectionState.DEGRADED -> "DEGRADED"
-    ConnectionState.CONNECTING -> "CONNECTING"
-    ConnectionState.RECONNECTING -> "RECONNECTING"
-    ConnectionState.OFFLINE -> "OFFLINE"
-    ConnectionState.DISCONNECTED -> "DISCONNECTED"
-    ConnectionState.AUTH_EXPIRED -> "AUTH REQUIRED"
-    ConnectionState.DEVICE_REVOKED -> "DEVICE REVOKED"
-    ConnectionState.PROTOCOL_MISMATCH -> "UPDATE REQUIRED"
+private fun ConnectionState.label(strings: AppStrings): String = when (this) {
+    ConnectionState.ONLINE -> strings.statusOnline
+    ConnectionState.DEGRADED -> strings.statusDegraded
+    ConnectionState.CONNECTING -> strings.statusConnecting
+    ConnectionState.RECONNECTING -> strings.statusReconnecting
+    ConnectionState.OFFLINE -> strings.statusOffline
+    ConnectionState.DISCONNECTED -> strings.statusDisconnected
+    ConnectionState.AUTH_EXPIRED -> strings.statusAuthRequired
+    ConnectionState.DEVICE_REVOKED -> strings.statusDeviceRevoked
+    ConnectionState.PROTOCOL_MISMATCH -> strings.statusUpdateRequired
 }
 
 /**
@@ -65,11 +67,11 @@ private fun ConnectionState.label(): String = when (this) {
  * a dark control plane does not. The detail string is what the transport
  * already reports — this only reads it, it never invents a cause.
  */
-private fun failureHint(detail: String?): String? {
+private fun failureHint(detail: String?, strings: AppStrings): String? {
     val text = detail?.lowercase() ?: return null
     return when {
-        "pc_worker_offline" in text || "pc worker" in text -> "PC offline — cloud still available"
-        "control_plane_unavailable" in text || "control plane" in text -> "Control plane unreachable"
+        "pc_worker_offline" in text || "pc worker" in text -> strings.hintPcOffline
+        "control_plane_unavailable" in text || "control plane" in text -> strings.hintControlPlane
         else -> null
     }
 }
@@ -84,6 +86,7 @@ fun ConnectionBanner(
     onReconnect: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
     val accents = LocalJarvisAccents.current
     val conn = snapshot.connection
 
@@ -130,7 +133,7 @@ fun ConnectionBanner(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        conn.label(),
+                        conn.label(strings),
                         style = HudTextStyle.copy(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
@@ -140,7 +143,7 @@ fun ConnectionBanner(
                     )
                 }
             }
-            failureHint(snapshot.session.connectionDetail)?.let { hint ->
+            failureHint(snapshot.session.connectionDetail, strings)?.let { hint ->
                 Spacer(Modifier.width(8.dp))
                 Text(hint, style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -157,14 +160,14 @@ fun ConnectionBanner(
                     shrinkVertically(if (reduced) tween(0) else JarvisMotion.standard(160)),
             ) {
                 Text(
-                    "$active ACTIVE",
+                    strings.activeCount(active),
                     style = HudTextStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
             if (canRetry) {
-                TextButton(onClick = { onReconnect?.invoke() }) { Text("Retry") }
+                TextButton(onClick = { onReconnect?.invoke() }) { Text(strings.retry) }
             }
         }
         Box(

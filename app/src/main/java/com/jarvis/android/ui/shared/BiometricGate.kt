@@ -10,6 +10,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.jarvis.android.contract.ApprovalTier
+import com.jarvis.android.ui.i18n.AppStrings
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
@@ -24,6 +26,7 @@ import kotlin.coroutines.resume
 fun rememberBiometricGate(): suspend (tier: ApprovalTier, reason: String) -> Boolean {
     val context = LocalContext.current
     val activity = context as? FragmentActivity
+    val strings = LocalAppStrings.current
     val available = BiometricManager.from(context)
         .canAuthenticate(BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
 
@@ -31,21 +34,21 @@ fun rememberBiometricGate(): suspend (tier: ApprovalTier, reason: String) -> Boo
         when {
             !requiresBiometric(tier) -> true
             activity == null || !available -> true // no biometrics: allow (V1 limitation)
-            else -> authenticate(activity, reason)
+            else -> authenticate(activity, reason, strings)
         }
     }
-    return remember(activity, available) { gate }
+    return remember(activity, available, strings) { gate }
 }
 
 fun requiresBiometric(tier: ApprovalTier): Boolean =
     tier == ApprovalTier.SENSITIVE || tier == ApprovalTier.CRITICAL
 
-private suspend fun authenticate(activity: FragmentActivity, reason: String): Boolean =
+private suspend fun authenticate(activity: FragmentActivity, reason: String, strings: AppStrings): Boolean =
     runPrompt(activity) {
         BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Confirm approval")
+            .setTitle(strings.biometricPromptTitle)
             .setSubtitle(reason)
-            .setNegativeButtonText("Cancel")
+            .setNegativeButtonText(strings.biometricPromptCancel)
             .setAllowedAuthenticators(BIOMETRIC_STRONG)
             .build()
     }

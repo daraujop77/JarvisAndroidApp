@@ -812,6 +812,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun setReducedMotion(value: Boolean) = viewModelScope.launch { container.settings.setReducedMotion(value) }
 
+    fun setAppLanguage(lang: String) = viewModelScope.launch { container.settings.setAppLanguage(lang) }
+
     /**
      * Raise or lower the floating brain. The overlay grant is the owner's to
      * give, so when it is missing this only reports that and changes nothing.

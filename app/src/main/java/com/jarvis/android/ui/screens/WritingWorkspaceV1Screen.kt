@@ -105,6 +105,8 @@ import com.jarvis.android.transport.live.WritingWikiCategory
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
+import com.jarvis.android.ui.i18n.AppStrings
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisAmber
 import com.jarvis.android.ui.theme.JarvisCyan
@@ -131,6 +133,7 @@ fun WritingWorkspaceV1Screen(
     onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
     val state by vm.writingWorkspace.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(WorkspaceTab.OVERVIEW) }
 
@@ -146,61 +149,37 @@ fun WritingWorkspaceV1Screen(
         val accents = LocalJarvisAccents.current
         val overview = state.overview
 
-        // Barra superior unificada, limpia y moderna (sin tarjetas redundantes)
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = Color(0xDD081120),
-            border = BorderStroke(1.dp, Color(0x1F22D3EE)),
-            shadowElevation = 4.dp,
-        ) {
+        // Barra de navegación y acciones superiores
+        if (onBack != null || onEdit != null || onDelete != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (onBack != null) {
-                    IconButton(onClick = onBack) {
+                    OutlinedButton(
+                        onClick = onBack,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Volver",
-                            tint = Color(0xFFE8EEF8),
+                            contentDescription = strings.back,
+                            tint = LocalJarvisAccents.current.orbGlow,
+                            modifier = Modifier.size(16.dp),
                         )
+                        Spacer(Modifier.width(6.dp))
+                        Text(strings.back, color = Color(0xFFF1F5F9), style = HudTextStyle)
                     }
                 }
-                JarvisOrb(
-                    size = 32.dp,
-                    activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
-                    intensity = if (state.streamingText.isNotBlank()) 0.9f else 0.2f,
-                    contentDescription = "JARVIS",
-                )
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFFF8FAFC),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val chapter = overview?.latest_official_chapter?.chapter_number ?: 37
-                    Text(
-                        "STORY-001 · Cap. $chapter Oficial",
-                        style = HudTextStyle.copy(fontSize = 11.sp),
-                        color = JarvisCyan,
-                    )
-                }
-                Spacer(Modifier.width(6.dp))
-                MiniPill(
-                    if (state.busy) state.busyLabel.ifBlank { "PROCESANDO" } else "EN LÍNEA",
-                    if (state.busy) JarvisAmber else JarvisGreen,
-                )
+                Spacer(Modifier.weight(1f))
                 if (onEdit != null) {
                     IconButton(onClick = onEdit) {
                         Icon(
                             Icons.Filled.Edit,
                             contentDescription = "Renombrar",
-                            tint = Color(0xFF94A3B8),
+                            tint = JarvisCyan,
                             modifier = Modifier.size(18.dp),
                         )
                     }
@@ -210,8 +189,70 @@ fun WritingWorkspaceV1Screen(
                         Icon(
                             Icons.Filled.Delete,
                             contentDescription = "Eliminar",
-                            tint = Color(0xFFEF4444).copy(alpha = 0.8f),
+                            tint = Color(0xFFEF4444).copy(alpha = 0.85f),
                             modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // Hero Card de Jarvis Core con el Orbe animado y estado del proyecto
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xEE0E182A),
+            border = BorderStroke(
+                1.dp,
+                Brush.horizontalGradient(
+                    listOf(
+                        accents.orbGlow.copy(alpha = 0.38f),
+                        Color(0x228B5CF6),
+                        accents.orbGlow.copy(alpha = 0.20f),
+                    )
+                ),
+            ),
+            shadowElevation = 4.dp,
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                JarvisOrb(
+                    size = 62.dp,
+                    activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
+                    intensity = if (state.streamingText.isNotBlank()) 0.9f else 0.2f,
+                    contentDescription = "Writing Room status",
+                )
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFFF8FAFC),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "WRITING ROOM · STORY-001",
+                        style = HudTextStyle,
+                        color = accents.orbGlow,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val chapter = overview?.latest_official_chapter?.chapter_number ?: 37
+                        MiniPill("CANON · CAP $chapter", JarvisGreen)
+                        MiniPill(
+                            if (state.busy) state.busyLabel.ifBlank { "PROCESANDO" } else "EN LÍNEA",
+                            if (state.busy) JarvisAmber else accents.online,
                         )
                     }
                 }
@@ -238,7 +279,7 @@ fun WritingWorkspaceV1Screen(
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    TextButton(onClick = vm::clearWritingWorkspaceError) { Text("Dismiss") }
+                    TextButton(onClick = vm::clearWritingWorkspaceError) { Text(strings.dismiss) }
                 }
             }
         }
@@ -265,7 +306,7 @@ fun WritingWorkspaceV1Screen(
                     },
                     label = {
                         Text(
-                            item.label,
+                            item.label(strings),
                             fontWeight = if (tab == item) FontWeight.Bold else FontWeight.Medium,
                         )
                     },
@@ -303,6 +344,7 @@ private fun OverviewSection(
     projectId: String,
     vm: JarvisViewModel,
 ) {
+    val strings = LocalAppStrings.current
     val overview = state.overview
     val counts = overview?.sources?.by_status.orEmpty()
     val accents = LocalJarvisAccents.current
@@ -447,16 +489,16 @@ private fun OverviewSection(
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AuthorityStat(
-                    title = "Canon Oficial",
+                    title = strings.officialCanon,
                     count = counts["OFFICIAL_CANON"] ?: 8,
-                    subtitle = "Hechos inmutables ocurridos",
+                    subtitle = strings.officialCanonSub,
                     color = JarvisGreen,
                     modifier = Modifier.weight(1f),
                 )
                 AuthorityStat(
-                    title = "Referencia",
+                    title = strings.reference,
                     count = counts["REFERENCE"] ?: 7,
-                    subtitle = "Contexto, fuentes y época",
+                    subtitle = strings.referenceSub,
                     color = JarvisCyan,
                     modifier = Modifier.weight(1f),
                 )
@@ -465,16 +507,16 @@ private fun OverviewSection(
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AuthorityStat(
-                    title = "Planes Aprobados",
+                    title = strings.approvedPlans,
                     count = counts["APPROVED_PLAN"] ?: 6,
-                    subtitle = "Arcos futuros autorizados",
+                    subtitle = strings.approvedPlansSub,
                     color = JarvisAmber,
                     modifier = Modifier.weight(1f),
                 )
                 AuthorityStat(
-                    title = "Propuestas",
+                    title = strings.proposals,
                     count = counts["PROPOSED"] ?: 2,
-                    subtitle = "Ideas en borrador y análisis",
+                    subtitle = strings.proposalsSub,
                     color = JarvisViolet,
                     modifier = Modifier.weight(1f),
                 )
@@ -1588,6 +1630,7 @@ private fun WikiSection(
         val clean = query.trim()
         if (clean.isNotEmpty()) searchCharacters(clean) else emptyList()
     }
+    val strings = LocalAppStrings.current
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -1623,7 +1666,7 @@ private fun WikiSection(
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
-                        placeholder = { Text("Search story canon, characters, lore…", color = Color(0xFF64748B)) },
+                        placeholder = { Text(strings.searchLorePlaceholder, color = Color(0xFF64748B)) },
                         colors = jarvisTextFieldColors(),
                         singleLine = true,
                         trailingIcon = {
@@ -1775,7 +1818,7 @@ private fun WikiSection(
                                 onClick = { vm.clearWritingWikiSearch(); query = "" },
                                 shape = RoundedCornerShape(12.dp),
                             ) {
-                                Text("Back to Explore")
+                                Text(strings.backToExplore)
                             }
                         }
                     }
@@ -1902,7 +1945,7 @@ private fun WikiSection(
 
             item {
                 Text(
-                    "Explore by Category",
+                    strings.exploreByCategory,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = Color(0xFFF8FAFC),
                 )
@@ -3359,11 +3402,20 @@ private fun authorityLabel(status: String): String = when (status) {
     else -> status.ifBlank { "FUENTE" }
 }
 
-private enum class WorkspaceTab(val label: String, val icon: ImageVector) {
-    OVERVIEW("Resumen", Icons.Filled.Dashboard),
-    WRITE("Escribir", Icons.Filled.EditNote),
-    CHAT("Copiloto", Icons.AutoMirrored.Filled.Chat),
-    PLAN("Planes", Icons.Filled.AccountTree),
-    WIKI("Wiki", Icons.Filled.AutoStories),
-    LIBRARY("Biblioteca", Icons.Filled.LocalLibrary),
+private enum class WorkspaceTab(val icon: ImageVector) {
+    OVERVIEW(Icons.Filled.Dashboard),
+    WRITE(Icons.Filled.EditNote),
+    CHAT(Icons.AutoMirrored.Filled.Chat),
+    PLAN(Icons.Filled.AccountTree),
+    WIKI(Icons.Filled.AutoStories),
+    LIBRARY(Icons.Filled.LocalLibrary);
+
+    fun label(strings: AppStrings): String = when (this) {
+        OVERVIEW -> strings.workspaceOverview
+        WRITE -> strings.workspaceWrite
+        CHAT -> strings.workspaceChat
+        PLAN -> strings.workspacePlan
+        WIKI -> strings.workspaceWiki
+        LIBRARY -> strings.workspaceLibrary
+    }
 }

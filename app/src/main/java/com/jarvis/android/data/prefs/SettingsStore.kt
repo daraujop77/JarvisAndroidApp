@@ -46,6 +46,8 @@ class SettingsStore(private val context: Context) {
         val hasAvatar: Boolean = false,
         /** The floating brain bubble is up over other apps. */
         val floatingBubbleEnabled: Boolean = false,
+        /** In-app language selection: "system", "en", or "es". */
+        val appLanguage: String = "system",
     )
 
     private object Keys {
@@ -60,6 +62,7 @@ class SettingsStore(private val context: Context) {
         val IS_OWNER = booleanPreferencesKey("is_owner")
         val HAS_AVATAR = booleanPreferencesKey("has_avatar")
         val FLOATING_BUBBLE = booleanPreferencesKey("floating_bubble_enabled")
+        val APP_LANGUAGE = stringPreferencesKey("app_language")
     }
 
     val settings: Flow<Settings> = context.dataStore.data
@@ -80,6 +83,7 @@ class SettingsStore(private val context: Context) {
                 isOwner = prefs[Keys.IS_OWNER] ?: true,
                 hasAvatar = prefs[Keys.HAS_AVATAR] ?: false,
                 floatingBubbleEnabled = prefs[Keys.FLOATING_BUBBLE] ?: false,
+                appLanguage = prefs[Keys.APP_LANGUAGE] ?: "system",
             )
         }
 
@@ -91,6 +95,7 @@ class SettingsStore(private val context: Context) {
         it[Keys.LAST_CONTROL_PLANE] = value
     }
     suspend fun setReducedMotion(value: Boolean) = context.dataStore.edit { it[Keys.REDUCED_MOTION] = value }
+    suspend fun setAppLanguage(lang: String) = context.dataStore.edit { it[Keys.APP_LANGUAGE] = lang }
     suspend fun setAppLock(value: Boolean) = context.dataStore.edit { it[Keys.APP_LOCK] = value }
     suspend fun setOwnerName(value: String) = context.dataStore.edit { it[Keys.OWNER_NAME] = value }
     suspend fun setIsOwner(value: Boolean) = context.dataStore.edit { it[Keys.IS_OWNER] = value }

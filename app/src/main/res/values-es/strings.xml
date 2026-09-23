@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">JARVIS</string>
+    <string name="screen_vision_description">Permite a JARVIS leer la pantalla actual y tocar un control, pero solo para una acción que hayas aprobado. No hace nada por su cuenta ni almacena nada de lo que ve. Puedes desactivarlo aquí en cualquier momento.</string>
+</resources>

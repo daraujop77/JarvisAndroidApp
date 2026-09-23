@@ -44,6 +44,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.OrbActivity
+import com.jarvis.android.ui.i18n.AppStrings
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisAmber
 import com.jarvis.android.ui.theme.JarvisMotion
@@ -102,6 +104,7 @@ fun WritingRoomPreview(
 
 @Composable
 private fun RoomHeader(title: String, state: JarvisViewModel.WritingRoomState) {
+    val strings = LocalAppStrings.current
     val success = state as? JarvisViewModel.WritingRoomState.Success
     val connected = success?.turn?.canon?.connected == true
     val documents = success?.turn?.canon?.documents ?: 0
@@ -119,7 +122,7 @@ private fun RoomHeader(title: String, state: JarvisViewModel.WritingRoomState) {
         Spacer(Modifier.height(6.dp))
         Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         Text(
-            if (connected) "CANON CONNECTED · $documents DOCS" else "LIVE COUNCIL",
+            if (connected) strings.canonConnected(documents) else strings.liveCouncil,
             style = HudTextStyle,
             color = if (connected) LocalJarvisAccents.current.online else JarvisAmber,
         )
@@ -128,6 +131,7 @@ private fun RoomHeader(title: String, state: JarvisViewModel.WritingRoomState) {
 
 @Composable
 private fun RoomTabs(selected: RoomTab, onSelect: (RoomTab) -> Unit) {
+    val strings = LocalAppStrings.current
     val accents = LocalJarvisAccents.current
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
@@ -137,7 +141,7 @@ private fun RoomTabs(selected: RoomTab, onSelect: (RoomTab) -> Unit) {
             FilterChip(
                 selected = entry == selected,
                 onClick = { onSelect(entry) },
-                label = { Text(entry.label) },
+                label = { Text(entry.label(strings)) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = accents.orbGlow.copy(alpha = 0.18f),
                     selectedLabelColor = accents.orbGlow,
@@ -513,11 +517,15 @@ private fun RoomCard(onClick: (() -> Unit)? = null, content: @Composable () -> U
 
 private fun seatLabel(id: String): String = COUNCIL.firstOrNull { it.id == id }?.role ?: id
 
-private enum class RoomTab(val label: String) {
-    LORE("Lore"),
-    COUNCIL("Council"),
-    CANON("Canon"),
-    STUDIO("Studio"),
+private enum class RoomTab {
+    LORE, COUNCIL, CANON, STUDIO;
+
+    fun label(strings: AppStrings): String = when (this) {
+        LORE -> strings.roomLore
+        COUNCIL -> strings.roomCouncil
+        CANON -> strings.roomCanon
+        STUDIO -> strings.roomStudio
+    }
 }
 
 private data class Seat(val id: String, val role: String, val brief: String)

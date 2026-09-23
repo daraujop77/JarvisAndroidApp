@@ -53,6 +53,7 @@ import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.shared.rememberBiometricGate
 import com.jarvis.android.ui.shared.requiresBiometric
 import com.jarvis.android.ui.theme.HudTextStyle
@@ -62,6 +63,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ApprovalsScreen(vm: JarvisViewModel, isOwner: Boolean = true) {
+    val strings = LocalAppStrings.current
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val pending = if (isOwner) {
         snapshot.session.approvals.values.sortedByDescending { it.expiresAtMs ?: 0 }
@@ -75,7 +77,7 @@ fun ApprovalsScreen(vm: JarvisViewModel, isOwner: Boolean = true) {
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text("Approvals") },
+                title = { Text(strings.approvalsTitle) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = Color(0xFFE8EEF8),
@@ -89,15 +91,15 @@ fun ApprovalsScreen(vm: JarvisViewModel, isOwner: Boolean = true) {
         if (!isOwner) {
             EmptyState(
                 icon = { JarvisBrain(size = 110.dp, activity = OrbActivity.OFFLINE) },
-                title = "Owner only",
-                body = "PC-action approvals are visible only to the OWNER of this Jarvis installation. This device is signed in as a guest.",
+                title = strings.ownerOnlyTitle,
+                body = strings.ownerOnlyBody,
                 modifier = Modifier.padding(pad),
             )
         } else if (pending.isEmpty()) {
             EmptyState(
                 icon = { JarvisBrain(size = 110.dp, activity = OrbActivity.IDLE) },
-                title = "Nothing to approve",
-                body = "When JARVIS wants to act on your PC, the request appears here for you to allow or deny.",
+                title = strings.nothingToApproveTitle,
+                body = strings.nothingToApproveBody,
                 modifier = Modifier.padding(pad),
             )
         } else {
@@ -139,6 +141,7 @@ private fun ApprovalCard(
     onDeny: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
     val accents = LocalJarvisAccents.current
     val expired = a.expiresAtMs?.let { it < nowMs } == true && a.outcome == null
     val resolved = a.outcome != null
@@ -164,7 +167,7 @@ private fun ApprovalCard(
                     Spacer(Modifier.size(8.dp))
                     Text(a.tier.name, style = HudTextStyle, color = accent)
                     Spacer(Modifier.weight(1f))
-                    a.risk?.let { Text("RISK ${it.uppercase()}", style = HudTextStyle, color = accents.degraded) }
+                    a.risk?.let { Text(strings.riskLevel(it), style = HudTextStyle, color = accents.degraded) }
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(a.title, style = MaterialTheme.typography.titleMedium)
@@ -177,11 +180,11 @@ private fun ApprovalCard(
 
                 when {
                     resolved -> Text(
-                        if (a.resolutionInFlight) "RESOLVING ${a.outcome?.name}…" else "RESOLVED · ${a.outcome?.name}",
+                        if (a.resolutionInFlight) "${strings.resolving} ${a.outcome?.name}…" else "${strings.resolved} · ${a.outcome?.name}",
                         style = HudTextStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    expired -> Text("EXPIRED", style = HudTextStyle, color = MaterialTheme.colorScheme.error)
+                    expired -> Text(strings.expired, style = HudTextStyle, color = MaterialTheme.colorScheme.error)
                     else -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(
@@ -193,19 +196,19 @@ private fun ApprovalCard(
                                     Icon(Icons.Filled.Fingerprint, contentDescription = null, modifier = Modifier.size(17.dp))
                                     Spacer(Modifier.size(6.dp))
                                 }
-                                Text("Approve")
+                                Text(strings.approve)
                             }
-                            OutlinedButton(onClick = onDeny, shape = RoundedCornerShape(14.dp)) { Text("Deny") }
+                            OutlinedButton(onClick = onDeny, shape = RoundedCornerShape(14.dp)) { Text(strings.deny) }
                         }
                         a.expiresAtMs?.let {
                             val secs = ((it - nowMs) / 1000).coerceAtLeast(0)
                             Spacer(Modifier.height(8.dp))
-                            Text("EXPIRES IN ${secs}S", style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings.expiresIn(secs), style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (biometricDenied) {
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "Biometric confirmation required — not approved.",
+                                strings.biometricRequired,
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.error,
                             )
@@ -220,6 +223,7 @@ private fun ApprovalCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TasksScreen(vm: JarvisViewModel) {
+    val strings = LocalAppStrings.current
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val tasks = snapshot.session.tasks.values.sortedByDescending { it.updatedAtMs }
 
@@ -228,7 +232,7 @@ fun TasksScreen(vm: JarvisViewModel) {
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text("Tasks") },
+                title = { Text(strings.tasksTitle) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = Color(0xFFE8EEF8),
@@ -242,8 +246,8 @@ fun TasksScreen(vm: JarvisViewModel) {
         if (tasks.isEmpty()) {
             EmptyState(
                 icon = { JarvisBrain(size = 110.dp, activity = OrbActivity.IDLE) },
-                title = "No running tasks",
-                body = "Long jobs show their progress here and keep running even if the connection drops.",
+                title = strings.noTasksTitle,
+                body = strings.noTasksBody,
                 modifier = Modifier.padding(pad),
             )
         } else {

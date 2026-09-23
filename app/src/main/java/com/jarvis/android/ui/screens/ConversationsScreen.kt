@@ -94,6 +94,7 @@ import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.components.TypingDots
 import com.jarvis.android.ui.components.streamingText
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
@@ -133,6 +134,7 @@ private fun ConversationListView(
     onOpen: (String) -> Unit,
     onNew: () -> Unit,
 ) {
+    val strings = LocalAppStrings.current
     val listState by vm.conversationListState.collectAsStateWithLifecycle()
     val items = (listState as? com.jarvis.android.data.repo.ConversationListState.Ready)?.conversations
         ?: emptyList()
@@ -145,7 +147,7 @@ private fun ConversationListView(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text("Conversations", style = MaterialTheme.typography.titleLarge) },
+                title = { Text(strings.conversationsTitle, style = MaterialTheme.typography.titleLarge) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = Color(0xFFE8EEF8),
@@ -160,7 +162,7 @@ private fun ConversationListView(
                 onClick = onNew,
                 containerColor = MaterialTheme.colorScheme.primary,
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("New chat") },
+                text = { Text(strings.newChat) },
             )
         },
     ) { pad ->
@@ -173,7 +175,7 @@ private fun ConversationListView(
                 CircularProgressIndicator(Modifier.size(28.dp), color = accents.orbGlow)
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    "Loading conversations",
+                    strings.loadingConversations,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -186,10 +188,10 @@ private fun ConversationListView(
             ) {
                 JarvisBrain(size = 140.dp, activity = OrbActivity.IDLE)
                 Spacer(Modifier.height(24.dp))
-                Text("Ready when you are", style = MaterialTheme.typography.titleMedium)
+                Text(strings.readyWhenYouAre, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Start a conversation and I'll stream the reply here.",
+                    strings.startConversationSubtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -198,7 +200,7 @@ private fun ConversationListView(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    val quickPrompts = listOf("Draft an update", "Brainstorm ideas", "Check status")
+                    val quickPrompts = listOf(strings.quickPromptDraft, strings.quickPromptBrainstorm, strings.quickPromptStatus)
                     quickPrompts.forEach { prompt ->
                         Surface(
                             onClick = onNew,
@@ -346,8 +348,9 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 ),
                 windowInsets = WindowInsets(0),
                 navigationIcon = {
+                    val strings = LocalAppStrings.current
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back)
                     }
                 },
                 title = {
@@ -578,24 +581,26 @@ private fun Composer(
                 onClick = onGenerateImage,
                 enabled = canGenerateImage,
             ) {
+                val strings = LocalAppStrings.current
                 if (generatingImage) {
                     CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                 } else {
                     Icon(
                         Icons.Filled.Image,
-                        contentDescription = if (canGenerateImage) "Generate image" else "Image generation unavailable",
+                        contentDescription = if (canGenerateImage) strings.generateImage else strings.imageGenerationUnavailable,
                         tint = if (canGenerateImage) MaterialTheme.colorScheme.onSurfaceVariant
                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                     )
                 }
             }
+            val strings = LocalAppStrings.current
             OutlinedTextField(
                 value = input,
                 onValueChange = onInput,
                 modifier = Modifier.weight(1f),
                 placeholder = {
                     Text(
-                        if (connected) "Message JARVIS…" else "Offline — will retry",
+                        if (connected) strings.messagePlaceholder else strings.messagePlaceholderOffline,
                         color = Color(0xFFB7C7DC),
                     )
                 },
@@ -617,7 +622,7 @@ private fun Composer(
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.error,
                         ),
-                    ) { Icon(Icons.Filled.Stop, contentDescription = "Stop") }
+                    ) { Icon(Icons.Filled.Stop, contentDescription = strings.stop) }
                 } else {
                     val scale by animateFloatAsState(if (canSend) 1f else 0.85f, label = "sendScale")
                     FilledIconButton(
@@ -630,7 +635,7 @@ private fun Composer(
                             disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
                             disabledContentColor = Color(0xFF041018).copy(alpha = 0.4f),
                         ),
-                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
+                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.send) }
                 }
             }
         }
