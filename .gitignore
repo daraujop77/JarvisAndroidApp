@@ -11,6 +11,8 @@ captures/
 .cxx/
 *.aab
 *.keystore
+*.jks
+keystore.properties
 !debug.keystore
 # Keep one installable debug APK in dist/ so the repo can be sideloaded
 !dist/*.apk
