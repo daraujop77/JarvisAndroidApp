@@ -319,6 +319,9 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { vm.stageAttachment(it) } }
 
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
     val liveRequest = snapshot.session.requests.values.firstOrNull { !it.status.isTerminal }
     val chatStreaming = liveRequest != null
     val imageGenerating = imageGenerationState is JarvisViewModel.ImageGenerationState.Busy
@@ -523,6 +526,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 },
                 onStop = { liveRequest?.let { vm.cancel(it.clientRequestId) } },
                 onSend = {
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
                     following = true
                     val textToSend = input
                     input = ""
@@ -740,7 +745,7 @@ private fun Composer(
                 } else {
                     val scale by animateFloatAsState(if (canSend) 1f else 0.85f, label = "sendScale")
                     FilledIconButton(
-                        onClick = onSend,
+                        onClick = handleSend,
                         enabled = canSend,
                         modifier = Modifier.size((44 * scale).dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
