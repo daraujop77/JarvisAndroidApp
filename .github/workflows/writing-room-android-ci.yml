@@ -34,3 +34,38 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Decode Release Keystore
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p ~/.jarvis
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > ~/.jarvis/jarvis-release.jks
+
+      - name: Build signed release bundle and APK
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        env:
+          RELEASE_STORE_FILE: /home/runner/.jarvis/jarvis-release.jks
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:bundleRelease :app:assembleRelease --stacktrace
+
+      - name: Upload Release Bundle (AAB for Google Play)
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Release APK
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
+          retention-days: 14
