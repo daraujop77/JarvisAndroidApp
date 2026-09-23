@@ -166,6 +166,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val plans: List<WritingPlanItem> = emptyList(),
         val chapters: List<WritingChapterSummary> = emptyList(),
         val activeChapter: WritingChapter? = null,
+        val engineReview: WritingEngineReviewEnvelope? = null,
         val library: WritingLibraryList? = null,
         val document: WritingLibraryDocument? = null,
         val pendingExport: WritingLibraryExport? = null,
@@ -372,6 +373,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 busy = false,
                 busyLabel = "",
                 activeChapter = chapter,
+                engineReview = null,
                 chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
                 error = list.exceptionOrNull()?.message,
             )
@@ -383,7 +385,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             when (step) {
                 "showrunner" -> "Building chapter brief"
                 "write" -> "Writing grounded draft"
-                "review" -> "Running reviewer and canon audit"
+                "review" -> "Running WR-5 structured review"
                 else -> "Running chapter step"
             },
         )
@@ -401,12 +403,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 writingWorkspaceError(result.exceptionOrNull())
                 return@launch
             }
-            val chapter = result.getOrThrow().chapter
+            val action = result.getOrThrow()
+            val chapter = action.chapter
             val list = container.liveSession.writingRoomChapterList(projectId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = false,
                 busyLabel = "",
                 activeChapter = chapter,
+                engineReview = if (step == "review") action.engine_review else null,
                 chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
                 error = list.exceptionOrNull()?.message,
             )
@@ -423,6 +427,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         busy = false,
                         busyLabel = "",
                         activeChapter = it.chapter,
+                        engineReview = null,
                         error = null,
                     )
                 },
