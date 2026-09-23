@@ -9,29 +9,33 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -39,7 +43,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -74,12 +81,12 @@ import com.jarvis.android.ui.theme.LocalReducedMotion
 
 sealed class TopLevelDestination(val route: String, val label: String, val icon: ImageVector) {
     data object Conversations : TopLevelDestination("conversations", "Chat", Icons.AutoMirrored.Filled.Chat)
-    data object Approvals : TopLevelDestination("approvals", "Approvals", Icons.Filled.Shield)
-    data object Tasks : TopLevelDestination("tasks", "Tasks", Icons.AutoMirrored.Filled.List)
-    data object Settings : TopLevelDestination("settings", "Settings", Icons.Filled.Settings)
+    data object Approvals : TopLevelDestination("approvals", "Approvals", Icons.Filled.VerifiedUser)
+    data object Tasks : TopLevelDestination("tasks", "Tasks", Icons.Filled.Checklist)
+    data object Settings : TopLevelDestination("settings", "Settings", Icons.Filled.Tune)
 
     /** AND-W9 shell: fake repository until PC-A publishes the projects contract. */
-    data object Projects : TopLevelDestination("projects", "Projects", Icons.Filled.Folder)
+    data object Projects : TopLevelDestination("projects", "Projects", Icons.Filled.AutoStories)
 
     fun localizedLabel(strings: AppStrings): String = when (this) {
         Conversations -> strings.navChat
@@ -253,10 +260,12 @@ private fun MainShell(
                             shadowElevation = 8.dp,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            NavigationBar(
-                                containerColor = Color.Transparent,
-                                windowInsets = WindowInsets(0),
-                                modifier = Modifier.height(64.dp),
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 TopLevelDestination.all.forEach { dest ->
                                     val badge = when (dest) {
@@ -266,46 +275,61 @@ private fun MainShell(
                                     }
                                     val destinationLabel = dest.localizedLabel(strings)
                                     val isSelected = currentDestination?.hierarchy?.any { it.route == dest.route } == true
-                                    NavigationBarItem(
-                                        selected = isSelected,
-                                        onClick = {
-                                            navController.navigate(dest.route) {
-                                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
-                                        },
-                                        icon = {
-                                            BadgedBox(badge = {
-                                                if (badge > 0) Badge(
-                                                    containerColor = Color(0xFF22D3EE),
-                                                    contentColor = Color(0xFF041018),
-                                                ) { Text(badge.toString()) }
-                                            }) {
-                                                Icon(dest.icon, contentDescription = destinationLabel)
-                                            }
-                                        },
-                                        label = {
-                                            Text(
-                                                destinationLabel,
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    fontSize = 10.5.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                    letterSpacing = 0.1.sp,
-                                                ),
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                overflow = TextOverflow.Ellipsis,
+                                    val tint = if (isSelected) Color(0xFF22D3EE) else Color(0xFF8BA2BE)
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = {
+                                                    navController.navigate(dest.route) {
+                                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                                        launchSingleTop = true
+                                                        restoreState = true
+                                                    }
+                                                },
                                             )
-                                        },
-                                        colors = NavigationBarItemDefaults.colors(
-                                            selectedIconColor = Color(0xFF22D3EE),
-                                            selectedTextColor = Color(0xFFE8EEF8),
-                                            unselectedIconColor = Color(0xFF8BA2BE),
-                                            unselectedTextColor = Color(0xFF8BA2BE),
-                                            indicatorColor = Color(0x2E22D3EE),
-                                        ),
-                                    )
+                                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    ) {
+                                        BadgedBox(badge = {
+                                            if (badge > 0) Badge(
+                                                containerColor = Color(0xFF22D3EE),
+                                                contentColor = Color(0xFF041018),
+                                            ) { Text(badge.toString()) }
+                                        }) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(CircleShape)
+                                                    .then(
+                                                        if (isSelected) Modifier.background(Color(0x3322D3EE))
+                                                        else Modifier
+                                                    ),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    dest.icon,
+                                                    contentDescription = destinationLabel,
+                                                    tint = tint,
+                                                    modifier = Modifier.size(22.dp),
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            destinationLabel,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 10.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                letterSpacing = 0.1.sp,
+                                            ),
+                                            color = tint,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
                             }
                         }
