@@ -2208,8 +2208,12 @@ private fun CharactersDirectory(
     var searchFilter by rememberSaveable { mutableStateOf("") }
     var selectedStatusFilter by rememberSaveable { mutableStateOf<CharacterLifeStatus?>(null) }
 
-    val characters = remember(searchFilter, selectedStatusFilter) {
-        val base = if (searchFilter.trim().isEmpty()) CANON_CHARACTERS else searchCharacters(searchFilter)
+    val filteredCharacters = remember(searchFilter, selectedStatusFilter, characters) {
+        val base = if (searchFilter.trim().isEmpty()) {
+            characters
+        } else {
+            searchStructuredCharacters(characters, searchFilter)
+        }
         if (selectedStatusFilter != null) {
             base.filter { it.status == selectedStatusFilter }
         } else {
