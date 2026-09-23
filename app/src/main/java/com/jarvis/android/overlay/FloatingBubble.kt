@@ -92,10 +92,22 @@ class FloatingBubbleService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            // A chat status update must never raise a bubble the owner hid.
+            // Only an explicit START does that.
             ACTION_SET_ACTIVITY -> {
+                if (bubble == null) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 activity = intent.getStringExtra(EXTRA_ACTIVITY)
                     ?.let { runCatching { OrbActivity.valueOf(it) }.getOrNull() }
                     ?: activity
+                return START_NOT_STICKY
+            }
+            ACTION_START -> Unit
+            else -> {
+                stopSelf()
+                return START_NOT_STICKY
             }
         }
         if (!canDraw(this)) {
@@ -105,7 +117,7 @@ class FloatingBubbleService : Service() {
         }
         startForeground(NOTIFICATION_ID, buildNotification())
         if (bubble == null) showBubble()
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -138,6 +150,7 @@ class FloatingBubbleService : Service() {
         host.onResume()
         windowManager.addView(view, params)
         bubble = view
+        shown = true
     }
 
     @androidx.compose.runtime.Composable
@@ -234,7 +247,13 @@ class FloatingBubbleService : Service() {
             }
 
             PanelButton("Hide bubble") {
-                scope.launch { SettingsStore(this@FloatingBubbleService).setFloatingBubble(false) }
+                // Written on a scope this service does not cancel. onDestroy
+                // cancels [scope], which used to drop the "off" write, so the
+                // next launch restored a bubble the owner had just hidden.
+                val appContext = applicationContext
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    SettingsStore(appContext).setFloatingBubble(false)
+                }
                 stopSelf()
             }
         }
@@ -356,6 +375,7 @@ class FloatingBubbleService : Service() {
     }
 
     override fun onDestroy() {
+        shown = false
         bubble?.let { runCatching { windowManager.removeView(it) } }
         bubble = null
         owner?.onDestroy()
@@ -372,6 +392,9 @@ class FloatingBubbleService : Service() {
 
         private const val CHANNEL_ID = "jarvis_bubble"
         private const val NOTIFICATION_ID = 7101
+
+        @Volatile
+        private var shown = false
 
         fun canDraw(context: Context): Boolean = Settings.canDrawOverlays(context)
 
@@ -390,6 +413,7 @@ class FloatingBubbleService : Service() {
 
         /** Drive the bubble's brain from the conversation: thinking, listening, idle. */
         fun setActivity(context: Context, activity: OrbActivity) {
+            if (!shown) return
             context.startService(
                 Intent(context, FloatingBubbleService::class.java)
                     .setAction(ACTION_SET_ACTIVITY)
