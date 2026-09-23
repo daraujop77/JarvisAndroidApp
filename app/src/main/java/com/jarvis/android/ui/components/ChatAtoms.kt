@@ -93,7 +93,9 @@ internal sealed interface MarkdownBlock {
     data class Paragraph(val text: String) : MarkdownBlock
     data class Heading(val level: Int, val text: String) : MarkdownBlock
     data class Bullet(val text: String) : MarkdownBlock
-    data class Code(val text: String) : MarkdownBlock
+    data class Numbered(val number: String, val text: String) : MarkdownBlock
+    data class Blockquote(val text: String) : MarkdownBlock
+    data class Code(val text: String, val language: String? = null) : MarkdownBlock
 }
 
 /**
@@ -122,20 +124,31 @@ internal fun markdownBlocks(source: String): List<MarkdownBlock> {
                 break
             }
             flushParagraph()
-            blocks += MarkdownBlock.Code(lines.subList(i + 1, end).joinToString("\n"))
+            val language = line.removePrefix("```").trim().takeIf { it.isNotEmpty() }
+            blocks += MarkdownBlock.Code(lines.subList(i + 1, end).joinToString("\n"), language = language)
             i = end + 1
             continue
         }
         val heading = Regex("^(#{1,3})\\s+(\\S.*)$").find(line)
         val bullet = Regex("^[-*]\\s+(\\S.*)$").find(line)
+        val numbered = Regex("^([0-9]+)\\.\\s+(\\S.*)$").find(line)
+        val quote = Regex("^>\\s*(.*)$").find(line)
         when {
             heading != null -> {
                 flushParagraph()
                 blocks += MarkdownBlock.Heading(heading.groupValues[1].length, heading.groupValues[2])
             }
+            quote != null -> {
+                flushParagraph()
+                blocks += MarkdownBlock.Blockquote(quote.groupValues[1])
+            }
             bullet != null -> {
                 flushParagraph()
                 blocks += MarkdownBlock.Bullet(bullet.groupValues[1])
+            }
+            numbered != null -> {
+                flushParagraph()
+                blocks += MarkdownBlock.Numbered(numbered.groupValues[1], numbered.groupValues[2])
             }
             else -> {
                 if (paragraph.isNotEmpty()) paragraph.append('\n')
@@ -154,7 +167,11 @@ internal fun markdownBlocks(source: String): List<MarkdownBlock> {
  * stays literal. Unclosed markers are left as typed.
  */
 internal fun renderInlineMarkdown(source: String, codeColor: Color): AnnotatedString {
-    val code = SpanStyle(fontFamily = FontFamily.Monospace, color = codeColor)
+    val code = SpanStyle(
+        fontFamily = FontFamily.Monospace,
+        color = codeColor,
+        background = codeColor.copy(alpha = 0.14f),
+    )
     val bold = SpanStyle(fontWeight = FontWeight.SemiBold)
     val italic = SpanStyle(fontStyle = FontStyle.Italic)
     return buildAnnotatedString {

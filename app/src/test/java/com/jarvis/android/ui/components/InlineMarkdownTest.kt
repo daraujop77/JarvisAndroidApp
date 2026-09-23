@@ -52,4 +52,25 @@ class InlineMarkdownTest {
         val blocks = markdownBlocks("```\ncode without an end\nstill text")
         assertTrue(blocks.single() is MarkdownBlock.Paragraph)
     }
+
+    @Test
+    fun codeBlockCapturesLanguageTag() {
+        val blocks = markdownBlocks("```kotlin\nval x = 1\n```")
+        val code = blocks.single() as MarkdownBlock.Code
+        assertEquals("val x = 1", code.text)
+        assertEquals("kotlin", code.language)
+    }
+
+    @Test
+    fun blockquoteAndNumberedListBecomeTheirOwnBlocks() {
+        val blocks = markdownBlocks("> Important instruction\n\n1. Step one\n2. Step two")
+        assertTrue(blocks[0] is MarkdownBlock.Blockquote)
+        assertEquals("Important instruction", (blocks[0] as MarkdownBlock.Blockquote).text)
+        assertTrue(blocks[1] is MarkdownBlock.Numbered)
+        assertEquals("1", (blocks[1] as MarkdownBlock.Numbered).number)
+        assertEquals("Step one", (blocks[1] as MarkdownBlock.Numbered).text)
+        assertTrue(blocks[2] is MarkdownBlock.Numbered)
+        assertEquals("2", (blocks[2] as MarkdownBlock.Numbered).number)
+        assertEquals("Step two", (blocks[2] as MarkdownBlock.Numbered).text)
+    }
 }
