@@ -115,6 +115,35 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun refreshProjects() { _projectsEpoch.value += 1 }
 
+    private val _projectsMessage = MutableStateFlow<String?>(null)
+    val projectsMessage: StateFlow<String?> = _projectsMessage
+
+    fun clearProjectsMessage() {
+        _projectsMessage.value = null
+    }
+
+    fun createProject(title: String) = mutateProject { container.projectsRepository.createProject(title) }
+
+    fun renameProject(projectId: com.jarvis.android.data.projects.ProjectId, title: String) =
+        mutateProject { container.projectsRepository.renameProject(projectId, title) }
+
+    fun deleteProject(projectId: com.jarvis.android.data.projects.ProjectId) =
+        mutateProject { container.projectsRepository.deleteProject(projectId) }
+
+    private fun mutateProject(block: suspend () -> Result<*>) {
+        viewModelScope.launch {
+            block().fold(
+                onSuccess = {
+                    _projectsMessage.value = null
+                    refreshProjects()
+                },
+                onFailure = { error ->
+                    _projectsMessage.value = error.message ?: "Project request failed"
+                },
+            )
+        }
+    }
+
     fun conversationsFor(projectId: com.jarvis.android.data.projects.ProjectId) =
         container.projectsRepository.conversationsFor(projectId)
 

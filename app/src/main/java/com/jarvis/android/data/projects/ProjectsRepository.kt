@@ -1,29 +1,22 @@
 package com.jarvis.android.data.projects
 
-import kotlinx.coroutines.delay
+import com.jarvis.android.transport.live.JarvisAppSession
+import com.jarvis.android.transport.live.writingRoomOverview
+import com.jarvis.android.transport.live.writingRoomProjectCreate
+import com.jarvis.android.transport.live.writingRoomProjectDelete
+import com.jarvis.android.transport.live.writingRoomProjectRename
+import java.time.LocalDate
+import java.time.ZoneOffset
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 
-/**
- * AND-W9 Projects shell (Lane F).
- *
- * `PROJECTS_BACKEND = NOT_CONNECTED`: PC-A has not published a projects
- * contract, so the *only* implementation here is a deterministic fake behind
- * this interface. When PC-A freezes `/api/v1` projects (or an equivalent), a
- * real repository slots in without touching the UI — no endpoint, payload or
- * enum here is presented as a server contract.
- */
 data class ProjectId(val value: String)
 
 data class ProjectConversation(val conversationId: String, val title: String, val updatedAtMs: Long)
 
-/**
- * What kind of workspace a project opens. Presentation only: no server enum
- * exists yet, and [WRITING_ROOM] is a local preview until M3 publishes one.
- */
 enum class ProjectKind { GENERAL, WRITING_ROOM }
 
-/** Client-side presentation state; not a claim about server enums. */
 enum class ProjectState { ACTIVE, ARCHIVED }
 
 data class ProjectSummary(
@@ -32,6 +25,9 @@ data class ProjectSummary(
     val state: ProjectState,
     val updatedAtMs: Long,
     val kind: ProjectKind = ProjectKind.GENERAL,
+    val storyId: String = "",
+    val chapterNumber: Int? = null,
+    val snapshotDate: String? = null,
 )
 
 sealed interface ProjectsResult {
@@ -44,52 +40,76 @@ sealed interface ProjectsResult {
 interface ProjectsRepository {
     fun observeProjects(): Flow<ProjectsResult>
     fun conversationsFor(projectId: ProjectId): Flow<List<ProjectConversation>>
+    suspend fun createProject(title: String): Result<ProjectSummary>
+    suspend fun renameProject(projectId: ProjectId, title: String): Result<ProjectSummary>
+    suspend fun deleteProject(projectId: ProjectId): Result<Unit>
 }
 
 /**
- * Fixture-backed repository for the shell + tests. `mode` lets tests/device
- * exercise every UI state (loading, empty, error, loaded) without a backend.
+ * Projects come from the authenticated Writing Room session.
+ * An empty project id asks the server for the published story.
  */
-class FakeProjectsRepository(
-    var mode: Mode = Mode.SAMPLES,
-    private val loadDelayMs: Long = 120,
+class LiveProjectsRepository(
+    private val session: JarvisAppSession,
 ) : ProjectsRepository {
-
-    enum class Mode { SAMPLES, EMPTY, ERROR }
-
-    private val projects = listOf(
-        ProjectSummary(ProjectId("prj_story"), "Alexander History", ProjectState.ACTIVE, 3000L, ProjectKind.WRITING_ROOM),
-        ProjectSummary(ProjectId("prj_home"), "Home", ProjectState.ACTIVE, 1000L),
-        ProjectSummary(ProjectId("prj_work"), "Work", ProjectState.ACTIVE, 2000L),
-        ProjectSummary(ProjectId("prj_old"), "Old kitchen reno", ProjectState.ARCHIVED, 500L),
-    )
-
-    private val conversationsByProject = mapOf(
-        ProjectId("prj_story") to emptyList(),
-        ProjectId("prj_home") to listOf(
-            ProjectConversation("conv_fixture_home_1", "Order replacement filter", 900L),
-            ProjectConversation("conv_fixture_home_2", "Garage door sensor battery", 800L),
-        ),
-        ProjectId("prj_work") to listOf(
-            ProjectConversation("conv_fixture_work_1", "Summarize unread email", 700L),
-        ),
-        ProjectId("prj_old") to emptyList(),
-    )
 
     override fun observeProjects(): Flow<ProjectsResult> = flow {
         emit(ProjectsResult.Loading)
-        delay(loadDelayMs)
-        when (mode) {
-            Mode.EMPTY -> emit(ProjectsResult.Empty)
-            Mode.ERROR -> emit(ProjectsResult.Error("projects backend not connected"))
-            Mode.SAMPLES -> emit(
-                ProjectsResult.Loaded(projects.sortedByDescending { it.updatedAtMs }),
-            )
+        if (!session.isAuthenticated) {
+            emit(ProjectsResult.Error("Sign in to load projects from JARVIS."))
+            return@flow
+        }
+        session.writingRoomOverview("").fold(
+            onSuccess = { overview ->
+                val project = overview.toProjectSummary()
+                if (project == null) emit(ProjectsResult.Empty)
+                else emit(ProjectsResult.Loaded(listOf(project)))
+            },
+            onFailure = { error ->
+                emit(ProjectsResult.Error(error.message ?: "Could not load projects"))
+            },
+        )
+    }
+
+    override fun conversationsFor(projectId: ProjectId): Flow<List<ProjectConversation>> = flowOf(emptyList())
+
+    override suspend fun createProject(title: String): Result<ProjectSummary> {
+        val clean = title.trim()
+        if (clean.isEmpty()) return Result.failure(IllegalArgumentException("Project title is required"))
+        return session.writingRoomProjectCreate(clean).mapCatching { overview ->
+            overview.toProjectSummary() ?: error("Server did not return a project")
         }
     }
 
-    override fun conversationsFor(projectId: ProjectId): Flow<List<ProjectConversation>> = flow {
-        delay(loadDelayMs)
-        emit(conversationsByProject[projectId].orEmpty())
+    override suspend fun renameProject(projectId: ProjectId, title: String): Result<ProjectSummary> {
+        val clean = title.trim()
+        if (clean.isEmpty()) return Result.failure(IllegalArgumentException("Project title is required"))
+        return session.writingRoomProjectRename(projectId.value, clean).mapCatching { overview ->
+            overview.toProjectSummary() ?: error("Server did not return a project")
+        }
     }
+
+    override suspend fun deleteProject(projectId: ProjectId): Result<Unit> =
+        session.writingRoomProjectDelete(projectId.value)
+}
+
+internal fun com.jarvis.android.transport.live.WritingRoomOverview.toProjectSummary(): ProjectSummary? {
+    if (project.project_id.isBlank()) return null
+    return ProjectSummary(
+        id = ProjectId(project.project_id),
+        title = project.title.ifBlank { project.story_id.ifBlank { "Writing Room" } },
+        state = ProjectState.ACTIVE,
+        updatedAtMs = project.snapshot_date.toEpochMillis(),
+        kind = ProjectKind.WRITING_ROOM,
+        storyId = project.story_id,
+        chapterNumber = latest_official_chapter?.chapter_number,
+        snapshotDate = project.snapshot_date,
+    )
+}
+
+private fun String?.toEpochMillis(): Long {
+    if (this.isNullOrBlank()) return 0L
+    return runCatching {
+        LocalDate.parse(this).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    }.getOrDefault(0L)
 }

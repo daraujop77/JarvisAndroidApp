@@ -1,56 +1,38 @@
 package com.jarvis.android.data.projects
 
-import app.cash.turbine.test
-import kotlinx.coroutines.test.runTest
+import com.jarvis.android.transport.live.WritingLatestChapter
+import com.jarvis.android.transport.live.WritingOverviewProject
+import com.jarvis.android.transport.live.WritingRoomOverview
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** Lane F gate: every UI state of the Projects shell is reachable via the repo seam. */
 class ProjectsRepositoryTest {
 
     @Test
-    fun samplesFlowLoadsThenListsProjects() = runTest {
-        val repo = FakeProjectsRepository(loadDelayMs = 0)
-        repo.observeProjects().test {
-            assertEquals(ProjectsResult.Loading, awaitItem())
-            val loaded = awaitItem() as ProjectsResult.Loaded
-            assertEquals(4, loaded.projects.size)
-            assertEquals("Alexander History", loaded.projects.first().title) // most recently updated first
-            assertEquals(ProjectKind.WRITING_ROOM, loaded.projects.first().kind)
-            assertTrue(loaded.projects.any { it.state == ProjectState.ARCHIVED })
-            awaitComplete()
-        }
+    fun overviewMapsToThePublishedStory() {
+        val project = WritingRoomOverview(
+            project = WritingOverviewProject(
+                project_id = "prj_story",
+                story_id = "STORY-001",
+                title = "Alexander History",
+                snapshot_date = "2026-09-21",
+            ),
+            latest_official_chapter = WritingLatestChapter(chapter_number = 37, title = "Chapter 37"),
+        ).toProjectSummary()
+
+        requireNotNull(project)
+        assertEquals("prj_story", project.id.value)
+        assertEquals("Alexander History", project.title)
+        assertEquals("STORY-001", project.storyId)
+        assertEquals(37, project.chapterNumber)
+        assertEquals(ProjectKind.WRITING_ROOM, project.kind)
+        assertEquals(ProjectState.ACTIVE, project.state)
     }
 
     @Test
-    fun emptyAndErrorStatesFlow() = runTest {
-        FakeProjectsRepository(mode = FakeProjectsRepository.Mode.EMPTY, loadDelayMs = 0)
-            .observeProjects().test {
-                assertEquals(ProjectsResult.Loading, awaitItem())
-                assertEquals(ProjectsResult.Empty, awaitItem())
-                awaitComplete()
-            }
-        FakeProjectsRepository(mode = FakeProjectsRepository.Mode.ERROR, loadDelayMs = 0)
-            .observeProjects().test {
-                assertEquals(ProjectsResult.Loading, awaitItem())
-                assertTrue(awaitItem() is ProjectsResult.Error)
-                awaitComplete()
-            }
-    }
-
-    @Test
-    fun conversationsLinkedPerProjectAndIsolated() = runTest {
-        val repo = FakeProjectsRepository(loadDelayMs = 0)
-        repo.conversationsFor(ProjectId("prj_home")).test {
-            val home = awaitItem()
-            assertEquals(2, home.size)
-            assertTrue(home.all { it.title.contains("filter") || it.title.contains("Garage") })
-            awaitComplete()
-        }
-        repo.conversationsFor(ProjectId("prj_old")).test {
-            assertTrue(awaitItem().isEmpty())
-            awaitComplete()
-        }
+    fun blankProjectIdIsNotAProject() {
+        val project = WritingRoomOverview().toProjectSummary()
+        assertNull(project)
     }
 }
