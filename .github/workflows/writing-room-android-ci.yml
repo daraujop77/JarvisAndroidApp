@@ -12,6 +12,9 @@ on:
       - "gradle/**"
       - "gradle.properties"
 
+permissions:
+  contents: write
+
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -67,3 +70,53 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Publish signed APK as GitHub Release asset
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          [ -f "$APK" ] || { echo "Signed release APK missing"; exit 1; }
+
+          VERSION_CODE="$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= *([0-9]+).*/\1/')"
+          VERSION_NAME="$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*= *"([^"]+)".*/\1/')"
+          PACKAGE_NAME="com.jarvis.android"
+          TAG="android-v${VERSION_CODE}"
+
+          RELEASE_APK="$RUNNER_TEMP/JARVIS-release.apk"
+          RELEASE_MANIFEST="$RUNNER_TEMP/JARVIS-release.json"
+          cp "$APK" "$RELEASE_APK"
+          SHA256="$(sha256sum "$RELEASE_APK" | awk '{print $1}')"
+          SIZE_BYTES="$(stat -c '%s' "$RELEASE_APK")"
+
+          python3 - "$RELEASE_MANIFEST" "$VERSION_CODE" "$VERSION_NAME" "$PACKAGE_NAME" "$SHA256" "$SIZE_BYTES" "$GITHUB_SHA" <<'PY'
+          import json, sys
+          path, version_code, version_name, package_name, sha256, size_bytes, source_sha = sys.argv[1:]
+          with open(path, "w", encoding="utf-8") as fh:
+              json.dump({
+                  "schema": "jarvis.android.signed-release.v1",
+                  "version_code": int(version_code),
+                  "version_name": version_name,
+                  "package_name": package_name,
+                  "sha256": sha256,
+                  "size_bytes": int(size_bytes),
+                  "source_sha": source_sha,
+              }, fh, indent=2)
+              fh.write("\n")
+          PY
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" --clobber
+          else
+            gh release create "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" \
+              --target "$GITHUB_SHA" \
+              --title "JARVIS Android $VERSION_NAME" \
+              --notes "Signed production APK for JARVIS Android $VERSION_NAME (versionCode $VERSION_CODE)."
+          fi
+
+          echo "published_tag=$TAG"
+          echo "published_package=$PACKAGE_NAME"
+          echo "published_sha256=$SHA256"
