@@ -1,6 +1,7 @@
 package com.jarvis.android.ui.writing
 
 import com.jarvis.android.transport.live.WritingWikiEntity
+import com.jarvis.android.transport.live.WritingWikiAppearanceItem
 import com.jarvis.android.transport.live.WritingWikiHistoryItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -31,7 +32,17 @@ class StructuredWikiCharactersTest {
                 "Ojo de Predicción Absoluta",
                 "Interferencia de Flujo: Punto Cero",
             ),
+            limitations = listOf("Venom C4 Cataclysm está prohibido."),
+            appearances = listOf(
+                WritingWikiAppearanceItem(
+                    chapters = listOf(36, 37),
+                    kind = "ON_PAGE",
+                    summary = "Dirige y coordina la respuesta del nuevo Equipo 7 en el oeste.",
+                ),
+            ),
             central_wound = "Miedo a perder el control y destruir a su familia.",
+            desire_vs_need = "Necesita aceptar que sus hermanos pueden compartir la carga.",
+            internal_contradiction = "Necesita a sus hermanos, pero su instinto es aislarse.",
             history = listOf(
                 WritingWikiHistoryItem(
                     period = "chapters-34-37",
@@ -47,9 +58,13 @@ class StructuredWikiCharactersTest {
         assertTrue(mapped.statusDetail.contains("Capítulo 37"))
         assertTrue(mapped.powersOverview.contains("Rinnegan"))
         assertTrue(mapped.powersOverview.contains("Simbionte Venom"))
+        assertTrue(mapped.powersOverview.contains("Venom C4 Cataclysm está prohibido"))
         assertTrue(mapped.signatureTechniques.any { it.first == "Interferencia de Flujo: Punto Cero" })
         assertTrue(mapped.storyHistory.contains("defensa del oeste"))
+        assertTrue(mapped.storyHistory.contains("Capítulos 36, 37"))
         assertTrue(mapped.centralWound.orEmpty().contains("perder el control"))
+        assertTrue(mapped.centralWound.orEmpty().contains("compartir la carga"))
+        assertTrue(mapped.centralWound.orEmpty().contains("instinto es aislarse"))
     }
 
     @Test
