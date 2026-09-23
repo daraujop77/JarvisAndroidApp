@@ -192,6 +192,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val streamingText: String = "",
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
+        val wikiCharacters: List<WritingWikiEntity> = emptyList(),
         val plans: List<WritingPlanItem> = emptyList(),
         val chapters: List<WritingChapterSummary> = emptyList(),
         val activeChapter: WritingChapter? = null,
@@ -231,10 +232,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         viewModelScope.launch {
             val overview = container.liveSession.writingRoomOverview(projectId)
             val wikiHome = container.liveSession.writingRoomWikiHome(projectId)
+            val wikiCharacters = container.liveSession.writingRoomWikiBrowse(
+                projectId = projectId,
+                entryType = "character",
+                topK = 100,
+            )
             val plans = container.liveSession.writingRoomPlanList(projectId)
             val chapters = container.liveSession.writingRoomChapterList(projectId)
             val library = container.liveSession.writingRoomLibraryList(projectId)
-            val failure = listOf(overview, wikiHome, plans, chapters, library).firstOrNull { it.isFailure }
+            val failure = listOf(overview, wikiHome, wikiCharacters, plans, chapters, library).firstOrNull { it.isFailure }
             if (failure != null) {
                 writingWorkspaceError(failure.exceptionOrNull())
                 return@launch
@@ -244,6 +250,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 busyLabel = "",
                 overview = overview.getOrNull(),
                 wikiHome = wikiHome.getOrNull(),
+                wikiCharacters = wikiCharacters.getOrNull()?.entries.orEmpty(),
                 plans = plans.getOrNull()?.items.orEmpty(),
                 chapters = chapters.getOrNull()?.items.orEmpty(),
                 library = library.getOrNull(),
