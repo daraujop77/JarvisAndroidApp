@@ -28,6 +28,15 @@ jobs:
           cache: gradle
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
+      - name: Guard canonical Alexander name
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -R --include='*.kt' -n 'Alejandro' app/src/main; then
+            echo "Canonical-name regression: Alexander must never be localized as Alejandro."
+            exit 1
+          fi
+
       - name: Unit tests and debug APK
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
       - name: Upload debug APK
