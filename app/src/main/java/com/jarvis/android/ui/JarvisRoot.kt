@@ -1,20 +1,16 @@
 package com.jarvis.android.ui
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
@@ -23,11 +19,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -200,7 +194,6 @@ fun JarvisRoot(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MainShell(
     vm: JarvisViewModel,
@@ -213,7 +206,6 @@ private fun MainShell(
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val isOwner = settings.isOwner
-    val imeVisible = WindowInsets.isImeVisible
     val openConversationNonce by (openConversationRequest
         ?: kotlinx.coroutines.flow.MutableStateFlow(0L)).collectAsStateWithLifecycle()
 
@@ -243,37 +235,28 @@ private fun MainShell(
             containerColor = Color.Transparent,
             topBar = { ConnectionBanner(snapshot, onReconnect = vm::reconnect) },
             bottomBar = {
-                AnimatedVisibility(
-                    visible = !imeVisible,
-                    enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 2 },
-                    exit = fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 2 },
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
                         Surface(
-                            shape = RoundedCornerShape(28.dp),
-                            color = Color(0xDD0D1626),
+                            shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+                            color = Color(0xF00D1626),
                             border = BorderStroke(
                                 1.dp,
                                 Brush.horizontalGradient(
                                     listOf(
-                                        Color(0x3322D3EE),
-                                        Color(0x228B5CF6),
-                                        Color(0x3322D3EE),
+                                        Color(0x5522D3EE),
+                                        Color(0x338B5CF6),
+                                        Color(0x5522D3EE),
                                     )
                                 )
                             ),
-                            shadowElevation = 8.dp,
+                            shadowElevation = 12.dp,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                                    .padding(start = 4.dp, top = 10.dp, end = 4.dp)
+                                    .navigationBarsPadding()
+                                    .padding(bottom = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -322,7 +305,7 @@ private fun MainShell(
                                         }) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(36.dp)
+                                                    .size(48.dp)
                                                     .drawBehind {
                                                         if (glow <= 0f) return@drawBehind
                                                         drawCircle(
@@ -347,7 +330,7 @@ private fun MainShell(
                                                     dest.icon,
                                                     contentDescription = destinationLabel,
                                                     tint = tint,
-                                                    modifier = Modifier.size(22.dp),
+                                                    modifier = Modifier.size(28.dp),
                                                 )
                                             }
                                         }
@@ -367,8 +350,6 @@ private fun MainShell(
                                 }
                             }
                         }
-                    }
-                }
             },
         ) { innerPadding ->
             NavHost(

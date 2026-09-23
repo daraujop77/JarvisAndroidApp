@@ -686,7 +686,9 @@ private fun Composer(
                     )
                 }
             }
-            OutlinedTextField(
+        }
+
+        OutlinedTextField(
                 value = input,
                 onValueChange = onInput,
                 modifier = Modifier.weight(1f),
@@ -750,7 +752,6 @@ private fun Composer(
                     ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.send) }
                 }
             }
-        }
     }
 }
 @Composable
