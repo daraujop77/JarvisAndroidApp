@@ -54,15 +54,12 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
-import com.jarvis.android.data.story.CANON_CHARACTERS
 import com.jarvis.android.data.story.CANON_FACTIONS
 import com.jarvis.android.data.story.CANON_MILESTONES
 import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
-import com.jarvis.android.data.story.findCharacter
-import com.jarvis.android.data.story.searchCharacters
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -115,6 +112,8 @@ import com.jarvis.android.ui.theme.JarvisRed
 import com.jarvis.android.ui.theme.JarvisViolet
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.ui.writing.mergeStructuredCharacters
+import com.jarvis.android.ui.writing.searchStructuredCharacters
 
 /**
  * Product Writing Room v1 surface.
@@ -1601,12 +1600,16 @@ private fun WikiSection(
 
     val home = state.wikiHome
     val wiki = state.wiki
+    val liveCharacters = remember(state.wikiCharacters) {
+        mergeStructuredCharacters(state.wikiCharacters)
+    }
 
     if (selectedCharacterId != null) {
-        val character = findCharacter(selectedCharacterId!!)
+        val character = liveCharacters.firstOrNull { it.id.equals(selectedCharacterId, ignoreCase = true) }
         if (character != null) {
             CharacterDetailWiki(
                 character = character,
+                allCharacters = liveCharacters,
                 onBack = { selectedCharacterId = null },
                 onSelectCharacter = { newCharId -> selectedCharacterId = newCharId },
             )
@@ -1616,6 +1619,7 @@ private fun WikiSection(
 
     if (viewingCharactersDirectory) {
         CharactersDirectory(
+            characters = liveCharacters,
             onSelectCharacter = { character ->
                 selectedCharacterId = character.id
             },
@@ -1626,9 +1630,9 @@ private fun WikiSection(
         return
     }
 
-    val matchingCharacters = remember(query) {
+    val matchingCharacters = remember(query, liveCharacters) {
         val clean = query.trim()
-        if (clean.isNotEmpty()) searchCharacters(clean) else emptyList()
+        if (clean.isNotEmpty()) searchStructuredCharacters(liveCharacters, clean) else emptyList()
     }
     val strings = LocalAppStrings.current
 
@@ -1689,7 +1693,7 @@ private fun WikiSection(
                         FilterChip(
                             selected = false,
                             onClick = { viewingCharactersDirectory = true },
-                            label = { Text("Personajes (${CANON_CHARACTERS.size})") },
+                            label = { Text("Personajes (${liveCharacters.size})") },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = Color(0x33101B2E),
                                 labelColor = JarvisCyan,
@@ -1860,7 +1864,7 @@ private fun WikiSection(
                     )
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { viewingCharactersDirectory = true }) {
-                        Text("Ver directorio (${CANON_CHARACTERS.size})", style = HudTextStyle, color = JarvisCyan)
+                        Text("Ver directorio (${liveCharacters.size})", style = HudTextStyle, color = JarvisCyan)
                     }
                 }
             }
@@ -1925,7 +1929,7 @@ private fun WikiSection(
                     label = "Personajes",
                     subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
                     query = "characters",
-                    source_count = CANON_CHARACTERS.size,
+                    source_count = liveCharacters.size,
                 ),
                 WritingWikiCategory(
                     id = "canon",
@@ -1961,7 +1965,7 @@ private fun WikiSection(
                     category.copy(
                         label = "Personajes",
                         subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
-                        source_count = CANON_CHARACTERS.size,
+                        source_count = liveCharacters.size,
                     )
                 } else {
                     category
@@ -2024,7 +2028,9 @@ private fun WikiSection(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            milestone.keyCharacterIds.mapNotNull { findCharacter(it) }.forEach { char ->
+                            milestone.keyCharacterIds.mapNotNull { id ->
+                                liveCharacters.firstOrNull { it.id.equals(id, ignoreCase = true) }
+                            }.forEach { char ->
                                 Surface(
                                     onClick = { selectedCharacterId = char.id },
                                     shape = RoundedCornerShape(12.dp),
@@ -2103,7 +2109,9 @@ private fun WikiSection(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            faction.memberIds.mapNotNull { findCharacter(it) }.forEach { member ->
+                            faction.memberIds.mapNotNull { id ->
+                                liveCharacters.firstOrNull { it.id.equals(id, ignoreCase = true) }
+                            }.forEach { member ->
                                 Surface(
                                     onClick = { selectedCharacterId = member.id },
                                     shape = RoundedCornerShape(14.dp),
@@ -2193,14 +2201,19 @@ private fun WikiSection(
 
 @Composable
 private fun CharactersDirectory(
+    characters: List<StoryCharacter>,
     onSelectCharacter: (StoryCharacter) -> Unit,
     onBack: () -> Unit,
 ) {
     var searchFilter by rememberSaveable { mutableStateOf("") }
     var selectedStatusFilter by rememberSaveable { mutableStateOf<CharacterLifeStatus?>(null) }
 
-    val characters = remember(searchFilter, selectedStatusFilter) {
-        val base = if (searchFilter.trim().isEmpty()) CANON_CHARACTERS else searchCharacters(searchFilter)
+    val filteredCharacters = remember(searchFilter, selectedStatusFilter, characters) {
+        val base = if (searchFilter.trim().isEmpty()) {
+            characters
+        } else {
+            searchStructuredCharacters(characters, searchFilter)
+        }
         if (selectedStatusFilter != null) {
             base.filter { it.status == selectedStatusFilter }
         } else {
@@ -2283,7 +2296,7 @@ private fun CharactersDirectory(
                 FilterChip(
                     selected = selectedStatusFilter == null,
                     onClick = { selectedStatusFilter = null },
-                    label = { Text("Todos (${CANON_CHARACTERS.size})") },
+                    label = { Text("Todos (${characters.size})") },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = LocalJarvisAccents.current.orbGlow.copy(alpha = 0.25f),
                         selectedLabelColor = Color(0xFFF8FAFC),
@@ -2338,13 +2351,13 @@ private fun CharactersDirectory(
 
         item {
             Text(
-                "${characters.size} PERSONAJES CANÓNICOS",
+                "${filteredCharacters.size} PERSONAJES CANÓNICOS",
                 style = HudTextStyle,
                 color = LocalJarvisAccents.current.orbGlow,
             )
         }
 
-        if (characters.isEmpty()) {
+        if (filteredCharacters.isEmpty()) {
             item {
                 WorkspaceCard("Sin resultados") {
                     Text(
@@ -2355,7 +2368,7 @@ private fun CharactersDirectory(
                 }
             }
         } else {
-            items(characters, key = { it.id }) { character ->
+            items(filteredCharacters, key = { it.id }) { character ->
                 CharacterDirectoryCard(
                     character = character,
                     onClick = { onSelectCharacter(character) },
@@ -2517,6 +2530,7 @@ private fun CompactCharacterHeader(character: StoryCharacter) {
 @Composable
 private fun CharacterDetailWiki(
     character: StoryCharacter,
+    allCharacters: List<StoryCharacter>,
     onBack: () -> Unit,
     onSelectCharacter: (String) -> Unit,
 ) {
@@ -2871,7 +2885,9 @@ private fun CharacterDetailWiki(
             }
 
             // Related Characters Jump Chips (Fandom style cross-linking)
-            val relatedChars = character.relatedCharacterIds.mapNotNull { findCharacter(it) }
+            val relatedChars = character.relatedCharacterIds.mapNotNull { id ->
+                allCharacters.firstOrNull { it.id.equals(id, ignoreCase = true) }
+            }
             if (relatedChars.isNotEmpty()) {
                 item {
                     WorkspaceCard("Personajes Vinculados (Cross-Linking Canónico)", accent = JarvisCyan) {
