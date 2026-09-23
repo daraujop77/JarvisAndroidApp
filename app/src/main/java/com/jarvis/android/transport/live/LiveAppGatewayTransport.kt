@@ -267,8 +267,8 @@ class LiveAppGatewayTransport(
             }
             if (resp.code == 404 || resp.code == 405) throw StreamUnavailable()
             if (resp.code !in 200..299) {
-                val msg = resp.body?.string()?.take(200).orEmpty()
-                throw TransportException("chat stream ${resp.code} $msg")
+                val body = resp.body?.string()?.take(2_000).orEmpty()
+                throw TransportException(ChatErrorText.fromHttp(resp.code, body))
             }
             val reader = resp.body?.charStream()?.buffered() ?: throw TransportException("empty stream body")
             var eventName = ""

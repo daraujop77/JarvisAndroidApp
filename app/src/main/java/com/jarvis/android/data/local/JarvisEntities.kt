@@ -94,6 +94,9 @@ interface JarvisDao {
     @Query("SELECT * FROM messages WHERE clientRequestId = :rid AND role = 'assistant' LIMIT 1")
     suspend fun assistantMessage(rid: String): MessageEntity?
 
+    @Query("SELECT * FROM messages WHERE clientRequestId = :rid AND role = 'user' LIMIT 1")
+    suspend fun userMessage(rid: String): MessageEntity?
+
     @Query("DELETE FROM messages WHERE clientRequestId = :rid AND role = 'assistant'")
     suspend fun deleteAssistantMessage(rid: String)
 

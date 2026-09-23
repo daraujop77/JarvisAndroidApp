@@ -11,11 +11,15 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,30 +27,38 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -77,9 +89,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
@@ -91,6 +113,7 @@ import com.jarvis.android.ui.components.markdownBlocks
 import com.jarvis.android.ui.components.renderInlineMarkdown
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
+import com.jarvis.android.ui.components.ScanLine
 import com.jarvis.android.ui.components.TypingDots
 import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.shared.OwnerAvatar
@@ -226,9 +249,10 @@ private fun ConversationListView(
                                 Text(c.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    java.text.DateFormat
-                                        .getTimeInstance(java.text.DateFormat.SHORT)
-                                        .format(java.util.Date(c.updatedAtMs)),
+                                    com.jarvis.android.ui.chat.ConversationTime.label(
+                                        c.updatedAtMs,
+                                        System.currentTimeMillis(),
+                                    ),
                                     style = HudTextStyle,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -279,9 +303,15 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         }
     }
     var following by remember { mutableStateOf(true) }
-    LaunchedEffect(atBottom) { following = AutoFollow.next(following, atBottom, justSent = false) }
+    LaunchedEffect(atBottom, listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            following = atBottom
+        } else if (atBottom) {
+            following = true
+        }
+    }
 
-    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
+    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length, messages.lastOrNull()?.status) {
         if (AutoFollow.shouldScroll(following, messages.isNotEmpty())) {
             listState.animateScrollToItem(messages.lastIndex)
         }
@@ -296,8 +326,12 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
     val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(imeVisible) {
-        if (imeVisible && AutoFollow.shouldScroll(following, messages.isNotEmpty())) {
+        if (following && messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.lastIndex)
+            delay(220)
+            if (following && messages.isNotEmpty()) {
+                listState.scrollToItem(messages.lastIndex)
+            }
         }
     }
 
@@ -362,21 +396,29 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 .imePadding(),
         ) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
-                        MessageBubble(
-                            msg = msg,
-                            onRetry = { vm.retry(msg.clientRequestId) },
-                            attachmentState = { id -> snapshot.session.attachments[id] },
-                            attachmentStore = vm.attachmentStore,
-                            avatarEpoch = avatarEpoch,
-                            modifier = Modifier.animateItem(),
-                        )
+                if (messages.isEmpty()) {
+                    EmptyChatState(
+                        onSelectPrompt = { prompt ->
+                            input = prompt
+                            vm.clearImageGenerationError()
+                        },
+                    )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
+                            MessageBubble(
+                                msg = msg,
+                                onRetry = { vm.retry(msg.clientRequestId) },
+                                attachmentState = { id -> snapshot.session.attachments[id] },
+                                attachmentStore = vm.attachmentStore,
+                                avatarEpoch = avatarEpoch,
+                            )
+                        }
                     }
                 }
 
@@ -419,6 +461,10 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
             ProfileChipRow(vm)
 
+            if (chatStreaming) {
+                ScanLine(active = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp))
+            }
+
             Composer(
                 input = input,
                 onInput = { input = it; vm.clearImageGenerationError() },
@@ -440,9 +486,21 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 },
                 onStop = { liveRequest?.let { vm.cancel(it.clientRequestId) } },
                 onSend = {
-                    following = AutoFollow.next(following, atBottom, justSent = true)
-                    vm.sendWithAttachments(input)
+                    following = true
+                    val textToSend = input
                     input = ""
+                    vm.sendWithAttachments(textToSend)
+                    scope.launch {
+                        listState.animateScrollToItem(messages.lastIndex.coerceAtLeast(0))
+                        delay(120)
+                        if (messages.isNotEmpty()) {
+                            listState.animateScrollToItem(messages.lastIndex)
+                        }
+                        delay(180)
+                        if (messages.isNotEmpty()) {
+                            listState.scrollToItem(messages.lastIndex)
+                        }
+                    }
                 },
             )
         }
@@ -508,49 +566,106 @@ private fun Composer(
     onSend: () -> Unit,
 ) {
     val accents = LocalJarvisAccents.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    val handleSend = {
+        if (canSend) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            onSend()
+        }
+    }
+
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        IconButton(
-            onClick = onPickPhoto,
-            enabled = canPickPhoto,
+        Surface(
+            shape = CircleShape,
+            color = if (canPickPhoto) accents.orbGlow.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, if (canPickPhoto) accents.orbGlow.copy(alpha = 0.35f) else Color(0xFF1E2E48)),
+            modifier = Modifier.size(40.dp),
         ) {
-            Icon(
-                Icons.Filled.AddPhotoAlternate,
-                contentDescription = if (canPickPhoto) "Attach photo" else "Image input unavailable",
-                tint = if (canPickPhoto) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-            )
-        }
-        IconButton(
-            onClick = onGenerateImage,
-            enabled = canGenerateImage,
-        ) {
-            if (generatingImage) {
-                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-            } else {
+            IconButton(
+                onClick = onPickPhoto,
+                enabled = canPickPhoto,
+                modifier = Modifier.fillMaxSize(),
+            ) {
                 Icon(
-                    Icons.Filled.Image,
-                    contentDescription = if (canGenerateImage) "Generate image" else "Image generation unavailable",
-                    tint = if (canGenerateImage) MaterialTheme.colorScheme.onSurfaceVariant
+                    Icons.Filled.AddPhotoAlternate,
+                    contentDescription = if (canPickPhoto) "Attach photo" else "Image input unavailable",
+                    tint = if (canPickPhoto) accents.orbGlow
                     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.size(19.dp),
                 )
             }
         }
+
+        Surface(
+            shape = CircleShape,
+            color = if (canGenerateImage) accents.orbGlow.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, if (canGenerateImage) accents.orbGlow.copy(alpha = 0.35f) else Color(0xFF1E2E48)),
+            modifier = Modifier.size(40.dp),
+        ) {
+            IconButton(
+                onClick = onGenerateImage,
+                enabled = canGenerateImage,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                if (generatingImage) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = accents.orbGlow,
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.Image,
+                        contentDescription = if (canGenerateImage) "Generate image" else "Image generation unavailable",
+                        tint = if (canGenerateImage) accents.orbGlow
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.size(19.dp),
+                    )
+                }
+            }
+        }
+
         OutlinedTextField(
             value = input,
             onValueChange = onInput,
             modifier = Modifier.weight(1f),
             placeholder = {
                 Text(
-                    if (connected) "Message JARVIS…" else "Offline — will retry",
-                    color = Color(0xFFB7C7DC),
+                    if (connected) "Directive for JARVIS…" else "Offline — queueing",
+                    color = Color(0xFF8FA5C2),
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             },
+            keyboardOptions = KeyboardOptions(
+                imeAction = ImeAction.Send,
+                capitalization = KeyboardCapitalization.Sentences,
+            ),
+            keyboardActions = KeyboardActions(
+                onSend = { handleSend() },
+            ),
+            trailingIcon = if (input.isNotBlank()) {
+                {
+                    IconButton(onClick = { onInput("") }, modifier = Modifier.size(24.dp)) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Clear input",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            } else null,
             maxLines = 4,
-            shape = RoundedCornerShape(26.dp),
+            shape = RoundedCornerShape(24.dp),
             colors = jarvisTextFieldColors(),
         )
 
@@ -564,26 +679,197 @@ private fun Composer(
             if (isStreaming) {
                 FilledIconButton(
                     onClick = onStop,
+                    modifier = Modifier.size(42.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.error,
                     ),
-                ) { Icon(Icons.Filled.Stop, contentDescription = "Stop") }
+                ) { Icon(Icons.Filled.Stop, contentDescription = "Stop", tint = Color.White) }
             } else {
-                val scale by animateFloatAsState(if (canSend) 1f else 0.85f, label = "sendScale")
+                val scale by animateFloatAsState(if (canSend) 1f else 0.88f, label = "sendScale")
                 FilledIconButton(
-                    onClick = onSend,
+                    onClick = handleSend,
                     enabled = canSend,
-                    modifier = Modifier.size((44 * scale).dp),
-                ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (canSend) accents.orbGlow else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (canSend) Color(0xFF041018) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                    ),
+                    modifier = Modifier.size((42 * scale).dp),
+                ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", modifier = Modifier.size(20.dp)) }
             }
         }
     }
 }
 
-/**
- * Shown only when auto-follow is off. While a reply is streaming it says so,
- * because the reason to go back down is that something is still arriving.
- */
+@Composable
+private fun EmptyChatState(
+    onSelectPrompt: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accents = LocalJarvisAccents.current
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        JarvisBrain(size = 96.dp, activity = OrbActivity.IDLE)
+        Spacer(Modifier.height(18.dp))
+        Text(
+            "JARVIS CO-PILOT",
+            style = MaterialTheme.typography.titleMedium.copy(letterSpacing = 1.4.sp),
+            color = accents.orbGlow,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Neural link active. Select an operational directive or enter instructions.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(22.dp))
+
+        val prompts = listOf(
+            Triple("⚡ SYSTEM SITREP", "Report full system status, active transports, and health.", Icons.Filled.Bolt),
+            Triple("🛡 PENDING GATES", "Check pending approvals and security operations.", Icons.Filled.Shield),
+            Triple("📝 STORY MATRIX", "Brainstorm character motivations for the current scene.", Icons.Filled.AutoAwesome),
+            Triple("🔍 LORE DOSSIER", "Summarize primary characters and active factions in the lore.", Icons.Filled.Terminal),
+        )
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            prompts.forEach { (label, prompt, icon) ->
+                Surface(
+                    onClick = { onSelectPrompt(prompt) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                    border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.2f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(accents.orbGlow.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                icon,
+                                contentDescription = null,
+                                tint = accents.orbGlow,
+                                modifier = Modifier.size(15.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(label, style = HudTextStyle, color = accents.orbGlow)
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                prompt,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFE8EEF8),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeBlockView(code: String, language: String?) {
+    val accents = LocalJarvisAccents.current
+    val clipboardManager = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
+
+    Surface(
+        color = Color(0xFF09111E),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.22f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF0E1A2C))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Terminal,
+                        contentDescription = null,
+                        tint = accents.orbGlow,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        language?.uppercase() ?: "CODE",
+                        style = HudTextStyle,
+                        color = accents.orbGlow,
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            clipboardManager.setText(AnnotatedString(code))
+                            copied = true
+                            scope.launch {
+                                delay(2000)
+                                copied = false
+                            }
+                        }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                        contentDescription = "Copy code",
+                        tint = if (copied) accents.online else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Text(
+                        if (copied) "COPIED" else "COPY",
+                        style = HudTextStyle,
+                        color = if (copied) accents.online else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(scrollState)
+                    .padding(10.dp),
+            ) {
+                Text(
+                    text = code,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 20.sp,
+                    ),
+                    color = Color(0xFFD4E3F8),
+                )
+            }
+        }
+    }
+}
+
 /**
  * A finished reply, broken into the blocks [markdownBlocks] found. Headings,
  * bullets and fenced code get their own line; everything else keeps inline
@@ -605,20 +891,31 @@ private fun MarkdownBody(text: String) {
                     "•  " + renderInlineMarkdown(block.text, accents.orbGlow),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                is MarkdownBlock.Code -> Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        block.text,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        ),
-                        color = accents.orbGlow,
-                        modifier = Modifier.padding(10.dp),
-                    )
+                is MarkdownBlock.Numbered -> Text(
+                    "${block.number}. " + renderInlineMarkdown(block.text, accents.orbGlow),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                is MarkdownBlock.Blockquote -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(20.dp)
+                                .background(accents.orbGlow.copy(alpha = 0.8f), RoundedCornerShape(2.dp))
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            renderInlineMarkdown(block.text, accents.orbGlow),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
+                is MarkdownBlock.Code -> CodeBlockView(code = block.text, language = block.language)
                 is MarkdownBlock.Paragraph -> Text(
                     renderInlineMarkdown(block.text, accents.orbGlow),
                     style = MaterialTheme.typography.bodyMedium,
@@ -668,6 +965,9 @@ private fun MessageBubble(
     val isStreaming = msg.status == RequestStatus.Streaming
     val awaiting = !isUser && msg.text.isEmpty() &&
         (msg.status == RequestStatus.Pending || msg.status == RequestStatus.Accepted)
+    val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    var messageCopied by remember { mutableStateOf(false) }
 
     Row(
         modifier.fillMaxWidth(),
@@ -680,7 +980,7 @@ private fun MessageBubble(
             }
         }
         Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
-            Box(Modifier.widthIn(max = 320.dp)) {
+            Box(Modifier.widthIn(max = 360.dp)) {
                 val bubbleShape = RoundedCornerShape(
                     topStart = 22.dp,
                     topEnd = if (isUser) 8.dp else 22.dp,
@@ -728,6 +1028,63 @@ private fun MessageBubble(
                 }
             }
 
+            // Utility action row for completed assistant messages
+            if (!isUser && !isStreaming && !awaiting && msg.text.isNotBlank() && msg.status !is RequestStatus.Failed) {
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                clipboardManager.setText(AnnotatedString(msg.text))
+                                messageCopied = true
+                                scope.launch {
+                                    delay(2000)
+                                    messageCopied = false
+                                }
+                            }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            if (messageCopied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                            contentDescription = "Copy message",
+                            tint = if (messageCopied) accents.online else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Text(
+                            if (messageCopied) "COPIED" else "COPY",
+                            style = HudTextStyle,
+                            color = if (messageCopied) accents.online else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    }
+
+                    if (msg.createdAtMs > 0L) {
+                        Text(
+                            java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(msg.createdAtMs)),
+                            style = HudTextStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        )
+                    }
+                }
+            }
+
+            // User timestamp
+            if (isUser && msg.createdAtMs > 0L) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(msg.createdAtMs)),
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
+            }
+
             val footer: (@Composable () -> Unit)? = when {
                 isUser -> null
                 msg.status == RequestStatus.Cancelling -> ({
@@ -739,9 +1096,11 @@ private fun MessageBubble(
                 msg.status is RequestStatus.Failed -> ({
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("FAILED", style = HudTextStyle, color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = onRetry) {
-                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Text(" Retry")
+                        if ((msg.status as RequestStatus.Failed).retryable) {
+                            TextButton(onClick = onRetry) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Text(" Retry")
+                            }
                         }
                     }
                 })

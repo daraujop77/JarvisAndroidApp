@@ -249,10 +249,22 @@ class ConversationRepository(
 
     fun cancelRequest(clientRequestId: String) = session.cancel(clientRequestId)
 
-    /** Resend a failed request as a new message so Room stays the source of truth. */
+    /**
+     * Resend a failed request as a new message so Room stays the source of truth.
+     * After process death the session no longer holds the request, so the
+     * original text and attachments come from the stored user message.
+     */
     fun retry(clientRequestId: String) {
-        val req = session.retryableRequest(clientRequestId) ?: return
-        send(req.conversationId, req.userText)
+        val inSession = _live.value.session.requests[clientRequestId]
+        val retryable = session.retryableRequest(clientRequestId)
+        if (inSession != null && retryable == null) return
+        scope.launch {
+            val stored = dao.userMessage(clientRequestId)
+            val conversationId = retryable?.conversationId ?: stored?.conversationId ?: return@launch
+            val text = retryable?.userText ?: stored?.text ?: return@launch
+            val attachmentIds = stored?.attachmentIds.orEmpty().split(',').filter { it.isNotBlank() }
+            send(conversationId, text, attachmentIds)
+        }
     }
 
     /**
