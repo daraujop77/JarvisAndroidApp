@@ -236,7 +236,7 @@ private fun MainShell(
             topBar = { ConnectionBanner(snapshot, onReconnect = vm::reconnect) },
             bottomBar = {
                         Surface(
-                            shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+                            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
                             color = Color(0xF00D1626),
                             border = BorderStroke(
                                 1.dp,
@@ -254,9 +254,9 @@ private fun MainShell(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 4.dp, top = 10.dp, end = 4.dp)
+                                    .padding(start = 4.dp, top = 6.dp, end = 4.dp)
                                     .navigationBarsPadding()
-                                    .padding(bottom = 6.dp),
+                                    .padding(bottom = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -305,7 +305,7 @@ private fun MainShell(
                                         }) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(48.dp)
+                                                    .size(42.dp)
                                                     .drawBehind {
                                                         if (glow <= 0f) return@drawBehind
                                                         drawCircle(
@@ -330,7 +330,7 @@ private fun MainShell(
                                                     dest.icon,
                                                     contentDescription = destinationLabel,
                                                     tint = tint,
-                                                    modifier = Modifier.size(28.dp),
+                                                    modifier = Modifier.size(24.dp),
                                                 )
                                             }
                                         }
