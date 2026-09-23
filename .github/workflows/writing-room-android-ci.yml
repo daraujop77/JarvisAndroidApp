@@ -5,6 +5,7 @@ on:
     branches:
       - feature/writing-room-live-v2-20260921
       - feature/writing-room-v15-ux-stream-20260922
+      - feature/writing-engine-ui-v16-20260922
   pull_request:
     paths:
       - "app/**"
