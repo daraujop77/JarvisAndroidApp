@@ -7,9 +7,16 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -47,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -77,6 +85,8 @@ import com.jarvis.android.ui.screens.SettingsScreen
 import com.jarvis.android.ui.screens.TasksScreen
 import com.jarvis.android.ui.screens.WelcomeScreen
 import com.jarvis.android.ui.shared.ConnectionBanner
+import com.jarvis.android.ui.theme.JarvisCyan
+import com.jarvis.android.ui.theme.JarvisCyanBright
 import com.jarvis.android.ui.theme.LocalReducedMotion
 
 sealed class TopLevelDestination(val route: String, val label: String, val icon: ImageVector) {
@@ -275,7 +285,18 @@ private fun MainShell(
                                     }
                                     val destinationLabel = dest.localizedLabel(strings)
                                     val isSelected = currentDestination?.hierarchy?.any { it.route == dest.route } == true
-                                    val tint = if (isSelected) Color(0xFF22D3EE) else Color(0xFF8BA2BE)
+                                    val reduced = LocalReducedMotion.current
+                                    val pulse by rememberInfiniteTransition(label = "navGlow").animateFloat(
+                                        initialValue = 0.45f,
+                                        targetValue = 1f,
+                                        animationSpec = infiniteRepeatable(
+                                            tween(1100, easing = LinearEasing),
+                                            RepeatMode.Reverse,
+                                        ),
+                                        label = "pulse",
+                                    )
+                                    val glow = if (isSelected && !reduced) pulse else if (isSelected) 0.85f else 0f
+                                    val tint = if (isSelected) JarvisCyanBright else JarvisCyan.copy(alpha = 0.72f)
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
@@ -302,10 +323,23 @@ private fun MainShell(
                                             Box(
                                                 modifier = Modifier
                                                     .size(36.dp)
+                                                    .drawBehind {
+                                                        if (glow <= 0f) return@drawBehind
+                                                        drawCircle(
+                                                            color = JarvisCyan.copy(alpha = 0.45f * glow),
+                                                            radius = size.minDimension * 0.62f,
+                                                        )
+                                                    }
                                                     .clip(CircleShape)
-                                                    .then(
-                                                        if (isSelected) Modifier.background(Color(0x3322D3EE))
-                                                        else Modifier
+                                                    .background(
+                                                        if (isSelected) JarvisCyan.copy(alpha = 0.22f)
+                                                        else JarvisCyan.copy(alpha = 0.08f),
+                                                    )
+                                                    .border(
+                                                        1.dp,
+                                                        if (isSelected) JarvisCyanBright.copy(alpha = 0.55f + 0.45f * glow)
+                                                        else JarvisCyan.copy(alpha = 0.35f),
+                                                        CircleShape,
                                                     ),
                                                 contentAlignment = Alignment.Center,
                                             ) {
