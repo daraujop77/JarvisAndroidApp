@@ -74,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -179,11 +180,11 @@ private fun ConversationListView(
             }
         } else if (items.isEmpty()) {
             Column(
-                Modifier.fillMaxSize().padding(pad).padding(32.dp),
+                Modifier.fillMaxSize().padding(pad).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                JarvisBrain(size = 130.dp, activity = OrbActivity.IDLE)
+                JarvisBrain(size = 140.dp, activity = OrbActivity.IDLE)
                 Spacer(Modifier.height(24.dp))
                 Text("Ready when you are", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
@@ -193,6 +194,27 @@ private fun ConversationListView(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val quickPrompts = listOf("Draft an update", "Brainstorm ideas", "Check status")
+                    quickPrompts.forEach { prompt ->
+                        Surface(
+                            onClick = onNew,
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0x3316223A),
+                            border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.22f)),
+                        ) {
+                            Text(
+                                prompt,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = accents.orbGlow,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
             }
         } else {
             LazyColumn(
@@ -204,8 +226,18 @@ private fun ConversationListView(
                     Surface(
                         onClick = { onOpen(c.conversationId) },
                         shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-                        border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.16f)),
+                        color = Color(0xCC0E182A),
+                        border = BorderStroke(
+                            1.dp,
+                            Brush.horizontalGradient(
+                                listOf(
+                                    accents.orbGlow.copy(alpha = 0.22f),
+                                    Color(0x188B5CF6),
+                                    accents.orbGlow.copy(alpha = 0.12f),
+                                )
+                            ),
+                        ),
+                        shadowElevation = 2.dp,
                         modifier = Modifier.fillMaxWidth().animateItem(),
                     ) {
                         Row(
@@ -508,73 +540,98 @@ private fun Composer(
     onSend: () -> Unit,
 ) {
     val accents = LocalJarvisAccents.current
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(30.dp),
+        color = Color(0xD90E1728),
+        border = BorderStroke(
+            1.dp,
+            Brush.horizontalGradient(
+                listOf(
+                    accents.orbGlow.copy(alpha = 0.22f),
+                    Color(0x228B5CF6),
+                    accents.orbGlow.copy(alpha = 0.22f),
+                )
+            ),
+        ),
+        shadowElevation = 8.dp,
     ) {
-        IconButton(
-            onClick = onPickPhoto,
-            enabled = canPickPhoto,
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(
-                Icons.Filled.AddPhotoAlternate,
-                contentDescription = if (canPickPhoto) "Attach photo" else "Image input unavailable",
-                tint = if (canPickPhoto) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-            )
-        }
-        IconButton(
-            onClick = onGenerateImage,
-            enabled = canGenerateImage,
-        ) {
-            if (generatingImage) {
-                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-            } else {
+            IconButton(
+                onClick = onPickPhoto,
+                enabled = canPickPhoto,
+            ) {
                 Icon(
-                    Icons.Filled.Image,
-                    contentDescription = if (canGenerateImage) "Generate image" else "Image generation unavailable",
-                    tint = if (canGenerateImage) MaterialTheme.colorScheme.onSurfaceVariant
+                    Icons.Filled.AddPhotoAlternate,
+                    contentDescription = if (canPickPhoto) "Attach photo" else "Image input unavailable",
+                    tint = if (canPickPhoto) MaterialTheme.colorScheme.onSurfaceVariant
                     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                 )
             }
-        }
-        OutlinedTextField(
-            value = input,
-            onValueChange = onInput,
-            modifier = Modifier.weight(1f),
-            placeholder = {
-                Text(
-                    if (connected) "Message JARVIS…" else "Offline — will retry",
-                    color = Color(0xFFB7C7DC),
-                )
-            },
-            maxLines = 4,
-            shape = RoundedCornerShape(26.dp),
-            colors = jarvisTextFieldColors(),
-        )
+            IconButton(
+                onClick = onGenerateImage,
+                enabled = canGenerateImage,
+            ) {
+                if (generatingImage) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        Icons.Filled.Image,
+                        contentDescription = if (canGenerateImage) "Generate image" else "Image generation unavailable",
+                        tint = if (canGenerateImage) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInput,
+                modifier = Modifier.weight(1f),
+                placeholder = {
+                    Text(
+                        if (connected) "Message JARVIS…" else "Offline — will retry",
+                        color = Color(0xFFB7C7DC),
+                    )
+                },
+                maxLines = 4,
+                shape = RoundedCornerShape(22.dp),
+                colors = jarvisTextFieldColors(),
+            )
 
-        // Stop replaces Send while a reply is streaming, so the primary action
-        // is always the one the user actually needs.
-        androidx.compose.animation.AnimatedContent(
-            targetState = streaming,
-            transitionSpec = { (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut()) },
-            label = "sendStop",
-        ) { isStreaming ->
-            if (isStreaming) {
-                FilledIconButton(
-                    onClick = onStop,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                    ),
-                ) { Icon(Icons.Filled.Stop, contentDescription = "Stop") }
-            } else {
-                val scale by animateFloatAsState(if (canSend) 1f else 0.85f, label = "sendScale")
-                FilledIconButton(
-                    onClick = onSend,
-                    enabled = canSend,
-                    modifier = Modifier.size((44 * scale).dp),
-                ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
+            // Stop replaces Send while a reply is streaming, so the primary action
+            // is always the one the user actually needs.
+            androidx.compose.animation.AnimatedContent(
+                targetState = streaming,
+                transitionSpec = { (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut()) },
+                label = "sendStop",
+            ) { isStreaming ->
+                if (isStreaming) {
+                    FilledIconButton(
+                        onClick = onStop,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                        ),
+                    ) { Icon(Icons.Filled.Stop, contentDescription = "Stop") }
+                } else {
+                    val scale by animateFloatAsState(if (canSend) 1f else 0.85f, label = "sendScale")
+                    FilledIconButton(
+                        onClick = onSend,
+                        enabled = canSend,
+                        modifier = Modifier.size((44 * scale).dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = Color(0xFF041018),
+                            disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                            disabledContentColor = Color(0xFF041018).copy(alpha = 0.4f),
+                        ),
+                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
+                }
             }
         }
     }
@@ -634,8 +691,9 @@ private fun JumpToLatest(streaming: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.45f)),
+        color = Color(0xEE0E182A),
+        border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.5f)),
+        shadowElevation = 6.dp,
     ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -646,7 +704,7 @@ private fun JumpToLatest(streaming: Boolean, onClick: () -> Unit) {
                 Spacer(Modifier.size(8.dp))
             }
             Text(
-                if (streaming) "Jarvis is replying" else "Jump to latest",
+                if (streaming) "Jarvis is replying…" else "Jump to latest",
                 style = MaterialTheme.typography.labelLarge,
                 color = accents.orbGlow,
             )
@@ -691,14 +749,20 @@ private fun MessageBubble(
                     color = if (isUser) Color.Transparent else accents.assistantBubble,
                     contentColor = if (isUser) Color.White else Color(0xFFE8EEF8),
                     shape = bubbleShape,
-                    border = if (isUser) null else BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.14f)),
+                    border = if (isUser) {
+                        BorderStroke(1.dp, Color(0x3867E8F9))
+                    } else {
+                        BorderStroke(
+                            1.dp,
+                            Brush.verticalGradient(
+                                listOf(accents.orbGlow.copy(alpha = 0.28f), Color(0x182A3B57))
+                            )
+                        )
+                    },
                     modifier = if (isUser) {
                         Modifier.background(
                             accents.userBubble,
-                            RoundedCornerShape(
-                                topStart = 20.dp, topEnd = 6.dp,
-                                bottomStart = 20.dp, bottomEnd = 20.dp,
-                            ),
+                            bubbleShape,
                         )
                     } else Modifier,
                 ) {

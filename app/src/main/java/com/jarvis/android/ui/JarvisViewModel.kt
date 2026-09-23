@@ -292,6 +292,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun clearWritingWikiSearch() {
+        _writingWorkspace.value = _writingWorkspace.value.copy(wiki = null)
+    }
+
     fun createWritingPlan(projectId: String, title: String, body: String) {
         val clean = body.trim()
         if (clean.isEmpty()) return

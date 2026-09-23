@@ -75,6 +75,12 @@ fun AmbientBackdrop(
                     w * 0.62f,
                     accents.orbGlow.copy(alpha = 0.06f),
                 )
+                bloom(
+                    w * (0.15f + 0.08f * sin(phase * 0.6f)),
+                    h * (0.52f + 0.06f * cos(phase * 0.7f)),
+                    w * 0.70f,
+                    Color(0xFF8B5CF6).copy(alpha = 0.05f),
+                )
             },
         content = content,
     )

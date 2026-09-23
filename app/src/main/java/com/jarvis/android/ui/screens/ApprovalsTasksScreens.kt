@@ -1,6 +1,7 @@
 package com.jarvis.android.ui.screens
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -150,7 +151,9 @@ private fun ApprovalCard(
 
     Surface(
         shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+        color = Color(0xCC0E182A),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
+        shadowElevation = 3.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
         Column {
@@ -264,7 +267,9 @@ fun TasksScreen(vm: JarvisViewModel) {
                     )
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                        color = Color(0xCC0E182A),
+                        border = BorderStroke(1.dp, tint.copy(alpha = 0.22f)),
+                        shadowElevation = 2.dp,
                         modifier = Modifier.fillMaxWidth().animateItem(),
                     ) {
                         Column(Modifier.padding(18.dp)) {
