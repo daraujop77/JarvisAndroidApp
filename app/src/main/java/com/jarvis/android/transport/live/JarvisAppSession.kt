@@ -274,6 +274,96 @@ class JarvisAppSession(
         }.getOrNull()
     }
 
+    data class UsageCounter(
+        val requests: Long = 0,
+        val successfulRequests: Long = 0,
+        val failedRequests: Long = 0,
+        val durationMs: Long = 0,
+        val inputTokens: Long? = null,
+        val outputTokens: Long? = null,
+        val totalTokens: Long? = null,
+    )
+
+    data class ProviderUsage(
+        val id: String,
+        val label: String,
+        val model: String,
+        val source: String,
+        val periods: Map<String, UsageCounter>,
+        val lifetime: UsageCounter,
+        val lastUsedUtc: String?,
+        val quotaStatus: String,
+        val quotaRemainingPercent: Double?,
+        val quotaResetsAt: String?,
+    )
+
+    data class ProviderUsageSnapshot(
+        val source: String,
+        val updatedUtc: String?,
+        val trackingStartedUtc: String?,
+        val providers: List<ProviderUsage>,
+    )
+
+    suspend fun fetchProviderUsage(): Result<ProviderUsageSnapshot> = withContext(Dispatchers.IO) {
+        if (!isAuthenticated) {
+            return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
+        }
+        runCatching {
+            val resp = get(baseUrl, "/api/app/status", auth = authHeader())
+            if (resp.first == 401) {
+                clear()
+                throw TransportException("session expired")
+            }
+            requireOk(resp)
+            val root = json.parseToJsonElement(resp.second).jsonObject
+            val usage = root["usage"]?.jsonObject
+                ?: throw TransportException("provider usage is not available from this JARVIS server")
+
+            fun counter(obj: JsonObject?): UsageCounter {
+                fun number(name: String): Long? =
+                    obj?.get(name)?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+                return UsageCounter(
+                    requests = number("requests") ?: 0L,
+                    successfulRequests = number("successful_requests") ?: 0L,
+                    failedRequests = number("failed_requests") ?: 0L,
+                    durationMs = number("duration_ms") ?: 0L,
+                    inputTokens = number("input_tokens"),
+                    outputTokens = number("output_tokens"),
+                    totalTokens = number("total_tokens"),
+                )
+            }
+
+            val providers = (usage["providers"] as? JsonArray).orEmpty().mapNotNull { element ->
+                val obj = element as? JsonObject ?: return@mapNotNull null
+                val providerId = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val periodMap = (obj["periods"] as? JsonObject)
+                    ?.mapValues { (_, value) -> counter(value as? JsonObject) }
+                    .orEmpty()
+                val quota = obj["quota"] as? JsonObject
+                ProviderUsage(
+                    id = providerId,
+                    label = obj["label"]?.jsonPrimitive?.contentOrNull ?: providerId,
+                    model = obj["model"]?.jsonPrimitive?.contentOrNull ?: "—",
+                    source = obj["source"]?.jsonPrimitive?.contentOrNull ?: "jarvis_observed",
+                    periods = periodMap,
+                    lifetime = counter(obj["lifetime"] as? JsonObject),
+                    lastUsedUtc = obj["last_used_utc"]?.jsonPrimitive?.contentOrNull,
+                    quotaStatus = quota?.get("status")?.jsonPrimitive?.contentOrNull ?: "not_reported",
+                    quotaRemainingPercent = quota?.get("remaining_percent")
+                        ?.jsonPrimitive?.contentOrNull?.toDoubleOrNull(),
+                    quotaResetsAt = quota?.get("resets_at")?.jsonPrimitive?.contentOrNull,
+                )
+            }
+
+            ProviderUsageSnapshot(
+                source = usage["source"]?.jsonPrimitive?.contentOrNull ?: "jarvis_observed",
+                updatedUtc = usage["updated_utc"]?.jsonPrimitive?.contentOrNull,
+                trackingStartedUtc = usage["tracking_started_utc"]?.jsonPrimitive?.contentOrNull,
+                providers = providers,
+            )
+        }
+    }
+
     data class ScreenVisionReply(val text: String, val model: String)
 
     suspend fun analyzeScreen(
