@@ -86,22 +86,19 @@ jobs:
           retention-days: 14
 
       - name: Authenticate to Google
-        id: google-auth
         if: ${{ inputs.mode == 'publish-internal' }}
         uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
 
       - name: Publish to Google Play Internal testing
         if: ${{ inputs.mode == 'publish-internal' }}
         env:
-          GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
           AAB_PATH: app/build/outputs/bundle/release/app-release.aab
         shell: bash
         run: |
           set -Eeuo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check google-auth requests
           python3 - <<'PY'
           import json
           import os
@@ -109,9 +106,19 @@ jobs:
           import urllib.parse
           import urllib.request
 
+          import google.auth
+          from google.auth.transport.requests import Request
+
           package_name = os.environ["PLAY_PACKAGE_NAME"]
-          token = os.environ["GOOGLE_PLAY_ACCESS_TOKEN"]
           aab_path = os.environ["AAB_PATH"]
+
+          credentials, _ = google.auth.default(
+              scopes=["https://www.googleapis.com/auth/androidpublisher"],
+          )
+          credentials.refresh(Request())
+          token = credentials.token
+          if not token:
+              raise RuntimeError("Google OAuth access token was not generated")
           sha = os.environ.get("GITHUB_SHA", "")[:7]
           api = "https://androidpublisher.googleapis.com"
 
