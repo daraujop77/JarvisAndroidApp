@@ -1,5 +1,7 @@
 package com.jarvis.android.ui.screens
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +22,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +36,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
@@ -73,7 +78,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -81,6 +88,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,13 +100,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -107,9 +118,14 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
@@ -354,9 +370,12 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val pendingAttachments by vm.pendingAttachments.collectAsStateWithLifecycle()
     val chatAccess by vm.chatAccess.collectAsStateWithLifecycle()
     val imageGenerationState by vm.imageGenerationState.collectAsStateWithLifecycle()
+    val imageGenerationDetails by vm.imageGenerationDetails.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
     var input by rememberSaveable(conversationId) { mutableStateOf("") }
+    var showImageOptions by rememberSaveable(conversationId) { mutableStateOf(false) }
+    var viewerAttachmentId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val accents = LocalJarvisAccents.current
@@ -506,6 +525,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                                 attachmentState = { id -> snapshot.session.attachments[id] },
                                 attachmentStore = vm.attachmentStore,
                                 avatarEpoch = avatarEpoch,
+                                onOpenAttachment = { viewerAttachmentId = it },
                             )
                         }
                     }
@@ -570,8 +590,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     )
                 },
                 onGenerateImage = {
-                    vm.generateImage(input)
-                    input = ""
+                    showImageOptions = true
                 },
                 onStop = { liveRequest?.let { vm.cancel(it.clientRequestId) } },
                 onSend = {
@@ -593,6 +612,37 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         }
                     }
                 },
+            )
+        }
+
+        if (showImageOptions) {
+            ImageGenerationChooser(
+                access = chatAccess?.imageAccess,
+                prompt = input,
+                onDismiss = { showImageOptions = false },
+                onGenerate = { mode, modelId, allowFallback ->
+                    showImageOptions = false
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+                    val promptToGenerate = input
+                    input = ""
+                    vm.generateImage(
+                        prompt = promptToGenerate,
+                        mode = mode,
+                        modelId = modelId,
+                        allowFallback = allowFallback,
+                    )
+                },
+            )
+        }
+
+        viewerAttachmentId?.let { attachmentId ->
+            GeneratedImageViewer(
+                attachmentId = attachmentId,
+                attachmentStore = vm.attachmentStore,
+                details = imageGenerationDetails[attachmentId],
+                showDiagnostics = chatAccess?.imageAccess?.ownerModelSelection == true,
+                onDismiss = { viewerAttachmentId = null },
             )
         }
     }
@@ -1059,6 +1109,7 @@ private fun MessageBubble(
     attachmentState: (String) -> com.jarvis.android.data.state.AttachmentUiState?,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
     avatarEpoch: Int,
+    onOpenAttachment: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val accents = LocalJarvisAccents.current
@@ -1118,6 +1169,7 @@ private fun MessageBubble(
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
                                         generated = !isUser && msg.clientRequestId.startsWith("img_"),
+                                        onOpen = { onOpenAttachment(id) },
                                     )
                                 }
                             }
@@ -1227,11 +1279,322 @@ private fun MessageBubble(
 }
 
 @Composable
+private fun ImageGenerationChooser(
+    access: com.jarvis.android.transport.live.JarvisAppSession.ImageAccess?,
+    prompt: String,
+    onDismiss: () -> Unit,
+    onGenerate: (mode: String, modelId: String?, allowFallback: Boolean) -> Unit,
+) {
+    val accents = LocalJarvisAccents.current
+    val ownerSelect = access?.ownerModelSelection == true
+    val availableModels = access?.models.orEmpty().filter { it.state == "ready" }
+    var mode by remember(access?.defaultMode, ownerSelect) {
+        mutableStateOf(access?.defaultMode?.takeIf { it in setOf("speed", "quality") } ?: "quality")
+    }
+    var selectedModelId by remember(availableModels) {
+        mutableStateOf(availableModels.firstOrNull()?.id)
+    }
+    var allowFallback by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF0C1525),
+            border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.38f)),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Generate image", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    prompt.take(180),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf(
+                        "speed" to "Speed",
+                        "quality" to "Quality",
+                    ).plus(if (ownerSelect) listOf("model_select" to "Model Select") else emptyList())
+                        .forEach { (value, label) ->
+                            Surface(
+                                onClick = { mode = value },
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (mode == value) accents.orbGlow.copy(alpha = 0.22f) else Color(0x3316223A),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (mode == value) accents.orbGlow else accents.orbGlow.copy(alpha = 0.18f),
+                                ),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    label,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                                    textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (mode == value) accents.orbGlow else Color(0xFFDCE7F7),
+                                )
+                            }
+                        }
+                }
+
+                Text(
+                    when (mode) {
+                        "speed" -> "Fast and economical. JARVIS chooses the best available route."
+                        "quality" -> "Higher-quality route with automatic fallback if needed."
+                        else -> "Owner test mode. The selected model is called directly."
+                    },
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                if (mode == "model_select" && ownerSelect) {
+                    if (availableModels.isEmpty()) {
+                        Text(
+                            "No image models are currently reported as ready.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text("Model", style = MaterialTheme.typography.labelLarge)
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(availableModels, key = { it.id }) { model ->
+                                Surface(
+                                    onClick = { selectedModelId = model.id },
+                                    color = if (selectedModelId == model.id) {
+                                        accents.orbGlow.copy(alpha = 0.12f)
+                                    } else Color.Transparent,
+                                    shape = RoundedCornerShape(12.dp),
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        RadioButton(
+                                            selected = selectedModelId == model.id,
+                                            onClick = { selectedModelId = model.id },
+                                        )
+                                        Column(Modifier.weight(1f)) {
+                                            Text(model.label, style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                model.provider + " · " + model.model,
+                                                style = HudTextStyle,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Allow fallback", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "Off by default so owner comparisons stay exact.",
+                                    style = HudTextStyle,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(checked = allowFallback, onCheckedChange = { allowFallback = it })
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        onClick = {
+                            onGenerate(
+                                mode,
+                                selectedModelId.takeIf { mode == "model_select" },
+                                allowFallback && mode == "model_select",
+                            )
+                        },
+                        enabled = prompt.isNotBlank() && (mode != "model_select" || selectedModelId != null),
+                        shape = RoundedCornerShape(16.dp),
+                        color = accents.orbGlow.copy(alpha = 0.20f),
+                        border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.55f)),
+                    ) {
+                        Text(
+                            "Generate",
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                            color = accents.orbGlow,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GeneratedImageViewer(
+    attachmentId: String,
+    attachmentStore: com.jarvis.android.data.media.AttachmentStore,
+    details: com.jarvis.android.transport.live.JarvisAppSession.ImageGenerationReply?,
+    showDiagnostics: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, attachmentId) {
+        value = withContext(Dispatchers.IO) { attachmentStore.decodeFull(attachmentId) }
+    }
+    var scale by remember(attachmentId) { mutableStateOf(1f) }
+    var offsetX by remember(attachmentId) { mutableStateOf(0f) }
+    var offsetY by remember(attachmentId) { mutableStateOf(0f) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(
+            Modifier.fillMaxSize().background(Color(0xF5000000)),
+        ) {
+            val image = bitmap
+            if (image != null) {
+                Image(
+                    bitmap = image.asImageBitmap(),
+                    contentDescription = "Generated image",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp, vertical = 72.dp)
+                        .pointerInput(attachmentId) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                val next = (scale * zoom).coerceIn(1f, 5f)
+                                scale = next
+                                if (next <= 1.01f) {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                } else {
+                                    offsetX += pan.x
+                                    offsetY += pan.y
+                                }
+                            }
+                        }
+                        .pointerInput(attachmentId, scale) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (scale > 1.05f) {
+                                        scale = 1f
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    } else {
+                                        scale = 2f
+                                    }
+                                },
+                            )
+                        }
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offsetX,
+                            translationY = offsetY,
+                        ),
+                )
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = LocalJarvisAccents.current.orbGlow,
+                )
+            }
+
+            Row(
+                Modifier.align(Alignment.TopEnd).padding(top = 22.dp, end = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                IconButton(
+                    onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            val saved = attachmentStore.saveToPictures(attachmentId)
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(
+                                    context,
+                                    if (saved != null) "Image saved to Pictures/JARVIS" else "Could not save image",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    },
+                ) {
+                    Icon(Icons.Filled.AddPhotoAlternate, contentDescription = "Download image", tint = Color.White)
+                }
+                IconButton(
+                    onClick = {
+                        val file = attachmentStore.resolve(attachmentId) ?: return@IconButton
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            context.packageName + ".fileprovider",
+                            file,
+                        )
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = "image/jpeg"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(share, "Share image"))
+                    },
+                ) {
+                    Icon(Icons.Filled.OpenInNew, contentDescription = "Share image", tint = Color.White)
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close image", tint = Color.White)
+                }
+            }
+
+            if (showDiagnostics && details != null) {
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(14.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xDD101827),
+                    border = BorderStroke(1.dp, LocalJarvisAccents.current.orbGlow.copy(alpha = 0.28f)),
+                ) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Text(
+                            details.provider + " · " + details.model,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White,
+                        )
+                        Text(
+                            details.requestedMode.uppercase() +
+                                " · " + details.durationMs + " ms" +
+                                if (details.fallbackUsed) " · FALLBACK" else "",
+                            style = HudTextStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AttachmentChip(
     attachmentId: String,
     state: com.jarvis.android.data.state.AttachmentUiState?,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
     generated: Boolean = false,
+    onOpen: (() -> Unit)? = null,
 ) {
     val thumb by rememberAttachmentThumb(attachmentId, attachmentStore)
     val statusText = when {
@@ -1244,9 +1607,10 @@ private fun AttachmentChip(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
-                .size(92.dp)
+                .size(if (generated) 168.dp else 92.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surface),
+                .background(MaterialTheme.colorScheme.surface)
+                .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             val bitmap = thumb
