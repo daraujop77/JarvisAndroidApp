@@ -324,7 +324,7 @@ class JarvisAppSession(
             return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
         }
         runCatching {
-            val resp = get(baseUrl, "/api/app/status", auth = authHeader())
+            val resp = get(baseUrl, "/api/app/usage", auth = authHeader())
             if (resp.first == 401) {
                 clear()
                 throw TransportException("session expired")

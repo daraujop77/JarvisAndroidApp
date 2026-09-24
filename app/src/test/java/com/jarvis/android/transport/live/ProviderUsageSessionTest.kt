@@ -21,14 +21,14 @@ class ProviderUsageSessionTest {
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                if (request.path != "/api/app/status") return MockResponse().setResponseCode(404)
+                if (request.path != "/api/app/usage") return MockResponse().setResponseCode(404)
                 if (request.getHeader("Authorization") != "Bearer test-token") {
                     return MockResponse().setResponseCode(401)
                 }
                 return MockResponse().setBody(
                     """
                     {
-                      "schema":"jarvis.app.status.v1",
+                      "schema":"jarvis.app.usage.v1",
                       "usage":{
                         "schema":"jarvis.provider-usage.v1",
                         "source":"jarvis_observed",
