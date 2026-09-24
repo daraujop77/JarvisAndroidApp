@@ -65,6 +65,10 @@ class StructuredWikiCharactersTest {
         assertTrue(mapped.centralWound.orEmpty().contains("perder el control"))
         assertTrue(mapped.centralWound.orEmpty().contains("compartir la carga"))
         assertTrue(mapped.centralWound.orEmpty().contains("instinto es aislarse"))
+        assertTrue(mapped.canonicalAbilities.contains("Rinnegan"))
+        assertTrue(mapped.canonicalLimitations.contains("Venom C4 Cataclysm está prohibido."))
+        assertTrue(mapped.historyTimeline.any { it.label.contains("defensa del oeste") })
+        assertTrue(mapped.canonAppearances.any { 37 in it.chapters })
     }
 
     @Test

@@ -1,6 +1,8 @@
 package com.jarvis.android.ui.writing
 
 import com.jarvis.android.data.story.CANON_CHARACTERS
+import com.jarvis.android.data.story.CharacterAppearanceRecord
+import com.jarvis.android.data.story.CharacterHistoryStage
 import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.transport.live.WritingWikiEntity
@@ -114,6 +116,27 @@ fun mergeStructuredCharacter(
         } else {
             base?.relatedCharacterIds.orEmpty()
         },
+        canonicalAbilities = entity.abilities,
+        canonicalLimitations = entity.limitations,
+        historyTimeline = entity.history
+            .filter { it.label.isNotBlank() || it.summary.isNotBlank() }
+            .map { item ->
+                CharacterHistoryStage(
+                    period = item.period,
+                    label = item.label,
+                    summary = item.summary,
+                )
+            },
+        canonAppearances = entity.appearances
+            .filter { it.chapters.isNotEmpty() || it.summary.isNotBlank() }
+            .map { item ->
+                CharacterAppearanceRecord(
+                    chapters = item.chapters,
+                    kind = item.kind,
+                    summary = item.summary,
+                )
+            },
+        mentionedChapters = entity.mentions,
     )
 }
 
