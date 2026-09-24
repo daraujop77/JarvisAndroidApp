@@ -21,6 +21,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -624,8 +626,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     // ---- AND-W6 attachments ---------------------------------------------------
 
-    private val _pendingAttachments = MutableStateFlow<List<StagedAttachment>>(emptyList())
-    val pendingAttachments: StateFlow<List<StagedAttachment>> = _pendingAttachments
+    private val _pendingAttachmentsByConversation =
+        MutableStateFlow<Map<String, List<StagedAttachment>>>(emptyMap())
+
+    /**
+     * Pending media is conversation-local. Switching from chat A to chat B must
+     * never carry an unsent attachment across the boundary.
+     */
+    val pendingAttachments: StateFlow<List<StagedAttachment>> = combine(
+        _conversationId,
+        _pendingAttachmentsByConversation,
+    ) { conversationId, pendingByConversation ->
+        conversationId?.let { pendingByConversation[it].orEmpty() }.orEmpty()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val attachmentStore get() = container.attachmentStore
 
@@ -641,7 +654,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             val staged = withContext(Dispatchers.IO) {
                 container.attachmentStore.stageFrom(uri)
             } ?: return@launch
-            _pendingAttachments.value = _pendingAttachments.value + staged
+            _pendingAttachmentsByConversation.update { current ->
+                current + (conversationId to (current[conversationId].orEmpty() + staged))
+            }
             if (container.transportMode != AppContainer.TransportMode.LIVE) {
                 session.uploadAttachment(
                     attachmentId = staged.attachmentId,
@@ -655,20 +670,26 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun removePendingAttachment(attachmentId: String) {
-        _pendingAttachments.value = _pendingAttachments.value.filterNot { it.attachmentId == attachmentId }
+        val conversationId = _conversationId.value ?: return
+        _pendingAttachmentsByConversation.update { current ->
+            val remaining = current[conversationId].orEmpty()
+                .filterNot { it.attachmentId == attachmentId }
+            if (remaining.isEmpty()) current - conversationId
+            else current + (conversationId to remaining)
+        }
         viewModelScope.launch(Dispatchers.IO) { container.attachmentStore.delete(attachmentId) }
     }
 
     /** Send text and/or pending attachments (AND-W6: attachment IDs, never paths). */
     fun sendWithAttachments(text: String) {
-        val attachments = _pendingAttachments.value
         val trimmed = text.trim()
+        val id = _conversationId.value ?: conversations.newConversationId().also { _conversationId.value = it }
+        val attachments = _pendingAttachmentsByConversation.value[id].orEmpty()
         if (trimmed.isEmpty() && attachments.isEmpty()) return
         val ids = attachments.map { it.attachmentId }
         val body = trimmed.ifBlank { "(photo)" }
-        val id = _conversationId.value ?: conversations.newConversationId().also { _conversationId.value = it }
         conversations.send(id, body, ids)
-        _pendingAttachments.value = emptyList()
+        _pendingAttachmentsByConversation.update { it - id }
     }
 
     fun cancel(clientRequestId: String) = conversations.cancelRequest(clientRequestId)

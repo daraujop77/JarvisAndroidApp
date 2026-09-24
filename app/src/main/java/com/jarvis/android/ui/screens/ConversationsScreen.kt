@@ -110,6 +110,7 @@ import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.chat.AutoFollow
+import com.jarvis.android.ui.chat.ConversationActivity
 import com.jarvis.android.ui.components.MarkdownBlock
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.HolographicSendButton
@@ -167,6 +168,10 @@ private fun ConversationListView(
     val loading = listState is com.jarvis.android.data.repo.ConversationListState.Loading
     val accents = LocalJarvisAccents.current
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
+    val snapshot by vm.snapshot.collectAsStateWithLifecycle()
+    val activeConversationIds = ConversationActivity.activeConversationIds(
+        snapshot.session.requests.values,
+    )
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -251,6 +256,7 @@ private fun ConversationListView(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 itemsIndexed(items, key = { _, c -> c.conversationId }) { index, c ->
+                    val isActive = c.conversationId in activeConversationIds
                     Surface(
                         onClick = { onOpen(c.conversationId) },
                         shape = RoundedCornerShape(20.dp),
@@ -258,11 +264,19 @@ private fun ConversationListView(
                         border = BorderStroke(
                             1.dp,
                             Brush.horizontalGradient(
-                                listOf(
-                                    accents.orbGlow.copy(alpha = 0.22f),
-                                    Color(0x188B5CF6),
-                                    accents.orbGlow.copy(alpha = 0.12f),
-                                )
+                                if (isActive) {
+                                    listOf(
+                                        accents.orbGlow.copy(alpha = 0.72f),
+                                        Color(0x558B5CF6),
+                                        accents.orbGlow.copy(alpha = 0.42f),
+                                    )
+                                } else {
+                                    listOf(
+                                        accents.orbGlow.copy(alpha = 0.22f),
+                                        Color(0x188B5CF6),
+                                        accents.orbGlow.copy(alpha = 0.12f),
+                                    )
+                                }
                             ),
                         ),
                         shadowElevation = 2.dp,
@@ -279,7 +293,7 @@ private fun ConversationListView(
                                     .background(accents.orbGlow.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                JarvisOrb(size = 30.dp, activity = OrbActivity.IDLE)
+                                JarvisOrb(size = 30.dp, activity = if (isActive) OrbActivity.THINKING else OrbActivity.IDLE)
                             }
                             Spacer(Modifier.size(14.dp))
                             Column(Modifier.weight(1f)) {
@@ -292,6 +306,14 @@ private fun ConversationListView(
                                     ),
                                     style = HudTextStyle,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (isActive) {
+                                Text(
+                                    "LIVE",
+                                    style = HudTextStyle,
+                                    color = accents.orbGlow,
+                                    modifier = Modifier.padding(start = 8.dp),
                                 )
                             }
                         }
@@ -311,7 +333,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val chatAccess by vm.chatAccess.collectAsStateWithLifecycle()
     val imageGenerationState by vm.imageGenerationState.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
-    var input by rememberSaveable { mutableStateOf("") }
+    val conversationId by vm.conversationId.collectAsStateWithLifecycle()
+    var input by rememberSaveable(conversationId) { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val accents = LocalJarvisAccents.current
@@ -323,7 +346,10 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
-    val liveRequest = snapshot.session.requests.values.firstOrNull { !it.status.isTerminal }
+    val liveRequest = ConversationActivity.activeRequest(
+        snapshot.session.requests.values,
+        conversationId,
+    )
     val chatStreaming = liveRequest != null
     val imageGenerating = imageGenerationState is JarvisViewModel.ImageGenerationState.Busy
     val busy = chatStreaming || imageGenerating
