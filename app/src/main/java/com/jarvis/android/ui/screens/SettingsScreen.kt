@@ -57,7 +57,10 @@ import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: JarvisViewModel) {
+fun SettingsScreen(
+    vm: JarvisViewModel,
+    onOpenUsage: () -> Unit = {},
+) {
     val strings = LocalAppStrings.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
@@ -244,6 +247,17 @@ fun SettingsScreen(vm: JarvisViewModel) {
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = { vm.setOwnerName(name) }) { Text(strings.saveName) }
+            }
+
+
+            SettingsCard(strings.usageSection) {
+                Text(
+                    strings.usageSettingsDescription,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = onOpenUsage) { Text(strings.openUsage) }
             }
 
             SettingsCard(strings.appUpdateSection) {

@@ -75,6 +75,23 @@ interface AppStrings {
     val langEnglish: String
     val langSpanish: String
 
+    val usageSection: String
+    val usageSettingsDescription: String
+    val openUsage: String
+    val usageTitle: String
+    val usageObservedNotice: String
+    val usageToday: String
+    val usage7Days: String
+    val usage30Days: String
+    val refreshUsage: String
+    val requestsLabel: String
+    val successLabel: String
+    val failedLabel: String
+    val tokensLabel: String
+    val tokensNotReported: String
+    val providerQuotaNotReported: String
+    val noUsageYet: String
+
     val identitySection: String
     val profilePhotoSet: String
     val noProfilePhoto: String
@@ -229,6 +246,23 @@ object EnAppStrings : AppStrings {
     override val langEnglish = "English (United States)"
     override val langSpanish = "Español (Latinoamérica)"
 
+    override val usageSection = "AI USAGE & LIMITS"
+    override val usageSettingsDescription = "View JARVIS-observed use for ChatGPT/Codex, Grok, Gemini, Nous and FreeLLMAPI."
+    override val openUsage = "View usage"
+    override val usageTitle = "Usage & limits"
+    override val usageObservedNotice = "JARVIS shows observed traffic. Provider quota is shown only when the provider reports it."
+    override val usageToday = "Today"
+    override val usage7Days = "7 days"
+    override val usage30Days = "30 days"
+    override val refreshUsage = "Refresh"
+    override val requestsLabel = "Requests"
+    override val successLabel = "Success"
+    override val failedLabel = "Failed"
+    override val tokensLabel = "Tokens"
+    override val tokensNotReported = "Not reported"
+    override val providerQuotaNotReported = "Provider quota not reported"
+    override val noUsageYet = "No observed usage in this period"
+
     override val identitySection = "IDENTITY"
     override val profilePhotoSet = "Profile photo set"
     override val noProfilePhoto = "No profile photo"
@@ -381,6 +415,23 @@ object EsAppStrings : AppStrings {
     override val langSystem = "Predeterminado del sistema / System default"
     override val langEnglish = "English (United States)"
     override val langSpanish = "Español (Latinoamérica)"
+
+    override val usageSection = "USO Y LÍMITES DE IA"
+    override val usageSettingsDescription = "Consulta el uso observado por JARVIS para ChatGPT/Codex, Grok, Gemini, Nous y FreeLLMAPI."
+    override val openUsage = "Ver uso"
+    override val usageTitle = "Uso y límites"
+    override val usageObservedNotice = "JARVIS muestra el tráfico observado. La cuota del proveedor solo aparece cuando el proveedor la reporta."
+    override val usageToday = "Hoy"
+    override val usage7Days = "7 días"
+    override val usage30Days = "30 días"
+    override val refreshUsage = "Actualizar"
+    override val requestsLabel = "Solicitudes"
+    override val successLabel = "Correctas"
+    override val failedLabel = "Fallidas"
+    override val tokensLabel = "Tokens"
+    override val tokensNotReported = "No reportados"
+    override val providerQuotaNotReported = "Cuota del proveedor no reportada"
+    override val noUsageYet = "Sin uso observado en este periodo"
 
     override val identitySection = "IDENTIDAD"
     override val profilePhotoSet = "Foto de perfil configurada"

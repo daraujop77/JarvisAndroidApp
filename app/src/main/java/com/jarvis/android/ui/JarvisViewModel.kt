@@ -780,6 +780,34 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _chatProfile.value = profile
     }
 
+    sealed interface ProviderUsageState {
+        data object Idle : ProviderUsageState
+        data object Loading : ProviderUsageState
+        data class Ready(val snapshot: JarvisAppSession.ProviderUsageSnapshot) : ProviderUsageState
+        data class Error(val message: String) : ProviderUsageState
+    }
+
+    private val _providerUsage = MutableStateFlow<ProviderUsageState>(ProviderUsageState.Idle)
+    val providerUsage: StateFlow<ProviderUsageState> = _providerUsage
+
+    fun refreshProviderUsage() {
+        if (container.transportMode != AppContainer.TransportMode.LIVE) {
+            _providerUsage.value = ProviderUsageState.Error("Provider usage is available only from the live JARVIS server.")
+            return
+        }
+        _providerUsage.value = ProviderUsageState.Loading
+        viewModelScope.launch {
+            container.liveSession.fetchProviderUsage().fold(
+                onSuccess = { _providerUsage.value = ProviderUsageState.Ready(it) },
+                onFailure = {
+                    _providerUsage.value = ProviderUsageState.Error(
+                        it.message ?: "Provider usage could not be loaded.",
+                    )
+                },
+            )
+        }
+    }
+
     fun liveLogout(onDone: () -> Unit = {}) {
         viewModelScope.launch {
             container.liveSession.logout()
