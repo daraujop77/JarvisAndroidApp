@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -528,10 +527,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(pad)
-                // Edge-to-edge + zeroed content insets mean adjustResize does
-                // nothing; this is what actually lifts the composer above the IME.
-                .imePadding(),
+                .padding(pad),
         ) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty()) {
