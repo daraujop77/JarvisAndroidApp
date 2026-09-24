@@ -563,7 +563,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _imageGenerationState = MutableStateFlow<ImageGenerationState>(ImageGenerationState.Idle)
     val imageGenerationState: StateFlow<ImageGenerationState> = _imageGenerationState
 
-    fun generateImage(prompt: String) {
+    private val _imageGenerationDetails =
+        MutableStateFlow<Map<String, JarvisAppSession.ImageGenerationReply>>(emptyMap())
+    val imageGenerationDetails: StateFlow<Map<String, JarvisAppSession.ImageGenerationReply>> =
+        _imageGenerationDetails
+
+    fun generateImage(
+        prompt: String,
+        mode: String = "quality",
+        modelId: String? = null,
+        allowFallback: Boolean = false,
+        aspectRatio: String = "square",
+    ) {
         val clean = prompt.trim()
         if (clean.isBlank() || _imageGenerationState.value is ImageGenerationState.Busy) return
         val conversationId = _conversationId.value ?: conversations.newConversationId().also {
@@ -571,7 +582,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
         _imageGenerationState.value = ImageGenerationState.Busy
         viewModelScope.launch {
-            container.liveSession.generateImage(clean).fold(
+            container.liveSession.generateImage(
+                clean,
+                mode = mode,
+                modelId = modelId,
+                allowFallback = allowFallback,
+                aspectRatio = aspectRatio,
+            ).fold(
                 onSuccess = { reply ->
                     val staged = withContext(Dispatchers.IO) {
                         container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
@@ -581,6 +598,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             "JARVIS generated an image, but Android could not decode it.",
                         )
                     } else {
+                        _imageGenerationDetails.update { current ->
+                            current + (staged.attachmentId to reply)
+                        }
                         conversations.recordGeneratedImage(
                             conversationId = conversationId,
                             prompt = clean,

@@ -1,10 +1,14 @@
 package com.jarvis.android.data.media
 
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
+import android.os.Environment
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.exifinterface.media.ExifInterface
@@ -79,6 +83,48 @@ class AttachmentStore(context: Context) {
 
     fun resolve(attachmentId: String): File? =
         dir.listFiles()?.firstOrNull { it.name.startsWith(attachmentId) && it.extension == "jpg" }
+
+    fun decodeFull(attachmentId: String, maxSize: Int = 4096): Bitmap? = runCatching {
+        val f = resolve(attachmentId) ?: return@runCatching null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(f.absolutePath, bounds)
+        var sample = 1
+        while (bounds.outWidth / sample > maxSize || bounds.outHeight / sample > maxSize) sample *= 2
+        BitmapFactory.decodeFile(
+            f.absolutePath,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        )
+    }.getOrNull()
+
+    fun saveToPictures(attachmentId: String): Uri? = runCatching {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@runCatching null
+        val source = resolve(attachmentId) ?: return@runCatching null
+        val resolver = appContext.contentResolver
+        val displayName = "JARVIS-" + System.currentTimeMillis() + ".jpg"
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(
+                MediaStore.Images.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_PICTURES + "/JARVIS",
+            )
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: return@runCatching null
+        try {
+            resolver.openOutputStream(uri, "w")?.use { output ->
+                source.inputStream().use { input -> input.copyTo(output) }
+            } ?: error("Could not open MediaStore output")
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            uri
+        } catch (error: Throwable) {
+            runCatching { resolver.delete(uri, null, null) }
+            throw error
+        }
+    }.getOrNull()
 
     fun decodeThumbnail(attachmentId: String, maxSize: Int = 512): Bitmap? = runCatching {
         val f = resolve(attachmentId) ?: return@runCatching null
