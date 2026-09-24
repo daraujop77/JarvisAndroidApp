@@ -19,11 +19,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -91,6 +96,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,6 +104,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.live.WritingChapter
 import com.jarvis.android.transport.live.WritingEngineReviewEnvelope
 import com.jarvis.android.transport.live.WritingPlanItem
+import com.jarvis.android.transport.live.WritingRoomAutoChat
 import com.jarvis.android.transport.live.WritingWikiCategory
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.JarvisOrb
@@ -589,21 +596,38 @@ private fun ChatSection(
     vm: JarvisViewModel,
 ) {
     var prompt by rememberSaveable { mutableStateOf("") }
-    var sentMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    val clipboardManager = LocalClipboardManager.current
-    var copied by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val completedTurns = state.chatHistory.count { it.response != null }
 
-    Column(Modifier.fillMaxSize()) {
-        // Área con scroll de mensajes
+    val sendPrompt: () -> Unit = {
+        val clean = prompt.trim()
+        if (clean.isNotEmpty() && !state.busy) {
+            vm.runWritingRoomAutoChat(projectId, title, clean)
+            prompt = ""
+        }
+    }
+
+    LaunchedEffect(state.chatHistory.size, completedTurns, state.streamingText.isNotBlank()) {
+        if (listState.layoutInfo.totalItemsCount > 0) {
+            listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .imePadding(),
+    ) {
+        // Historial completo del copiloto. Cada turno conserva pregunta y respuesta.
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
             contentPadding = PaddingValues(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Bienvenida si aún no hay mensajes
-            if (sentMessage == null && state.chat == null && state.streamingText.isBlank()) {
+            if (state.chatHistory.isEmpty() && state.streamingText.isBlank()) {
                 item {
                     Surface(
                         shape = RoundedCornerShape(20.dp),
@@ -659,9 +683,7 @@ private fun ChatSection(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(vertical = 3.dp)
-                                        .clickable {
-                                            prompt = suggestion
-                                        },
+                                        .clickable { prompt = suggestion },
                                 ) {
                                     Row(
                                         Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -687,39 +709,17 @@ private fun ChatSection(
                 }
             }
 
-            // Mensaje del usuario (Alineado a la derecha)
-            if (sentMessage != null) {
+            state.chatHistory.forEach { turn ->
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
-                            color = Color(0xFF1E3A5F),
-                            border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
-                            shadowElevation = 2.dp,
-                            modifier = Modifier.fillMaxWidth(0.85f),
-                        ) {
-                            Column(Modifier.padding(14.dp)) {
-                                Text(
-                                    "TÚ",
-                                    style = HudTextStyle.copy(fontSize = 10.sp),
-                                    color = JarvisCyan,
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    sentMessage.orEmpty(),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFFFFFFF),
-                                )
-                            }
-                        }
+                    CopilotUserMessage(turn.prompt)
+                }
+                turn.response?.let { response ->
+                    item {
+                        CopilotAssistantMessage(response)
                     }
                 }
             }
 
-            // Mensaje de JARVIS en streaming (Alineado a la izquierda)
             if (state.streamingText.isNotBlank()) {
                 item {
                     Row(
@@ -735,7 +735,11 @@ private fun ChatSection(
                         ) {
                             Column(Modifier.padding(14.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = JarvisAmber)
+                                    CircularProgressIndicator(
+                                        Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = JarvisAmber,
+                                    )
                                     Spacer(Modifier.width(8.dp))
                                     Text("JARVIS RESPONDIENDO...", style = HudTextStyle, color = JarvisAmber)
                                 }
@@ -746,116 +750,9 @@ private fun ChatSection(
                     }
                 }
             }
-
-            // Mensaje final completado de JARVIS (Alineado a la izquierda)
-            state.chat?.let { chat ->
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start,
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
-                            color = Color(0xEE0E182A),
-                            border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.35f)),
-                            shadowElevation = 2.dp,
-                            modifier = Modifier.fillMaxWidth(0.95f),
-                        ) {
-                            Column(Modifier.padding(14.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        JarvisOrb(
-                                            size = 22.dp,
-                                            activity = OrbActivity.IDLE,
-                                            contentDescription = null,
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            chat.turn.participant.label.ifBlank { "JARVIS" },
-                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = Color(0xFFF1F5F9),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            "· ${chat.turn.routing.model.substringAfterLast('/')}",
-                                            style = HudTextStyle.copy(fontSize = 10.sp),
-                                            color = JarvisCyan,
-                                        )
-                                    }
-                                    TextButton(
-                                        onClick = {
-                                            clipboardManager.setText(AnnotatedString(chat.turn.response.text))
-                                            copied = true
-                                        },
-                                    ) {
-                                        Icon(
-                                            if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = if (copied) JarvisGreen else JarvisCyan,
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text(
-                                            if (copied) "Copiado" else "Copiar",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = if (copied) JarvisGreen else JarvisCyan,
-                                        )
-                                    }
-                                }
-
-                                Spacer(Modifier.height(8.dp))
-                                RichModelText(chat.turn.response.text)
-
-                                // Fuentes canónicas consultadas
-                                val grouped = chat.turn.canon.sources.groupBy { it.canon_status.ifBlank { "REFERENCE" } }
-                                if (grouped.values.any { it.isNotEmpty() }) {
-                                    Spacer(Modifier.height(12.dp))
-                                    Text(
-                                        "FUENTES CANÓNICAS CONSULTADAS",
-                                        style = HudTextStyle.copy(fontSize = 9.sp),
-                                        color = Color(0xFF94A3B8),
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Row(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        listOf("OFFICIAL_CANON", "REFERENCE", "APPROVED_PLAN", "PROPOSED").forEach { authority ->
-                                            grouped[authority].orEmpty().forEach { source ->
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = authorityColor(authority).copy(alpha = 0.12f),
-                                                    border = BorderStroke(1.dp, authorityColor(authority).copy(alpha = 0.35f)),
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                    ) {
-                                                        Text(
-                                                            source.title,
-                                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                                            color = Color(0xFFE2E8F0),
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
 
-        // Barra inferior de entrada fija (Composer)
+        // Composer fijo sobre el teclado. La acción IME Send envía con Enter.
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -874,22 +771,22 @@ private fun ChatSection(
                 OutlinedTextField(
                     value = prompt,
                     onValueChange = { if (it.length <= 6000) prompt = it },
-                    placeholder = { Text("Escribe tu consulta a JARVIS...", color = Color(0xFF64748B), style = MaterialTheme.typography.bodyMedium) },
+                    placeholder = {
+                        Text(
+                            "Escribe tu consulta a JARVIS...",
+                            color = Color(0xFF64748B),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    },
                     maxLines = 4,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { sendPrompt() }),
                     colors = jarvisTextFieldColors(),
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
                 IconButton(
-                    onClick = {
-                        val clean = prompt.trim()
-                        if (clean.isNotEmpty() && !state.busy) {
-                            sentMessage = clean
-                            vm.runWritingRoomAutoChat(projectId, title, clean)
-                            prompt = ""
-                            copied = false
-                        }
-                    },
+                    onClick = sendPrompt,
                     enabled = prompt.isNotBlank() && !state.busy,
                     modifier = Modifier
                         .size(42.dp)
@@ -904,6 +801,149 @@ private fun ChatSection(
                         tint = if (prompt.isNotBlank() && !state.busy) Color(0xFF02101F) else Color(0xFF64748B),
                         modifier = Modifier.size(18.dp),
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CopilotUserMessage(text: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp),
+            color = Color(0xFF1E3A5F),
+            border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
+            shadowElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth(0.85f),
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Text(
+                    "TÚ",
+                    style = HudTextStyle.copy(fontSize = 10.sp),
+                    color = JarvisCyan,
+                )
+                Spacer(Modifier.height(4.dp))
+                SelectionContainer {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
+    val clipboardManager = LocalClipboardManager.current
+    var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
+            color = Color(0xEE0E182A),
+            border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.35f)),
+            shadowElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth(0.95f),
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        JarvisOrb(
+                            size = 22.dp,
+                            activity = OrbActivity.IDLE,
+                            contentDescription = null,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            chat.turn.participant.label.ifBlank { "JARVIS" },
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFFF1F5F9),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(chat.turn.response.text))
+                            copied = true
+                        },
+                    ) {
+                        Icon(
+                            if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = if (copied) JarvisGreen else JarvisCyan,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            if (copied) "Copiado" else "Copiar",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (copied) JarvisGreen else JarvisCyan,
+                        )
+                    }
+                }
+
+                val model = chat.turn.routing.model.substringAfterLast('/')
+                if (model.isNotBlank()) {
+                    Text(
+                        model,
+                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        color = JarvisCyan,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                RichModelText(chat.turn.response.text)
+
+                val grouped = chat.turn.canon.sources.groupBy { it.canon_status.ifBlank { "REFERENCE" } }
+                if (grouped.values.any { it.isNotEmpty() }) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "FUENTES CANÓNICAS CONSULTADAS",
+                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        color = Color(0xFF94A3B8),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf("OFFICIAL_CANON", "REFERENCE", "APPROVED_PLAN", "PROPOSED").forEach { authority ->
+                            grouped[authority].orEmpty().forEach { source ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = authorityColor(authority).copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, authorityColor(authority).copy(alpha = 0.35f)),
+                                ) {
+                                    Text(
+                                        source.title,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                        color = Color(0xFFE2E8F0),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2736,11 +2776,13 @@ private fun CharacterDetailWiki(
             // Appearance & Visual Notes
             item {
                 WorkspaceCard("Apariencia & Notas Visuales", accent = Color(0xFF94A3B8)) {
-                    Text(
-                        character.appearance,
-                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                        color = Color(0xFFF1F5F9),
-                    )
+                    SelectionContainer {
+                        Text(
+                            character.appearance,
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                            color = Color(0xFFF1F5F9),
+                        )
+                    }
                 }
             }
         }
@@ -3450,74 +3492,76 @@ private fun AuthorityStat(
 
 @Composable
 private fun RichModelText(text: String) {
-    val lines = text.replace("\r\n", "\n").split("\n")
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        lines.forEach { raw ->
-            val line = raw.trimEnd()
-            when {
-                line.isBlank() -> Spacer(Modifier.height(6.dp))
-                line.startsWith("### ") -> Text(
-                    line.removePrefix("### "),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFF67E8F9),
-                )
-                line.startsWith("## ") -> Text(
-                    line.removePrefix("## "),
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF67E8F9),
-                )
-                line.startsWith("# ") -> Text(
-                    line.removePrefix("# "),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFFE0F2FE),
-                )
-                line.startsWith("- ") || line.startsWith("* ") -> Row(
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Text("•", color = JarvisCyan, fontSize = 16.sp, modifier = Modifier.padding(top = 1.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        inlineMarkdown(line.drop(2)),
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            color = Color(0xFFE2E8F0),
-                            fontSize = 15.sp,
-                            lineHeight = 24.sp,
-                        ),
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                line.matches(Regex("^\\d+[.)]\\s+.*")) -> {
-                    val split = line.indexOf(' ')
-                    Row(verticalAlignment = Alignment.Top) {
-                        Text(
-                            line.take(split),
-                            color = JarvisCyan,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            modifier = Modifier.padding(top = 1.dp),
+    SelectionContainer {
+        val lines = text.replace("\r\n", "\n").split("\n")
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                lines.forEach { raw ->
+                    val line = raw.trimEnd()
+                    when {
+                        line.isBlank() -> Spacer(Modifier.height(6.dp))
+                        line.startsWith("### ") -> Text(
+                            line.removePrefix("### "),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color(0xFF67E8F9),
                         )
-                        Spacer(Modifier.size(8.dp))
-                        Text(
-                            inlineMarkdown(line.drop(split + 1)),
+                        line.startsWith("## ") -> Text(
+                            line.removePrefix("## "),
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF67E8F9),
+                        )
+                        line.startsWith("# ") -> Text(
+                            line.removePrefix("# "),
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFFE0F2FE),
+                        )
+                        line.startsWith("- ") || line.startsWith("* ") -> Row(
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Text("•", color = JarvisCyan, fontSize = 16.sp, modifier = Modifier.padding(top = 1.dp))
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                inlineMarkdown(line.drop(2)),
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    color = Color(0xFFE2E8F0),
+                                    fontSize = 15.sp,
+                                    lineHeight = 24.sp,
+                                ),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        line.matches(Regex("^\\d+[.)]\\s+.*")) -> {
+                            val split = line.indexOf(' ')
+                            Row(verticalAlignment = Alignment.Top) {
+                                Text(
+                                    line.take(split),
+                                    color = JarvisCyan,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.padding(top = 1.dp),
+                                )
+                                Spacer(Modifier.size(8.dp))
+                                Text(
+                                    inlineMarkdown(line.drop(split + 1)),
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        color = Color(0xFFE2E8F0),
+                                        fontSize = 15.sp,
+                                        lineHeight = 24.sp,
+                                    ),
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                        else -> Text(
+                            inlineMarkdown(line),
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 color = Color(0xFFE2E8F0),
                                 fontSize = 15.sp,
                                 lineHeight = 24.sp,
                             ),
-                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
-                else -> Text(
-                    inlineMarkdown(line),
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        color = Color(0xFFE2E8F0),
-                        fontSize = 15.sp,
-                        lineHeight = 24.sp,
-                    ),
-                )
             }
-        }
     }
 }
 
