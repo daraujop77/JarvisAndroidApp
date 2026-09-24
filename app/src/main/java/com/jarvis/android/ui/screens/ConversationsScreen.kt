@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -97,6 +98,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
@@ -107,9 +109,13 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
@@ -354,16 +360,45 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val pendingAttachments by vm.pendingAttachments.collectAsStateWithLifecycle()
     val chatAccess by vm.chatAccess.collectAsStateWithLifecycle()
     val imageGenerationState by vm.imageGenerationState.collectAsStateWithLifecycle()
+    val imageGenerationDetails by vm.lastImageGenerationDetails.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
     var input by rememberSaveable(conversationId) { mutableStateOf("") }
+    var showImageOptions by rememberSaveable(conversationId) { mutableStateOf(false) }
+    var selectedImageMode by rememberSaveable(conversationId) { mutableStateOf("speed") }
+    var selectedImageModel by rememberSaveable(conversationId) { mutableStateOf("auto") }
+    var previewGeneratedImage by rememberSaveable(conversationId) { mutableStateOf<String?>(null) }
+    var pendingSaveGeneratedImage by remember { mutableStateOf<String?>(null) }
+    var imageSaveStatus by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val accents = LocalJarvisAccents.current
+    val context = LocalContext.current
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { vm.stageAttachment(it) } }
+
+    val saveGeneratedImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("image/jpeg"),
+    ) { uri ->
+        val attachmentId = pendingSaveGeneratedImage
+        if (uri != null && attachmentId != null) {
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val source = vm.attachmentStore.resolve(attachmentId)
+                            ?: error("Generated image is no longer available")
+                        context.contentResolver.openOutputStream(uri)?.use { output ->
+                            source.inputStream().use { inputStream -> inputStream.copyTo(output) }
+                        } ?: error("Could not open selected destination")
+                    }.isSuccess
+                }
+                imageSaveStatus = if (saved) "Image saved" else "Could not save image"
+            }
+        }
+        pendingSaveGeneratedImage = null
+    }
 
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -377,8 +412,22 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val busy = chatStreaming || imageGenerating
     val imageInputReady = chatAccess?.capabilityStates?.get("image_input") == "ready"
     val imageGenerationReady = chatAccess?.capabilityStates?.get("image_generation") == "ready"
+    val imageGenerationAccess = chatAccess?.imageGeneration
 
     LaunchedEffect(Unit) { vm.refreshChatAccess() }
+    LaunchedEffect(imageGenerationAccess) {
+        val access = imageGenerationAccess ?: return@LaunchedEffect
+        if (access.modes.none { it.id == selectedImageMode }) {
+            selectedImageMode = access.defaultMode.takeIf { d -> access.modes.any { it.id == d } }
+                ?: access.modes.firstOrNull()?.id ?: "speed"
+        }
+        if (selectedImageMode == "model_select" &&
+            access.models.none { it.id == selectedImageModel && it.state == "ready" }
+        ) {
+            selectedImageModel = access.models.firstOrNull { it.id == "auto" }?.id
+                ?: access.models.firstOrNull { it.state == "ready" }?.id ?: "auto"
+        }
+    }
 
     // Follow the stream only while the reader is at the bottom. Scrolling up
     // to re-read stops it; coming back resumes it.
@@ -506,6 +555,10 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                                 attachmentState = { id -> snapshot.session.attachments[id] },
                                 attachmentStore = vm.attachmentStore,
                                 avatarEpoch = avatarEpoch,
+                                onOpenGeneratedImage = { id ->
+                                    imageSaveStatus = null
+                                    previewGeneratedImage = id
+                                },
                             )
                         }
                     }
@@ -547,6 +600,17 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.error,
                 )
             }
+            imageGenerationDetails?.let { details ->
+                val fallback = if (details.fallbackUsed) " · fallback " + details.attemptCount else ""
+                Text(
+                    "IMAGE · " + details.mode.uppercase() + " · " +
+                        details.model.ifBlank { details.provider } + " · " +
+                        details.durationMs + " ms" + fallback,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp),
+                    style = HudTextStyle,
+                    color = accents.orbGlow,
+                )
+            }
 
             ProfileChipRow(vm)
 
@@ -570,8 +634,9 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     )
                 },
                 onGenerateImage = {
-                    vm.generateImage(input)
-                    input = ""
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+                    showImageOptions = true
                 },
                 onStop = { liveRequest?.let { vm.cancel(it.clientRequestId) } },
                 onSend = {
@@ -594,6 +659,162 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     }
                 },
             )
+        }
+    }
+
+    if (showImageOptions) {
+        ImageGenerationChooserDialog(
+            prompt = input,
+            access = imageGenerationAccess,
+            selectedMode = selectedImageMode,
+            selectedModel = selectedImageModel,
+            onModeSelected = { selectedImageMode = it },
+            onModelSelected = { selectedImageModel = it },
+            onDismiss = { showImageOptions = false },
+            onGenerate = {
+                vm.generateImage(
+                    input,
+                    selectedImageMode,
+                    selectedImageModel.takeIf { selectedImageMode == "model_select" },
+                )
+                input = ""
+                showImageOptions = false
+            },
+        )
+    }
+    previewGeneratedImage?.let { attachmentId ->
+        GeneratedImagePreviewDialog(
+            attachmentId = attachmentId,
+            attachmentStore = vm.attachmentStore,
+            saveStatus = imageSaveStatus,
+            onDismiss = { previewGeneratedImage = null; imageSaveStatus = null },
+            onSave = {
+                pendingSaveGeneratedImage = attachmentId
+                imageSaveStatus = null
+                saveGeneratedImage.launch("jarvis-generated-image.jpg")
+            },
+        )
+    }
+}
+
+@Composable
+private fun ImageGenerationChooserDialog(
+    prompt: String,
+    access: com.jarvis.android.transport.live.JarvisAppSession.ImageGenerationAccess?,
+    selectedMode: String,
+    selectedModel: String,
+    onModeSelected: (String) -> Unit,
+    onModelSelected: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onGenerate: () -> Unit,
+) {
+    val accents = LocalJarvisAccents.current
+    val fallbackModes = listOf(
+        com.jarvis.android.transport.live.JarvisAppSession.ImageGenerationMode("speed", "Speed"),
+        com.jarvis.android.transport.live.JarvisAppSession.ImageGenerationMode("quality", "Quality"),
+    )
+    val modes = access?.modes?.takeIf { it.isNotEmpty() } ?: fallbackModes
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Generate image") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(prompt, style = MaterialTheme.typography.bodyMedium, maxLines = 3,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Mode", style = HudTextStyle, color = accents.orbGlow)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(modes, key = { it.id }) { mode ->
+                        val active = selectedMode == mode.id
+                        Surface(
+                            onClick = { onModeSelected(mode.id) },
+                            shape = RoundedCornerShape(50),
+                            color = if (active) accents.orbGlow.copy(alpha = 0.22f)
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, if (active) accents.orbGlow else Color(0xFF30435F)),
+                        ) {
+                            Text(mode.label, Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+                if (selectedMode == "model_select") {
+                    Text("Model", style = HudTextStyle, color = accents.orbGlow)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(access?.models.orEmpty(), key = { it.id }) { model ->
+                            val ready = model.state == "ready"
+                            val active = selectedModel == model.id
+                            Surface(
+                                onClick = { if (ready) onModelSelected(model.id) },
+                                shape = RoundedCornerShape(50),
+                                color = if (active) accents.orbGlow.copy(alpha = 0.22f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (ready) 1f else 0.5f),
+                                border = BorderStroke(1.dp, if (active) accents.orbGlow else Color(0xFF30435F)),
+                            ) {
+                                Text(model.label, Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (ready) MaterialTheme.colorScheme.onSurface
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                            }
+                        }
+                    }
+                }
+                val policy = when {
+                    selectedMode == "speed" -> "Fastest route. Automatic fallback is allowed if the primary route fails."
+                    selectedMode == "quality" -> "Quality-first route. JARVIS can fall back only if the preferred provider fails."
+                    selectedModel == "auto" -> "Auto lets JARVIS choose the first healthy image route."
+                    else -> "Exact model selected. JARVIS will not silently switch to another model."
+                }
+                Text(policy, style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onGenerate,
+                enabled = prompt.isNotBlank() &&
+                    (selectedMode != "model_select" ||
+                        access?.models?.any { it.id == selectedModel && it.state == "ready" } == true),
+            ) { Text("Generate") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun GeneratedImagePreviewDialog(
+    attachmentId: String,
+    attachmentStore: com.jarvis.android.data.media.AttachmentStore,
+    saveStatus: String?,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+) {
+    val bitmap by rememberAttachmentThumb(attachmentId, attachmentStore, maxSize = 2048)
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF09111F),
+            border = BorderStroke(1.dp, LocalJarvisAccents.current.orbGlow.copy(alpha = 0.55f)),
+        ) {
+            Column(Modifier.fillMaxSize().padding(14.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Generated image", style = MaterialTheme.typography.titleMedium)
+                    IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close") }
+                }
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    if (bitmap != null) {
+                        Image(bitmap = bitmap!!.asImageBitmap(), contentDescription = "Generated image",
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    } else CircularProgressIndicator()
+                }
+                saveStatus?.let {
+                    Text(it, Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center,
+                        style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onSave) { Text("Save image") }
+                }
+            }
         }
     }
 }
@@ -1059,6 +1280,7 @@ private fun MessageBubble(
     attachmentState: (String) -> com.jarvis.android.data.state.AttachmentUiState?,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
     avatarEpoch: Int,
+    onOpenGeneratedImage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val accents = LocalJarvisAccents.current
@@ -1118,6 +1340,9 @@ private fun MessageBubble(
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
                                         generated = !isUser && msg.clientRequestId.startsWith("img_"),
+                                        onOpen = if (!isUser && msg.clientRequestId.startsWith("img_")) {
+                                            { onOpenGeneratedImage(id) }
+                                        } else null,
                                     )
                                 }
                             }
@@ -1232,6 +1457,7 @@ private fun AttachmentChip(
     state: com.jarvis.android.data.state.AttachmentUiState?,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
     generated: Boolean = false,
+    onOpen: (() -> Unit)? = null,
 ) {
     val thumb by rememberAttachmentThumb(attachmentId, attachmentStore)
     val statusText = when {
@@ -1246,7 +1472,8 @@ private fun AttachmentChip(
             Modifier
                 .size(92.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surface),
+                .background(MaterialTheme.colorScheme.surface)
+                .then(if (generated && onOpen != null) Modifier.clickable { onOpen() } else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             val bitmap = thumb

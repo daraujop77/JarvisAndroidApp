@@ -234,10 +234,20 @@ class JarvisAppSession(
      */
     data class ProfileEntry(val profile: String, val label: String, val model: String, val state: String)
 
+    data class ImageGenerationMode(val id: String, val label: String)
+    data class ImageGenerationModel(val id: String, val label: String, val provider: String, val state: String)
+    data class ImageGenerationAccess(
+        val defaultMode: String,
+        val modes: List<ImageGenerationMode>,
+        val ownerModelSelection: Boolean,
+        val models: List<ImageGenerationModel>,
+    )
+
     data class ChatAccess(
         val ownerModelSelection: Boolean,
         val entries: List<ProfileEntry>,
         val capabilityStates: Map<String, String> = emptyMap(),
+        val imageGeneration: ImageGenerationAccess? = null,
     )
 
     suspend fun fetchChatAccess(): ChatAccess? = withContext(Dispatchers.IO) {
@@ -259,17 +269,45 @@ class JarvisAppSession(
             }
             val ownerSel = chat["access"]?.jsonObject
                 ?.get("owner_model_selection")?.jsonPrimitive?.booleanOrNull ?: false
-            val capabilityStates = root["capabilities"]?.jsonObject
+            val capabilities = root["capabilities"]?.jsonObject
+            val capabilityStates = capabilities
                 ?.mapValues { (_, value) ->
                     runCatching {
                         value.jsonObject["state"]?.jsonPrimitive?.contentOrNull ?: "unknown"
                     }.getOrDefault("unknown")
                 }
                 .orEmpty()
+            val imageGeneration = capabilities?.get("image_generation")?.let { value ->
+                runCatching {
+                    val image = value.jsonObject
+                    val modes = (image["modes"] as? JsonArray).orEmpty().mapNotNull { item ->
+                        val o = item as? JsonObject ?: return@mapNotNull null
+                        val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        ImageGenerationMode(id, o["label"]?.jsonPrimitive?.contentOrNull ?: id)
+                    }
+                    val imageModels = (image["models"] as? JsonArray).orEmpty().mapNotNull { item ->
+                        val o = item as? JsonObject ?: return@mapNotNull null
+                        val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        ImageGenerationModel(
+                            id,
+                            o["label"]?.jsonPrimitive?.contentOrNull ?: id,
+                            o["provider"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                            o["state"]?.jsonPrimitive?.contentOrNull ?: "unknown",
+                        )
+                    }
+                    ImageGenerationAccess(
+                        image["default_mode"]?.jsonPrimitive?.contentOrNull ?: "speed",
+                        modes,
+                        image["owner_model_selection"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        imageModels,
+                    )
+                }.getOrNull()
+            }
             ChatAccess(
                 ownerModelSelection = ownerSel,
                 entries = models,
                 capabilityStates = capabilityStates,
+                imageGeneration = imageGeneration,
             )
         }.getOrNull()
     }
@@ -434,10 +472,20 @@ class JarvisAppSession(
         val dataBase64: String,
         val sizeBytes: Long,
         val provider: String,
+        val model: String,
         val route: String,
+        val requestedMode: String,
+        val requestedModel: String?,
+        val fallbackUsed: Boolean,
+        val attemptCount: Int,
+        val durationMs: Long,
     )
 
-    suspend fun generateImage(prompt: String): Result<ImageGenerationReply> = withContext(Dispatchers.IO) {
+    suspend fun generateImage(
+        prompt: String,
+        mode: String = "speed",
+        model: String? = null,
+    ): Result<ImageGenerationReply> = withContext(Dispatchers.IO) {
         if (!isAuthenticated) {
             return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
         }
@@ -455,6 +503,8 @@ class JarvisAppSession(
         runCatching {
             val body = buildJsonObject {
                 put("prompt", cleanPrompt)
+                put("mode", mode)
+                if (!model.isNullOrBlank()) put("model", model)
             }.toString()
             val response = post(root, "/api/app/images/generations", body, auth = authHeader())
             requireOk(response)
@@ -463,16 +513,19 @@ class JarvisAppSession(
             val dataBase64 = obj["data_base64"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val sizeBytes = obj["size_bytes"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
             val provider = obj["provider"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val routedModel = obj["model"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val route = obj["route"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val requestedMode = obj["requested_mode"]?.jsonPrimitive?.contentOrNull ?: mode
+            val requestedModel = obj["requested_model"]?.jsonPrimitive?.contentOrNull
+            val fallbackUsed = obj["fallback_used"]?.jsonPrimitive?.booleanOrNull ?: false
+            val attemptCount = obj["attempt_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 1
+            val durationMs = obj["duration_ms"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
             if (mimeType.isBlank() || dataBase64.isBlank() || sizeBytes <= 0L) {
                 throw TransportException("image generation returned an invalid image")
             }
             ImageGenerationReply(
-                mimeType = mimeType,
-                dataBase64 = dataBase64,
-                sizeBytes = sizeBytes,
-                provider = provider,
-                route = route,
+                mimeType, dataBase64, sizeBytes, provider, routedModel, route,
+                requestedMode, requestedModel, fallbackUsed, attemptCount, durationMs,
             )
         }
     }

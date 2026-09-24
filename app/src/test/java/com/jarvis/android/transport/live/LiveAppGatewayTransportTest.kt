@@ -116,6 +116,14 @@ class LiveAppGatewayTransportTest {
                         MockResponse().setResponseCode(202)
                             .setBody("""{"result":"cancel_requested"}""")
                     }
+                    request.path == "/api/app/images/generations" && auth != "Bearer test-token" ->
+                        MockResponse().setResponseCode(401)
+                    request.path == "/api/app/images/generations" -> {
+                        postedBodies += "POST /api/app/images/generations\n" + request.body.readUtf8()
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.image.generation.v2","provider":"openai-codex","model":"gpt-image-2-medium","route":"cloud_image_generation:openai-codex","mime_type":"image/png","data_base64":"aW1hZ2U=","size_bytes":5,"requested_mode":"model_select","requested_model":"gpt-image-2-medium","fallback_used":false,"attempt_count":1,"duration_ms":1234}""",
+                        )
+                    }
                     request.path == "/api/status" -> MockResponse().setBody("""{"status":"ok"}""")
                     request.path == "/api/app/status" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
@@ -132,6 +140,14 @@ class LiveAppGatewayTransportTest {
                               {"profile":"normal","label":"Normal","model":"gemma4:12b-it-qat","state":"active"},
                               {"profile":"deep","label":"Deep","model":"qwen3.8:27b","state":"installed"}
                             ]
+                          },
+                          "capabilities": {
+                            "image_input": {"state":"ready"},
+                            "image_generation": {
+                              "state":"ready","default_mode":"speed","owner_model_selection":true,
+                              "modes":[{"id":"speed","label":"Speed"},{"id":"quality","label":"Quality"},{"id":"model_select","label":"Model Select"}],
+                              "models":[{"id":"auto","label":"Auto","provider":"jarvis","state":"ready"},{"id":"grok-imagine-image","label":"Grok Imagine","provider":"xai-oauth","state":"ready"},{"id":"gpt-image-2-medium","label":"GPT Image","provider":"openai-codex","state":"ready"}]
+                            }
                           }
                         }
                         """.trimIndent(),
@@ -411,6 +427,10 @@ class LiveAppGatewayTransportTest {
         val access = runBlocking(Dispatchers.IO) { session.fetchChatAccess() }
         assertTrue("server grants owner selection", access?.ownerModelSelection == true)
         assertEquals(listOf("fast", "normal", "deep"), access?.entries?.map { it.profile })
+        assertEquals("speed", access?.imageGeneration?.defaultMode)
+        assertTrue(access?.imageGeneration?.ownerModelSelection == true)
+        assertEquals(listOf("speed", "quality", "model_select"), access?.imageGeneration?.modes?.map { it.id })
+        assertEquals(listOf("auto", "grok-imagine-image", "gpt-image-2-medium"), access?.imageGeneration?.models?.map { it.id })
 
         val transport = LiveAppGatewayTransport(session, scope)
         val repo = JarvisSessionRepository(transport, scope)
@@ -426,6 +446,25 @@ class LiveAppGatewayTransportTest {
         val cid2 = repo.send("c1", "again")
         await { repo.snapshot.value.session.requests[cid2]?.status?.isTerminal == true }
         assertTrue(postedBodies.last().contains("\"profile\":\"deep\""))
+    }
+
+    @Test
+    fun exactImageModelSelectionIsSentAndMetadataIsParsed() {
+        val session = JarvisAppSession(seededStore())
+        val result = runBlocking(Dispatchers.IO) {
+            session.generateImage("A blue holographic sphere", "model_select", "gpt-image-2-medium")
+        }
+        assertTrue(result.isSuccess)
+        val reply = result.getOrThrow()
+        assertEquals("openai-codex", reply.provider)
+        assertEquals("gpt-image-2-medium", reply.model)
+        assertEquals("model_select", reply.requestedMode)
+        assertEquals("gpt-image-2-medium", reply.requestedModel)
+        assertEquals(false, reply.fallbackUsed)
+        assertEquals(1234L, reply.durationMs)
+        val body = postedBodies.last { it.startsWith("POST /api/app/images/generations") }
+        assertTrue(body.contains("\"mode\":\"model_select\""))
+        assertTrue(body.contains("\"model\":\"gpt-image-2-medium\""))
     }
 
     @Test

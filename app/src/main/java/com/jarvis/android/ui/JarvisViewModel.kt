@@ -560,18 +560,30 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         data class Error(val message: String) : ImageGenerationState
     }
 
+    data class ImageGenerationDetails(
+        val provider: String,
+        val model: String,
+        val mode: String,
+        val fallbackUsed: Boolean,
+        val attemptCount: Int,
+        val durationMs: Long,
+    )
+
     private val _imageGenerationState = MutableStateFlow<ImageGenerationState>(ImageGenerationState.Idle)
     val imageGenerationState: StateFlow<ImageGenerationState> = _imageGenerationState
+    private val _lastImageGenerationDetails = MutableStateFlow<ImageGenerationDetails?>(null)
+    val lastImageGenerationDetails: StateFlow<ImageGenerationDetails?> = _lastImageGenerationDetails
 
-    fun generateImage(prompt: String) {
+    fun generateImage(prompt: String, mode: String = "speed", model: String? = null) {
         val clean = prompt.trim()
         if (clean.isBlank() || _imageGenerationState.value is ImageGenerationState.Busy) return
         val conversationId = _conversationId.value ?: conversations.newConversationId().also {
             _conversationId.value = it
         }
         _imageGenerationState.value = ImageGenerationState.Busy
+        _lastImageGenerationDetails.value = null
         viewModelScope.launch {
-            container.liveSession.generateImage(clean).fold(
+            container.liveSession.generateImage(clean, mode, model).fold(
                 onSuccess = { reply ->
                     val staged = withContext(Dispatchers.IO) {
                         container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
@@ -585,6 +597,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             conversationId = conversationId,
                             prompt = clean,
                             attachmentId = staged.attachmentId,
+                        )
+                        _lastImageGenerationDetails.value = ImageGenerationDetails(
+                            reply.provider, reply.model, reply.requestedMode,
+                            reply.fallbackUsed, reply.attemptCount, reply.durationMs,
                         )
                         _imageGenerationState.value = ImageGenerationState.Idle
                     }
