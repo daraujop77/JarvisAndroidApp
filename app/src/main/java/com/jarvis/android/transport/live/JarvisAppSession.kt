@@ -234,10 +234,27 @@ class JarvisAppSession(
      */
     data class ProfileEntry(val profile: String, val label: String, val model: String, val state: String)
 
+    data class ImageModelEntry(
+        val id: String,
+        val label: String,
+        val provider: String,
+        val model: String,
+        val tier: String,
+        val state: String,
+    )
+
+    data class ImageAccess(
+        val ownerModelSelection: Boolean = false,
+        val modes: List<String> = listOf("speed", "quality"),
+        val defaultMode: String = "quality",
+        val models: List<ImageModelEntry> = emptyList(),
+    )
+
     data class ChatAccess(
         val ownerModelSelection: Boolean,
         val entries: List<ProfileEntry>,
         val capabilityStates: Map<String, String> = emptyMap(),
+        val imageAccess: ImageAccess = ImageAccess(),
     )
 
     suspend fun fetchChatAccess(): ChatAccess? = withContext(Dispatchers.IO) {
@@ -266,10 +283,37 @@ class JarvisAppSession(
                     }.getOrDefault("unknown")
                 }
                 .orEmpty()
+            val imageCap = root["capabilities"]?.jsonObject
+                ?.get("image_generation")?.jsonObject
+            val imageOwnerSel = imageCap?.get("access")?.jsonObject
+                ?.get("owner_model_selection")?.jsonPrimitive?.booleanOrNull ?: false
+            val imageModes = (imageCap?.get("modes") as? JsonArray).orEmpty()
+                .mapNotNull { it.jsonPrimitive.contentOrNull?.takeIf(String::isNotBlank) }
+                .ifEmpty { listOf("speed", "quality") }
+            val imageDefault = imageCap?.get("default_mode")?.jsonPrimitive?.contentOrNull
+                ?.takeIf(String::isNotBlank) ?: "quality"
+            val imageModels = (imageCap?.get("models") as? JsonArray).orEmpty().mapNotNull { el ->
+                val o = el as? JsonObject ?: return@mapNotNull null
+                val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                ImageModelEntry(
+                    id = id,
+                    label = o["label"]?.jsonPrimitive?.contentOrNull ?: id,
+                    provider = o["provider"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    model = o["model"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    tier = o["tier"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    state = o["state"]?.jsonPrimitive?.contentOrNull ?: "unchecked",
+                )
+            }
             ChatAccess(
                 ownerModelSelection = ownerSel,
                 entries = models,
                 capabilityStates = capabilityStates,
+                imageAccess = ImageAccess(
+                    ownerModelSelection = imageOwnerSel,
+                    modes = imageModes,
+                    defaultMode = imageDefault,
+                    models = imageModels,
+                ),
             )
         }.getOrNull()
     }
@@ -434,10 +478,24 @@ class JarvisAppSession(
         val dataBase64: String,
         val sizeBytes: Long,
         val provider: String,
+        val model: String,
         val route: String,
+        val requestedMode: String,
+        val resolvedMode: String,
+        val fallbackUsed: Boolean,
+        val durationMs: Long,
+        val selectedModelId: String?,
+        val attemptedModels: List<String>,
+        val aspectRatio: String,
     )
 
-    suspend fun generateImage(prompt: String): Result<ImageGenerationReply> = withContext(Dispatchers.IO) {
+    suspend fun generateImage(
+        prompt: String,
+        mode: String = "quality",
+        modelId: String? = null,
+        allowFallback: Boolean = false,
+        aspectRatio: String = "square",
+    ): Result<ImageGenerationReply> = withContext(Dispatchers.IO) {
         if (!isAuthenticated) {
             return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
         }
@@ -455,6 +513,10 @@ class JarvisAppSession(
         runCatching {
             val body = buildJsonObject {
                 put("prompt", cleanPrompt)
+                put("mode", mode)
+                put("aspect_ratio", aspectRatio)
+                modelId?.takeIf(String::isNotBlank)?.let { put("model_id", it) }
+                if (allowFallback) put("allow_fallback", true)
             }.toString()
             val response = post(root, "/api/app/images/generations", body, auth = authHeader())
             requireOk(response)
@@ -463,7 +525,16 @@ class JarvisAppSession(
             val dataBase64 = obj["data_base64"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val sizeBytes = obj["size_bytes"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
             val provider = obj["provider"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val model = obj["model"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val route = obj["route"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val requestedMode = obj["requested_mode"]?.jsonPrimitive?.contentOrNull ?: mode
+            val resolvedMode = obj["resolved_mode"]?.jsonPrimitive?.contentOrNull ?: requestedMode
+            val fallbackUsed = obj["fallback_used"]?.jsonPrimitive?.booleanOrNull ?: false
+            val durationMs = obj["duration_ms"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+            val selectedModelId = obj["selected_model_id"]?.jsonPrimitive?.contentOrNull
+            val attemptedModels = (obj["attempted_models"] as? JsonArray).orEmpty()
+                .mapNotNull { it.jsonPrimitive.contentOrNull }
+            val returnedAspect = obj["aspect_ratio"]?.jsonPrimitive?.contentOrNull ?: aspectRatio
             if (mimeType.isBlank() || dataBase64.isBlank() || sizeBytes <= 0L) {
                 throw TransportException("image generation returned an invalid image")
             }
@@ -472,7 +543,15 @@ class JarvisAppSession(
                 dataBase64 = dataBase64,
                 sizeBytes = sizeBytes,
                 provider = provider,
+                model = model,
                 route = route,
+                requestedMode = requestedMode,
+                resolvedMode = resolvedMode,
+                fallbackUsed = fallbackUsed,
+                durationMs = durationMs,
+                selectedModelId = selectedModelId,
+                attemptedModels = attemptedModels,
+                aspectRatio = returnedAspect,
             )
         }
     }
