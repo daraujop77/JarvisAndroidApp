@@ -124,7 +124,8 @@ jobs:
             gh release create "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" \
               --target "$GITHUB_SHA" \
               --title "JARVIS Android $VERSION_NAME" \
-              --notes "Signed production APK for JARVIS Android $VERSION_NAME (versionCode $VERSION_CODE)."
+              --notes "Signed production APK for JARVIS Android $VERSION_NAME (versionCode $VERSION_CODE)." || \
+            gh release upload "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" --clobber
           fi
 
           echo "published_tag=$TAG"
