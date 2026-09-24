@@ -62,9 +62,24 @@ class ProviderUsageSessionTest {
                             },
                             "last_used_utc":"2026-09-23T01:00:00Z",
                             "quota":{
-                              "status":"not_reported",
-                              "remaining_percent":null,
-                              "resets_at":null
+                              "status":"reported",
+                              "source":"portal-account",
+                              "title":"Nous Portal credits",
+                              "plan":"Pro",
+                              "fetched_at":"2026-09-23T01:05:00Z",
+                              "remaining_percent":80.0,
+                              "resets_at":"2026-10-01T00:00:00Z",
+                              "windows":[
+                                {
+                                  "label":"Subscription",
+                                  "used_percent":20.0,
+                                  "remaining_percent":80.0,
+                                  "resets_at":"2026-10-01T00:00:00Z",
+                                  "detail":"8.00 credits remaining"
+                                }
+                              ],
+                              "details":["Renews monthly"],
+                              "reason":null
                             }
                           }
                         ]
@@ -98,7 +113,7 @@ class ProviderUsageSessionTest {
     }
 
     @Test
-    fun providerUsageParsesNousAndKeepsUnknownQuotaAndTokensNull() = runBlocking(Dispatchers.IO) {
+    fun providerUsageParsesNousObservedTrafficAndLiveQuota() = runBlocking(Dispatchers.IO) {
         val result = session().fetchProviderUsage()
 
         assertTrue(result.isSuccess)
@@ -109,7 +124,13 @@ class ProviderUsageSessionTest {
         assertEquals("deepseek/deepseek-v4-flash", nous.model)
         assertEquals(3L, nous.periods.getValue("today").requests)
         assertNull(nous.periods.getValue("today").totalTokens)
-        assertEquals("not_reported", nous.quotaStatus)
-        assertNull(nous.quotaRemainingPercent)
+        assertEquals("reported", nous.quotaStatus)
+        assertEquals("portal-account", nous.quotaSource)
+        assertEquals("Pro", nous.quotaPlan)
+        assertEquals(80.0, nous.quotaRemainingPercent!!, 0.001)
+        assertEquals("Subscription", nous.quotaWindows.single().label)
+        assertEquals(20.0, nous.quotaWindows.single().usedPercent!!, 0.001)
+        assertEquals("8.00 credits remaining", nous.quotaWindows.single().detail)
+        assertEquals(listOf("Renews monthly"), nous.quotaDetails)
     }
 }

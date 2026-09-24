@@ -284,6 +284,14 @@ class JarvisAppSession(
         val totalTokens: Long? = null,
     )
 
+    data class QuotaWindow(
+        val label: String,
+        val usedPercent: Double?,
+        val remainingPercent: Double?,
+        val resetsAt: String?,
+        val detail: String?,
+    )
+
     data class ProviderUsage(
         val id: String,
         val label: String,
@@ -293,8 +301,15 @@ class JarvisAppSession(
         val lifetime: UsageCounter,
         val lastUsedUtc: String?,
         val quotaStatus: String,
+        val quotaSource: String?,
+        val quotaTitle: String?,
+        val quotaPlan: String?,
+        val quotaFetchedAt: String?,
         val quotaRemainingPercent: Double?,
         val quotaResetsAt: String?,
+        val quotaWindows: List<QuotaWindow>,
+        val quotaDetails: List<String>,
+        val quotaReason: String?,
     )
 
     data class ProviderUsageSnapshot(
@@ -340,6 +355,19 @@ class JarvisAppSession(
                     ?.mapValues { (_, value) -> counter(value as? JsonObject) }
                     .orEmpty()
                 val quota = obj["quota"] as? JsonObject
+                val quotaWindows = (quota?.get("windows") as? JsonArray).orEmpty().mapNotNull { value ->
+                    val window = value as? JsonObject ?: return@mapNotNull null
+                    val label = window["label"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    QuotaWindow(
+                        label = label,
+                        usedPercent = window["used_percent"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull(),
+                        remainingPercent = window["remaining_percent"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull(),
+                        resetsAt = window["resets_at"]?.jsonPrimitive?.contentOrNull,
+                        detail = window["detail"]?.jsonPrimitive?.contentOrNull,
+                    )
+                }
+                val quotaDetails = (quota?.get("details") as? JsonArray).orEmpty()
+                    .mapNotNull { it.jsonPrimitive.contentOrNull?.takeIf(String::isNotBlank) }
                 ProviderUsage(
                     id = providerId,
                     label = obj["label"]?.jsonPrimitive?.contentOrNull ?: providerId,
@@ -349,9 +377,16 @@ class JarvisAppSession(
                     lifetime = counter(obj["lifetime"] as? JsonObject),
                     lastUsedUtc = obj["last_used_utc"]?.jsonPrimitive?.contentOrNull,
                     quotaStatus = quota?.get("status")?.jsonPrimitive?.contentOrNull ?: "not_reported",
+                    quotaSource = quota?.get("source")?.jsonPrimitive?.contentOrNull,
+                    quotaTitle = quota?.get("title")?.jsonPrimitive?.contentOrNull,
+                    quotaPlan = quota?.get("plan")?.jsonPrimitive?.contentOrNull,
+                    quotaFetchedAt = quota?.get("fetched_at")?.jsonPrimitive?.contentOrNull,
                     quotaRemainingPercent = quota?.get("remaining_percent")
                         ?.jsonPrimitive?.contentOrNull?.toDoubleOrNull(),
                     quotaResetsAt = quota?.get("resets_at")?.jsonPrimitive?.contentOrNull,
+                    quotaWindows = quotaWindows,
+                    quotaDetails = quotaDetails,
+                    quotaReason = quota?.get("reason")?.jsonPrimitive?.contentOrNull,
                 )
             }
 

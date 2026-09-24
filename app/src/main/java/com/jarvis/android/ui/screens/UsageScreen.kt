@@ -15,6 +15,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.live.JarvisAppSession
 import com.jarvis.android.ui.JarvisViewModel
@@ -152,15 +156,55 @@ private fun ProviderUsageCard(provider: JarvisAppSession.ProviderUsage, period: 
                 Modifier.fillMaxWidth(),
             )
 
-            Text(
-                if (provider.quotaRemainingPercent != null) {
-                    "${provider.quotaRemainingPercent.toInt()}%"
-                } else {
-                    strings.providerQuotaNotReported
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF9FB5CC),
-            )
+            if (provider.quotaStatus == "reported") {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = accents.orbGlow.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.28f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            strings.providerQuotaLive,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = accents.orbGlow,
+                        )
+                        provider.quotaPlan?.takeIf { it.isNotBlank() }?.let {
+                            Text(strings.quotaPlan(it), style = MaterialTheme.typography.bodySmall, color = Color(0xFFD5E3F3))
+                        }
+
+                        if (provider.quotaWindows.isNotEmpty()) {
+                            provider.quotaWindows.forEach { window ->
+                                QuotaWindowRow(window)
+                            }
+                        } else {
+                            provider.quotaRemainingPercent?.let {
+                                Text(
+                                    strings.quotaRemaining(it.coerceIn(0.0, 100.0).toInt()),
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = Color(0xFFE8EEF8),
+                                )
+                            }
+                            provider.quotaResetsAt?.let(::formatQuotaReset)?.let {
+                                Text(strings.quotaResets(it), style = MaterialTheme.typography.bodySmall, color = Color(0xFF9FB5CC))
+                            }
+                        }
+
+                        provider.quotaDetails.take(3).forEach { detail ->
+                            Text(detail, style = MaterialTheme.typography.bodySmall, color = Color(0xFF9FB5CC))
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    strings.providerQuotaNotReported,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF9FB5CC),
+                )
+            }
 
             if (counter.requests == 0L) {
                 Text(strings.noUsageYet, style = MaterialTheme.typography.bodySmall, color = Color(0xFF8298B2))
@@ -168,6 +212,41 @@ private fun ProviderUsageCard(provider: JarvisAppSession.ProviderUsage, period: 
         }
     }
 }
+
+@Composable
+private fun QuotaWindowRow(window: JarvisAppSession.QuotaWindow) {
+    val strings = LocalAppStrings.current
+    val remaining = window.remainingPercent
+        ?: window.usedPercent?.let { 100.0 - it }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                window.label,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                color = Color(0xFFD5E3F3),
+            )
+            remaining?.let {
+                Text(
+                    strings.quotaRemaining(it.coerceIn(0.0, 100.0).toInt()),
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFFE8EEF8),
+                )
+            }
+        }
+        window.resetsAt?.let(::formatQuotaReset)?.let {
+            Text(strings.quotaResets(it), style = MaterialTheme.typography.labelSmall, color = Color(0xFF8298B2))
+        }
+        window.detail?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = Color(0xFF8298B2))
+        }
+    }
+}
+
+private fun formatQuotaReset(value: String): String? = runCatching {
+    OffsetDateTime.parse(value)
+        .atZoneSameInstant(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.getDefault()))
+}.getOrNull()
 
 @Composable
 private fun UsageMetric(label: String, value: String, modifier: Modifier = Modifier) {

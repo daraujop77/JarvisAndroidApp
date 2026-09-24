@@ -90,6 +90,10 @@ interface AppStrings {
     val tokensLabel: String
     val tokensNotReported: String
     val providerQuotaNotReported: String
+    val providerQuotaLive: String
+    fun quotaPlan(plan: String): String
+    fun quotaRemaining(percent: Int): String
+    fun quotaResets(value: String): String
     val noUsageYet: String
 
     val identitySection: String
@@ -250,7 +254,7 @@ object EnAppStrings : AppStrings {
     override val usageSettingsDescription = "View JARVIS-observed use for ChatGPT/Codex, Grok, Gemini, Nous and FreeLLMAPI."
     override val openUsage = "View usage"
     override val usageTitle = "Usage & limits"
-    override val usageObservedNotice = "JARVIS shows observed traffic. Provider quota is shown only when the provider reports it."
+    override val usageObservedNotice = "Traffic counters are observed by JARVIS. Live quota and renewal data appear only when the provider exposes them."
     override val usageToday = "Today"
     override val usage7Days = "7 days"
     override val usage30Days = "30 days"
@@ -261,6 +265,10 @@ object EnAppStrings : AppStrings {
     override val tokensLabel = "Tokens"
     override val tokensNotReported = "Not reported"
     override val providerQuotaNotReported = "Provider quota not reported"
+    override val providerQuotaLive = "LIVE PROVIDER QUOTA"
+    override fun quotaPlan(plan: String) = "Plan: $plan"
+    override fun quotaRemaining(percent: Int) = "$percent% remaining"
+    override fun quotaResets(value: String) = "Resets $value"
     override val noUsageYet = "No observed usage in this period"
 
     override val identitySection = "IDENTITY"
@@ -420,7 +428,7 @@ object EsAppStrings : AppStrings {
     override val usageSettingsDescription = "Consulta el uso observado por JARVIS para ChatGPT/Codex, Grok, Gemini, Nous y FreeLLMAPI."
     override val openUsage = "Ver uso"
     override val usageTitle = "Uso y límites"
-    override val usageObservedNotice = "JARVIS muestra el tráfico observado. La cuota del proveedor solo aparece cuando el proveedor la reporta."
+    override val usageObservedNotice = "Los contadores de tráfico son observados por JARVIS. La cuota y renovación reales aparecen solo cuando el proveedor las expone."
     override val usageToday = "Hoy"
     override val usage7Days = "7 días"
     override val usage30Days = "30 días"
@@ -431,6 +439,10 @@ object EsAppStrings : AppStrings {
     override val tokensLabel = "Tokens"
     override val tokensNotReported = "No reportados"
     override val providerQuotaNotReported = "Cuota del proveedor no reportada"
+    override val providerQuotaLive = "CUOTA REAL DEL PROVEEDOR"
+    override fun quotaPlan(plan: String) = "Plan: $plan"
+    override fun quotaRemaining(percent: Int) = "$percent% restante"
+    override fun quotaResets(value: String) = "Se restablece $value"
     override val noUsageYet = "Sin uso observado en este periodo"
 
     override val identitySection = "IDENTIDAD"
