@@ -186,11 +186,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _writingRoomState.value = WritingRoomState.Idle
     }
 
+    data class WritingWorkspaceChatTurn(
+        val prompt: String,
+        val response: WritingRoomAutoChat? = null,
+    )
+
     data class WritingWorkspaceState(
         val busy: Boolean = false,
         val busyLabel: String = "",
+        val chatProjectId: String? = null,
         val overview: WritingRoomOverview? = null,
         val chat: WritingRoomAutoChat? = null,
+        val chatHistory: List<WritingWorkspaceChatTurn> = emptyList(),
         val streamingText: String = "",
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
@@ -230,6 +237,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun refreshWritingWorkspace(projectId: String) {
+        if (_writingWorkspace.value.chatProjectId != projectId) {
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                chatProjectId = projectId,
+                chat = null,
+                chatHistory = emptyList(),
+                streamingText = "",
+            )
+        }
         writingWorkspaceBusy("Loading workspace")
         viewModelScope.launch {
             val overview = container.liveSession.writingRoomOverview(projectId)
@@ -269,11 +284,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val clean = prompt.trim()
         if (clean.isEmpty()) return
-        writingWorkspaceBusy("JARVIS is routing the Writing Room task")
-        _writingWorkspace.value = _writingWorkspace.value.copy(
+
+        val current = _writingWorkspace.value
+        val existingHistory = if (current.chatProjectId == projectId) current.chatHistory else emptyList()
+        _writingWorkspace.value = current.copy(
+            busy = true,
+            busyLabel = "JARVIS is routing the Writing Room task",
+            chatProjectId = projectId,
             chat = null,
+            chatHistory = existingHistory + WritingWorkspaceChatTurn(prompt = clean),
             streamingText = "",
+            error = null,
         )
+
         viewModelScope.launch {
             val result = container.liveSession.writingRoomAutoChatStream(
                 projectId = projectId,
@@ -281,30 +304,47 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 prompt = clean,
                 room = room,
                 onDelta = { delta ->
-                    _writingWorkspace.value = _writingWorkspace.value.copy(
-                        streamingText = _writingWorkspace.value.streamingText + delta,
-                        busyLabel = "Streaming response",
-                    )
+                    val state = _writingWorkspace.value
+                    if (state.chatProjectId == projectId) {
+                        _writingWorkspace.value = state.copy(
+                            streamingText = state.streamingText + delta,
+                            busyLabel = "Streaming response",
+                        )
+                    }
                 },
             )
             result.fold(
-                onSuccess = {
-                    _writingWorkspace.value = _writingWorkspace.value.copy(
-                        busy = false,
-                        busyLabel = "",
-                        chat = it,
-                        streamingText = "",
-                        error = null,
-                    )
+                onSuccess = { response ->
+                    val state = _writingWorkspace.value
+                    if (state.chatProjectId == projectId) {
+                        val updatedHistory = state.chatHistory.toMutableList()
+                        val pendingIndex = updatedHistory.indexOfLast { it.response == null }
+                        if (pendingIndex >= 0) {
+                            updatedHistory[pendingIndex] = updatedHistory[pendingIndex].copy(response = response)
+                        } else {
+                            updatedHistory += WritingWorkspaceChatTurn(prompt = clean, response = response)
+                        }
+                        _writingWorkspace.value = state.copy(
+                            busy = false,
+                            busyLabel = "",
+                            chat = response,
+                            chatHistory = updatedHistory,
+                            streamingText = "",
+                            error = null,
+                        )
+                    }
                 },
-                onFailure = {
-                    val partial = _writingWorkspace.value.streamingText
-                    _writingWorkspace.value = _writingWorkspace.value.copy(
-                        busy = false,
-                        busyLabel = "",
-                        streamingText = partial,
-                        error = it.message ?: "Writing Room request failed",
-                    )
+                onFailure = { error ->
+                    val state = _writingWorkspace.value
+                    if (state.chatProjectId == projectId) {
+                        val partial = state.streamingText
+                        _writingWorkspace.value = state.copy(
+                            busy = false,
+                            busyLabel = "",
+                            streamingText = partial,
+                            error = error.message ?: "Writing Room request failed",
+                        )
+                    }
                 },
             )
         }
