@@ -138,7 +138,7 @@ private fun ProviderUsageCard(provider: JarvisAppSession.ProviderUsage, period: 
                     Text(provider.model, style = MaterialTheme.typography.bodySmall, color = Color(0xFF8FA9C4))
                 }
                 Text(
-                    "JARVIS",
+                    usageSourceBadge(provider.source),
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = accents.orbGlow,
                 )
@@ -273,6 +273,9 @@ private fun UsageMessageCard(message: String) {
         Text(message, modifier = Modifier.padding(14.dp), style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB7C7DC))
     }
 }
+
+internal fun usageSourceBadge(source: String): String =
+    if (source.startsWith("freellmapi_router_observed")) "ROUTER" else "JARVIS"
 
 private fun compact(value: Long): String = when {
     value >= 1_000_000L -> String.format(java.util.Locale.US, "%.1fM", value / 1_000_000.0)
