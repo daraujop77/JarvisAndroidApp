@@ -28,11 +28,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.VerifiedUser
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -67,6 +67,7 @@ import androidx.navigation.compose.rememberNavController
 import com.jarvis.android.JarvisApp
 import com.jarvis.android.data.repo.SessionPhase
 import com.jarvis.android.ui.components.AmbientBackdrop
+import com.jarvis.android.ui.components.HolographicHudIcon
 import com.jarvis.android.ui.i18n.AppStrings
 import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.i18n.resolveAppStrings
@@ -84,13 +85,13 @@ import com.jarvis.android.ui.theme.JarvisCyanBright
 import com.jarvis.android.ui.theme.LocalReducedMotion
 
 sealed class TopLevelDestination(val route: String, val label: String, val icon: ImageVector) {
-    data object Conversations : TopLevelDestination("conversations", "Chat", Icons.AutoMirrored.Filled.Chat)
-    data object Approvals : TopLevelDestination("approvals", "Approvals", Icons.Filled.VerifiedUser)
-    data object Tasks : TopLevelDestination("tasks", "Tasks", Icons.Filled.Checklist)
-    data object Settings : TopLevelDestination("settings", "Settings", Icons.Filled.Tune)
+    data object Conversations : TopLevelDestination("conversations", "Chat", Icons.Outlined.ChatBubbleOutline)
+    data object Approvals : TopLevelDestination("approvals", "Approvals", Icons.Outlined.VerifiedUser)
+    data object Tasks : TopLevelDestination("tasks", "Tasks", Icons.Outlined.Checklist)
+    data object Settings : TopLevelDestination("settings", "Settings", Icons.Outlined.Settings)
 
     /** Projects is the production entry point for Writing Room and other live workspaces. */
-    data object Projects : TopLevelDestination("projects", "Projects", Icons.Filled.AutoStories)
+    data object Projects : TopLevelDestination("projects", "Projects", Icons.Outlined.MenuBook)
 
     fun localizedLabel(strings: AppStrings): String = when (this) {
         Conversations -> strings.navChat
@@ -265,18 +266,7 @@ private fun MainShell(
                                     }
                                     val destinationLabel = dest.localizedLabel(strings)
                                     val isSelected = currentDestination?.hierarchy?.any { it.route == dest.route } == true
-                                    val reduced = LocalReducedMotion.current
-                                    val pulse by rememberInfiniteTransition(label = "navGlow").animateFloat(
-                                        initialValue = 0.45f,
-                                        targetValue = 1f,
-                                        animationSpec = infiniteRepeatable(
-                                            tween(1100, easing = LinearEasing),
-                                            RepeatMode.Reverse,
-                                        ),
-                                        label = "pulse",
-                                    )
-                                    val glow = if (isSelected && !reduced) pulse else if (isSelected) 0.85f else 0f
-                                    val tint = if (isSelected) JarvisCyanBright else JarvisCyan.copy(alpha = 0.72f)
+                                    val tint = if (isSelected) JarvisCyanBright else JarvisCyan.copy(alpha = 0.66f)
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
@@ -300,36 +290,13 @@ private fun MainShell(
                                                 contentColor = Color(0xFF041018),
                                             ) { Text(badge.toString()) }
                                         }) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(42.dp)
-                                                    .drawBehind {
-                                                        if (glow <= 0f) return@drawBehind
-                                                        drawCircle(
-                                                            color = JarvisCyan.copy(alpha = 0.45f * glow),
-                                                            radius = size.minDimension * 0.62f,
-                                                        )
-                                                    }
-                                                    .clip(CircleShape)
-                                                    .background(
-                                                        if (isSelected) JarvisCyan.copy(alpha = 0.22f)
-                                                        else JarvisCyan.copy(alpha = 0.08f),
-                                                    )
-                                                    .border(
-                                                        1.dp,
-                                                        if (isSelected) JarvisCyanBright.copy(alpha = 0.55f + 0.45f * glow)
-                                                        else JarvisCyan.copy(alpha = 0.35f),
-                                                        CircleShape,
-                                                    ),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Icon(
-                                                    dest.icon,
-                                                    contentDescription = destinationLabel,
-                                                    tint = tint,
-                                                    modifier = Modifier.size(24.dp),
-                                                )
-                                            }
+                                            HolographicHudIcon(
+                                                imageVector = dest.icon,
+                                                contentDescription = destinationLabel,
+                                                selected = isSelected,
+                                                activeColor = JarvisCyanBright,
+                                                inactiveColor = JarvisCyan.copy(alpha = 0.72f),
+                                            )
                                         }
                                         Text(
                                             destinationLabel,
@@ -342,6 +309,16 @@ private fun MainShell(
                                             maxLines = 1,
                                             softWrap = false,
                                             overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .padding(top = 3.dp)
+                                                .size(width = if (isSelected) 22.dp else 8.dp, height = 2.dp)
+                                                .clip(RoundedCornerShape(50))
+                                                .background(
+                                                    if (isSelected) JarvisCyanBright.copy(alpha = 0.92f)
+                                                    else Color.Transparent,
+                                                ),
                                         )
                                     }
                                 }

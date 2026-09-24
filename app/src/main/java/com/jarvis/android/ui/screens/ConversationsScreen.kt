@@ -112,6 +112,7 @@ import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.chat.AutoFollow
 import com.jarvis.android.ui.components.MarkdownBlock
 import com.jarvis.android.ui.components.JarvisBrain
+import com.jarvis.android.ui.components.HolographicSendButton
 import com.jarvis.android.ui.components.markdownBlocks
 import com.jarvis.android.ui.components.renderInlineMarkdown
 import com.jarvis.android.ui.components.JarvisOrb
@@ -743,18 +744,12 @@ private fun Composer(
                         ),
                     ) { Icon(Icons.Filled.Stop, contentDescription = strings.stop) }
                 } else {
-                    val scale by animateFloatAsState(if (canSend) 1f else 0.85f, label = "sendScale")
-                    FilledIconButton(
-                        onClick = handleSend,
+                    HolographicSendButton(
                         enabled = canSend,
-                        modifier = Modifier.size((44 * scale).dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = Color(0xFF041018),
-                            disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                            disabledContentColor = Color(0xFF041018).copy(alpha = 0.4f),
-                        ),
-                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.send) }
+                        contentDescription = strings.send,
+                        accent = accents.orbGlow,
+                        onClick = handleSend,
+                    )
                 }
             }
     }
