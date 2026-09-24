@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.data.state.DiagnosticEntry
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.components.HudDiagnosticsIcon
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisCyan
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -100,12 +101,7 @@ fun DiagnosticsCard(vm: JarvisViewModel, diagnostics: List<DiagnosticEntry>) {
                                 .background(accents.orbGlow.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(
-                                Icons.Filled.BugReport,
-                                contentDescription = null,
-                                tint = accents.orbGlow,
-                                modifier = Modifier.size(15.dp),
-                            )
+                            HudDiagnosticsIcon(tint = accents.orbGlow)
                         }
                         Spacer(Modifier.width(10.dp))
                         Text(

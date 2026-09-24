@@ -77,6 +77,15 @@ import com.jarvis.android.BuildConfig
 import com.jarvis.android.transport.fake.FakeScenario
 import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.components.HudAppearanceIcon
+import com.jarvis.android.ui.components.HudBubbleIcon
+import com.jarvis.android.ui.components.HudConnectionIcon
+import com.jarvis.android.ui.components.HudIdentityIcon
+import com.jarvis.android.ui.components.HudLanguageIcon
+import com.jarvis.android.ui.components.HudSecurityIcon
+import com.jarvis.android.ui.components.HudSimulationIcon
+import com.jarvis.android.ui.components.HudUpdateIcon
+import com.jarvis.android.ui.components.HudUsageIcon
 import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.i18n.LocalAppStrings
@@ -97,6 +106,7 @@ fun SettingsScreen(
     onOpenUsage: () -> Unit = {},
 ) {
     val strings = LocalAppStrings.current
+    val accents = LocalJarvisAccents.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val health by vm.healthStatus.collectAsStateWithLifecycle()
@@ -145,7 +155,7 @@ fun SettingsScreen(
         ) {
             SettingsCard(
                 title = strings.languageSection,
-                icon = Icons.Filled.Translate,
+                icon = { HudLanguageIcon(tint = accents.orbGlow) },
                 badgeText = settings.appLanguage.uppercase(),
                 badgeColor = JarvisCyan,
             ) {
@@ -219,7 +229,7 @@ fun SettingsScreen(
 
             SettingsCard(
                 title = strings.identitySection,
-                icon = Icons.Filled.Person,
+                icon = { HudIdentityIcon(tint = accents.orbGlow) },
                 badgeText = if (settings.isOwner) "OWNER" else "GUEST",
                 badgeColor = if (settings.isOwner) JarvisGreen else JarvisAmber,
             ) {
@@ -286,7 +296,7 @@ fun SettingsScreen(
 
             SettingsCard(
                 title = strings.securitySection,
-                icon = Icons.Filled.Security,
+                icon = { HudSecurityIcon(tint = accents.orbGlow) },
                 badgeText = if (settings.appLockEnabled) "PROTECTED" else "UNLOCKED",
                 badgeColor = if (settings.appLockEnabled) JarvisGreen else JarvisAmber,
             ) {
@@ -342,7 +352,7 @@ fun SettingsScreen(
 
             SettingsCard(
                 title = strings.floatingBrainSection,
-                icon = Icons.Filled.OpenInNew,
+                icon = { HudBubbleIcon(tint = accents.orbGlow) },
                 badgeText = if (settings.floatingBubbleEnabled) "ACTIVE" else "OFF",
                 badgeColor = if (settings.floatingBubbleEnabled) JarvisCyan else Color(0xFF8BA2BE),
             ) {
@@ -391,7 +401,7 @@ fun SettingsScreen(
 
             SettingsCard(
                 title = strings.appearanceSection,
-                icon = Icons.Filled.Palette,
+                icon = { HudAppearanceIcon(tint = accents.orbGlow) },
             ) {
                 SwitchRow(
                     title = strings.reduceMotion,
@@ -425,7 +435,7 @@ fun SettingsScreen(
 
             SettingsCard(
                 title = strings.usageSection,
-                icon = Icons.Filled.Speed,
+                icon = { HudUsageIcon(tint = accents.orbGlow) },
             ) {
                 Text(
                     strings.usageSettingsDescription,
@@ -450,7 +460,7 @@ fun SettingsScreen(
 
             SettingsCard(
                 title = strings.appUpdateSection,
-                icon = Icons.Filled.SystemUpdate,
+                icon = { HudUpdateIcon(tint = accents.orbGlow) },
                 badgeText = "v${BuildConfig.VERSION_CODE}",
                 badgeColor = JarvisCyan,
             ) {
@@ -604,7 +614,7 @@ fun SettingsScreen(
 
             SettingsCard(
                 title = strings.connectionSection,
-                icon = Icons.Filled.Wifi,
+                icon = { HudConnectionIcon(tint = accents.orbGlow) },
             ) {
                 if (vm.developerOptionsEnabled) {
                     SwitchRow(
@@ -670,7 +680,7 @@ fun SettingsScreen(
             if (vm.developerOptionsEnabled) {
                 SettingsCard(
                     title = strings.simulationSection,
-                    icon = Icons.Filled.Science,
+                    icon = { HudSimulationIcon(tint = accents.orbGlow) },
                 ) {
                     Text(
                         strings.simulationSubtitle,
@@ -726,9 +736,9 @@ fun SettingsScreen(
 @Composable
 private fun SettingsCard(
     title: String,
-    icon: ImageVector? = null,
     badgeText: String? = null,
     badgeColor: Color = JarvisCyan,
+    icon: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val accents = LocalJarvisAccents.current
@@ -778,12 +788,7 @@ private fun SettingsCard(
                                     .background(accents.orbGlow.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(
-                                    icon,
-                                    contentDescription = null,
-                                    tint = accents.orbGlow,
-                                    modifier = Modifier.size(15.dp),
-                                )
+                                icon()
                             }
                             Spacer(Modifier.width(10.dp))
                         }
