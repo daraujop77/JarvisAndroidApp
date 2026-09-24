@@ -21,6 +21,9 @@ val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: keystoreProper
 val hasReleaseSigning = releaseStoreFilePath != null && file(releaseStoreFilePath).exists()
 val jarvisApplicationId = providers.gradleProperty("jarvisApplicationId")
     .orElse("com.jarvis.android")
+val jarvisVersionCode = providers.gradleProperty("jarvisVersionCode")
+    .orNull
+    ?.toIntOrNull()
 
 android {
     namespace = "com.jarvis.android"
@@ -32,7 +35,9 @@ android {
         applicationId = jarvisApplicationId.get()
         minSdk = 26
         targetSdk = 36
-        versionCode = 22
+        // Google Play can override versionCode independently so direct APK
+        // updates keep their existing version sequence.
+        versionCode = jarvisVersionCode ?: 22
         versionName = "0.1.21-usage-v22"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -57,7 +57,17 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Build signed Google Play AAB
-        run: ./gradlew -PjarvisApplicationId="$PLAY_PACKAGE_NAME" :app:bundleRelease --stacktrace
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # Play versionCodes are independent from direct APK versionCodes.
+          # Each workflow run gets a fresh value above the manual bootstrap build (22).
+          PLAY_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))
+          echo "PLAY_VERSION_CODE=$PLAY_VERSION_CODE" >> "$GITHUB_ENV"
+          ./gradlew \
+            -PjarvisApplicationId="$PLAY_PACKAGE_NAME" \
+            -PjarvisVersionCode="$PLAY_VERSION_CODE" \
+            :app:bundleRelease --stacktrace
 
       - name: Verify bundle
         shell: bash
