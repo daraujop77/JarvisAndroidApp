@@ -91,7 +91,15 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           [ -f "$APK" ] || { echo "Signed release APK missing"; exit 1; }
 
-          VERSION_CODE="$(grep -m1 'versionCode = ' app/build.gradle.kts | sed -E 's/.*= *([0-9]+).*/\1/')"
+          VERSION_CODE="$(python3 - <<'PY'
+          import re
+          text = open("app/build.gradle.kts", encoding="utf-8").read()
+          match = re.search(r'versionCode\s*=\s*(?:jarvisVersionCode\s*\?:\s*)?(\d+)', text)
+          if not match:
+              raise SystemExit("Could not resolve default Android versionCode")
+          print(match.group(1))
+          PY
+          )"
           VERSION_NAME="$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*= *"([^"]+)".*/\1/')"
           PACKAGE_NAME="com.jarvis.android"
           TAG="android-v${VERSION_CODE}"
