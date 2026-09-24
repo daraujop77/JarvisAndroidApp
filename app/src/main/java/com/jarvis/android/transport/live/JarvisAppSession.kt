@@ -507,7 +507,7 @@ class JarvisAppSession(
                 if (!model.isNullOrBlank()) put("model", model)
             }.toString()
             val response = post(root, "/api/app/images/generations", body, auth = authHeader())
-            requireOk(response)
+            requireImageGenerationOk(response)
             val obj = json.parseToJsonElement(response.second).jsonObject
             val mimeType = obj["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val dataBase64 = obj["data_base64"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -766,4 +766,20 @@ internal fun requireOk(resp: Pair<Int, String>) {
     if (resp.first !in 200..299) {
         throw TransportException("HTTP ${resp.first}: ${resp.second.take(200)}")
     }
+}
+
+
+internal fun requireImageGenerationOk(resp: Pair<Int, String>) {
+    if (resp.first in 200..299) return
+    val parsedMessage = runCatching {
+        Json { ignoreUnknownKeys = true }
+            .parseToJsonElement(resp.second)
+            .jsonObject["message"]
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.trim()
+            .orEmpty()
+    }.getOrDefault("")
+    val message = parsedMessage.ifBlank { "Image generation failed (HTTP ${resp.first})." }
+    throw TransportException(message.take(360))
 }

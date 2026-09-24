@@ -1459,7 +1459,11 @@ private fun AttachmentChip(
     generated: Boolean = false,
     onOpen: (() -> Unit)? = null,
 ) {
-    val thumb by rememberAttachmentThumb(attachmentId, attachmentStore)
+    val thumb by rememberAttachmentThumb(
+        attachmentId,
+        attachmentStore,
+        maxSize = if (generated) 1024 else 256,
+    )
     val statusText = when {
         generated && state == null -> "GENERATED"
         state == null -> "STAGED"
@@ -1470,8 +1474,8 @@ private fun AttachmentChip(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
-                .size(92.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .size(if (generated) 220.dp else 92.dp)
+                .clip(RoundedCornerShape(if (generated) 20.dp else 14.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .then(if (generated && onOpen != null) Modifier.clickable { onOpen() } else Modifier),
             contentAlignment = Alignment.Center,
@@ -1498,6 +1502,7 @@ private fun AttachmentChip(
             color = if (state == null || state.ready || state.uploading)
                 MaterialTheme.colorScheme.onSurfaceVariant
             else MaterialTheme.colorScheme.error,
+            modifier = if (generated) Modifier.padding(top = 2.dp) else Modifier,
         )
     }
 }

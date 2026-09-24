@@ -546,3 +546,24 @@ class LiveAppGatewayTransportTest {
         assertTrue(upErr!!.message!!.contains("upload contract not frozen"))
     }
 }
+
+
+class ImageGenerationErrorFormattingTest {
+    @Test
+    fun serverImageErrorUsesReadableMessageInsteadOfRawJson() {
+        val error = try {
+            requireImageGenerationOk(
+                502 to """{"schema":"jarvis.web.error.v1","error":"image_generation_selected_model_failed","message":"GPT Image failed via openai-codex. No fallback was used."}"""
+            )
+            null
+        } catch (caught: TransportException) {
+            caught
+        }
+        assertTrue(error != null)
+        assertEquals(
+            "GPT Image failed via openai-codex. No fallback was used.",
+            error?.message,
+        )
+        assertFalse(error?.message.orEmpty().contains("{\"schema\""))
+    }
+}
