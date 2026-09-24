@@ -283,6 +283,68 @@ Rules:
 - No sensitive inference
 - No action without the required approval tier
 
+### B13. JARVIS Device Control
+
+Goal: let the user state an outcome in natural language and have JARVIS choose the most reliable execution path on Android, without forcing the user to know which app, menu or sequence of taps is required.
+
+Core principle:
+
+> JARVIS should execute intent, not blindly imitate taps.
+
+Execution priority:
+
+1. **Native Android API / Intent / deep link** — preferred whenever available.
+2. **Supported app integration / connector / notification action** — use a structured interface when one exists.
+3. **Hermes browser or remote action** — complete web-backed work without opening an app when that is more reliable.
+4. **Screen vision + deterministic UI automation** — fallback for apps that expose no structured integration.
+5. **User confirmation / handoff** — required when Android policy, app policy, permissions, uncertainty, or risk make full automation inappropriate.
+
+Example — WhatsApp:
+
+- User: "Open WhatsApp and tell Carlos I'll arrive around seven."
+- JARVIS resolves the intended contact and message.
+- Prefer a supported Android/WhatsApp handoff to open the correct conversation with the message prepared.
+- If sending cannot be performed safely through a supported interface, leave the message ready and ask for the final confirmation/tap.
+- Any future deeper automation must remain permission-aware, deterministic where possible, and approval-gated for external communication.
+
+Example — YouTube:
+
+- User: "Find videos showing how to replace the brakes on this car."
+- Hermes searches and ranks useful candidates using web/browser tools.
+- JARVIS presents a short list with title, relevance and useful context.
+- User: "Open the third one."
+- Android opens that exact video in YouTube through a deep link / VIEW intent where available.
+
+Additional everyday examples:
+
+- "Open Maps and take me to the nearest HEB."
+- "Play my workout playlist."
+- "Set an alarm for 6:30 tomorrow."
+- "Open the PDF they sent me and tell me what I need to do."
+- "Read my notifications and tell me which ones matter."
+- "Open the camera."
+- "Find this product, compare a few options, and show me the best matches."
+
+Architecture concept:
+
+- **Hermes**: interpret the goal, search/reason, choose tools, rank options and plan safe steps.
+- **Android app**: permissions, contacts/device context, Intents/deep links, notification/media/device actions, confirmation UI.
+- **ScreenVision / overlay**: visual context and fallback guidance/automation when structured APIs are unavailable.
+- **Approval system**: gate messaging, purchases, account changes, security-sensitive actions and destructive operations.
+
+Product split:
+
+- **Normal / Play-distributed mode**: favor supported Android APIs, intents, connectors and explicit user confirmation where required.
+- **Owner / private mode**: may expose additional experimental device-control capabilities, but still follows the same permission, audit and approval model.
+
+Success criteria:
+
+- The user speaks in outcomes, not app commands.
+- JARVIS selects the most stable execution method automatically.
+- UI automation is a fallback, not the default.
+- External or sensitive actions are visible and attributable.
+- A failed action degrades gracefully to a prepared handoff instead of leaving the phone in an unknown state.
+
 ---
 
 ## Hermes capabilities to exploit
@@ -317,7 +379,7 @@ Map these to UI rather than reimplementing them:
 ### Next
 
 6. JARVIS Live voice
-7. Android Actions
+7. Android Actions / JARVIS Device Control foundation
 8. Life Inbox
 9. Family profiles / shared household surfaces
 10. Home Assistant integration UI
