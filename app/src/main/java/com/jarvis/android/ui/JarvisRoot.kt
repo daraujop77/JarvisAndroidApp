@@ -165,7 +165,7 @@ fun JarvisRoot(
             targetState = shell,
             transitionSpec = {
                 (fadeIn(tween(420)) + scaleIn(tween(420), initialScale = 0.96f))
-                    .togetherWith(fadeOut(tween(240)))
+                    .togetherWith(fadeOut(tween(360)))
             },
             label = "shell",
         ) { target ->

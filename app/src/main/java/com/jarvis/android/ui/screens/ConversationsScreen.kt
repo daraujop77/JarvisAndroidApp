@@ -3,13 +3,17 @@ package com.jarvis.android.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -126,6 +130,7 @@ import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.LocalReducedMotion
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
 @Composable
@@ -143,14 +148,31 @@ fun ConversationsScreen(
         }
     }
 
-    if (showList || conversationId == null) {
-        ConversationListView(
-            vm = vm,
-            onOpen = { vm.openConversation(it); showList = false },
-            onNew = { showList = false; vm.startNewConversation() },
-        )
-    } else {
-        ChatScreen(vm, onBack = { showList = true })
+    val reduced = LocalReducedMotion.current
+    AnimatedContent(
+        targetState = showList || conversationId == null,
+        transitionSpec = {
+            if (reduced) {
+                fadeIn(tween(0)).togetherWith(fadeOut(tween(0)))
+            } else if (targetState) {
+                (fadeIn(tween(260)) + slideInHorizontally(tween(260)) { -it / 6 })
+                    .togetherWith(fadeOut(tween(220)) + slideOutHorizontally(tween(220)) { it / 6 })
+            } else {
+                (fadeIn(tween(280)) + slideInHorizontally(tween(280)) { it / 6 })
+                    .togetherWith(fadeOut(tween(240)) + slideOutHorizontally(tween(240)) { -it / 6 })
+            }
+        },
+        label = "chatNav",
+    ) { isList ->
+        if (isList) {
+            ConversationListView(
+                vm = vm,
+                onOpen = { vm.openConversation(it); showList = false },
+                onNew = { showList = false; vm.startNewConversation() },
+            )
+        } else {
+            ChatScreen(vm, onBack = { showList = true })
+        }
     }
 }
 
