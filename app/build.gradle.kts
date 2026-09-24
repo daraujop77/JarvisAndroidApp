@@ -19,13 +19,17 @@ val releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: keystorePr
 val releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: keystoreProperties.getProperty("keyAlias")
 val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: keystoreProperties.getProperty("keyPassword")
 val hasReleaseSigning = releaseStoreFilePath != null && file(releaseStoreFilePath).exists()
+val jarvisApplicationId = providers.gradleProperty("jarvisApplicationId")
+    .orElse("com.jarvis.android")
 
 android {
     namespace = "com.jarvis.android"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.jarvis.android"
+        // Keep direct/GitHub APK updates on the legacy ID. Google Play builds
+        // override this with -PjarvisApplicationId=com.daraujop77.jarvis.
+        applicationId = jarvisApplicationId.get()
         minSdk = 26
         targetSdk = 36
         versionCode = 22
