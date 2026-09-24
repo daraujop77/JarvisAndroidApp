@@ -78,6 +78,7 @@ import com.jarvis.android.ui.screens.PairingScreen
 import com.jarvis.android.ui.screens.ProjectsScreen
 import com.jarvis.android.ui.screens.SettingsScreen
 import com.jarvis.android.ui.screens.TasksScreen
+import com.jarvis.android.ui.screens.UsageScreen
 import com.jarvis.android.ui.screens.WelcomeScreen
 import com.jarvis.android.ui.shared.ConnectionBanner
 import com.jarvis.android.ui.theme.JarvisCyan
@@ -339,7 +340,15 @@ private fun MainShell(
                 composable(TopLevelDestination.Projects.route) { ProjectsScreen(vm) }
                 composable(TopLevelDestination.Approvals.route) { ApprovalsScreen(vm, isOwner = isOwner) }
                 composable(TopLevelDestination.Tasks.route) { TasksScreen(vm) }
-                composable(TopLevelDestination.Settings.route) { SettingsScreen(vm) }
+                composable(TopLevelDestination.Settings.route) {
+                    SettingsScreen(
+                        vm = vm,
+                        onOpenUsage = { navController.navigate("settings/usage") },
+                    )
+                }
+                composable("settings/usage") {
+                    UsageScreen(vm = vm, onBack = { navController.popBackStack() })
+                }
             }
         }
     }
