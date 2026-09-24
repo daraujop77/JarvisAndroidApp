@@ -37,8 +37,8 @@ android {
         targetSdk = 36
         // Google Play can override versionCode independently so direct APK
         // updates keep their existing version sequence.
-        versionCode = jarvisVersionCode ?: 24
-        versionName = "0.1.23-provider-usage-v24"
+        versionCode = jarvisVersionCode ?: 25
+        versionName = "0.1.24-holographic-settings-v25"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Checked-in schemas are what Lane C migration tests diff against.
