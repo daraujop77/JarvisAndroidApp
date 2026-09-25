@@ -191,7 +191,7 @@ class LiveAppGatewayTransportTest {
         for (i in 0 until 6) {
             append("event: delta\ndata: {\"delta\":\"tok$i \"}\n\n")
         }
-        append("event: complete\ndata: {\"schema\":\"jarvis.chat.turn.v1\",\"response\":{\"text\":\"Full reply\"},\"result\":{\"status\":\"completed\"}}\n\n")
+        append("event: complete\ndata: {\"schema\":\"jarvis.chat.turn.v1\",\"route\":\"hermes_cloud\",\"request\":{\"resolved_destination\":\"hermes_cloud\",\"resolved_provider\":\"openai-codex\",\"resolved_model\":\"gpt-6-luna\"},\"response\":{\"text\":\"Full reply\",\"provider\":\"openai-codex\",\"model\":\"gpt-6-luna\"},\"result\":{\"status\":\"completed\"}}\n\n")
     }
 
     private fun baseUrl() = server.url("/").toString().trimEnd('/')
@@ -284,6 +284,10 @@ class LiveAppGatewayTransportTest {
         assertEquals(RequestStatus.Completed, req.status)
         // deltas streamed in order, final complete text wins
         assertEquals("Full reply", req.text)
+        assertEquals("openai-codex", req.routeProvider)
+        assertEquals("gpt-6-luna", req.routeModel)
+        assertEquals("hermes_cloud", req.routeKind)
+        assertEquals("hermes_cloud", req.routeDestination)
     }
 
     @Test
@@ -446,6 +450,7 @@ class LiveAppGatewayTransportTest {
     fun ownerProfileSelectionIsServerDrivenAndSentWithTurn() {
         val session = JarvisAppSession(seededStore())
         val access = runBlocking(Dispatchers.IO) { session.fetchChatAccess() }
+        assertTrue("server confirms owner role", access?.isOwner == true)
         assertTrue("server grants owner selection", access?.ownerModelSelection == true)
         assertEquals(listOf("fast", "normal", "deep"), access?.entries?.map { it.profile })
         assertEquals("speed", access?.imageGeneration?.defaultMode)

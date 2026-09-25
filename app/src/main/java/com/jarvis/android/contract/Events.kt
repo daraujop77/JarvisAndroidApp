@@ -64,6 +64,10 @@ sealed interface GatewayEvent {
         val messageId: String,
         val fullText: String? = null,
         val usage: TokenUsage? = null,
+        val provider: String? = null,
+        val model: String? = null,
+        val route: String? = null,
+        val destination: String? = null,
     ) : GatewayEvent
 
     @Serializable

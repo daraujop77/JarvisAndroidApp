@@ -75,6 +75,29 @@ class ReducerTest {
         assertEquals("complete answer", s.requests["r1"]!!.text)
     }
 
+    @Test
+    fun completedPreservesResolvedRouteMetadata() {
+        var s = started()
+        s = applied(s, GatewayEvent.MessageAccepted("r1", "c1", "m1"))
+        s = applied(
+            s,
+            GatewayEvent.MessageCompleted(
+                "r1",
+                "m1",
+                fullText = "done",
+                provider = "openai-codex",
+                model = "gpt-6-luna",
+                route = "hermes_cloud",
+                destination = "hermes_cloud",
+            ),
+        )
+        val req = s.requests["r1"]!!
+        assertEquals("openai-codex", req.routeProvider)
+        assertEquals("gpt-6-luna", req.routeModel)
+        assertEquals("hermes_cloud", req.routeKind)
+        assertEquals("hermes_cloud", req.routeDestination)
+    }
+
     // ---- AND-W1 gate: duplicates / out-of-order -------------------------------
 
     @Test

@@ -244,6 +244,10 @@ object Reducer {
                 text = finalText,
                 pendingDeltas = emptyMap(),
                 messageId = e.messageId,
+                routeProvider = e.provider?.takeIf { it.isNotBlank() } ?: req.routeProvider,
+                routeModel = e.model?.takeIf { it.isNotBlank() } ?: req.routeModel,
+                routeKind = e.route?.takeIf { it.isNotBlank() } ?: req.routeKind,
+                routeDestination = e.destination?.takeIf { it.isNotBlank() } ?: req.routeDestination,
             )),
         )
     }

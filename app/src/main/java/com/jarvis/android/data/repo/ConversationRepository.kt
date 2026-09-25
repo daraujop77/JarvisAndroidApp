@@ -25,6 +25,10 @@ data class ChatMessage(
     val status: RequestStatus,
     val createdAtMs: Long,
     val attachmentIds: List<String> = emptyList(),
+    val routeProvider: String = "",
+    val routeModel: String = "",
+    val routeKind: String = "",
+    val routeDestination: String = "",
 )
 
 data class ConversationSummary(
@@ -109,10 +113,23 @@ class ConversationRepository(
                 attachmentIds = it.attachmentIds.split(',').filter { a -> a.isNotBlank() },
             )
         }.toMutableList()
-        if (live != null && !live.status.isTerminal) {
+        if (live != null) {
             val i = persisted.indexOfFirst { it.clientRequestId == live.clientRequestId && it.role == "assistant" }
-            val row = ChatMessage(live.clientRequestId, "assistant", live.text, live.status, live.startedAtMs)
-            if (i >= 0) persisted[i] = row else persisted += row
+            val row = ChatMessage(
+                clientRequestId = live.clientRequestId,
+                role = "assistant",
+                text = if (live.status.isTerminal && i >= 0) persisted[i].text else live.text,
+                status = if (live.status.isTerminal && i >= 0) persisted[i].status else live.status,
+                createdAtMs = if (i >= 0) persisted[i].createdAtMs else live.startedAtMs,
+                attachmentIds = if (i >= 0) persisted[i].attachmentIds else emptyList(),
+                routeProvider = live.routeProvider,
+                routeModel = live.routeModel,
+                routeKind = live.routeKind,
+                routeDestination = live.routeDestination,
+            )
+            if (!live.status.isTerminal || i >= 0) {
+                if (i >= 0) persisted[i] = row else persisted += row
+            }
         }
         // Render each turn as USER -> JARVIS even while the assistant row is live.
         val turnTime = persisted.groupBy { it.clientRequestId }.mapValues { (_, rows) ->

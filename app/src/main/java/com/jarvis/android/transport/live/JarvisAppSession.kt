@@ -244,6 +244,7 @@ class JarvisAppSession(
     )
 
     data class ChatAccess(
+        val isOwner: Boolean,
         val ownerModelSelection: Boolean,
         val entries: List<ProfileEntry>,
         val capabilityStates: Map<String, String> = emptyMap(),
@@ -258,6 +259,9 @@ class JarvisAppSession(
             if (resp.first !in 200..299) return@runCatching null
             val root = json.parseToJsonElement(resp.second).jsonObject
             val chat = root["chat"]?.jsonObject ?: return@runCatching null
+            val isOwner = root["user"]?.jsonObject
+                ?.get("role")?.jsonPrimitive?.contentOrNull
+                ?.equals("owner", ignoreCase = true) == true
             val models = (chat["models"] as? JsonArray).orEmpty().mapNotNull { el ->
                 val o = el as? JsonObject ?: return@mapNotNull null
                 val profile = o["profile"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
@@ -308,6 +312,7 @@ class JarvisAppSession(
             val imageGeneration = parseImageAccess(capabilities?.get("image_generation"), "speed")
             val imageEdit = parseImageAccess(capabilities?.get("image_edit"), "quality")
             ChatAccess(
+                isOwner = isOwner,
                 ownerModelSelection = ownerSel,
                 entries = models,
                 capabilityStates = capabilityStates,

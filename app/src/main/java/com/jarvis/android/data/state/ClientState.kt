@@ -71,6 +71,10 @@ data class RequestState(
     val nextSeq: Int = 0,
     val pendingDeltas: Map<Int, String> = emptyMap(),
     val startedAtMs: Long = 0,
+    val routeProvider: String = "",
+    val routeModel: String = "",
+    val routeKind: String = "",
+    val routeDestination: String = "",
 )
 
 data class ApprovalUiState(

@@ -176,11 +176,11 @@ class LiveAppGatewayTransport(
                     // PC-A's own web client falls back to the JSON endpoint
                     // when the SSE route is absent (404/405 before any frame).
                     t is StreamUnavailable -> {
-                        val text = runCatching {
+                        val completed = runCatching {
                             postJsonTurn(req, traceId, deviceId, sessionId)
                         }.getOrNull()
-                        if (text != null) {
-                            emit(GatewayEvent.MessageCompleted(turnId, "msg_$turnId", text))
+                        if (completed != null) {
+                            emit(completed.toEvent(turnId))
                             session.forgetTurn(turnId)
                         } else {
                             emit(
@@ -199,9 +199,9 @@ class LiveAppGatewayTransport(
                     // The request is already Accepted/Streaming locally, so
                     // settle it with the cached text only — no second accepted.
                     t is StreamInterrupted || (t is IOException && !ctl.cancelRequested) -> {
-                        val cached = runCatching { fetchCachedTurnText(turnId) }.getOrNull()
+                        val cached = runCatching { fetchCachedTurn(turnId) }.getOrNull()
                         if (cached != null) {
-                            emit(GatewayEvent.MessageCompleted(turnId, "msg_$turnId", cached))
+                            emit(cached.toEvent(turnId))
                             session.forgetTurn(turnId)
                         } else {
                             emit(
@@ -298,13 +298,48 @@ class LiveAppGatewayTransport(
         }
     }
 
+    private data class CompletedTurn(
+        val text: String,
+        val provider: String = "",
+        val model: String = "",
+        val route: String = "",
+        val destination: String = "",
+    ) {
+        fun toEvent(requestId: String) = GatewayEvent.MessageCompleted(
+            requestId = requestId,
+            messageId = "msg_$requestId",
+            fullText = text,
+            provider = provider.ifBlank { null },
+            model = model.ifBlank { null },
+            route = route.ifBlank { null },
+            destination = destination.ifBlank { null },
+        )
+    }
+
+    private fun parseCompletedTurn(body: String): CompletedTurn? = runCatching {
+        val obj = json.parseToJsonElement(body).jsonObject
+        val response = obj["response"]?.jsonObject ?: return@runCatching null
+        val request = obj["request"]?.jsonObject
+        val text = response["text"]?.jsonPrimitive?.content.orEmpty()
+        if (text.isBlank()) return@runCatching null
+        CompletedTurn(
+            text = text,
+            provider = response["provider"]?.jsonPrimitive?.content
+                ?: request?.get("resolved_provider")?.jsonPrimitive?.content.orEmpty(),
+            model = response["model"]?.jsonPrimitive?.content
+                ?: request?.get("resolved_model")?.jsonPrimitive?.content.orEmpty(),
+            route = obj["route"]?.jsonPrimitive?.content.orEmpty(),
+            destination = request?.get("resolved_destination")?.jsonPrimitive?.content.orEmpty(),
+        )
+    }.getOrNull()
+
     /** Bounded JSON smoke path when the SSE route is absent on this PC-A build. */
     private suspend fun postJsonTurn(
         req: MobileRequest.SendMessage,
         traceId: String,
         deviceId: String,
         sessionId: String,
-    ): String? {
+    ): CompletedTurn? {
         val payload = chatPayload(req, traceId, deviceId, sessionId)
         val (code, body) = withContext(Dispatchers.IO) {
             session.post(
@@ -313,10 +348,7 @@ class LiveAppGatewayTransport(
             )
         }
         if (code !in 200..299) return null
-        return runCatching {
-            val obj = json.parseToJsonElement(body).jsonObject
-            obj["response"]?.jsonObject?.get("text")?.jsonPrimitive?.content
-        }.getOrNull()
+        return parseCompletedTurn(body)
     }
 
     private fun chatPayload(
@@ -387,11 +419,12 @@ class LiveAppGatewayTransport(
                 }
             }
             "complete" -> {
-                val full = runCatching {
-                    json.parseToJsonElement(data)
-                        .jsonObject["response"]?.jsonObject?.get("text")?.jsonPrimitive?.content
-                }.getOrNull()
-                emit(GatewayEvent.MessageCompleted(requestId, "msg_$requestId", full))
+                val completed = parseCompletedTurn(data)
+                if (completed != null) {
+                    emit(completed.toEvent(requestId))
+                } else {
+                    emit(GatewayEvent.MessageCompleted(requestId, "msg_$requestId"))
+                }
                 return true
             }
             "error" -> {
@@ -443,7 +476,7 @@ class LiveAppGatewayTransport(
      * assistant text when PC-A already completed the turn, else null. Never
      * triggers a second inference.
      */
-    private suspend fun fetchCachedTurnText(clientRequestId: String): String? {
+    private suspend fun fetchCachedTurn(clientRequestId: String): CompletedTurn? {
         val stored = session.loadTurn(clientRequestId) ?: return null
         val request = Request.Builder()
             .url(
@@ -469,7 +502,7 @@ class LiveAppGatewayTransport(
                     if (obj["schema"]?.jsonPrimitive?.content != "jarvis.chat.turn.v1") return@use null
                     val status = obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content
                     if (status != "completed") return@use null
-                    obj["response"]?.jsonObject?.get("text")?.jsonPrimitive?.content
+                    parseCompletedTurn(body)
                 }.getOrNull()
             }
         }
@@ -480,9 +513,9 @@ class LiveAppGatewayTransport(
      * request, so emit accepted+completed from the cached server turn.
      */
     override suspend fun recoverCompletedTurn(clientRequestId: String, conversationId: String): Boolean {
-        val text = fetchCachedTurnText(clientRequestId) ?: return false
+        val completed = fetchCachedTurn(clientRequestId) ?: return false
         emit(GatewayEvent.MessageAccepted(clientRequestId, conversationId, "msg_$clientRequestId"))
-        emit(GatewayEvent.MessageCompleted(clientRequestId, "msg_$clientRequestId", text))
+        emit(completed.toEvent(clientRequestId))
         session.forgetTurn(clientRequestId)
         return true
     }

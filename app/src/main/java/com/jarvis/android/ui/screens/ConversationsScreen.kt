@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -561,6 +560,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
                             MessageBubble(
                                 msg = msg,
+                                showRouteDetails = chatAccess?.isOwner == true,
                                 onRetry = { vm.retry(msg.clientRequestId) },
                                 attachmentState = { id -> snapshot.session.attachments[id] },
                                 attachmentStore = vm.attachmentStore,
@@ -668,7 +668,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         }
                     }
                 },
-                modifier = Modifier.imePadding(),
+                modifier = Modifier,
             )
         }
     }
@@ -1299,9 +1299,39 @@ private fun JumpToLatest(streaming: Boolean, onClick: () -> Unit) {
     }
 }
 
+private fun ownerRouteLabel(msg: ChatMessage): String? {
+    val model = msg.routeModel.trim()
+    val provider = when (msg.routeProvider.trim().lowercase()) {
+        "openai-codex" -> "Codex"
+        "xai-oauth" -> "xAI OAuth"
+        "nous" -> "Nous"
+        "freellmapi" -> "FreeLLMAPI"
+        "ollama" -> "Ollama"
+        else -> msg.routeProvider.trim()
+    }
+    val route = when (msg.routeDestination.trim().lowercase()) {
+        "hermes_cloud" -> "Hermes"
+        "pc_worker" -> "Local PC"
+        "cloud_vision" -> "FreeLLMAPI"
+        "cloud" -> "Cloud"
+        else -> when (msg.routeKind.trim().lowercase()) {
+            "hermes_cloud" -> "Hermes"
+            "local" -> "Local PC"
+            "cloud_vision" -> "FreeLLMAPI"
+            "cloud" -> "Cloud"
+            else -> msg.routeDestination.trim().ifBlank { msg.routeKind.trim() }
+        }
+    }
+    val parts = listOf(model, route, provider)
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
 @Composable
 private fun MessageBubble(
     msg: ChatMessage,
+    showRouteDetails: Boolean,
     onRetry: () -> Unit,
     attachmentState: (String) -> com.jarvis.android.data.state.AttachmentUiState?,
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
@@ -1383,6 +1413,18 @@ private fun MessageBubble(
                             msg.text.isNotBlank() -> MarkdownBody(msg.text)
                         }
                     }
+                }
+            }
+
+            if (showRouteDetails && !isUser && !isStreaming && !awaiting && msg.status !is RequestStatus.Failed) {
+                ownerRouteLabel(msg)?.let { label ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        label,
+                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        color = accents.orbGlow.copy(alpha = 0.78f),
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
                 }
             }
 
