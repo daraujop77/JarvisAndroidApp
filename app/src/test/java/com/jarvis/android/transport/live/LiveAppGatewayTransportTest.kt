@@ -505,10 +505,10 @@ class LiveAppGatewayTransportTest {
         assertEquals(false, reply.fallbackUsed)
         assertEquals(2222L, reply.durationMs)
         val body = postedBodies.last { it.startsWith("POST /api/app/images/edits") }
-        assertTrue(body.contains("\\"image_base64\\":\\"cmVmZXJlbmNl\\""))
-        assertTrue(body.contains("\\"instruction\\":\\"Change only the armor.\\""))
-        assertTrue(body.contains("\\"preserve_identity\\":\\"high\\""))
-        assertTrue(body.contains("\\"aspect_ratio\\":\\"portrait\\""))
+        assertTrue(body.contains("\"image_base64\":\"cmVmZXJlbmNl\""))
+        assertTrue(body.contains("\"instruction\":\"Change only the armor.\""))
+        assertTrue(body.contains("\"preserve_identity\":\"high\""))
+        assertTrue(body.contains("\"aspect_ratio\":\"portrait\""))
     }
 
     @Test
