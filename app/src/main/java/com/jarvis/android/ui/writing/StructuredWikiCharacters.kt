@@ -214,7 +214,23 @@ fun mergeStructuredCharacter(
             base?.chapterActivity.orEmpty()
         },
         jarvisAnalysis = structuredAnalysis ?: base?.jarvisAnalysis,
+        wikiEntryId = entity.id,
+        visualAssetId = entity.image?.asset_id.orEmpty(),
+        visualAlt = entity.image?.alt.orEmpty(),
     )
+}
+
+fun findStructuredCharacterByReference(
+    characters: List<StoryCharacter>,
+    reference: String,
+): StoryCharacter? {
+    val clean = reference.substringAfter("character:", reference).trim()
+    if (clean.isBlank()) return null
+    return characters.firstOrNull { character ->
+        character.id.equals(clean, ignoreCase = true) ||
+            character.wikiEntryId.substringAfter("character:", character.wikiEntryId)
+                .equals(clean, ignoreCase = true)
+    }
 }
 
 fun searchStructuredCharacters(

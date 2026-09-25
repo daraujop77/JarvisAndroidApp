@@ -184,6 +184,17 @@ data class WritingWikiJarvisAnalysis(
 )
 
 @Serializable
+data class WritingWikiImage(
+    val status: String = "",
+    val asset_id: String = "",
+    val sha256: String = "",
+    val revision: Int = 0,
+    val alt: String = "",
+    val locked_visual: Boolean = false,
+    val source: String = "",
+)
+
+@Serializable
 data class WritingWikiEntity(
     val id: String = "",
     val type: String = "",
@@ -212,6 +223,7 @@ data class WritingWikiEntity(
     val profile: WritingWikiProfile = WritingWikiProfile(),
     val chapter_activity: List<WritingWikiChapterActivity> = emptyList(),
     val jarvis_analysis: WritingWikiJarvisAnalysis? = null,
+    val image: WritingWikiImage? = null,
 )
 
 @Serializable
@@ -474,6 +486,15 @@ data class WritingLibraryDocumentResponse(
 )
 
 @Serializable
+data class WritingVisualAssetContent(
+    val schema: String = "",
+    val asset_id: String = "",
+    val mime_type: String = "image/jpeg",
+    val sha256: String = "",
+    val image_base64: String = "",
+)
+
+@Serializable
 data class WritingLibraryExport(
     val schema: String = "",
     val project_id: String = "",
@@ -634,6 +655,21 @@ suspend fun JarvisAppSession.writingRoomWikiBrowse(
             put("top_k", topK.coerceIn(1, 100))
         },
     )
+
+suspend fun JarvisAppSession.writingRoomVisualAssetFetch(
+    projectId: String,
+    assetId: String,
+): Result<WritingVisualAssetContent> {
+    val clean = assetId.trim()
+    if (clean.isEmpty()) return Result.failure(TransportException("Visual asset id is empty"))
+    return writingPost(
+        "/api/app/writing-room/visual-assets/fetch",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("asset_id", clean)
+        },
+    )
+}
 
 suspend fun JarvisAppSession.writingRoomWikiEntry(
     projectId: String,

@@ -628,6 +628,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _wikiPrimaryState = MutableStateFlow<WikiPrimaryState>(WikiPrimaryState.Idle)
     val wikiPrimaryState: StateFlow<WikiPrimaryState> = _wikiPrimaryState
 
+    private val _wikiVisualAttachments = MutableStateFlow<Map<String, String>>(emptyMap())
+    val wikiVisualAttachments: StateFlow<Map<String, String>> = _wikiVisualAttachments
+
     sealed interface ImageEditState {
         data object Idle : ImageEditState
         data object Busy : ImageEditState
@@ -764,10 +767,74 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         character: String,
         projectId: String = "prj_story",
     ) {
+        startWikiPrimaryPublish(attachmentId, character, projectId, cleanupAfter = false)
+    }
+
+    fun setWikiPrimaryReferenceFromUri(
+        uri: Uri,
+        character: String,
+        projectId: String = "prj_story",
+    ) {
         if (_wikiPrimaryState.value is WikiPrimaryState.Busy) return
+        _wikiPrimaryState.value = WikiPrimaryState.Busy
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            if (staged == null) {
+                _wikiPrimaryState.value = WikiPrimaryState.Error(
+                    "No se pudo leer la imagen seleccionada.",
+                )
+                return@launch
+            }
+            publishWikiPrimaryReference(
+                staged.attachmentId,
+                character,
+                projectId,
+                cleanupAfter = true,
+            )
+        }
+    }
+
+    fun loadWikiVisual(projectId: String, assetId: String) {
+        val clean = assetId.trim()
+        if (clean.isBlank() || _wikiVisualAttachments.value.containsKey(clean)) return
+        viewModelScope.launch {
+            container.liveSession.writingRoomVisualAssetFetch(projectId, clean).fold(
+                onSuccess = { content ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(content.image_base64)
+                    }
+                    if (staged != null) {
+                        _wikiVisualAttachments.update { it + (clean to staged.attachmentId) }
+                    }
+                },
+                onFailure = { /* Metadata still renders even if the portrait fetch is unavailable. */ },
+            )
+        }
+    }
+
+    private fun startWikiPrimaryPublish(
+        attachmentId: String,
+        character: String,
+        projectId: String,
+        cleanupAfter: Boolean,
+    ) {
+        if (_wikiPrimaryState.value is WikiPrimaryState.Busy) return
+        _wikiPrimaryState.value = WikiPrimaryState.Busy
+        viewModelScope.launch {
+            publishWikiPrimaryReference(attachmentId, character, projectId, cleanupAfter)
+        }
+    }
+
+    private suspend fun publishWikiPrimaryReference(
+        attachmentId: String,
+        character: String,
+        projectId: String,
+        cleanupAfter: Boolean,
+    ) {
         val cleanCharacter = character.trim()
         if (cleanCharacter.isBlank()) {
             _wikiPrimaryState.value = WikiPrimaryState.Error("Selecciona un personaje de la Wiki.")
+            if (cleanupAfter) withContext(Dispatchers.IO) { container.attachmentStore.delete(attachmentId) }
             return
         }
         val canonical = if (cleanCharacter.contains(":")) {
@@ -775,46 +842,46 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         } else {
             "character:" + cleanCharacter.lowercase().replace(" ", "-")
         }
-        _wikiPrimaryState.value = WikiPrimaryState.Busy
-        viewModelScope.launch {
-            val source = withContext(Dispatchers.IO) {
-                runCatching {
-                    val file = container.attachmentStore.resolve(attachmentId)
-                        ?: error("La imagen ya no está disponible.")
-                    val bytes = file.readBytes()
-                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
-                        "La imagen es demasiado grande."
-                    }
-                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val source = withContext(Dispatchers.IO) {
+            runCatching {
+                val file = container.attachmentStore.resolve(attachmentId)
+                    ?: error("La imagen ya no está disponible.")
+                val bytes = file.readBytes()
+                require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                    "La imagen es demasiado grande."
                 }
+                Base64.encodeToString(bytes, Base64.NO_WRAP)
             }
-            if (source.isFailure) {
-                _wikiPrimaryState.value = WikiPrimaryState.Error(
-                    source.exceptionOrNull()?.message ?: "No se pudo leer la imagen.",
-                )
-                return@launch
-            }
-
-            container.liveSession.setWikiPrimaryReference(
-                imageBase64 = source.getOrThrow(),
-                mimeType = "image/jpeg",
-                projectId = projectId,
-                characterId = canonical,
-                alt = "Referencia visual principal de " + cleanCharacter,
-            ).fold(
-                onSuccess = { reply ->
-                    _wikiPrimaryState.value = WikiPrimaryState.Success(
-                        reply.assetId, reply.characterId, reply.visualRevision,
-                    )
-                    refreshWritingWorkspace(projectId)
-                },
-                onFailure = { error ->
-                    _wikiPrimaryState.value = WikiPrimaryState.Error(
-                        error.message ?: "No se pudo actualizar la referencia visual de la Wiki.",
-                    )
-                },
-            )
         }
+        if (source.isFailure) {
+            _wikiPrimaryState.value = WikiPrimaryState.Error(
+                source.exceptionOrNull()?.message ?: "No se pudo leer la imagen.",
+            )
+            if (cleanupAfter) withContext(Dispatchers.IO) { container.attachmentStore.delete(attachmentId) }
+            return
+        }
+
+        container.liveSession.setWikiPrimaryReference(
+            imageBase64 = source.getOrThrow(),
+            mimeType = "image/jpeg",
+            projectId = projectId,
+            characterId = canonical,
+            alt = "Referencia visual principal de " + cleanCharacter.substringAfter(":"),
+        ).fold(
+            onSuccess = { reply ->
+                _wikiPrimaryState.value = WikiPrimaryState.Success(
+                    reply.assetId, reply.characterId, reply.visualRevision,
+                )
+                _wikiVisualAttachments.update { it - reply.assetId }
+                refreshWritingWorkspace(projectId)
+            },
+            onFailure = { error ->
+                _wikiPrimaryState.value = WikiPrimaryState.Error(
+                    error.message ?: "No se pudo actualizar la referencia visual de la Wiki.",
+                )
+            },
+        )
+        if (cleanupAfter) withContext(Dispatchers.IO) { container.attachmentStore.delete(attachmentId) }
     }
 
     fun resetWikiPrimaryState() {

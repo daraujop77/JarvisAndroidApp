@@ -100,6 +100,7 @@ class StructuredWikiCharactersTest {
         val mapped = mergeStructuredCharacter(entity)
 
         assertEquals("Alexander", mapped.name)
+        assertEquals("character:alexander", mapped.wikiEntryId)
         assertTrue(mapped.statusDetail.contains("Capítulo 37"))
         assertTrue(mapped.powersOverview.contains("Rinnegan"))
         assertTrue(mapped.powersOverview.contains("Simbionte Venom"))
@@ -121,6 +122,20 @@ class StructuredWikiCharactersTest {
         assertTrue(mapped.chapterActivity.single().actions.any { it.contains("relevos") })
         assertEquals("DERIVED_ANALYSIS", mapped.jarvisAnalysis?.status)
         assertTrue(mapped.jarvisAnalysis?.disclaimer.orEmpty().contains("no agrega hechos al canon"))
+    }
+
+    @Test
+    fun relationResolverUsesCanonicalWikiIdWhenLegacyVisualIdDiffers() {
+        val guardian = WritingWikiEntity(
+            id = "character:guardian",
+            type = "character",
+            name = "El Guardián",
+            canonical_name = "El Guardián",
+        )
+        val mapped = mergeStructuredCharacters(listOf(guardian))
+        val resolved = findStructuredCharacterByReference(mapped, "character:guardian")
+        assertEquals("el_guardian", resolved?.id)
+        assertEquals("character:guardian", resolved?.wikiEntryId)
     }
 
     @Test

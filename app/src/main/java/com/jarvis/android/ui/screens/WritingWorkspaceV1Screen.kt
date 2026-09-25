@@ -2,7 +2,9 @@ package com.jarvis.android.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,6 +41,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Check
@@ -89,9 +92,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -121,6 +127,7 @@ import com.jarvis.android.ui.theme.JarvisRed
 import com.jarvis.android.ui.theme.JarvisViolet
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.ui.writing.findStructuredCharacterByReference
 import com.jarvis.android.ui.writing.mergeStructuredCharacters
 import com.jarvis.android.ui.writing.searchStructuredCharacters
 
@@ -1642,16 +1649,20 @@ private fun WikiSection(
 
     val home = state.wikiHome
     val wiki = state.wiki
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val liveCharacters = remember(state.wikiCharacters) {
         mergeStructuredCharacters(state.wikiCharacters)
     }
 
     if (selectedCharacterId != null) {
-        val character = liveCharacters.firstOrNull { it.id.equals(selectedCharacterId, ignoreCase = true) }
+        val character = findStructuredCharacterByReference(liveCharacters, selectedCharacterId.orEmpty())
         if (character != null) {
             CharacterDetailWiki(
                 character = character,
                 allCharacters = liveCharacters,
+                projectId = projectId,
+                vm = vm,
+                isOwner = settings.isOwner,
                 onBack = { selectedCharacterId = null },
                 onSelectCharacter = { newCharId -> selectedCharacterId = newCharId },
             )
@@ -2575,10 +2586,36 @@ private fun CompactCharacterHeader(character: StoryCharacter) {
 private fun CharacterDetailWiki(
     character: StoryCharacter,
     allCharacters: List<StoryCharacter>,
+    projectId: String,
+    vm: JarvisViewModel,
+    isOwner: Boolean,
     onBack: () -> Unit,
     onSelectCharacter: (String) -> Unit,
 ) {
     var currentSubTab by rememberSaveable(character.id) { mutableStateOf(DossierSubTab.TODOS) }
+    val wikiPrimaryState by vm.wikiPrimaryState.collectAsStateWithLifecycle()
+    val wikiVisualAttachments by vm.wikiVisualAttachments.collectAsStateWithLifecycle()
+    val visualAttachmentId = wikiVisualAttachments[character.visualAssetId]
+    val visualBitmap = remember(visualAttachmentId) {
+        visualAttachmentId?.let { vm.attachmentStore.decodeThumbnail(it, 768) }
+    }
+    val photoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            vm.setWikiPrimaryReferenceFromUri(
+                uri = uri,
+                character = character.wikiEntryId.ifBlank { character.id },
+                projectId = projectId,
+            )
+        }
+    }
+
+    LaunchedEffect(character.visualAssetId) {
+        if (character.visualAssetId.isNotBlank()) {
+            vm.loadWikiVisual(projectId, character.visualAssetId)
+        }
+    }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -2696,17 +2733,29 @@ private fun CharacterDetailWiki(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(76.dp)
-                                        .background(character.themeColor.copy(alpha = 0.2f), CircleShape)
-                                        .border(2.dp, character.themeColor, CircleShape),
+                                        .size(92.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(character.themeColor.copy(alpha = 0.2f))
+                                        .border(2.dp, character.themeColor, RoundedCornerShape(18.dp)),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Text(
-                                        character.avatarInitial,
-                                        fontSize = 32.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = character.themeColor,
-                                    )
+                                    if (visualBitmap != null) {
+                                        Image(
+                                            bitmap = visualBitmap.asImageBitmap(),
+                                            contentDescription = character.visualAlt.ifBlank {
+                                                "Referencia visual aprobada de " + character.name
+                                            },
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    } else {
+                                        Text(
+                                            character.avatarInitial,
+                                            fontSize = 32.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = character.themeColor,
+                                        )
+                                    }
                                 }
                                 Column(Modifier.weight(1f)) {
                                     Text(
@@ -2746,6 +2795,65 @@ private fun CharacterDetailWiki(
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                 color = Color(0xFFCBD5E1),
                             )
+
+                            if (isOwner) {
+                                Spacer(Modifier.height(12.dp))
+                                val publishing = wikiPrimaryState is JarvisViewModel.WikiPrimaryState.Busy
+                                OutlinedButton(
+                                    onClick = {
+                                        vm.resetWikiPrimaryState()
+                                        photoPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                        )
+                                    },
+                                    enabled = !publishing,
+                                    shape = RoundedCornerShape(12.dp),
+                                ) {
+                                    if (publishing) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = character.themeColor,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Filled.AddPhotoAlternate,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        if (character.visualAssetId.isBlank()) "SUBIR IMAGEN" else "CAMBIAR IMAGEN",
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+
+                                when (val visualState = wikiPrimaryState) {
+                                    is JarvisViewModel.WikiPrimaryState.Success -> {
+                                        val currentEntry = character.wikiEntryId.ifBlank {
+                                            "character:" + character.id
+                                        }
+                                        if (visualState.characterId.equals(currentEntry, ignoreCase = true)) {
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(
+                                                "REFERENCIA APROBADA · revisión " + visualState.revision,
+                                                style = HudTextStyle,
+                                                color = JarvisGreen,
+                                            )
+                                        }
+                                    }
+                                    is JarvisViewModel.WikiPrimaryState.Error -> {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            visualState.message,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                    else -> Unit
+                                }
+                            }
                         }
                     }
                 }
@@ -3335,7 +3443,7 @@ private fun CharacterEncyclopediaInfobox(
                 Spacer(Modifier.height(7.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     profile.family.forEach { member ->
-                        val related = allCharacters.firstOrNull { it.id.equals(member.id, ignoreCase = true) }
+                        val related = findStructuredCharacterByReference(allCharacters, member.id)
                         Surface(
                             onClick = { related?.let { onSelectCharacter(it.id) } },
                             enabled = related != null,

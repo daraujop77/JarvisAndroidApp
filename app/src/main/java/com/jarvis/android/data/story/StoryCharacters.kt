@@ -103,6 +103,9 @@ data class StoryCharacter(
     val encyclopediaProfile: CharacterEncyclopediaProfile = CharacterEncyclopediaProfile(),
     val chapterActivity: List<CharacterChapterActivity> = emptyList(),
     val jarvisAnalysis: CharacterJarvisAnalysis? = null,
+    val wikiEntryId: String = "",
+    val visualAssetId: String = "",
+    val visualAlt: String = "",
 )
 
 val CANON_CHARACTERS = listOf(
