@@ -691,9 +691,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val clean = instruction.trim()
         if (clean.isBlank() || _imageEditState.value is ImageEditState.Busy) return
-        val conversationId = _conversationId.value ?: conversations.newConversationId().also {
-            _conversationId.value = it
-        }
+        // Image Studio is an isolated authoring surface. Its prompts and generated
+        // versions must never be written into the active chat conversation.
         _imageEditState.value = ImageEditState.Busy
         _lastImageEditDetails.value = null
 
@@ -734,11 +733,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             "JARVIS edited the image, but Android could not decode it.",
                         )
                     } else {
-                        conversations.recordGeneratedImage(
-                            conversationId = conversationId,
-                            prompt = "Edit image: $clean",
-                            attachmentId = staged.attachmentId,
-                        )
+                        // Keep the edited version in Image Studio's local version chain only.
+                        // The originating chat image remains in chat, but Studio derivatives do not.
                         _lastImageEditDetails.value = ImageGenerationDetails(
                             reply.provider,
                             reply.model,
