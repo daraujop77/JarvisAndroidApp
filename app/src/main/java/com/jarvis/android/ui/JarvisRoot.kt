@@ -19,8 +19,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -193,6 +195,7 @@ fun JarvisRoot(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MainShell(
     vm: JarvisViewModel,
@@ -205,6 +208,7 @@ private fun MainShell(
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val isOwner = settings.isOwner
+    val imeVisible = WindowInsets.isImeVisible
     val openConversationNonce by (openConversationRequest
         ?: kotlinx.coroutines.flow.MutableStateFlow(0L)).collectAsStateWithLifecycle()
 
@@ -234,6 +238,7 @@ private fun MainShell(
             containerColor = Color.Transparent,
             topBar = { ConnectionBanner(snapshot, onReconnect = vm::reconnect) },
             bottomBar = {
+                if (!imeVisible) {
                         Surface(
                             shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
                             color = Color(0xF00D1626),
@@ -325,6 +330,7 @@ private fun MainShell(
                                 }
                             }
                         }
+                }
             },
         ) { innerPadding ->
             NavHost(
