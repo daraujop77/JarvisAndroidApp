@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -654,6 +655,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         }
                     }
                 },
+                modifier = Modifier.imePadding(),
             )
         }
     }
@@ -872,6 +874,7 @@ private fun Composer(
     onGenerateImage: () -> Unit,
     onStop: () -> Unit,
     onSend: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val accents = LocalJarvisAccents.current
     val strings = LocalAppStrings.current
@@ -888,7 +891,7 @@ private fun Composer(
 
     val pillShape = RoundedCornerShape(30.dp)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .shadow(8.dp, pillShape)
