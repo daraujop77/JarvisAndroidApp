@@ -248,6 +248,7 @@ class JarvisAppSession(
         val entries: List<ProfileEntry>,
         val capabilityStates: Map<String, String> = emptyMap(),
         val imageGeneration: ImageGenerationAccess? = null,
+        val imageEdit: ImageGenerationAccess? = null,
     )
 
     suspend fun fetchChatAccess(): ChatAccess? = withContext(Dispatchers.IO) {
@@ -277,37 +278,41 @@ class JarvisAppSession(
                     }.getOrDefault("unknown")
                 }
                 .orEmpty()
-            val imageGeneration = capabilities?.get("image_generation")?.let { value ->
-                runCatching {
-                    val image = value.jsonObject
-                    val modes = (image["modes"] as? JsonArray).orEmpty().mapNotNull { item ->
-                        val o = item as? JsonObject ?: return@mapNotNull null
-                        val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                        ImageGenerationMode(id, o["label"]?.jsonPrimitive?.contentOrNull ?: id)
-                    }
-                    val imageModels = (image["models"] as? JsonArray).orEmpty().mapNotNull { item ->
-                        val o = item as? JsonObject ?: return@mapNotNull null
-                        val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                        ImageGenerationModel(
-                            id,
-                            o["label"]?.jsonPrimitive?.contentOrNull ?: id,
-                            o["provider"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                            o["state"]?.jsonPrimitive?.contentOrNull ?: "unknown",
+            fun parseImageAccess(value: kotlinx.serialization.json.JsonElement?, defaultMode: String): ImageGenerationAccess? =
+                value?.let { element ->
+                    runCatching {
+                        val image = element.jsonObject
+                        val modes = (image["modes"] as? JsonArray).orEmpty().mapNotNull { item ->
+                            val o = item as? JsonObject ?: return@mapNotNull null
+                            val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                            ImageGenerationMode(id, o["label"]?.jsonPrimitive?.contentOrNull ?: id)
+                        }
+                        val imageModels = (image["models"] as? JsonArray).orEmpty().mapNotNull { item ->
+                            val o = item as? JsonObject ?: return@mapNotNull null
+                            val id = o["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                            ImageGenerationModel(
+                                id,
+                                o["label"]?.jsonPrimitive?.contentOrNull ?: id,
+                                o["provider"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                o["state"]?.jsonPrimitive?.contentOrNull ?: "unknown",
+                            )
+                        }
+                        ImageGenerationAccess(
+                            image["default_mode"]?.jsonPrimitive?.contentOrNull ?: defaultMode,
+                            modes,
+                            image["owner_model_selection"]?.jsonPrimitive?.booleanOrNull ?: false,
+                            imageModels,
                         )
-                    }
-                    ImageGenerationAccess(
-                        image["default_mode"]?.jsonPrimitive?.contentOrNull ?: "speed",
-                        modes,
-                        image["owner_model_selection"]?.jsonPrimitive?.booleanOrNull ?: false,
-                        imageModels,
-                    )
-                }.getOrNull()
-            }
+                    }.getOrNull()
+                }
+            val imageGeneration = parseImageAccess(capabilities?.get("image_generation"), "speed")
+            val imageEdit = parseImageAccess(capabilities?.get("image_edit"), "quality")
             ChatAccess(
                 ownerModelSelection = ownerSel,
                 entries = models,
                 capabilityStates = capabilityStates,
                 imageGeneration = imageGeneration,
+                imageEdit = imageEdit,
             )
         }.getOrNull()
     }
@@ -525,6 +530,67 @@ class JarvisAppSession(
             }
             ImageGenerationReply(
                 mimeType, dataBase64, sizeBytes, provider, routedModel, route,
+                requestedMode, requestedModel, fallbackUsed, attemptCount, durationMs,
+            )
+        }
+    }
+
+
+    suspend fun editImage(
+        imageBase64: String,
+        mimeType: String,
+        instruction: String,
+        mode: String = "quality",
+        model: String? = null,
+        preserveIdentity: String = "high",
+        aspectRatio: String = "square",
+    ): Result<ImageGenerationReply> = withContext(Dispatchers.IO) {
+        if (!isAuthenticated) {
+            return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
+        }
+        val root = baseUrl
+        if (!isAllowedLiveHost(root)) {
+            return@withContext Result.failure(
+                TransportException("image editing server is not on the private JARVIS network"),
+            )
+        }
+        val cleanInstruction = instruction.trim()
+        if (cleanInstruction.isBlank()) {
+            return@withContext Result.failure(TransportException("image edit instruction is empty"))
+        }
+        if (imageBase64.isBlank()) {
+            return@withContext Result.failure(TransportException("image edit reference is empty"))
+        }
+
+        runCatching {
+            val body = buildJsonObject {
+                put("image_base64", imageBase64)
+                put("mime_type", mimeType)
+                put("instruction", cleanInstruction)
+                put("mode", mode)
+                put("preserve_identity", preserveIdentity)
+                put("aspect_ratio", aspectRatio)
+                if (!model.isNullOrBlank()) put("model", model)
+            }.toString()
+            val response = post(root, "/api/app/images/edits", body, auth = authHeader())
+            requireImageGenerationOk(response)
+            val obj = json.parseToJsonElement(response.second).jsonObject
+            val resultMime = obj["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val dataBase64 = obj["data_base64"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val sizeBytes = obj["size_bytes"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+            val provider = obj["provider"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val routedModel = obj["model"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val route = obj["route"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val requestedMode = obj["requested_mode"]?.jsonPrimitive?.contentOrNull ?: mode
+            val requestedModel = obj["requested_model"]?.jsonPrimitive?.contentOrNull
+            val fallbackUsed = obj["fallback_used"]?.jsonPrimitive?.booleanOrNull ?: false
+            val attemptCount = obj["attempt_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 1
+            val durationMs = obj["duration_ms"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+            if (resultMime.isBlank() || dataBase64.isBlank() || sizeBytes <= 0L) {
+                throw TransportException("image edit returned an invalid image")
+            }
+            ImageGenerationReply(
+                resultMime, dataBase64, sizeBytes, provider, routedModel, route,
                 requestedMode, requestedModel, fallbackUsed, attemptCount, durationMs,
             )
         }

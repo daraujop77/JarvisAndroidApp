@@ -124,6 +124,14 @@ class LiveAppGatewayTransportTest {
                             """{"schema":"jarvis.image.generation.v2","provider":"openai-codex","model":"gpt-image-2-medium","route":"cloud_image_generation:openai-codex","mime_type":"image/png","data_base64":"aW1hZ2U=","size_bytes":5,"requested_mode":"model_select","requested_model":"gpt-image-2-medium","fallback_used":false,"attempt_count":1,"duration_ms":1234}""",
                         )
                     }
+                    request.path == "/api/app/images/edits" && auth != "Bearer test-token" ->
+                        MockResponse().setResponseCode(401)
+                    request.path == "/api/app/images/edits" -> {
+                        postedBodies += "POST /api/app/images/edits\n" + request.body.readUtf8()
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.image.edit.v1","provider":"xai-oauth","model":"grok-imagine-image-quality","route":"cloud_image_edit:xai-oauth","mime_type":"image/jpeg","data_base64":"ZWRpdGVk","size_bytes":6,"requested_mode":"quality","requested_model":null,"fallback_used":false,"attempt_count":1,"duration_ms":2222}""",
+                        )
+                    }
                     request.path == "/api/status" -> MockResponse().setBody("""{"status":"ok"}""")
                     request.path == "/api/app/status" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
@@ -147,6 +155,11 @@ class LiveAppGatewayTransportTest {
                               "state":"ready","default_mode":"speed","owner_model_selection":true,
                               "modes":[{"id":"speed","label":"Speed"},{"id":"quality","label":"Quality"},{"id":"model_select","label":"Model Select"}],
                               "models":[{"id":"auto","label":"Auto","provider":"jarvis","state":"ready"},{"id":"grok-imagine-image","label":"Grok Imagine","provider":"xai-oauth","state":"ready"},{"id":"gpt-image-2-medium","label":"GPT Image","provider":"openai-codex","state":"ready"}]
+                            },
+                            "image_edit": {
+                              "state":"ready","default_mode":"quality","owner_model_selection":true,
+                              "modes":[{"id":"speed","label":"Speed"},{"id":"quality","label":"Quality"},{"id":"model_select","label":"Model Select"}],
+                              "models":[{"id":"auto","label":"Auto","provider":"jarvis","state":"ready"},{"id":"grok-imagine-image-quality","label":"Grok Imagine Quality","provider":"xai-oauth","state":"ready"},{"id":"gpt-image-2-medium","label":"GPT Image","provider":"openai-codex","state":"ready"}]
                             }
                           }
                         }
@@ -431,6 +444,10 @@ class LiveAppGatewayTransportTest {
         assertTrue(access?.imageGeneration?.ownerModelSelection == true)
         assertEquals(listOf("speed", "quality", "model_select"), access?.imageGeneration?.modes?.map { it.id })
         assertEquals(listOf("auto", "grok-imagine-image", "gpt-image-2-medium"), access?.imageGeneration?.models?.map { it.id })
+        assertEquals("quality", access?.imageEdit?.defaultMode)
+        assertTrue(access?.imageEdit?.ownerModelSelection == true)
+        assertEquals(listOf("speed", "quality", "model_select"), access?.imageEdit?.modes?.map { it.id })
+        assertEquals(listOf("auto", "grok-imagine-image-quality", "gpt-image-2-medium"), access?.imageEdit?.models?.map { it.id })
 
         val transport = LiveAppGatewayTransport(session, scope)
         val repo = JarvisSessionRepository(transport, scope)
@@ -465,6 +482,33 @@ class LiveAppGatewayTransportTest {
         val body = postedBodies.last { it.startsWith("POST /api/app/images/generations") }
         assertTrue(body.contains("\"mode\":\"model_select\""))
         assertTrue(body.contains("\"model\":\"gpt-image-2-medium\""))
+    }
+
+    @Test
+    fun imageEditSendsReferencePolicyAndParsesMetadata() {
+        val session = JarvisAppSession(seededStore())
+        val result = runBlocking(Dispatchers.IO) {
+            session.editImage(
+                imageBase64 = "cmVmZXJlbmNl",
+                mimeType = "image/jpeg",
+                instruction = "Change only the armor.",
+                mode = "quality",
+                preserveIdentity = "high",
+                aspectRatio = "portrait",
+            )
+        }
+        assertTrue(result.isSuccess)
+        val reply = result.getOrThrow()
+        assertEquals("xai-oauth", reply.provider)
+        assertEquals("grok-imagine-image-quality", reply.model)
+        assertEquals("quality", reply.requestedMode)
+        assertEquals(false, reply.fallbackUsed)
+        assertEquals(2222L, reply.durationMs)
+        val body = postedBodies.last { it.startsWith("POST /api/app/images/edits") }
+        assertTrue(body.contains("\"image_base64\":\"cmVmZXJlbmNl\""))
+        assertTrue(body.contains("\"instruction\":\"Change only the armor.\""))
+        assertTrue(body.contains("\"preserve_identity\":\"high\""))
+        assertTrue(body.contains("\"aspect_ratio\":\"portrait\""))
     }
 
     @Test

@@ -368,12 +368,25 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     var selectedImageMode by rememberSaveable(conversationId) { mutableStateOf("speed") }
     var selectedImageModel by rememberSaveable(conversationId) { mutableStateOf("auto") }
     var previewGeneratedImage by rememberSaveable(conversationId) { mutableStateOf<String?>(null) }
+    var imageStudioAttachmentId by rememberSaveable(conversationId) { mutableStateOf<String?>(null) }
     var pendingSaveGeneratedImage by remember { mutableStateOf<String?>(null) }
     var imageSaveStatus by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val accents = LocalJarvisAccents.current
     val context = LocalContext.current
+
+    imageStudioAttachmentId?.let { attachmentId ->
+        ImageStudioScreen(
+            vm = vm,
+            initialAttachmentId = attachmentId,
+            onBack = {
+                vm.resetImageEditState()
+                imageStudioAttachmentId = null
+            },
+        )
+        return
+    }
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
@@ -686,6 +699,11 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
             attachmentStore = vm.attachmentStore,
             saveStatus = imageSaveStatus,
             onDismiss = { previewGeneratedImage = null; imageSaveStatus = null },
+            onEdit = {
+                previewGeneratedImage = null
+                imageSaveStatus = null
+                imageStudioAttachmentId = attachmentId
+            },
             onSave = {
                 pendingSaveGeneratedImage = attachmentId
                 imageSaveStatus = null
@@ -783,6 +801,7 @@ private fun GeneratedImagePreviewDialog(
     attachmentStore: com.jarvis.android.data.media.AttachmentStore,
     saveStatus: String?,
     onDismiss: () -> Unit,
+    onEdit: () -> Unit,
     onSave: () -> Unit,
 ) {
     val bitmap by rememberAttachmentThumb(attachmentId, attachmentStore, maxSize = 2048)
@@ -809,7 +828,15 @@ private fun GeneratedImagePreviewDialog(
                     Text(it, Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center,
                         style = HudTextStyle, color = LocalJarvisAccents.current.orbGlow)
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onEdit) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Edit in Image Studio")
+                    }
                     TextButton(onClick = onSave) { Text("Save image") }
                 }
             }

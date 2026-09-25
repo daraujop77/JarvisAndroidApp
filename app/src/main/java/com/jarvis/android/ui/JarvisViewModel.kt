@@ -614,6 +614,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _lastImageGenerationDetails = MutableStateFlow<ImageGenerationDetails?>(null)
     val lastImageGenerationDetails: StateFlow<ImageGenerationDetails?> = _lastImageGenerationDetails
 
+    sealed interface ImageEditState {
+        data object Idle : ImageEditState
+        data object Busy : ImageEditState
+        data class Success(val attachmentId: String) : ImageEditState
+        data class Error(val message: String) : ImageEditState
+    }
+
+    private val _imageEditState = MutableStateFlow<ImageEditState>(ImageEditState.Idle)
+    val imageEditState: StateFlow<ImageEditState> = _imageEditState
+    private val _lastImageEditDetails = MutableStateFlow<ImageGenerationDetails?>(null)
+    val lastImageEditDetails: StateFlow<ImageGenerationDetails?> = _lastImageEditDetails
+
     fun generateImage(prompt: String, mode: String = "speed", model: String? = null) {
         val clean = prompt.trim()
         if (clean.isBlank() || _imageGenerationState.value is ImageGenerationState.Busy) return
@@ -652,6 +664,89 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 },
             )
         }
+    }
+
+
+    fun editImage(
+        referenceAttachmentId: String,
+        instruction: String,
+        mode: String = "quality",
+        model: String? = null,
+        preserveIdentity: String = "high",
+        aspectRatio: String = "square",
+    ) {
+        val clean = instruction.trim()
+        if (clean.isBlank() || _imageEditState.value is ImageEditState.Busy) return
+        val conversationId = _conversationId.value ?: conversations.newConversationId().also {
+            _conversationId.value = it
+        }
+        _imageEditState.value = ImageEditState.Busy
+        _lastImageEditDetails.value = null
+
+        viewModelScope.launch {
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(referenceAttachmentId)
+                        ?: error("Reference image is no longer available")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "Reference image is too large"
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (source.isFailure) {
+                _imageEditState.value = ImageEditState.Error(
+                    source.exceptionOrNull()?.message ?: "Could not read reference image",
+                )
+                return@launch
+            }
+
+            container.liveSession.editImage(
+                imageBase64 = source.getOrThrow(),
+                mimeType = "image/jpeg",
+                instruction = clean,
+                mode = mode,
+                model = model,
+                preserveIdentity = preserveIdentity,
+                aspectRatio = aspectRatio,
+            ).fold(
+                onSuccess = { reply ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
+                    }
+                    if (staged == null) {
+                        _imageEditState.value = ImageEditState.Error(
+                            "JARVIS edited the image, but Android could not decode it.",
+                        )
+                    } else {
+                        conversations.recordGeneratedImage(
+                            conversationId = conversationId,
+                            prompt = "Edit image: $clean",
+                            attachmentId = staged.attachmentId,
+                        )
+                        _lastImageEditDetails.value = ImageGenerationDetails(
+                            reply.provider,
+                            reply.model,
+                            reply.requestedMode,
+                            reply.fallbackUsed,
+                            reply.attemptCount,
+                            reply.durationMs,
+                        )
+                        _imageEditState.value = ImageEditState.Success(staged.attachmentId)
+                    }
+                },
+                onFailure = { error ->
+                    _imageEditState.value = ImageEditState.Error(
+                        error.message ?: "Image edit failed",
+                    )
+                },
+            )
+        }
+    }
+
+    fun resetImageEditState() {
+        _imageEditState.value = ImageEditState.Idle
     }
 
     fun clearImageGenerationError() {
