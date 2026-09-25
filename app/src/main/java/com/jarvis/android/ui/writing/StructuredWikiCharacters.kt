@@ -3,6 +3,11 @@ package com.jarvis.android.ui.writing
 import com.jarvis.android.data.story.CANON_CHARACTERS
 import com.jarvis.android.data.story.CharacterAppearanceRecord
 import com.jarvis.android.data.story.CharacterHistoryStage
+import com.jarvis.android.data.story.CharacterAnalysisInsight
+import com.jarvis.android.data.story.CharacterChapterActivity
+import com.jarvis.android.data.story.CharacterEncyclopediaProfile
+import com.jarvis.android.data.story.CharacterFamilyMember
+import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.transport.live.WritingWikiEntity
@@ -86,6 +91,67 @@ fun mergeStructuredCharacter(
             if (relation.kind.isBlank()) targetName else "$targetName (${relation.kind})"
         }
 
+    val structuredProfile = CharacterEncyclopediaProfile(
+        rank = entity.profile.rank,
+        affiliations = entity.profile.affiliations,
+        age = entity.profile.age,
+        ageNote = entity.profile.age_note,
+        height = entity.profile.height,
+        firstAppearance = entity.profile.first_appearance,
+        latestAppearance = entity.profile.latest_appearance,
+        family = entity.profile.family.map { member ->
+            CharacterFamilyMember(
+                id = member.target.substringAfter("character:", member.target),
+                relation = member.relation,
+                label = member.label,
+            )
+        },
+    )
+    val hasStructuredProfile = structuredProfile.rank.isNotBlank() ||
+        structuredProfile.affiliations.isNotEmpty() ||
+        structuredProfile.age.isNotBlank() ||
+        structuredProfile.height.isNotBlank() ||
+        structuredProfile.family.isNotEmpty()
+
+    val structuredActivity = entity.chapter_activity
+        .filter { it.chapters.isNotEmpty() || it.summary.isNotBlank() }
+        .map { item ->
+            CharacterChapterActivity(
+                chapters = item.chapters,
+                title = item.title,
+                presence = item.presence,
+                evidenceScope = item.evidence_scope,
+                summary = item.summary,
+                actions = item.actions,
+                decisions = item.decisions,
+                techniques = item.techniques,
+                consequences = item.consequences,
+                sourceRefs = item.source_refs,
+            )
+        }
+
+    val structuredAnalysis = entity.jarvis_analysis
+        ?.takeIf { it.status == "DERIVED_ANALYSIS" && it.summary.isNotBlank() }
+        ?.let { analysis ->
+            CharacterJarvisAnalysis(
+                status = analysis.status,
+                summary = analysis.summary,
+                motivations = analysis.motivations,
+                behaviorPatterns = analysis.behavior_patterns,
+                evolution = analysis.evolution,
+                insights = analysis.insights.map { insight ->
+                    CharacterAnalysisInsight(
+                        title = insight.title,
+                        analysis = insight.analysis,
+                        evidenceChapters = insight.evidence_chapters,
+                    )
+                },
+                evidenceChapters = analysis.evidence_chapters,
+                sourceRefs = analysis.source_refs,
+                disclaimer = analysis.disclaimer,
+            )
+        }
+
     return StoryCharacter(
         id = base?.id ?: normalizedId,
         name = canonicalName.ifBlank { base?.name.orEmpty() }.ifBlank { normalizedId },
@@ -137,6 +203,17 @@ fun mergeStructuredCharacter(
                 )
             },
         mentionedChapters = entity.mentions,
+        encyclopediaProfile = if (hasStructuredProfile) {
+            structuredProfile
+        } else {
+            base?.encyclopediaProfile ?: CharacterEncyclopediaProfile()
+        },
+        chapterActivity = if (structuredActivity.isNotEmpty()) {
+            structuredActivity
+        } else {
+            base?.chapterActivity.orEmpty()
+        },
+        jarvisAnalysis = structuredAnalysis ?: base?.jarvisAnalysis,
     )
 }
 
@@ -158,7 +235,18 @@ fun searchStructuredCharacters(
             append(character.powersOverview).append(' ')
             append(character.storyHistory).append(' ')
             append(character.relationships.orEmpty()).append(' ')
-            append(character.signatureTechniques.joinToString(" ") { it.first + " " + it.second })
+            append(character.signatureTechniques.joinToString(" ") { it.first + " " + it.second }).append(' ')
+            append(character.encyclopediaProfile.rank).append(' ')
+            append(character.encyclopediaProfile.age).append(' ')
+            append(character.encyclopediaProfile.affiliations.joinToString(" ")).append(' ')
+            append(character.encyclopediaProfile.family.joinToString(" ") { it.label + " " + it.id }).append(' ')
+            append(character.chapterActivity.joinToString(" ") {
+                it.title + " " + it.summary + " " +
+                    it.actions.joinToString(" ") + " " +
+                    it.decisions.joinToString(" ")
+            }).append(' ')
+            append(character.jarvisAnalysis?.summary.orEmpty()).append(' ')
+            append(character.jarvisAnalysis?.evolution.orEmpty())
         }.lowercase()
         terms.all { it in haystack }
     }

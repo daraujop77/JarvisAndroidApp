@@ -29,6 +29,54 @@ data class CharacterAppearanceRecord(
     val summary: String,
 )
 
+data class CharacterFamilyMember(
+    val id: String,
+    val relation: String,
+    val label: String,
+)
+
+data class CharacterEncyclopediaProfile(
+    val rank: String = "",
+    val affiliations: List<String> = emptyList(),
+    val age: String = "",
+    val ageNote: String = "",
+    val height: String = "",
+    val firstAppearance: Int? = null,
+    val latestAppearance: Int? = null,
+    val family: List<CharacterFamilyMember> = emptyList(),
+)
+
+data class CharacterChapterActivity(
+    val chapters: List<Int>,
+    val title: String,
+    val presence: String,
+    val evidenceScope: String,
+    val summary: String,
+    val actions: List<String>,
+    val decisions: List<String>,
+    val techniques: List<String>,
+    val consequences: List<String>,
+    val sourceRefs: List<String>,
+)
+
+data class CharacterAnalysisInsight(
+    val title: String,
+    val analysis: String,
+    val evidenceChapters: List<Int>,
+)
+
+data class CharacterJarvisAnalysis(
+    val status: String,
+    val summary: String,
+    val motivations: List<String>,
+    val behaviorPatterns: List<String>,
+    val evolution: String,
+    val insights: List<CharacterAnalysisInsight>,
+    val evidenceChapters: List<Int>,
+    val sourceRefs: List<String>,
+    val disclaimer: String,
+)
+
 data class StoryCharacter(
     val id: String,
     val name: String,
@@ -52,6 +100,9 @@ data class StoryCharacter(
     val historyTimeline: List<CharacterHistoryStage> = emptyList(),
     val canonAppearances: List<CharacterAppearanceRecord> = emptyList(),
     val mentionedChapters: List<Int> = emptyList(),
+    val encyclopediaProfile: CharacterEncyclopediaProfile = CharacterEncyclopediaProfile(),
+    val chapterActivity: List<CharacterChapterActivity> = emptyList(),
+    val jarvisAnalysis: CharacterJarvisAnalysis? = null,
 )
 
 val CANON_CHARACTERS = listOf(
