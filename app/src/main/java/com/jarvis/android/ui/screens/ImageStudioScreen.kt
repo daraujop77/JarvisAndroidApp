@@ -85,6 +85,7 @@ fun ImageStudioScreen(
     val access by vm.chatAccess.collectAsStateWithLifecycle()
     val editState by vm.imageEditState.collectAsStateWithLifecycle()
     val editDetails by vm.lastImageEditDetails.collectAsStateWithLifecycle()
+    val wikiPrimaryState by vm.wikiPrimaryState.collectAsStateWithLifecycle()
 
     var currentAttachmentId by rememberSaveable(initialAttachmentId) {
         mutableStateOf(initialAttachmentId)
@@ -96,6 +97,7 @@ fun ImageStudioScreen(
     var preserveIdentity by rememberSaveable(initialAttachmentId) { mutableStateOf("high") }
     var selectedMode by rememberSaveable(initialAttachmentId) { mutableStateOf("quality") }
     var selectedModel by rememberSaveable(initialAttachmentId) { mutableStateOf("auto") }
+    var wikiCharacter by rememberSaveable(initialAttachmentId) { mutableStateOf("Alexander") }
 
     val bitmap by rememberAttachmentThumb(
         currentAttachmentId,
@@ -476,6 +478,75 @@ fun ImageStudioScreen(
                         color = accents.orbGlow,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
+            }
+
+            item {
+                StudioCard("WIKI · VISUAL CANON", JarvisGreen) {
+                    Text(
+                        "Fija la versión activa como referencia visual principal aprobada del personaje. Esta acción actualiza el Visual Asset Registry y el enlace de la Wiki; no envía ningún mensaje al chat.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF94A3B8),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = wikiCharacter,
+                        onValueChange = { if (it.length <= 80) wikiCharacter = it },
+                        label = { Text("Personaje de la Wiki") },
+                        placeholder = { Text("Alexander") },
+                        singleLine = true,
+                        colors = jarvisTextFieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    when (val state = wikiPrimaryState) {
+                        is JarvisViewModel.WikiPrimaryState.Success -> {
+                            Text(
+                                "REFERENCIA APROBADA · revisión " + state.revision,
+                                style = HudTextStyle,
+                                color = JarvisGreen,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        is JarvisViewModel.WikiPrimaryState.Error -> {
+                            Text(
+                                state.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        else -> Unit
+                    }
+                    val publishing = wikiPrimaryState is JarvisViewModel.WikiPrimaryState.Busy
+                    Button(
+                        onClick = {
+                            vm.setWikiPrimaryReference(
+                                attachmentId = currentAttachmentId,
+                                character = wikiCharacter,
+                            )
+                        },
+                        enabled = wikiCharacter.isNotBlank() && !publishing,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JarvisGreen,
+                            contentColor = Color(0xFF02101F),
+                        ),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                    ) {
+                        if (publishing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFF02101F),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Actualizando Wiki…")
+                        } else {
+                            Icon(Icons.Filled.Check, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("FIJAR COMO REFERENCIA PRINCIPAL", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
 

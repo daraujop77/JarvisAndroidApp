@@ -536,6 +536,69 @@ class JarvisAppSession(
     }
 
 
+    data class WikiPrimaryReply(
+        val assetId: String,
+        val characterId: String,
+        val visualRevision: Int,
+        val status: String,
+    )
+
+    suspend fun setWikiPrimaryReference(
+        imageBase64: String,
+        mimeType: String,
+        projectId: String,
+        characterId: String,
+        alt: String = "",
+    ): Result<WikiPrimaryReply> = withContext(Dispatchers.IO) {
+        if (!isAuthenticated) {
+            return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
+        }
+        val root = baseUrl
+        if (!isAllowedLiveHost(root)) {
+            return@withContext Result.failure(
+                TransportException("visual canon server is not on the private JARVIS network"),
+            )
+        }
+        if (imageBase64.isBlank()) {
+            return@withContext Result.failure(TransportException("wiki primary image is empty"))
+        }
+        val cleanCharacter = characterId.trim()
+        if (cleanCharacter.isBlank()) {
+            return@withContext Result.failure(TransportException("wiki character is required"))
+        }
+
+        runCatching {
+            val body = buildJsonObject {
+                put("project_id", projectId.trim().ifBlank { "prj_story" })
+                put("character_id", cleanCharacter)
+                put("image_base64", imageBase64)
+                put("mime_type", mimeType)
+                put("perspective", "front")
+                if (alt.isNotBlank()) put("alt", alt.trim())
+                put("source", "MANUAL_UPLOAD")
+            }.toString()
+            val response = post(
+                root,
+                "/api/app/writing-room/visual-assets/set-wiki-primary",
+                body,
+                auth = authHeader(),
+            )
+            requireOk(response)
+            val obj = json.parseToJsonElement(response.second).jsonObject
+            val asset = obj["asset"]?.jsonObject
+                ?: throw TransportException("wiki primary response did not include an asset")
+            val assetId = asset["asset_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val status = asset["status"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val revision = asset["visual_revision"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+            val canonicalCharacter = obj["character_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            if (assetId.isBlank() || status != "APPROVED" || canonicalCharacter.isBlank()) {
+                throw TransportException("wiki primary response was incomplete")
+            }
+            WikiPrimaryReply(assetId, canonicalCharacter, revision, status)
+        }
+    }
+
+
     suspend fun editImage(
         imageBase64: String,
         mimeType: String,

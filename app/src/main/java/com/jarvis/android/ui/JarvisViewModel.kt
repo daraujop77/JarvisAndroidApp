@@ -614,6 +614,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _lastImageGenerationDetails = MutableStateFlow<ImageGenerationDetails?>(null)
     val lastImageGenerationDetails: StateFlow<ImageGenerationDetails?> = _lastImageGenerationDetails
 
+    sealed interface WikiPrimaryState {
+        data object Idle : WikiPrimaryState
+        data object Busy : WikiPrimaryState
+        data class Success(
+            val assetId: String,
+            val characterId: String,
+            val revision: Int,
+        ) : WikiPrimaryState
+        data class Error(val message: String) : WikiPrimaryState
+    }
+
+    private val _wikiPrimaryState = MutableStateFlow<WikiPrimaryState>(WikiPrimaryState.Idle)
+    val wikiPrimaryState: StateFlow<WikiPrimaryState> = _wikiPrimaryState
+
     sealed interface ImageEditState {
         data object Idle : ImageEditState
         data object Busy : ImageEditState
@@ -748,6 +762,69 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun resetImageEditState() {
         _imageEditState.value = ImageEditState.Idle
     }
+
+    fun setWikiPrimaryReference(
+        attachmentId: String,
+        character: String,
+        projectId: String = "prj_story",
+    ) {
+        if (_wikiPrimaryState.value is WikiPrimaryState.Busy) return
+        val cleanCharacter = character.trim()
+        if (cleanCharacter.isBlank()) {
+            _wikiPrimaryState.value = WikiPrimaryState.Error("Selecciona un personaje de la Wiki.")
+            return
+        }
+        val canonical = if (cleanCharacter.contains(":")) {
+            cleanCharacter.lowercase()
+        } else {
+            "character:" + cleanCharacter.lowercase().replace(" ", "-")
+        }
+        _wikiPrimaryState.value = WikiPrimaryState.Busy
+        viewModelScope.launch {
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(attachmentId)
+                        ?: error("La imagen ya no está disponible.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (source.isFailure) {
+                _wikiPrimaryState.value = WikiPrimaryState.Error(
+                    source.exceptionOrNull()?.message ?: "No se pudo leer la imagen.",
+                )
+                return@launch
+            }
+
+            container.liveSession.setWikiPrimaryReference(
+                imageBase64 = source.getOrThrow(),
+                mimeType = "image/jpeg",
+                projectId = projectId,
+                characterId = canonical,
+                alt = "Referencia visual principal de " + cleanCharacter,
+            ).fold(
+                onSuccess = { reply ->
+                    _wikiPrimaryState.value = WikiPrimaryState.Success(
+                        reply.assetId, reply.characterId, reply.visualRevision,
+                    )
+                    refreshWritingWorkspace(projectId)
+                },
+                onFailure = { error ->
+                    _wikiPrimaryState.value = WikiPrimaryState.Error(
+                        error.message ?: "No se pudo actualizar la referencia visual de la Wiki.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun resetWikiPrimaryState() {
+        _wikiPrimaryState.value = WikiPrimaryState.Idle
+    }
+
 
     fun clearImageGenerationError() {
         if (_imageGenerationState.value is ImageGenerationState.Error) {

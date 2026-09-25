@@ -124,12 +124,20 @@ class LiveAppGatewayTransportTest {
                             """{"schema":"jarvis.image.generation.v2","provider":"openai-codex","model":"gpt-image-2-medium","route":"cloud_image_generation:openai-codex","mime_type":"image/png","data_base64":"aW1hZ2U=","size_bytes":5,"requested_mode":"model_select","requested_model":"gpt-image-2-medium","fallback_used":false,"attempt_count":1,"duration_ms":1234}""",
                         )
                     }
+                    request.path == "/api/app/writing-room/visual-assets/set-wiki-primary" && auth != "Bearer test-token" ->
+                        MockResponse().setResponseCode(401)
+                    request.path == "/api/app/writing-room/visual-assets/set-wiki-primary" -> {
+                        postedBodies += "POST /api/app/writing-room/visual-assets/set-wiki-primary\n" + request.body.readUtf8()
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.visual.wiki-primary.v1","project_id":"prj_story","character_id":"character:alexander","asset":{"asset_id":"va_alexander_primary_2","status":"APPROVED","visual_revision":2}}""",
+                        )
+                    }
                     request.path == "/api/app/images/edits" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
                     request.path == "/api/app/images/edits" -> {
                         postedBodies += "POST /api/app/images/edits\n" + request.body.readUtf8()
                         MockResponse().setBody(
-                            """{"schema":"jarvis.image.edit.v1","provider":"xai-oauth","model":"grok-imagine-image-quality","route":"cloud_image_edit:xai-oauth","mime_type":"image/jpeg","data_base64":"ZWRpdGVk","size_bytes":6,"requested_mode":"quality","requested_model":null,"fallback_used":false,"attempt_count":1,"duration_ms":2222}""",
+                            """{"schema":"jarvis.image.edit.v1","provider":"xai-oauth","model":"grok-imagine-image-2.0","route":"cloud_image_edit:xai-oauth","mime_type":"image/jpeg","data_base64":"ZWRpdGVk","size_bytes":6,"requested_mode":"quality","requested_model":null,"fallback_used":false,"attempt_count":1,"duration_ms":2222}""",
                         )
                     }
                     request.path == "/api/status" -> MockResponse().setBody("""{"status":"ok"}""")
@@ -159,7 +167,7 @@ class LiveAppGatewayTransportTest {
                             "image_edit": {
                               "state":"ready","default_mode":"quality","owner_model_selection":true,
                               "modes":[{"id":"speed","label":"Speed"},{"id":"quality","label":"Quality"},{"id":"model_select","label":"Model Select"}],
-                              "models":[{"id":"auto","label":"Auto","provider":"jarvis","state":"ready"},{"id":"grok-imagine-image-quality","label":"Grok Imagine Quality","provider":"xai-oauth","state":"ready"},{"id":"gpt-image-2-medium","label":"GPT Image","provider":"openai-codex","state":"ready"}]
+                              "models":[{"id":"auto","label":"Auto","provider":"jarvis","state":"ready"},{"id":"grok-imagine-image-2.0","label":"Grok Imagine Quality","provider":"xai-oauth","state":"ready"},{"id":"gpt-image-2-medium","label":"GPT Image","provider":"openai-codex","state":"ready"}]
                             }
                           }
                         }
@@ -447,7 +455,7 @@ class LiveAppGatewayTransportTest {
         assertEquals("quality", access?.imageEdit?.defaultMode)
         assertTrue(access?.imageEdit?.ownerModelSelection == true)
         assertEquals(listOf("speed", "quality", "model_select"), access?.imageEdit?.modes?.map { it.id })
-        assertEquals(listOf("auto", "grok-imagine-image-quality", "gpt-image-2-medium"), access?.imageEdit?.models?.map { it.id })
+        assertEquals(listOf("auto", "grok-imagine-image-2.0", "gpt-image-2-medium"), access?.imageEdit?.models?.map { it.id })
 
         val transport = LiveAppGatewayTransport(session, scope)
         val repo = JarvisSessionRepository(transport, scope)
@@ -500,7 +508,7 @@ class LiveAppGatewayTransportTest {
         assertTrue(result.isSuccess)
         val reply = result.getOrThrow()
         assertEquals("xai-oauth", reply.provider)
-        assertEquals("grok-imagine-image-quality", reply.model)
+        assertEquals("grok-imagine-image-2.0", reply.model)
         assertEquals("quality", reply.requestedMode)
         assertEquals(false, reply.fallbackUsed)
         assertEquals(2222L, reply.durationMs)
@@ -509,6 +517,32 @@ class LiveAppGatewayTransportTest {
         assertTrue(body.contains("\"instruction\":\"Change only the armor.\""))
         assertTrue(body.contains("\"preserve_identity\":\"high\""))
         assertTrue(body.contains("\"aspect_ratio\":\"portrait\""))
+    }
+
+    @Test
+    fun setWikiPrimaryReferencePostsStructuredVisualAction() {
+        val session = JarvisAppSession(seededStore())
+        val result = runBlocking(Dispatchers.IO) {
+            session.setWikiPrimaryReference(
+                imageBase64 = "aW1hZ2U=",
+                mimeType = "image/jpeg",
+                projectId = "prj_story",
+                characterId = "character:alexander",
+                alt = "Alexander canonical visual",
+            )
+        }
+        assertTrue(result.isSuccess)
+        val reply = result.getOrThrow()
+        assertEquals("va_alexander_primary_2", reply.assetId)
+        assertEquals("character:alexander", reply.characterId)
+        assertEquals(2, reply.visualRevision)
+        assertEquals("APPROVED", reply.status)
+        val body = postedBodies.last {
+            it.startsWith("POST /api/app/writing-room/visual-assets/set-wiki-primary")
+        }
+        assertTrue(body.contains("\"character_id\":\"character:alexander\""))
+        assertTrue(body.contains("\"source\":\"MANUAL_UPLOAD\""))
+        assertTrue(body.contains("\"perspective\":\"front\""))
     }
 
     @Test
