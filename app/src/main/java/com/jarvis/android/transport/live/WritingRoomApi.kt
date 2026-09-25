@@ -131,6 +131,59 @@ data class WritingWikiFutureNote(
 )
 
 @Serializable
+data class WritingWikiFamilyMember(
+    val target: String = "",
+    val relation: String = "",
+    val label: String = "",
+)
+
+@Serializable
+data class WritingWikiProfile(
+    val rank: String = "",
+    val affiliations: List<String> = emptyList(),
+    val age: String = "",
+    val age_note: String = "",
+    val height: String = "",
+    val first_appearance: Int? = null,
+    val latest_appearance: Int? = null,
+    val family: List<WritingWikiFamilyMember> = emptyList(),
+)
+
+@Serializable
+data class WritingWikiChapterActivity(
+    val chapters: List<Int> = emptyList(),
+    val title: String = "",
+    val presence: String = "",
+    val evidence_scope: String = "",
+    val summary: String = "",
+    val actions: List<String> = emptyList(),
+    val decisions: List<String> = emptyList(),
+    val techniques: List<String> = emptyList(),
+    val consequences: List<String> = emptyList(),
+    val source_refs: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingWikiAnalysisInsight(
+    val title: String = "",
+    val analysis: String = "",
+    val evidence_chapters: List<Int> = emptyList(),
+)
+
+@Serializable
+data class WritingWikiJarvisAnalysis(
+    val status: String = "",
+    val summary: String = "",
+    val motivations: List<String> = emptyList(),
+    val behavior_patterns: List<String> = emptyList(),
+    val evolution: String = "",
+    val insights: List<WritingWikiAnalysisInsight> = emptyList(),
+    val evidence_chapters: List<Int> = emptyList(),
+    val source_refs: List<String> = emptyList(),
+    val disclaimer: String = "",
+)
+
+@Serializable
 data class WritingWikiEntity(
     val id: String = "",
     val type: String = "",
@@ -156,6 +209,9 @@ data class WritingWikiEntity(
     val central_wound: String = "",
     val desire_vs_need: String = "",
     val internal_contradiction: String = "",
+    val profile: WritingWikiProfile = WritingWikiProfile(),
+    val chapter_activity: List<WritingWikiChapterActivity> = emptyList(),
+    val jarvis_analysis: WritingWikiJarvisAnalysis? = null,
 )
 
 @Serializable

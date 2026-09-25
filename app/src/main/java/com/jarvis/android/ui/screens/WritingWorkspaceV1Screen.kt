@@ -61,6 +61,8 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import com.jarvis.android.data.story.CANON_FACTIONS
 import com.jarvis.android.data.story.CANON_MILESTONES
+import com.jarvis.android.data.story.CharacterChapterActivity
+import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
@@ -2504,7 +2506,7 @@ private fun CharacterDirectoryCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Ver expediente canónico →",
+                    "Abrir artículo →",
                     style = HudTextStyle,
                     color = character.themeColor,
                 )
@@ -2514,11 +2516,13 @@ private fun CharacterDirectoryCard(
 }
 
 private enum class DossierSubTab(val label: String) {
-    TODOS("Ficha completa"),
-    GENERAL("General"),
+    TODOS("Artículo"),
+    GENERAL("Resumen"),
+    HISTORIA("Biografía"),
+    APARICIONES("Apariciones"),
     PODERES("Poderes"),
-    HISTORIA("Historia"),
-    VINCULOS("Vínculos"),
+    VINCULOS("Relaciones"),
+    ANALISIS("Análisis JARVIS"),
 }
 
 @Composable
@@ -2598,10 +2602,13 @@ private fun CharacterDetailWiki(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Back to Characters", color = Color(0xFFF1F5F9), fontWeight = FontWeight.SemiBold)
+                    Text("Volver a personajes", color = Color(0xFFF1F5F9), fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.weight(1f))
-                MiniPill("CANON OFICIAL · CAP 37", JarvisGreen)
+                MiniPill(
+                    "CANON OFICIAL · CAP " + (character.encyclopediaProfile.latestAppearance ?: 37),
+                    JarvisGreen,
+                )
             }
         }
 
@@ -2744,9 +2751,24 @@ private fun CharacterDetailWiki(
                 }
             }
 
+            if (
+                character.encyclopediaProfile.rank.isNotBlank() ||
+                character.encyclopediaProfile.age.isNotBlank() ||
+                character.encyclopediaProfile.affiliations.isNotEmpty() ||
+                character.encyclopediaProfile.family.isNotEmpty()
+            ) {
+                item {
+                    CharacterEncyclopediaInfobox(
+                        character = character,
+                        allCharacters = allCharacters,
+                        onSelectCharacter = onSelectCharacter,
+                    )
+                }
+            }
+
             // Status & Vital Condition
             item {
-                WorkspaceCard("Estado & Condición Vital", accent = character.status.color) {
+                WorkspaceCard("Estado actual", accent = character.status.color) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         MiniPill(character.status.label, character.status.color)
                     }
@@ -2761,7 +2783,7 @@ private fun CharacterDetailWiki(
 
             // Essence
             item {
-                WorkspaceCard("Esencia del Personaje", accent = character.themeColor) {
+                WorkspaceCard("Resumen", accent = character.themeColor) {
                     Text(
                         "\"${character.essence}\"",
                         style = MaterialTheme.typography.bodyMedium.copy(
@@ -2775,7 +2797,7 @@ private fun CharacterDetailWiki(
 
             // Appearance & Visual Notes
             item {
-                WorkspaceCard("Apariencia & Notas Visuales", accent = Color(0xFF94A3B8)) {
+                WorkspaceCard("Apariencia", accent = Color(0xFF94A3B8)) {
                     SelectionContainer {
                         Text(
                             character.appearance,
@@ -2950,7 +2972,10 @@ private fun CharacterDetailWiki(
                 }
             }
 
-            if (character.canonAppearances.isNotEmpty() || character.mentionedChapters.isNotEmpty()) {
+            if (
+                character.chapterActivity.isEmpty() &&
+                (character.canonAppearances.isNotEmpty() || character.mentionedChapters.isNotEmpty())
+            ) {
                 item {
                     WorkspaceCard("Apariciones & Capítulos", accent = JarvisCyan) {
                         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -3032,6 +3057,63 @@ private fun CharacterDetailWiki(
                                             color = Color(0xFFCBD5E1),
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- APARICIONES ---
+        if (currentSubTab == DossierSubTab.APARICIONES || currentSubTab == DossierSubTab.TODOS) {
+            if (currentSubTab == DossierSubTab.APARICIONES) {
+                item {
+                    CompactCharacterHeader(character)
+                }
+            }
+
+            if (character.chapterActivity.isNotEmpty()) {
+                item {
+                    WorkspaceCard("Apariciones por capítulo", accent = JarvisCyan) {
+                        Text(
+                            "Qué hizo el personaje, qué decidió y qué consecuencias dejó cada aparición. " +
+                                "Cuando una fuente sólo resume varios capítulos, JARVIS conserva el bloque agrupado en vez de inventar granularidad.",
+                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                            color = Color(0xFF94A3B8),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            character.chapterActivity.forEach { activity ->
+                                CharacterChapterActivityCard(activity, character.themeColor)
+                            }
+                        }
+                    }
+                }
+            } else if (currentSubTab == DossierSubTab.APARICIONES) {
+                item {
+                    WorkspaceCard("Apariciones", accent = JarvisCyan) {
+                        if (character.canonAppearances.isEmpty() && character.mentionedChapters.isEmpty()) {
+                            Text(
+                                "Todavía no hay un índice capítulo por capítulo estructurado para este personaje.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFFCBD5E1),
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                character.canonAppearances.forEach { appearance ->
+                                    Text(
+                                        formatChapterLabel(appearance.chapters) + " · " + appearance.summary,
+                                        style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                                        color = Color(0xFFF1F5F9),
+                                    )
+                                }
+                                if (character.mentionedChapters.isNotEmpty()) {
+                                    Text(
+                                        "Menciones: capítulos " + character.mentionedChapters.joinToString(", "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF94A3B8),
+                                    )
                                 }
                             }
                         }
@@ -3156,6 +3238,37 @@ private fun CharacterDetailWiki(
             }
         }
 
+        // --- ANÁLISIS JARVIS ---
+        if (currentSubTab == DossierSubTab.ANALISIS || currentSubTab == DossierSubTab.TODOS) {
+            if (currentSubTab == DossierSubTab.ANALISIS) {
+                item {
+                    CompactCharacterHeader(character)
+                }
+            }
+
+            character.jarvisAnalysis?.let { analysis ->
+                item {
+                    CharacterJarvisAnalysisCard(
+                        character = character,
+                        analysis = analysis,
+                    )
+                }
+            } ?: run {
+                if (currentSubTab == DossierSubTab.ANALISIS) {
+                    item {
+                        WorkspaceCard("Análisis de JARVIS", accent = JarvisViolet) {
+                            Text(
+                                "Este personaje todavía no tiene un análisis derivado estructurado. " +
+                                    "JARVIS no rellenará motivaciones o psicología sin evidencia del canon.",
+                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                                color = Color(0xFFCBD5E1),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Back button at bottom
         item {
             Button(
@@ -3167,10 +3280,319 @@ private fun CharacterDetailWiki(
                     contentColor = Color(0xFF041018),
                 ),
             ) {
-                Text("← Back to Characters", fontWeight = FontWeight.Bold)
+                Text("← Volver a personajes", fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(16.dp))
         }
+    }
+}
+
+@Composable
+private fun CharacterEncyclopediaInfobox(
+    character: StoryCharacter,
+    allCharacters: List<StoryCharacter>,
+    onSelectCharacter: (String) -> Unit,
+) {
+    val profile = character.encyclopediaProfile
+    WorkspaceCard("Ficha del personaje", accent = character.themeColor) {
+        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            if (profile.rank.isNotBlank()) {
+                WikiFactRow("Rango", profile.rank)
+            }
+            if (profile.age.isNotBlank()) {
+                WikiFactRow("Edad", profile.age)
+            }
+            if (profile.height.isNotBlank()) {
+                WikiFactRow("Altura", profile.height)
+            }
+            if (profile.affiliations.isNotEmpty()) {
+                WikiFactRow("Afiliación", profile.affiliations.joinToString(" · "))
+            }
+            WikiFactRow("Estado", character.status.label)
+            profile.firstAppearance?.let { WikiFactRow("Primera aparición", "Capítulo " + it) }
+            profile.latestAppearance?.let { WikiFactRow("Última aparición", "Capítulo " + it) }
+
+            if (profile.ageNote.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = JarvisAmber.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        profile.ageNote,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                        color = Color(0xFFCBD5E1),
+                    )
+                }
+            }
+
+            if (profile.family.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                Text("FAMILIA", style = HudTextStyle, color = character.themeColor)
+                Spacer(Modifier.height(7.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    profile.family.forEach { member ->
+                        val related = allCharacters.firstOrNull { it.id.equals(member.id, ignoreCase = true) }
+                        Surface(
+                            onClick = { related?.let { onSelectCharacter(it.id) } },
+                            enabled = related != null,
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0x66060D1A),
+                            border = BorderStroke(1.dp, character.themeColor.copy(alpha = 0.25f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    member.label,
+                                    style = HudTextStyle,
+                                    color = Color(0xFF94A3B8),
+                                    modifier = Modifier.width(74.dp),
+                                )
+                                Text(
+                                    related?.name ?: member.id.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = Color(0xFFF1F5F9),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (related != null) {
+                                    Text("→", color = related.themeColor, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WikiFactRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = Color(0xFF94A3B8),
+            modifier = Modifier.width(112.dp),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
+            color = Color(0xFFF1F5F9),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun CharacterChapterActivityCard(
+    activity: CharacterChapterActivity,
+    accent: Color,
+) {
+    val saveKey = activity.chapters.joinToString("_") + "_" + activity.title
+    var expanded by rememberSaveable(saveKey) { mutableStateOf(false) }
+    val presenceColor = when (activity.presence) {
+        "ON_PAGE" -> JarvisGreen
+        "MENTIONED_ONLY" -> Color(0xFF94A3B8)
+        "RECAP_GROUPED" -> JarvisAmber
+        "INDIRECT" -> JarvisViolet
+        else -> accent
+    }
+    val presenceLabel = when (activity.presence) {
+        "ON_PAGE" -> "EN ESCENA"
+        "MENTIONED_ONLY" -> "MENCIÓN"
+        "RECAP_GROUPED" -> "RECAP AGRUPADA"
+        "INDIRECT" -> "INDIRECTO"
+        else -> activity.presence.ifBlank { "REGISTRO" }
+    }
+
+    Surface(
+        onClick = { expanded = !expanded },
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0x66060D1A),
+        border = BorderStroke(1.dp, presenceColor.copy(alpha = 0.35f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    formatChapterLabel(activity.chapters),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = accent,
+                )
+                MiniPill(presenceLabel, presenceColor)
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (expanded) "Ocultar detalles" else "Ver detalles",
+                    tint = Color(0xFF94A3B8),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            if (activity.title.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    activity.title,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFFF1F5F9),
+                )
+            }
+            if (activity.summary.isNotBlank()) {
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    activity.summary,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
+                    color = Color(0xFFCBD5E1),
+                )
+            }
+            if (expanded) {
+                ActivityDetailGroup("QUÉ HIZO", activity.actions, JarvisCyan)
+                ActivityDetailGroup("DECISIONES", activity.decisions, JarvisAmber)
+                ActivityDetailGroup("TÉCNICAS", activity.techniques, characterTechniqueColor(accent))
+                ActivityDetailGroup("CONSECUENCIAS", activity.consequences, JarvisGreen)
+                if (activity.sourceRefs.isNotEmpty()) {
+                    Spacer(Modifier.height(9.dp))
+                    Text(
+                        "FUENTE VINCULADA · " + activity.sourceRefs.size +
+                            if (activity.sourceRefs.size == 1) " documento" else " documentos",
+                        style = HudTextStyle,
+                        color = Color(0xFF64748B),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun characterTechniqueColor(accent: Color): Color = accent
+
+@Composable
+private fun ActivityDetailGroup(
+    title: String,
+    values: List<String>,
+    accent: Color,
+) {
+    if (values.isEmpty()) return
+    Spacer(Modifier.height(10.dp))
+    Text(title, style = HudTextStyle, color = accent)
+    Spacer(Modifier.height(4.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        values.forEach { value ->
+            Text(
+                "• " + value,
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                color = Color(0xFFF1F5F9),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CharacterJarvisAnalysisCard(
+    character: StoryCharacter,
+    analysis: CharacterJarvisAnalysis,
+) {
+    WorkspaceCard("Entender a " + character.name, accent = JarvisViolet) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            MiniPill("ANÁLISIS JARVIS", JarvisViolet)
+            MiniPill("DERIVADO · NO CANON", JarvisAmber)
+        }
+        Spacer(Modifier.height(9.dp))
+        Text(
+            analysis.disclaimer,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontStyle = FontStyle.Italic,
+                lineHeight = 18.sp,
+            ),
+            color = Color(0xFF94A3B8),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            analysis.summary,
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+            color = Color(0xFFF1F5F9),
+        )
+
+        if (analysis.evolution.isNotBlank()) {
+            Spacer(Modifier.height(14.dp))
+            Text("EVOLUCIÓN", style = HudTextStyle, color = JarvisViolet)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                analysis.evolution,
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
+                color = Color(0xFFCBD5E1),
+            )
+        }
+
+        ActivityDetailGroup("MOTIVACIONES", analysis.motivations, JarvisCyan)
+        ActivityDetailGroup("PATRONES DE CONDUCTA", analysis.behaviorPatterns, JarvisAmber)
+
+        if (analysis.insights.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Text("LECTURAS DE JARVIS", style = HudTextStyle, color = JarvisViolet)
+            Spacer(Modifier.height(7.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                analysis.insights.forEach { insight ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = JarvisViolet.copy(alpha = 0.07f),
+                        border = BorderStroke(1.dp, JarvisViolet.copy(alpha = 0.28f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(11.dp)) {
+                            Text(
+                                insight.title,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFF8FAFC),
+                            )
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                insight.analysis,
+                                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
+                                color = Color(0xFFCBD5E1),
+                            )
+                            if (insight.evidenceChapters.isNotEmpty()) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "EVIDENCIA · " + formatChapterLabel(insight.evidenceChapters),
+                                    style = HudTextStyle,
+                                    color = JarvisGreen,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatChapterLabel(chapters: List<Int>): String {
+    if (chapters.isEmpty()) return "Aparición"
+    val sorted = chapters.distinct().sorted()
+    return if (sorted.size > 1 && sorted.last() - sorted.first() + 1 == sorted.size) {
+        "Cap. " + sorted.first() + "–" + sorted.last()
+    } else if (sorted.size == 1) {
+        "Cap. " + sorted.first()
+    } else {
+        "Caps. " + sorted.joinToString(", ")
     }
 }
 
