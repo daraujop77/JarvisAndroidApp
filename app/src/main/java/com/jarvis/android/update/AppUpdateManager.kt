@@ -37,6 +37,16 @@ data class AppUpdateManifest(
     val published_utc: String? = null,
 )
 
+@Serializable
+private data class SignedReleaseManifest(
+    val schema: String = "",
+    val version_code: Long = 0,
+    val version_name: String = "",
+    val package_name: String = "",
+    val sha256: String = "",
+    val size_bytes: Long = 0,
+)
+
 sealed interface AppUpdateState {
     data object Idle : AppUpdateState
     data object Checking : AppUpdateState
@@ -51,8 +61,6 @@ sealed interface AppUpdateState {
 
 class AppUpdateManager(
     context: Context,
-    private val session: JarvisAppSession,
-    private val baseUrlProvider: () -> String = { "" },
     private val client: OkHttpClient = JarvisAppSession.defaultClient(),
 ) {
     private val appContext = context.applicationContext
@@ -91,9 +99,7 @@ class AppUpdateManager(
             temp.delete()
             target.delete()
 
-            val base = updateBaseUrl()
-            requirePrivateUpdateBase(base)
-            val request = privateUpdateRequest(base + manifest.download_path).build()
+            val request = githubUpdateRequest(manifest.download_path).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw TransportException("update download HTTP ${response.code}")
@@ -202,48 +208,44 @@ class AppUpdateManager(
     }
 
     private fun fetchManifest(): AppUpdateManifest {
-        val base = updateBaseUrl()
-        requirePrivateUpdateBase(base)
-        val request = privateUpdateRequest(base + MANIFEST_PATH).build()
+        val request = githubUpdateRequest(GITHUB_MANIFEST_URL).build()
         return client.newCall(request).execute().use { response ->
             if (response.code == 404) throw TransportException("no JARVIS update is published")
             if (!response.isSuccessful) throw TransportException("update check HTTP ${response.code}")
             val body = response.body?.string().orEmpty()
-            json.decodeFromString(AppUpdateManifest.serializer(), body)
-        }
-    }
-
-    private fun updateBaseUrl(): String =
-        session.baseUrl.ifBlank { baseUrlProvider() }.trim().trimEnd('/')
-
-    private fun requirePrivateUpdateBase(base: String) {
-        if (base.isBlank()) {
-            throw TransportException("JARVIS update server is not configured")
-        }
-        if (!JarvisAppSession.isAllowedLiveHost(base)) {
-            throw TransportException("update server is not on the private JARVIS network")
+            val signed = json.decodeFromString(SignedReleaseManifest.serializer(), body)
+            if (signed.schema != SIGNED_RELEASE_SCHEMA) {
+                throw TransportException("invalid signed release manifest")
+            }
+            AppUpdateManifest(
+                schema = SCHEMA,
+                available = true,
+                version_code = signed.version_code,
+                version_name = signed.version_name,
+                package_name = signed.package_name,
+                sha256 = signed.sha256,
+                size_bytes = signed.size_bytes,
+                download_path = GITHUB_APK_URL,
+            )
         }
     }
 
     /**
-     * Update delivery is intentionally independent from chat authentication.
-     * The VPS update surface is reachable only through the private JARVIS/Tailscale
-     * front door, while the downloaded APK is still verified by size, SHA-256,
-     * package name, version and Android signing certificate before install.
-     *
-     * If a valid app session exists we send it for backwards compatibility, but
-     * an expired/missing chat session must never deadlock the updater.
+     * Updates are fetched only from the fixed public GitHub Release assets for
+     * daraujop77/JarvisAndroidApp. No chat token or VPS endpoint participates.
+     * The APK is still verified by size, SHA-256, package name, version and
+     * Android signing certificate before the installer is opened.
      */
-    private fun privateUpdateRequest(url: String): Request.Builder =
-        Request.Builder()
+    private fun githubUpdateRequest(url: String): Request.Builder {
+        if (!UpdatePolicy.safeGithubReleaseAsset(url)) {
+            throw TransportException("untrusted JARVIS update URL")
+        }
+        return Request.Builder()
             .url(url)
             .header("Accept", "application/json, application/vnd.android.package-archive")
             .header("Cache-Control", "no-store")
-            .apply {
-                if (session.isAuthenticated) {
-                    session.authHeader()?.let { header("Authorization", it) }
-                }
-            }
+            .header("User-Agent", "JARVIS-Android-Updater")
+    }
 
     private fun validateManifest(manifest: AppUpdateManifest) {
         if (manifest.schema != SCHEMA || !manifest.available) {
@@ -255,8 +257,8 @@ class AppUpdateManager(
         if (manifest.package_name != appContext.packageName) {
             throw TransportException("update package does not match this JARVIS app")
         }
-        if (!UpdatePolicy.safeDownloadPath(manifest.download_path)) {
-            throw TransportException("unsafe update download path")
+        if (manifest.download_path != GITHUB_APK_URL || !UpdatePolicy.safeGithubReleaseAsset(manifest.download_path)) {
+            throw TransportException("unsafe update download URL")
         }
         if (!manifest.sha256.matches(Regex("^[0-9a-fA-F]{64}$"))) {
             throw TransportException("invalid update SHA-256")
@@ -331,17 +333,21 @@ class AppUpdateManager(
 
     companion object {
         private const val SCHEMA = "jarvis.android.update.v1"
-        private const val MANIFEST_PATH = "/api/app/update"
+        private const val SIGNED_RELEASE_SCHEMA = "jarvis.android.signed-release.v1"
+        private const val GITHUB_MANIFEST_URL =
+            "https://github.com/daraujop77/JarvisAndroidApp/releases/latest/download/JARVIS-release.json"
+        private const val GITHUB_APK_URL =
+            "https://github.com/daraujop77/JarvisAndroidApp/releases/latest/download/JARVIS-release.apk"
         private const val APK_MIME = "application/vnd.android.package-archive"
         private const val MAX_APK_BYTES = 200L * 1024L * 1024L
     }
 }
 
 object UpdatePolicy {
-    fun safeDownloadPath(path: String): Boolean =
-        path.startsWith("/api/app/update/") &&
-            !path.startsWith("//") &&
-            !path.contains("..") &&
-            !path.contains('?') &&
-            !path.contains('#')
+    private const val RELEASE_PREFIX =
+        "https://github.com/daraujop77/JarvisAndroidApp/releases/latest/download/"
+
+    fun safeGithubReleaseAsset(url: String): Boolean =
+        url == RELEASE_PREFIX + "JARVIS-release.json" ||
+            url == RELEASE_PREFIX + "JARVIS-release.apk"
 }

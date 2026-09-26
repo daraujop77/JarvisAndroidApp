@@ -7,17 +7,36 @@ import org.junit.Test
 class UpdatePolicyTest {
 
     @Test
-    fun acceptsOnlyUpdateApiSubpaths() {
-        assertTrue(UpdatePolicy.safeDownloadPath("/api/app/update/apk"))
-        assertTrue(UpdatePolicy.safeDownloadPath("/api/app/update/builds/2.apk"))
+    fun acceptsOnlyPinnedGithubReleaseAssets() {
+        assertTrue(
+            UpdatePolicy.safeGithubReleaseAsset(
+                "https://github.com/daraujop77/JarvisAndroidApp/releases/latest/download/JARVIS-release.json",
+            ),
+        )
+        assertTrue(
+            UpdatePolicy.safeGithubReleaseAsset(
+                "https://github.com/daraujop77/JarvisAndroidApp/releases/latest/download/JARVIS-release.apk",
+            ),
+        )
     }
 
     @Test
-    fun rejectsAbsoluteTraversalAndDecoratedPaths() {
-        assertFalse(UpdatePolicy.safeDownloadPath("https://example.com/app.apk"))
-        assertFalse(UpdatePolicy.safeDownloadPath("//100.94.103.82/app.apk"))
-        assertFalse(UpdatePolicy.safeDownloadPath("/api/app/update/../secret"))
-        assertFalse(UpdatePolicy.safeDownloadPath("/api/app/update/apk?token=x"))
-        assertFalse(UpdatePolicy.safeDownloadPath("/api/app/update/apk#fragment"))
+    fun rejectsOtherHostsTagsAndDecoratedUrls() {
+        assertFalse(UpdatePolicy.safeGithubReleaseAsset("https://example.com/JARVIS-release.apk"))
+        assertFalse(
+            UpdatePolicy.safeGithubReleaseAsset(
+                "https://github.com/daraujop77/JarvisAndroidApp/releases/download/android-v41/JARVIS-release.apk",
+            ),
+        )
+        assertFalse(
+            UpdatePolicy.safeGithubReleaseAsset(
+                "https://github.com/daraujop77/JarvisAndroidApp/releases/latest/download/JARVIS-release.apk?token=x",
+            ),
+        )
+        assertFalse(
+            UpdatePolicy.safeGithubReleaseAsset(
+                "https://github.com/other/JarvisAndroidApp/releases/latest/download/JARVIS-release.apk",
+            ),
+        )
     }
 }
