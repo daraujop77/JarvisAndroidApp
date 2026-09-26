@@ -489,16 +489,41 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (cleanTitle.isEmpty()) return
         writingWorkspaceBusy("APROBANDO DIRECCIÓN DEL CAPÍTULO")
         viewModelScope.launch {
-            val result = container.liveSession.writingRoomChapterPlanApprove(
+            val approved = container.liveSession.writingRoomChapterPlanApprove(
                 projectId = projectId,
                 chapterId = chapterId,
                 title = cleanTitle,
             )
-            if (result.isFailure) {
-                writingWorkspaceError(result.exceptionOrNull())
+            if (approved.isFailure) {
+                writingWorkspaceError(approved.exceptionOrNull())
                 return@launch
             }
-            val chapter = result.getOrThrow().chapter
+
+            val approvedChapter = approved.getOrThrow().chapter
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = true,
+                busyLabel = "WRITER REDACTANDO BORRADOR",
+                activeChapter = approvedChapter,
+                engineReview = null,
+                error = null,
+            )
+
+            val written = container.liveSession.writingRoomChapterWrite(
+                projectId = projectId,
+                chapterId = chapterId,
+            )
+            if (written.isFailure) {
+                val state = _writingWorkspace.value
+                _writingWorkspace.value = state.copy(
+                    busy = false,
+                    busyLabel = "",
+                    activeChapter = approvedChapter,
+                    error = written.exceptionOrNull()?.message ?: "Writer request failed",
+                )
+                return@launch
+            }
+
+            val chapter = written.getOrThrow().chapter
             val list = container.liveSession.writingRoomChapterList(projectId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = false,
