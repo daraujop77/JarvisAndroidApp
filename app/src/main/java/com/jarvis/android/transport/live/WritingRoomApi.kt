@@ -778,6 +778,23 @@ suspend fun JarvisAppSession.writingRoomChapterShowrunner(
     chapterId: String,
 ): Result<WritingChapterAction> = writingRoomChapterAction(projectId, chapterId, "showrunner")
 
+suspend fun JarvisAppSession.writingRoomChapterPlanApprove(
+    projectId: String,
+    chapterId: String,
+    title: String,
+): Result<WritingChapterResponse> {
+    val cleanTitle = title.trim()
+    if (cleanTitle.isEmpty()) return Result.failure(TransportException("Chapter title is required"))
+    return writingPost(
+        "/api/app/writing-room/chapter/plan/approve",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("title", cleanTitle)
+        },
+    )
+}
+
 suspend fun JarvisAppSession.writingRoomChapterWrite(
     projectId: String,
     chapterId: String,
