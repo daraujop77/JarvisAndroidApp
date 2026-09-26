@@ -157,6 +157,90 @@ class WritingRoomWorkspaceApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/plan/council/start" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.plan.council.v1",
+                          "project_id":"prj_story",
+                          "needs_story_architect":true,
+                          "session":{
+                            "session_id":"council_1",
+                            "project_id":"prj_story",
+                            "title":"Future council",
+                            "seed_prompt":"Explore a future reveal",
+                            "status":"ACTIVE",
+                            "created_utc":"2026-09-26T00:00:00Z",
+                            "updated_utc":"2026-09-26T00:00:00Z"
+                          },
+                          "messages":[{
+                            "message_id":"msg_1",
+                            "role":"user",
+                            "role_label":"Tú",
+                            "body":"Explore a future reveal",
+                            "round_index":0,
+                            "saved_plan_item_id":"",
+                            "created_utc":"2026-09-26T00:00:00Z"
+                          }]
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/plan/council/turn" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.plan.council.turn.v1",
+                          "project_id":"prj_story",
+                          "participant":"challenger",
+                          "participant_label":"Challenger",
+                          "phase":"discussion",
+                          "session":{
+                            "session_id":"council_1",
+                            "project_id":"prj_story",
+                            "title":"Future council",
+                            "seed_prompt":"Explore a future reveal",
+                            "status":"ACTIVE",
+                            "created_utc":"2026-09-26T00:00:00Z",
+                            "updated_utc":"2026-09-26T00:00:01Z"
+                          },
+                          "messages":[
+                            {
+                              "message_id":"msg_1",
+                              "role":"user",
+                              "role_label":"Tú",
+                              "body":"Explore a future reveal",
+                              "round_index":0,
+                              "saved_plan_item_id":"",
+                              "created_utc":"2026-09-26T00:00:00Z"
+                            },
+                            {
+                              "message_id":"msg_2",
+                              "role":"challenger",
+                              "role_label":"Challenger",
+                              "body":"Raise the cost and preserve the reveal constraint.",
+                              "round_index":1,
+                              "saved_plan_item_id":"",
+                              "created_utc":"2026-09-26T00:00:01Z"
+                            }
+                          ],
+                          "turn":{
+                            "schema":"jarvis.writing-room.turn.v1",
+                            "project_id":"prj_story",
+                            "project_title":"Alexander History",
+                            "participant":{"id":"challenger","label":"Challenger"},
+                            "routing":{
+                              "requested_mode":"deep",
+                              "resolved_profile":"deep",
+                              "destination":"hermes_cloud",
+                              "provider":"xai-oauth",
+                              "model":"grok-4.7",
+                              "worker_id":null
+                            },
+                            "canon":{"connected":true,"authority":"human_only","story_id":"STORY-001","documents":23,"chunks":276,"sources":[]},
+                            "response":{"text":"Raise the cost and preserve the reveal constraint."},
+                            "metrics":{"total_ms":1200}
+                          }
+                        }
+                        """.trimIndent(),
+                    )
                     "/api/app/writing-room/chapter/start" -> MockResponse().setBody(
                         """
                         {
@@ -408,6 +492,31 @@ class WritingRoomWorkspaceApiTest {
         assertEquals("Hello world", chat.turn.response.text)
         assertEquals("moderator", chat.selected_participant)
         assertEquals("nous", chat.turn.routing.provider)
+    }
+
+    @Test
+    fun planningCouncilStartAndTurnExposeVisibleParticipants() = runBlocking(Dispatchers.IO) {
+        val session = session()
+        val started = session.writingRoomPlanningCouncilStart(
+            projectId = "prj_story",
+            prompt = "Explore a future reveal",
+            title = "Future council",
+        ).getOrThrow()
+
+        assertEquals("council_1", started.session.session_id)
+        assertTrue(started.needs_story_architect)
+        assertEquals("user", started.messages.single().role)
+
+        val turn = session.writingRoomPlanningCouncilTurn(
+            projectId = "prj_story",
+            sessionId = "council_1",
+            participant = "challenger",
+        ).getOrThrow()
+
+        assertEquals("challenger", turn.participant)
+        assertEquals("Challenger", turn.participant_label)
+        assertEquals("challenger", turn.messages.last().role)
+        assertEquals("grok-4.7", turn.turn.routing.model)
     }
 
     @Test
