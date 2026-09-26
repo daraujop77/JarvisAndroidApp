@@ -432,9 +432,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val clean = objective.trim()
         if (clean.isEmpty()) return
-        writingWorkspaceBusy("Building Story State Brief")
+        writingWorkspaceBusy("SHOWRUNNER ANALIZANDO BRIEF")
         viewModelScope.launch {
-            val result = container.liveSession.writingRoomChapterStart(
+            val started = container.liveSession.writingRoomChapterStart(
                 projectId = projectId,
                 title = title,
                 objective = clean,
@@ -444,6 +444,55 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 mustAvoid = mustAvoid,
                 tone = tone,
                 desiredEnd = desiredEnd,
+            )
+            if (started.isFailure) {
+                writingWorkspaceError(started.exceptionOrNull())
+                return@launch
+            }
+
+            val provisional = started.getOrThrow().chapter
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                activeChapter = provisional,
+                engineReview = null,
+                busy = true,
+                busyLabel = "SHOWRUNNER ANALIZANDO BRIEF",
+                error = null,
+            )
+
+            val showrunner = container.liveSession.writingRoomChapterShowrunner(projectId, provisional.chapter_id)
+            if (showrunner.isFailure) {
+                val state = _writingWorkspace.value
+                _writingWorkspace.value = state.copy(
+                    busy = false,
+                    busyLabel = "",
+                    activeChapter = provisional,
+                    error = showrunner.exceptionOrNull()?.message ?: "Showrunner request failed",
+                )
+                return@launch
+            }
+
+            val chapter = showrunner.getOrThrow().chapter
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                activeChapter = chapter,
+                engineReview = null,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                error = list.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun approveWritingChapterPlan(projectId: String, chapterId: String, title: String) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return
+        writingWorkspaceBusy("APROBANDO DIRECCIÓN DEL CAPÍTULO")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomChapterPlanApprove(
+                projectId = projectId,
+                chapterId = chapterId,
+                title = cleanTitle,
             )
             if (result.isFailure) {
                 writingWorkspaceError(result.exceptionOrNull())
