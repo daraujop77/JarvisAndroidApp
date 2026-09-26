@@ -406,6 +406,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             project_id = turn.project_id,
             session = turn.session,
             messages = turn.messages,
+            needs_story_architect = _writingWorkspace.value.planningCouncil?.needs_story_architect ?: false,
         )
         _writingWorkspace.value = _writingWorkspace.value.copy(
             planningCouncil = council,
