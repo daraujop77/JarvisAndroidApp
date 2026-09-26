@@ -984,7 +984,7 @@ private fun WriteSection(
     projectId: String,
     vm: JarvisViewModel,
 ) {
-    var chapterTitle by rememberSaveable { mutableStateOf("") }
+    var selectedChapterTitle by rememberSaveable { mutableStateOf("") }
     var chapterBrief by rememberSaveable { mutableStateOf("") }
     var extraDetailsExpanded by rememberSaveable { mutableStateOf(false) }
     var characters by rememberSaveable { mutableStateOf("") }
@@ -994,8 +994,11 @@ private fun WriteSection(
     var draft by rememberSaveable { mutableStateOf("") }
     val active = state.activeChapter
 
-    LaunchedEffect(active?.chapter_id, active?.draft_text) {
-        if (active != null) draft = active.draft_text
+    LaunchedEffect(active?.chapter_id, active?.draft_text, active?.title) {
+        if (active != null) {
+            draft = active.draft_text
+            selectedChapterTitle = if (active.title == "Nuevo capítulo") "" else active.title
+        }
     }
 
     val wordCount = remember(draft) {
@@ -1009,8 +1012,104 @@ private fun WriteSection(
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Redacción de capítulo activo si existe
-        if (active != null) {
+        // El Showrunner analiza primero el brief. El título y la dirección siguen siendo propuesta
+        // hasta que el usuario los aprueba explícitamente.
+        if (active != null && active.title == "Nuevo capítulo") {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xEE0E182A),
+                    border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.45f)),
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            JarvisOrb(
+                                size = 28.dp,
+                                activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
+                                contentDescription = "Showrunner",
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "SHOWRUNNER · DIRECCIÓN DEL CAPÍTULO",
+                                    style = HudTextStyle.copy(fontSize = 10.sp),
+                                    color = JarvisAmber,
+                                )
+                                Text(
+                                    if (active.showrunner_brief.isBlank()) "Analizando tu brief" else "Propuesta lista para tu decisión",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFFF8FAFC),
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Tu brief",
+                            style = HudTextStyle.copy(fontSize = 9.sp),
+                            color = Color(0xFF94A3B8),
+                        )
+                        Text(
+                            active.objective,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+
+                        if (active.showrunner_brief.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            RichModelText(active.showrunner_brief)
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "TÍTULO ELEGIDO",
+                                style = HudTextStyle,
+                                color = JarvisCyan,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            SimpleField(
+                                value = selectedChapterTitle,
+                                onValueChange = { selectedChapterTitle = it },
+                                label = "Escribe o usa uno de los títulos sugeridos por el Showrunner",
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    vm.approveWritingChapterPlan(
+                                        projectId = projectId,
+                                        chapterId = active.chapter_id,
+                                        title = selectedChapterTitle,
+                                    )
+                                },
+                                enabled = selectedChapterTitle.isNotBlank() && !state.busy,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = JarvisGreen,
+                                    contentColor = Color(0xFF02101F),
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(Modifier.width(7.dp))
+                                Text("Aprobar Dirección y Preparar Capítulo", fontWeight = FontWeight.Bold)
+                            }
+                        } else if (!state.busy) {
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = { vm.runWritingChapterStep(projectId, active.chapter_id, "showrunner") },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Reintentar análisis con Showrunner")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Redacción de capítulo activo sólo después de seleccionar el título/dirección.
+        if (active != null && active.title != "Nuevo capítulo") {
             item {
                 Surface(
                     shape = RoundedCornerShape(18.dp),
@@ -1121,8 +1220,9 @@ private fun WriteSection(
             item { ActiveChapterCard(active) }
         }
 
-        // Modo de Creación de Capítulo Simplificado
-        item {
+        // Modo de creación: sólo el brief es obligatorio. El Showrunner propone título y dirección.
+        if (active == null || active.title != "Nuevo capítulo") {
+            item {
             Surface(
                 shape = RoundedCornerShape(18.dp),
                 color = Color(0xEE0E182A),
@@ -1141,7 +1241,7 @@ private fun WriteSection(
                                 color = Color(0xFFF1F5F9),
                             )
                             Text(
-                                "Indica un brief sencillo de lo que deseas en la escena.",
+                                "Cuéntale al Showrunner qué quieres que ocurra. Él propondrá títulos, tono y dirección.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1150,17 +1250,7 @@ private fun WriteSection(
 
                     Spacer(Modifier.height(14.dp))
 
-                    Text("TÍTULO DEL CAPÍTULO", style = HudTextStyle, color = JarvisCyan)
-                    Spacer(Modifier.height(4.dp))
-                    SimpleField(
-                        value = chapterTitle,
-                        onValueChange = { chapterTitle = it },
-                        label = "Ej: Capítulo 38: La asamblea de generales",
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-
-                    Text("BRIEF DE LO QUE SE QUIERE EN EL CAPÍTULO", style = HudTextStyle, color = JarvisCyan)
+                    Text("BRIEF DE LO QUE QUIERES EN EL CAPÍTULO", style = HudTextStyle, color = JarvisCyan)
                     Spacer(Modifier.height(4.dp))
                     OutlinedTextField(
                         value = chapterBrief,
@@ -1211,7 +1301,7 @@ private fun WriteSection(
                         onClick = {
                             vm.startWritingChapter(
                                 projectId = projectId,
-                                title = chapterTitle.ifBlank { "Capítulo ${state.chapters.size + 38}" },
+                                title = "",
                                 objective = chapterBrief,
                                 storyPoint = "",
                                 characters = characters.split(',').map { it.trim() }.filter { it.isNotEmpty() },
@@ -1220,8 +1310,7 @@ private fun WriteSection(
                                 tone = tone,
                                 desiredEnd = "",
                             )
-                            chapterBrief = ""
-                            chapterTitle = ""
+                            selectedChapterTitle = ""
                         },
                         enabled = chapterBrief.isNotBlank() && !state.busy,
                         colors = ButtonDefaults.buttonColors(containerColor = JarvisGreen, contentColor = Color(0xFF02101F)),
@@ -1229,9 +1318,10 @@ private fun WriteSection(
                     ) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Crear Capítulo y Generar Brief", fontWeight = FontWeight.Bold)
+                        Text("Analizar Brief con Showrunner", fontWeight = FontWeight.Bold)
                     }
                 }
+            }
             }
         }
 
