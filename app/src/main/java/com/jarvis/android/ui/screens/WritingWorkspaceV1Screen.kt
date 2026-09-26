@@ -1564,6 +1564,7 @@ private fun reviewCheckLabel(check: String): String = when (check) {
 private enum class PlanFilter(val label: String, val statusKey: String?) {
     ALL("Todos", null),
     APPROVED("Aprobados", "APPROVED_PLAN"),
+    LOCKED("Futuro fijo", "LOCKED_FUTURE"),
     PROPOSED("Propuestas", "PROPOSED"),
     SELECTED("Seleccionados", "HUMAN_SELECTED"),
     DEFERRED("Postergados", "DEFERRED"),
@@ -2017,6 +2018,7 @@ private fun PlanningCard(
         ) {
             TextButton(onClick = { onStatus("HUMAN_SELECTED") }, enabled = !busy) { Text("Seleccionar") }
             TextButton(onClick = { onStatus("APPROVED_PLAN") }, enabled = !busy) { Text("Aprobar plan") }
+            TextButton(onClick = { onStatus("LOCKED_FUTURE") }, enabled = !busy) { Text("Fijar futuro") }
             TextButton(onClick = { onStatus("DEFERRED") }, enabled = !busy) { Text("Postergar") }
             TextButton(onClick = { onStatus("REJECTED_FOR_CURRENT_ARC") }, enabled = !busy) { Text("Rechazar") }
         }
