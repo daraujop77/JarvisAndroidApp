@@ -203,6 +203,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val wiki: WritingWikiSearch? = null,
         val wikiCharacters: List<WritingWikiEntity> = emptyList(),
         val plans: List<WritingPlanItem> = emptyList(),
+        val planningCouncil: WritingPlanningCouncil? = null,
+        val planningCouncilSessions: List<WritingPlanningCouncilSession> = emptyList(),
         val chapters: List<WritingChapterSummary> = emptyList(),
         val activeChapter: WritingChapter? = null,
         val engineReview: WritingEngineReviewEnvelope? = null,
@@ -255,9 +257,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 topK = 100,
             )
             val plans = container.liveSession.writingRoomPlanList(projectId)
+            val councilSessions = container.liveSession.writingRoomPlanningCouncilList(projectId)
             val chapters = container.liveSession.writingRoomChapterList(projectId)
             val library = container.liveSession.writingRoomLibraryList(projectId)
-            val failure = listOf(overview, wikiHome, wikiCharacters, plans, chapters, library).firstOrNull { it.isFailure }
+            val failure = listOf(overview, wikiHome, wikiCharacters, plans, councilSessions, chapters, library).firstOrNull { it.isFailure }
             if (failure != null) {
                 writingWorkspaceError(failure.exceptionOrNull())
                 return@launch
@@ -269,6 +272,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 wikiHome = wikiHome.getOrNull(),
                 wikiCharacters = wikiCharacters.getOrNull()?.entries.orEmpty(),
                 plans = plans.getOrNull()?.items.orEmpty(),
+                planningCouncilSessions = councilSessions.getOrNull()?.items.orEmpty(),
                 chapters = chapters.getOrNull()?.items.orEmpty(),
                 library = library.getOrNull(),
                 error = null,
@@ -372,6 +376,206 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun clearWritingWikiSearch() {
         _writingWorkspace.value = _writingWorkspace.value.copy(wiki = null)
+    }
+
+    private fun planningCouncilNeedsArchitect(text: String): Boolean {
+        val lowered = text.lowercase()
+        return listOf(
+            "arco", "varios capítulos", "varios capitulos", "más adelante", "mas adelante",
+            "revelación", "revelacion", "foreshadow", "presagio", "setup", "payoff",
+            "temporada", "saga", "largo plazo", "consecuencia futura", "consecuencias futuras",
+        ).any(lowered::contains)
+    }
+
+    private suspend fun runPlanningCouncilRound(
+        projectId: String,
+        sessionId: String,
+        seedText: String,
+        includeArchitect: Boolean,
+    ): Result<WritingPlanningCouncil> {
+        suspend fun runRole(
+            participant: String,
+            label: String,
+            phase: String = "discussion",
+        ): Result<WritingPlanningCouncil> {
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = true,
+                busyLabel = label,
+                error = null,
+            )
+            val result = container.liveSession.writingRoomPlanningCouncilTurn(
+                projectId = projectId,
+                sessionId = sessionId,
+                participant = participant,
+                phase = phase,
+            )
+            if (result.isFailure) return Result.failure(result.exceptionOrNull()!!)
+            val turn = result.getOrThrow()
+            val council = WritingPlanningCouncil(
+                schema = turn.schema,
+                project_id = turn.project_id,
+                session = turn.session,
+                messages = turn.messages,
+            )
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                planningCouncil = council,
+                busy = true,
+                busyLabel = label,
+                error = null,
+            )
+            return Result.success(council)
+        }
+
+        var latest = _writingWorkspace.value.planningCouncil
+        for ((participant, label) in listOf(
+            "showrunner" to "SHOWRUNNER · EXPLORANDO DIRECCIÓN",
+            "lore_keeper" to "LORE KEEPER · VERIFICANDO CANON",
+            "challenger" to "CHALLENGER · PONIENDO A PRUEBA LA IDEA",
+        )) {
+            val result = runRole(participant, label)
+            if (result.isFailure) return result
+            latest = result.getOrNull()
+        }
+
+        if (includeArchitect || planningCouncilNeedsArchitect(seedText)) {
+            val architect = runRole("story_architect", "STORY ARCHITECT · REVISANDO IMPACTO A LARGO PLAZO")
+            if (architect.isFailure) return architect
+            latest = architect.getOrNull()
+        }
+
+        val synthesis = runRole("showrunner", "SHOWRUNNER · CONSOLIDANDO EL CONSEJO", "synthesis")
+        if (synthesis.isFailure) return synthesis
+        latest = synthesis.getOrNull()
+
+        return Result.success(requireNotNull(latest))
+    }
+
+    fun startPlanningCouncil(projectId: String, title: String, prompt: String) {
+        val clean = prompt.trim()
+        if (clean.isEmpty()) return
+        writingWorkspaceBusy("ABRIENDO SALA DE PLANIFICACIÓN")
+        viewModelScope.launch {
+            val started = container.liveSession.writingRoomPlanningCouncilStart(
+                projectId = projectId,
+                prompt = clean,
+                title = title,
+            )
+            if (started.isFailure) {
+                writingWorkspaceError(started.exceptionOrNull())
+                return@launch
+            }
+            val initial = started.getOrThrow()
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                planningCouncil = initial,
+                busy = true,
+                busyLabel = "SHOWRUNNER · EXPLORANDO DIRECCIÓN",
+                error = null,
+            )
+
+            val round = runPlanningCouncilRound(
+                projectId = projectId,
+                sessionId = initial.session.session_id,
+                seedText = clean,
+                includeArchitect = initial.needs_story_architect,
+            )
+            if (round.isFailure) {
+                writingWorkspaceError(round.exceptionOrNull())
+                return@launch
+            }
+
+            val sessions = container.liveSession.writingRoomPlanningCouncilList(projectId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                planningCouncil = round.getOrThrow(),
+                planningCouncilSessions = sessions.getOrNull()?.items ?: _writingWorkspace.value.planningCouncilSessions,
+                busy = false,
+                busyLabel = "",
+                error = sessions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun continuePlanningCouncil(projectId: String, message: String) {
+        val council = _writingWorkspace.value.planningCouncil ?: return
+        val clean = message.trim()
+        if (clean.isEmpty()) return
+        val sessionId = council.session.session_id
+        writingWorkspaceBusy("AÑADIENDO TU DECISIÓN AL CONSEJO")
+        viewModelScope.launch {
+            val appended = container.liveSession.writingRoomPlanningCouncilMessage(
+                projectId = projectId,
+                sessionId = sessionId,
+                message = clean,
+            )
+            if (appended.isFailure) {
+                writingWorkspaceError(appended.exceptionOrNull())
+                return@launch
+            }
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                planningCouncil = appended.getOrThrow(),
+                busy = true,
+                busyLabel = "SHOWRUNNER · RESPONDIENDO A TU DECISIÓN",
+                error = null,
+            )
+            val round = runPlanningCouncilRound(
+                projectId = projectId,
+                sessionId = sessionId,
+                seedText = clean,
+                includeArchitect = false,
+            )
+            if (round.isFailure) {
+                writingWorkspaceError(round.exceptionOrNull())
+                return@launch
+            }
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                planningCouncil = round.getOrThrow(),
+                busy = false,
+                busyLabel = "",
+                error = null,
+            )
+        }
+    }
+
+    fun openPlanningCouncil(projectId: String, sessionId: String) {
+        writingWorkspaceBusy("CARGANDO SALA DE PLANIFICACIÓN")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomPlanningCouncilGet(projectId, sessionId)
+            result.fold(
+                onSuccess = {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        planningCouncil = it,
+                        busy = false,
+                        busyLabel = "",
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun savePlanningCouncilIdea(projectId: String, messageId: String) {
+        val council = _writingWorkspace.value.planningCouncil ?: return
+        writingWorkspaceBusy("GUARDANDO IDEA COMO PROPUESTA")
+        viewModelScope.launch {
+            val saved = container.liveSession.writingRoomPlanningCouncilSaveIdea(
+                projectId = projectId,
+                sessionId = council.session.session_id,
+                messageId = messageId,
+            )
+            if (saved.isFailure) {
+                writingWorkspaceError(saved.exceptionOrNull())
+                return@launch
+            }
+            val plans = container.liveSession.writingRoomPlanList(projectId)
+            val refreshed = container.liveSession.writingRoomPlanningCouncilGet(projectId, council.session.session_id)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                plans = plans.getOrNull()?.items ?: _writingWorkspace.value.plans,
+                planningCouncil = refreshed.getOrNull() ?: _writingWorkspace.value.planningCouncil,
+                busy = false,
+                busyLabel = "",
+                error = plans.exceptionOrNull()?.message ?: refreshed.exceptionOrNull()?.message,
+            )
+        }
     }
 
     fun createWritingPlan(projectId: String, title: String, body: String) {
