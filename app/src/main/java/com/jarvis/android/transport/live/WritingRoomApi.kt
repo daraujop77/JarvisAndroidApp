@@ -186,12 +186,12 @@ data class WritingWikiJarvisAnalysis(
 @Serializable
 data class WritingWikiImage(
     val status: String = "",
-    val asset_id: String = "",
-    val sha256: String = "",
-    val revision: Int = 0,
-    val alt: String = "",
+    val asset_id: String? = null,
+    val sha256: String? = null,
+    val revision: Int? = null,
+    val alt: String? = null,
     val locked_visual: Boolean = false,
-    val source: String = "",
+    val source: String? = null,
 )
 
 @Serializable

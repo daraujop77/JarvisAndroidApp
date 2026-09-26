@@ -872,16 +872,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 _wikiPrimaryState.value = WikiPrimaryState.Success(
                     reply.assetId, reply.characterId, reply.visualRevision,
                 )
-                _wikiVisualAttachments.update { it - reply.assetId }
+                // Keep the just-uploaded local copy keyed by the authoritative asset id
+                // so the portrait renders immediately while the structured Wiki refreshes.
+                _wikiVisualAttachments.update { it + (reply.assetId to attachmentId) }
                 refreshWritingWorkspace(projectId)
             },
             onFailure = { error ->
                 _wikiPrimaryState.value = WikiPrimaryState.Error(
                     error.message ?: "No se pudo actualizar la referencia visual de la Wiki.",
                 )
+                if (cleanupAfter) {
+                    withContext(Dispatchers.IO) { container.attachmentStore.delete(attachmentId) }
+                }
             },
         )
-        if (cleanupAfter) withContext(Dispatchers.IO) { container.attachmentStore.delete(attachmentId) }
     }
 
     fun resetWikiPrimaryState() {

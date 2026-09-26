@@ -2,6 +2,8 @@ package com.jarvis.android.transport.live
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -312,6 +314,53 @@ class WritingRoomWorkspaceApiTest {
             ),
         )
         return JarvisAppSession(store)
+    }
+
+    @Test
+    fun structuredWikiAcceptsUndefinedImagesWithNullAssetFields() {
+        val decoded = Json { ignoreUnknownKeys = true }.decodeFromString<WritingStructuredWikiHome>(
+            """
+            {
+              "schema":"jarvis.structured-wiki.v1",
+              "story_id":"STORY-001",
+              "entry_count":2,
+              "featured":[
+                {
+                  "id":"character:alexander",
+                  "type":"character",
+                  "name":"Alexander",
+                  "image":{
+                    "status":"APPROVED",
+                    "asset_id":"va_alexander_2",
+                    "sha256":"0123456789abcdef",
+                    "revision":2,
+                    "alt":"Alexander",
+                    "locked_visual":true,
+                    "source":"VISUAL_ASSET_REGISTRY"
+                  }
+                },
+                {
+                  "id":"character:william",
+                  "type":"character",
+                  "name":"William",
+                  "image":{
+                    "status":"UNDEFINED",
+                    "asset_id":null,
+                    "sha256":null,
+                    "revision":null,
+                    "alt":null,
+                    "locked_visual":false,
+                    "source":null
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        assertEquals("va_alexander_2", decoded.featured[0].image?.asset_id)
+        assertEquals(null, decoded.featured[1].image?.asset_id)
+        assertEquals(null, decoded.featured[1].image?.alt)
+        assertEquals(null, decoded.featured[1].image?.revision)
     }
 
     @Test
