@@ -1358,7 +1358,7 @@ private fun WriteSection(
                         ) { Text("Brief") }
                         TextButton(
                             onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "write") },
-                            enabled = !state.busy,
+                            enabled = !state.busy && chapter.title != "Nuevo capítulo",
                         ) { Text("Escribir") }
                         TextButton(
                             onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "review") },
