@@ -2016,7 +2016,7 @@ private fun WikiSection(
             item {
                 Text(
                     strings.exploreByCategory,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = Color(0xFFF8FAFC),
                 )
             }
@@ -2943,7 +2943,7 @@ private fun CharacterDetailWiki(
                     if (character.canonicalAbilities.isNotEmpty()) {
                         Text("HABILIDADES CANÓNICAS", style = HudTextStyle, color = JarvisCyan)
                         Spacer(Modifier.height(8.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             character.canonicalAbilities.forEach { ability ->
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
@@ -4047,14 +4047,14 @@ private fun writingRoomActivityLabel(
 private fun RichModelText(text: String) {
     SelectionContainer {
         val lines = text.replace("\r\n", "\n").split("\n")
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 lines.forEach { raw ->
                     val line = raw.trimEnd()
                     when {
                         line.isBlank() -> Spacer(Modifier.height(3.dp))
                         line.startsWith("### ") -> Text(
                             line.removePrefix("### "),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = Color(0xFF67E8F9),
                         )
                         line.startsWith("## ") -> Text(
