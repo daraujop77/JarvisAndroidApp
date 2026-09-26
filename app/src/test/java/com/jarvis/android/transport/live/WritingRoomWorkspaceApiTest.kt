@@ -188,6 +188,28 @@ class WritingRoomWorkspaceApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/chapter/plan/approve" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.chapter.plan-approve.v1",
+                          "project_id":"prj_story",
+                          "chapter":{
+                            "chapter_id":"chapter_1",
+                            "project_id":"prj_story",
+                            "title":"La asamblea de generales",
+                            "objective":"Move the contingency forward.",
+                            "story_point":"After chapter 37",
+                            "status":"PLANNING",
+                            "context_pack_id":"",
+                            "showrunner_brief":"## Dirección propuesta\nTensión política contenida.",
+                            "draft_text":"",
+                            "reviewer_text":"",
+                            "canon_review_text":"",
+                            "characters":["Alexander","Melody"]
+                          }
+                        }
+                        """.trimIndent(),
+                    )
                     "/api/app/writing-room/chapter/review" -> MockResponse().setBody(
                         """
                         {
@@ -448,8 +470,16 @@ class WritingRoomWorkspaceApiTest {
         assertEquals("BRIEF_READY", chapter.chapter.status)
         assertEquals(listOf("Alexander", "Melody"), chapter.chapter.characters)
 
-        assertEquals(5, server.requestCount)
-        repeat(5) {
+        val approved = session.writingRoomChapterPlanApprove(
+            projectId = "prj_story",
+            chapterId = "chapter_1",
+            title = "La asamblea de generales",
+        ).getOrThrow()
+        assertEquals("La asamblea de generales", approved.chapter.title)
+        assertEquals("PLANNING", approved.chapter.status)
+
+        assertEquals(6, server.requestCount)
+        repeat(6) {
             val recorded = server.takeRequest()
             assertEquals("Bearer test-token", recorded.getHeader("Authorization"))
         }
