@@ -1580,18 +1580,40 @@ private fun PlanSection(
     var councilPrompt by rememberSaveable { mutableStateOf("") }
     var councilReply by rememberSaveable { mutableStateOf("") }
     var selectedFilter by rememberSaveable { mutableStateOf(PlanFilter.ALL) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     val council = state.planningCouncil
+    val hasCouncilReview = council?.messages?.any {
+        it.role == "lore_keeper" || it.role == "challenger" || it.role == "story_architect"
+    } == true
     val filteredPlans = remember(state.plans, selectedFilter) {
         if (selectedFilter.statusKey == null) state.plans
         else state.plans.filter { it.status == selectedFilter.statusKey }
     }
 
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    val sendCouncilReply: () -> Unit = {
+        val clean = councilReply.trim()
+        if (clean.isNotEmpty() && !state.busy && council != null) {
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
+            vm.continuePlanningCouncil(projectId, clean)
+            councilReply = ""
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .imePadding(),
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
         item {
             Surface(
                 shape = RoundedCornerShape(18.dp),
@@ -1620,7 +1642,7 @@ private fun PlanSection(
                                     color = JarvisViolet,
                                 )
                                 Text(
-                                    "Consejo visible · futuro no ocurrido",
+                                    "Showrunner primero · consejo bajo demanda",
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                     color = Color(0xFFF8FAFC),
                                 )
@@ -1636,7 +1658,7 @@ private fun PlanSection(
 
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Showrunner propone · Lore Keeper protege lo establecido · Challenger tensiona la idea · Story Architect entra cuando hay impacto de largo plazo.",
+                        "Primero defines la dirección directamente con Showrunner. Cuando estés conforme, puedes bajar la idea al consejo para que Lore Keeper y Challenger la auditen; Story Architect entra sólo si el alcance lo requiere.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1648,10 +1670,8 @@ private fun PlanSection(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        MiniPill("SHOWRUNNER", JarvisCyan)
-                        MiniPill("LORE KEEPER", JarvisGreen)
-                        MiniPill("CHALLENGER", JarvisAmber)
-                        MiniPill("STORY ARCHITECT · SEGÚN APLIQUE", JarvisViolet)
+                        MiniPill("NIVEL 1 · SHOWRUNNER", JarvisCyan)
+                        MiniPill("NIVEL 2 · CONSEJO BAJO DEMANDA", JarvisViolet)
                     }
                 }
             }
@@ -1745,7 +1765,7 @@ private fun PlanSection(
                         ) {
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(17.dp))
                             Spacer(Modifier.width(7.dp))
-                            Text("Abrir Consejo en Vivo", fontWeight = FontWeight.Bold)
+                            Text("Abrir con Showrunner", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1784,6 +1804,45 @@ private fun PlanSection(
                 )
             }
 
+            item {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = JarvisViolet.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, JarvisViolet.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Text(
+                            if (hasCouncilReview) "CONSEJO YA CONSULTADO" else "PROFUNDIZAR CUANDO TÚ DECIDAS",
+                            style = HudTextStyle.copy(fontSize = 9.sp),
+                            color = JarvisViolet,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (hasCouncilReview)
+                                "Puedes seguir afinando la dirección con Showrunner y volver a pedir una revisión del consejo cuando haya cambios importantes."
+                            else
+                                "No hace falta convocar a todos por cada mensaje. Cuando la dirección esté suficientemente clara, baja la propuesta para una revisión independiente.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { vm.deepenPlanningCouncil(projectId) },
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.AccountTree, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (hasCouncilReview) "Revisar de nuevo con el Consejo" else "Bajar al Consejo",
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
+
             if (state.busy) {
                 item {
                     Surface(
@@ -1812,55 +1871,6 @@ private fun PlanSection(
                 }
             }
 
-            item {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0x990E182A),
-                    border = BorderStroke(1.dp, Color(0x332A3B57)),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(10.dp)) {
-                        Text(
-                            "INTERVENIR EN LA SALA",
-                            style = HudTextStyle.copy(fontSize = 9.sp),
-                            color = JarvisCyan,
-                        )
-                        Spacer(Modifier.height(5.dp))
-                        OutlinedTextField(
-                            value = councilReply,
-                            onValueChange = { councilReply = it },
-                            placeholder = {
-                                Text("Ej: Me gusta la alternativa del Challenger, pero no quiero retrasar la revelación.")
-                            },
-                            minLines = 3,
-                            colors = jarvisTextFieldColors(),
-                            modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(
-                                onSend = {
-                                    if (councilReply.isNotBlank() && !state.busy) {
-                                        vm.continuePlanningCouncil(projectId, councilReply)
-                                        councilReply = ""
-                                    }
-                                },
-                            ),
-                        )
-                        Spacer(Modifier.height(7.dp))
-                        Button(
-                            onClick = {
-                                vm.continuePlanningCouncil(projectId, councilReply)
-                                councilReply = ""
-                            },
-                            enabled = councilReply.isNotBlank() && !state.busy,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Responder al Consejo")
-                        }
-                    }
-                }
-            }
         }
 
         item {
@@ -1926,6 +1936,56 @@ private fun PlanSection(
             items(filteredPlans) { item ->
                 PlanningCard(item, state.busy) { status ->
                     vm.setWritingPlanStatus(projectId, item.item_id, status)
+                }
+            }
+        }
+        }
+
+        if (council != null) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xFA0E182A),
+                border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.42f)),
+                shadowElevation = 6.dp,
+            ) {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                    Text(
+                        "HABLAR CON SHOWRUNNER",
+                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        color = JarvisCyan,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        OutlinedTextField(
+                            value = councilReply,
+                            onValueChange = { if (it.length <= 6000) councilReply = it },
+                            placeholder = { Text("Ajusta la dirección, pregunta o toma una decisión…") },
+                            minLines = 1,
+                            maxLines = 4,
+                            colors = jarvisTextFieldColors(),
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { sendCouncilReply() }),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(
+                            onClick = sendCouncilReply,
+                            enabled = councilReply.isNotBlank() && !state.busy,
+                            modifier = Modifier.size(44.dp),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Enviar a Showrunner",
+                                tint = if (councilReply.isNotBlank() && !state.busy) JarvisCyan else Color(0xFF64748B),
+                            )
+                        }
+                    }
                 }
             }
         }

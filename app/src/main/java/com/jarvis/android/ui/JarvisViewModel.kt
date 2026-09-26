@@ -381,63 +381,76 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         ).any(lowered::contains)
     }
 
-    private suspend fun runPlanningCouncilRound(
+    private suspend fun runPlanningCouncilRole(
+        projectId: String,
+        sessionId: String,
+        participant: String,
+        label: String,
+        phase: String = "discussion",
+    ): Result<WritingPlanningCouncil> {
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            busy = true,
+            busyLabel = label,
+            error = null,
+        )
+        val result = container.liveSession.writingRoomPlanningCouncilTurn(
+            projectId = projectId,
+            sessionId = sessionId,
+            participant = participant,
+            phase = phase,
+        )
+        if (result.isFailure) return Result.failure(result.exceptionOrNull()!!)
+        val turn = result.getOrThrow()
+        val council = WritingPlanningCouncil(
+            schema = turn.schema,
+            project_id = turn.project_id,
+            session = turn.session,
+            messages = turn.messages,
+            needs_story_architect = _writingWorkspace.value.planningCouncil?.needs_story_architect ?: false,
+        )
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            planningCouncil = council,
+            busy = true,
+            busyLabel = label,
+            error = null,
+        )
+        return Result.success(council)
+    }
+
+    private suspend fun runPlanningCouncilReview(
         projectId: String,
         sessionId: String,
         seedText: String,
         includeArchitect: Boolean,
     ): Result<WritingPlanningCouncil> {
-        suspend fun runRole(
-            participant: String,
-            label: String,
-            phase: String = "discussion",
-        ): Result<WritingPlanningCouncil> {
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                busy = true,
-                busyLabel = label,
-                error = null,
-            )
-            val result = container.liveSession.writingRoomPlanningCouncilTurn(
-                projectId = projectId,
-                sessionId = sessionId,
-                participant = participant,
-                phase = phase,
-            )
-            if (result.isFailure) return Result.failure(result.exceptionOrNull()!!)
-            val turn = result.getOrThrow()
-            val council = WritingPlanningCouncil(
-                schema = turn.schema,
-                project_id = turn.project_id,
-                session = turn.session,
-                messages = turn.messages,
-            )
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                planningCouncil = council,
-                busy = true,
-                busyLabel = label,
-                error = null,
-            )
-            return Result.success(council)
-        }
-
         var latest = _writingWorkspace.value.planningCouncil
         for ((participant, label) in listOf(
-            "showrunner" to "SHOWRUNNER · EXPLORANDO DIRECCIÓN",
             "lore_keeper" to "LORE KEEPER · VERIFICANDO CANON",
-            "challenger" to "CHALLENGER · PONIENDO A PRUEBA LA IDEA",
+            "challenger" to "CHALLENGER · PONIENDO A PRUEBA LA DIRECCIÓN",
         )) {
-            val result = runRole(participant, label)
+            val result = runPlanningCouncilRole(projectId, sessionId, participant, label)
             if (result.isFailure) return result
             latest = result.getOrNull()
         }
 
         if (includeArchitect || planningCouncilNeedsArchitect(seedText)) {
-            val architect = runRole("story_architect", "STORY ARCHITECT · REVISANDO IMPACTO A LARGO PLAZO")
+            val architect = runPlanningCouncilRole(
+                projectId,
+                sessionId,
+                "story_architect",
+                "STORY ARCHITECT · REVISANDO IMPACTO A LARGO PLAZO",
+            )
             if (architect.isFailure) return architect
             latest = architect.getOrNull()
         }
 
-        val synthesis = runRole("showrunner", "SHOWRUNNER · CONSOLIDANDO EL CONSEJO", "synthesis")
+        val synthesis = runPlanningCouncilRole(
+            projectId,
+            sessionId,
+            "showrunner",
+            "SHOWRUNNER · CONSOLIDANDO EL CONSEJO",
+            "synthesis",
+        )
         if (synthesis.isFailure) return synthesis
         latest = synthesis.getOrNull()
 
@@ -466,20 +479,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 error = null,
             )
 
-            val round = runPlanningCouncilRound(
+            val showrunner = runPlanningCouncilRole(
                 projectId = projectId,
                 sessionId = initial.session.session_id,
-                seedText = clean,
-                includeArchitect = initial.needs_story_architect,
+                participant = "showrunner",
+                label = "SHOWRUNNER · EXPLORANDO DIRECCIÓN",
             )
-            if (round.isFailure) {
-                writingWorkspaceError(round.exceptionOrNull())
+            if (showrunner.isFailure) {
+                writingWorkspaceError(showrunner.exceptionOrNull())
                 return@launch
             }
 
             val sessions = container.liveSession.writingRoomPlanningCouncilList(projectId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
-                planningCouncil = round.getOrThrow(),
+                planningCouncil = showrunner.getOrThrow(),
                 planningCouncilSessions = sessions.getOrNull()?.items ?: _writingWorkspace.value.planningCouncilSessions,
                 busy = false,
                 busyLabel = "",
@@ -510,18 +523,52 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 busyLabel = "SHOWRUNNER · RESPONDIENDO A TU DECISIÓN",
                 error = null,
             )
-            val round = runPlanningCouncilRound(
+            val showrunner = runPlanningCouncilRole(
                 projectId = projectId,
                 sessionId = sessionId,
-                seedText = clean,
-                includeArchitect = false,
+                participant = "showrunner",
+                label = "SHOWRUNNER · RESPONDIENDO A TU DECISIÓN",
             )
-            if (round.isFailure) {
-                writingWorkspaceError(round.exceptionOrNull())
+            if (showrunner.isFailure) {
+                writingWorkspaceError(showrunner.exceptionOrNull())
                 return@launch
             }
             _writingWorkspace.value = _writingWorkspace.value.copy(
-                planningCouncil = round.getOrThrow(),
+                planningCouncil = showrunner.getOrThrow(),
+                busy = false,
+                busyLabel = "",
+                error = null,
+            )
+        }
+    }
+
+    fun deepenPlanningCouncil(projectId: String) {
+        val council = _writingWorkspace.value.planningCouncil ?: return
+        val sessionId = council.session.session_id
+        val seedText = buildString {
+            append(council.session.seed_prompt)
+            council.messages
+                .filter { it.role == "user" }
+                .takeLast(2)
+                .forEach {
+                    append("\n")
+                    append(it.body)
+                }
+        }
+        writingWorkspaceBusy("BAJANDO AL CONSEJO")
+        viewModelScope.launch {
+            val review = runPlanningCouncilReview(
+                projectId = projectId,
+                sessionId = sessionId,
+                seedText = seedText,
+                includeArchitect = council.needs_story_architect,
+            )
+            if (review.isFailure) {
+                writingWorkspaceError(review.exceptionOrNull())
+                return@launch
+            }
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                planningCouncil = review.getOrThrow(),
                 busy = false,
                 busyLabel = "",
                 error = null,
