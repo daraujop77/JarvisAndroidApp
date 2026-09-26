@@ -99,6 +99,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -266,7 +268,7 @@ fun WritingWorkspaceV1Screen(
                         val chapter = overview?.latest_official_chapter?.chapter_number ?: 37
                         MiniPill("CANON · CAP $chapter", JarvisGreen)
                         MiniPill(
-                            if (state.busy) state.busyLabel.ifBlank { "PROCESANDO" } else "EN LÍNEA",
+                            if (state.busy) writingRoomActivityLabel(state, strings) else strings.statusOnline,
                             if (state.busy) JarvisAmber else accents.online,
                         )
                     }
@@ -604,6 +606,9 @@ private fun ChatSection(
     title: String,
     vm: JarvisViewModel,
 ) {
+    val strings = LocalAppStrings.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     var prompt by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
     val completedTurns = state.chatHistory.count { it.response != null }
@@ -611,6 +616,8 @@ private fun ChatSection(
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
         if (clean.isNotEmpty() && !state.busy) {
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
             vm.runWritingRoomAutoChat(projectId, title, clean)
             prompt = ""
         }
@@ -633,8 +640,8 @@ private fun ChatSection(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (state.chatHistory.isEmpty() && state.streamingText.isBlank()) {
                 item {
@@ -729,31 +736,37 @@ private fun ChatSection(
                 }
             }
 
-            if (state.streamingText.isNotBlank()) {
+            if (state.busy || state.streamingText.isNotBlank()) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Start,
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
+                            shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
                             color = Color(0xEE0E182A),
                             border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.45f)),
                             shadowElevation = 2.dp,
-                            modifier = Modifier.fillMaxWidth(0.92f),
+                            modifier = Modifier.fillMaxWidth(0.98f),
                         ) {
-                            Column(Modifier.padding(14.dp)) {
+                            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(
-                                        Modifier.size(14.dp),
+                                        Modifier.size(13.dp),
                                         strokeWidth = 2.dp,
                                         color = JarvisAmber,
                                     )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("JARVIS RESPONDIENDO...", style = HudTextStyle, color = JarvisAmber)
+                                    Spacer(Modifier.width(7.dp))
+                                    Text(
+                                        writingRoomActivityLabel(state, strings),
+                                        style = HudTextStyle.copy(fontSize = 10.sp),
+                                        color = JarvisAmber,
+                                    )
                                 }
-                                Spacer(Modifier.height(10.dp))
-                                RichModelText(state.streamingText)
+                                if (state.streamingText.isNotBlank()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    RichModelText(state.streamingText)
+                                }
                             }
                         }
                     }
@@ -827,9 +840,9 @@ private fun CopilotUserMessage(text: String) {
             color = Color(0xFF1E3A5F),
             border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
             shadowElevation = 2.dp,
-            modifier = Modifier.fillMaxWidth(0.85f),
+            modifier = Modifier.fillMaxWidth(0.90f),
         ) {
-            Column(Modifier.padding(14.dp)) {
+            Column(Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
                 Text(
                     "TÚ",
                     style = HudTextStyle.copy(fontSize = 10.sp),
@@ -862,9 +875,9 @@ private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
             color = Color(0xEE0E182A),
             border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.35f)),
             shadowElevation = 2.dp,
-            modifier = Modifier.fillMaxWidth(0.95f),
+            modifier = Modifier.fillMaxWidth(0.98f),
         ) {
-            Column(Modifier.padding(14.dp)) {
+            Column(Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -875,7 +888,7 @@ private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
                         modifier = Modifier.weight(1f),
                     ) {
                         JarvisOrb(
-                            size = 22.dp,
+                            size = 20.dp,
                             activity = OrbActivity.IDLE,
                             contentDescription = null,
                         )
@@ -918,12 +931,12 @@ private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
                         color = JarvisCyan,
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(5.dp))
                 RichModelText(chat.turn.response.text)
 
                 val grouped = chat.turn.canon.sources.groupBy { it.canon_status.ifBlank { "REFERENCE" } }
                 if (grouped.values.any { it.isNotEmpty() }) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         "FUENTES CANÓNICAS CONSULTADAS",
                         style = HudTextStyle.copy(fontSize = 9.sp),
@@ -2003,7 +2016,7 @@ private fun WikiSection(
             item {
                 Text(
                     strings.exploreByCategory,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = Color(0xFFF8FAFC),
                 )
             }
@@ -2930,7 +2943,7 @@ private fun CharacterDetailWiki(
                     if (character.canonicalAbilities.isNotEmpty()) {
                         Text("HABILIDADES CANÓNICAS", style = HudTextStyle, color = JarvisCyan)
                         Spacer(Modifier.height(8.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             character.canonicalAbilities.forEach { ability ->
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
@@ -4020,6 +4033,16 @@ private fun AuthorityStat(
     }
 }
 
+private fun writingRoomActivityLabel(
+    state: JarvisViewModel.WritingWorkspaceState,
+    strings: AppStrings,
+): String = when {
+    state.streamingText.isNotBlank() -> strings.writingRoomResponding
+    state.chatHistory.lastOrNull()?.response == null && state.chatHistory.isNotEmpty() ->
+        strings.writingRoomAnalyzing
+    else -> state.busyLabel.ifBlank { strings.thinking }
+}
+
 @Composable
 private fun RichModelText(text: String) {
     SelectionContainer {
@@ -4028,7 +4051,7 @@ private fun RichModelText(text: String) {
                 lines.forEach { raw ->
                     val line = raw.trimEnd()
                     when {
-                        line.isBlank() -> Spacer(Modifier.height(6.dp))
+                        line.isBlank() -> Spacer(Modifier.height(3.dp))
                         line.startsWith("### ") -> Text(
                             line.removePrefix("### "),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -4036,25 +4059,25 @@ private fun RichModelText(text: String) {
                         )
                         line.startsWith("## ") -> Text(
                             line.removePrefix("## "),
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFF67E8F9),
                         )
                         line.startsWith("# ") -> Text(
                             line.removePrefix("# "),
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFFE0F2FE),
                         )
                         line.startsWith("- ") || line.startsWith("* ") -> Row(
                             verticalAlignment = Alignment.Top,
                         ) {
-                            Text("•", color = JarvisCyan, fontSize = 16.sp, modifier = Modifier.padding(top = 1.dp))
-                            Spacer(Modifier.size(8.dp))
+                            Text("•", color = JarvisCyan, fontSize = 14.sp, modifier = Modifier.padding(top = 1.dp))
+                            Spacer(Modifier.size(6.dp))
                             Text(
                                 inlineMarkdown(line.drop(2)),
                                 style = MaterialTheme.typography.bodyLarge.copy(
                                     color = Color(0xFFE2E8F0),
-                                    fontSize = 15.sp,
-                                    lineHeight = 24.sp,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
                                 ),
                                 modifier = Modifier.weight(1f),
                             )
@@ -4066,10 +4089,10 @@ private fun RichModelText(text: String) {
                                     line.take(split),
                                     color = JarvisCyan,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
+                                    fontSize = 14.sp,
                                     modifier = Modifier.padding(top = 1.dp),
                                 )
-                                Spacer(Modifier.size(8.dp))
+                                Spacer(Modifier.size(6.dp))
                                 Text(
                                     inlineMarkdown(line.drop(split + 1)),
                                     style = MaterialTheme.typography.bodyLarge.copy(
@@ -4085,8 +4108,8 @@ private fun RichModelText(text: String) {
                             inlineMarkdown(line),
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 color = Color(0xFFE2E8F0),
-                                fontSize = 15.sp,
-                                lineHeight = 24.sp,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
                             ),
                         )
                     }
