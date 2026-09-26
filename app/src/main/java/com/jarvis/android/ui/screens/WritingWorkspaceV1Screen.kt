@@ -1090,7 +1090,7 @@ private fun WriteSection(
                             ) {
                                 Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(17.dp))
                                 Spacer(Modifier.width(7.dp))
-                                Text("Aprobar Dirección y Preparar Capítulo", fontWeight = FontWeight.Bold)
+                                Text("Aprobar Dirección y Escribir Capítulo", fontWeight = FontWeight.Bold)
                             }
                         } else if (!state.busy) {
                             Spacer(Modifier.height(10.dp))
