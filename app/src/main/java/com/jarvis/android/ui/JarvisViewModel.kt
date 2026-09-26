@@ -535,6 +535,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun clearPlanningCouncil() {
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            planningCouncil = null,
+            error = null,
+        )
+    }
+
     fun openPlanningCouncil(projectId: String, sessionId: String) {
         writingWorkspaceBusy("CARGANDO SALA DE PLANIFICACIÓN")
         viewModelScope.launch {
