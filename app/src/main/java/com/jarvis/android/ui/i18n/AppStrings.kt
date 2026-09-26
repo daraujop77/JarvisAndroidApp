@@ -303,7 +303,7 @@ object EnAppStrings : AppStrings {
 
     override val appUpdateSection = "APP UPDATE"
     override fun installedVersion(name: String, code: Number) = "Installed $name ($code)"
-    override val updatesDeliveredNotice = "Updates are delivered through your private JARVIS VPS."
+    override val updatesDeliveredNotice = "Updates are delivered directly from the official JARVIS GitHub release."
     override val checkForUpdate = "Check for update"
     override val checkingForUpdate = "Checking for update…"
     override val checking = "Checking…"
@@ -479,7 +479,7 @@ object EsAppStrings : AppStrings {
 
     override val appUpdateSection = "ACTUALIZACIÓN DE LA APP"
     override fun installedVersion(name: String, code: Number) = "Instalado $name ($code)"
-    override val updatesDeliveredNotice = "Las actualizaciones se distribuyen a través de tu VPS privado de JARVIS."
+    override val updatesDeliveredNotice = "Las actualizaciones se descargan directamente desde la release oficial de JARVIS en GitHub."
     override val checkForUpdate = "Buscar actualizaciones"
     override val checkingForUpdate = "Buscando actualizaciones…"
     override val checking = "Buscando…"
