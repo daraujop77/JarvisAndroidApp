@@ -99,6 +99,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -112,6 +114,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.live.WritingChapter
 import com.jarvis.android.transport.live.WritingEngineReviewEnvelope
 import com.jarvis.android.transport.live.WritingPlanItem
+import com.jarvis.android.transport.live.WritingPlanningCouncilMessage
 import com.jarvis.android.transport.live.WritingRoomAutoChat
 import com.jarvis.android.transport.live.WritingWikiCategory
 import com.jarvis.android.ui.JarvisViewModel
@@ -266,7 +269,7 @@ fun WritingWorkspaceV1Screen(
                         val chapter = overview?.latest_official_chapter?.chapter_number ?: 37
                         MiniPill("CANON · CAP $chapter", JarvisGreen)
                         MiniPill(
-                            if (state.busy) state.busyLabel.ifBlank { "PROCESANDO" } else "EN LÍNEA",
+                            if (state.busy) writingRoomActivityLabel(state, strings) else strings.statusOnline,
                             if (state.busy) JarvisAmber else accents.online,
                         )
                     }
@@ -604,6 +607,9 @@ private fun ChatSection(
     title: String,
     vm: JarvisViewModel,
 ) {
+    val strings = LocalAppStrings.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     var prompt by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
     val completedTurns = state.chatHistory.count { it.response != null }
@@ -611,6 +617,8 @@ private fun ChatSection(
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
         if (clean.isNotEmpty() && !state.busy) {
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
             vm.runWritingRoomAutoChat(projectId, title, clean)
             prompt = ""
         }
@@ -633,8 +641,8 @@ private fun ChatSection(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (state.chatHistory.isEmpty() && state.streamingText.isBlank()) {
                 item {
@@ -729,31 +737,37 @@ private fun ChatSection(
                 }
             }
 
-            if (state.streamingText.isNotBlank()) {
+            if (state.busy || state.streamingText.isNotBlank()) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Start,
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
+                            shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
                             color = Color(0xEE0E182A),
                             border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.45f)),
                             shadowElevation = 2.dp,
-                            modifier = Modifier.fillMaxWidth(0.92f),
+                            modifier = Modifier.fillMaxWidth(0.98f),
                         ) {
-                            Column(Modifier.padding(14.dp)) {
+                            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(
-                                        Modifier.size(14.dp),
+                                        Modifier.size(13.dp),
                                         strokeWidth = 2.dp,
                                         color = JarvisAmber,
                                     )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("JARVIS RESPONDIENDO...", style = HudTextStyle, color = JarvisAmber)
+                                    Spacer(Modifier.width(7.dp))
+                                    Text(
+                                        writingRoomActivityLabel(state, strings),
+                                        style = HudTextStyle.copy(fontSize = 10.sp),
+                                        color = JarvisAmber,
+                                    )
                                 }
-                                Spacer(Modifier.height(10.dp))
-                                RichModelText(state.streamingText)
+                                if (state.streamingText.isNotBlank()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    RichModelText(state.streamingText)
+                                }
                             }
                         }
                     }
@@ -827,9 +841,9 @@ private fun CopilotUserMessage(text: String) {
             color = Color(0xFF1E3A5F),
             border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
             shadowElevation = 2.dp,
-            modifier = Modifier.fillMaxWidth(0.85f),
+            modifier = Modifier.fillMaxWidth(0.90f),
         ) {
-            Column(Modifier.padding(14.dp)) {
+            Column(Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
                 Text(
                     "TÚ",
                     style = HudTextStyle.copy(fontSize = 10.sp),
@@ -862,9 +876,9 @@ private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
             color = Color(0xEE0E182A),
             border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.35f)),
             shadowElevation = 2.dp,
-            modifier = Modifier.fillMaxWidth(0.95f),
+            modifier = Modifier.fillMaxWidth(0.98f),
         ) {
-            Column(Modifier.padding(14.dp)) {
+            Column(Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -875,7 +889,7 @@ private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
                         modifier = Modifier.weight(1f),
                     ) {
                         JarvisOrb(
-                            size = 22.dp,
+                            size = 20.dp,
                             activity = OrbActivity.IDLE,
                             contentDescription = null,
                         )
@@ -918,12 +932,12 @@ private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
                         color = JarvisCyan,
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(5.dp))
                 RichModelText(chat.turn.response.text)
 
                 val grouped = chat.turn.canon.sources.groupBy { it.canon_status.ifBlank { "REFERENCE" } }
                 if (grouped.values.any { it.isNotEmpty() }) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         "FUENTES CANÓNICAS CONSULTADAS",
                         style = HudTextStyle.copy(fontSize = 9.sp),
@@ -971,7 +985,7 @@ private fun WriteSection(
     projectId: String,
     vm: JarvisViewModel,
 ) {
-    var chapterTitle by rememberSaveable { mutableStateOf("") }
+    var selectedChapterTitle by rememberSaveable { mutableStateOf("") }
     var chapterBrief by rememberSaveable { mutableStateOf("") }
     var extraDetailsExpanded by rememberSaveable { mutableStateOf(false) }
     var characters by rememberSaveable { mutableStateOf("") }
@@ -981,8 +995,11 @@ private fun WriteSection(
     var draft by rememberSaveable { mutableStateOf("") }
     val active = state.activeChapter
 
-    LaunchedEffect(active?.chapter_id, active?.draft_text) {
-        if (active != null) draft = active.draft_text
+    LaunchedEffect(active?.chapter_id, active?.draft_text, active?.title) {
+        if (active != null) {
+            draft = active.draft_text
+            selectedChapterTitle = if (active.title == "Nuevo capítulo") "" else active.title
+        }
     }
 
     val wordCount = remember(draft) {
@@ -996,8 +1013,104 @@ private fun WriteSection(
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Redacción de capítulo activo si existe
-        if (active != null) {
+        // El Showrunner analiza primero el brief. El título y la dirección siguen siendo propuesta
+        // hasta que el usuario los aprueba explícitamente.
+        if (active != null && active.title == "Nuevo capítulo") {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xEE0E182A),
+                    border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.45f)),
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            JarvisOrb(
+                                size = 28.dp,
+                                activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
+                                contentDescription = "Showrunner",
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "SHOWRUNNER · DIRECCIÓN DEL CAPÍTULO",
+                                    style = HudTextStyle.copy(fontSize = 10.sp),
+                                    color = JarvisAmber,
+                                )
+                                Text(
+                                    if (active.showrunner_brief.isBlank()) "Analizando tu brief" else "Propuesta lista para tu decisión",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFFF8FAFC),
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Tu brief",
+                            style = HudTextStyle.copy(fontSize = 9.sp),
+                            color = Color(0xFF94A3B8),
+                        )
+                        Text(
+                            active.objective,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+
+                        if (active.showrunner_brief.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            RichModelText(active.showrunner_brief)
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "TÍTULO ELEGIDO",
+                                style = HudTextStyle,
+                                color = JarvisCyan,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            SimpleField(
+                                value = selectedChapterTitle,
+                                onValueChange = { selectedChapterTitle = it },
+                                label = "Escribe o usa uno de los títulos sugeridos por el Showrunner",
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    vm.approveWritingChapterPlan(
+                                        projectId = projectId,
+                                        chapterId = active.chapter_id,
+                                        title = selectedChapterTitle,
+                                    )
+                                },
+                                enabled = selectedChapterTitle.isNotBlank() && !state.busy,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = JarvisGreen,
+                                    contentColor = Color(0xFF02101F),
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(Modifier.width(7.dp))
+                                Text("Aprobar Dirección y Escribir Capítulo", fontWeight = FontWeight.Bold)
+                            }
+                        } else if (!state.busy) {
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = { vm.runWritingChapterStep(projectId, active.chapter_id, "showrunner") },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Reintentar análisis con Showrunner")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Redacción de capítulo activo sólo después de seleccionar el título/dirección.
+        if (active != null && active.title != "Nuevo capítulo") {
             item {
                 Surface(
                     shape = RoundedCornerShape(18.dp),
@@ -1108,8 +1221,9 @@ private fun WriteSection(
             item { ActiveChapterCard(active) }
         }
 
-        // Modo de Creación de Capítulo Simplificado
-        item {
+        // Modo de creación: sólo el brief es obligatorio. El Showrunner propone título y dirección.
+        if (active == null || active.title != "Nuevo capítulo") {
+            item {
             Surface(
                 shape = RoundedCornerShape(18.dp),
                 color = Color(0xEE0E182A),
@@ -1128,7 +1242,7 @@ private fun WriteSection(
                                 color = Color(0xFFF1F5F9),
                             )
                             Text(
-                                "Indica un brief sencillo de lo que deseas en la escena.",
+                                "Cuéntale al Showrunner qué quieres que ocurra. Él propondrá títulos, tono y dirección.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1137,17 +1251,7 @@ private fun WriteSection(
 
                     Spacer(Modifier.height(14.dp))
 
-                    Text("TÍTULO DEL CAPÍTULO", style = HudTextStyle, color = JarvisCyan)
-                    Spacer(Modifier.height(4.dp))
-                    SimpleField(
-                        value = chapterTitle,
-                        onValueChange = { chapterTitle = it },
-                        label = "Ej: Capítulo 38: La asamblea de generales",
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-
-                    Text("BRIEF DE LO QUE SE QUIERE EN EL CAPÍTULO", style = HudTextStyle, color = JarvisCyan)
+                    Text("BRIEF DE LO QUE QUIERES EN EL CAPÍTULO", style = HudTextStyle, color = JarvisCyan)
                     Spacer(Modifier.height(4.dp))
                     OutlinedTextField(
                         value = chapterBrief,
@@ -1198,7 +1302,7 @@ private fun WriteSection(
                         onClick = {
                             vm.startWritingChapter(
                                 projectId = projectId,
-                                title = chapterTitle.ifBlank { "Capítulo ${state.chapters.size + 38}" },
+                                title = "",
                                 objective = chapterBrief,
                                 storyPoint = "",
                                 characters = characters.split(',').map { it.trim() }.filter { it.isNotEmpty() },
@@ -1207,8 +1311,7 @@ private fun WriteSection(
                                 tone = tone,
                                 desiredEnd = "",
                             )
-                            chapterBrief = ""
-                            chapterTitle = ""
+                            selectedChapterTitle = ""
                         },
                         enabled = chapterBrief.isNotBlank() && !state.busy,
                         colors = ButtonDefaults.buttonColors(containerColor = JarvisGreen, contentColor = Color(0xFF02101F)),
@@ -1216,9 +1319,10 @@ private fun WriteSection(
                     ) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Crear Capítulo y Generar Brief", fontWeight = FontWeight.Bold)
+                        Text("Analizar Brief con Showrunner", fontWeight = FontWeight.Bold)
                     }
                 }
+            }
             }
         }
 
@@ -1255,7 +1359,7 @@ private fun WriteSection(
                         ) { Text("Brief") }
                         TextButton(
                             onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "write") },
-                            enabled = !state.busy,
+                            enabled = !state.busy && chapter.title != "Nuevo capítulo",
                         ) { Text("Escribir") }
                         TextButton(
                             onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "review") },
@@ -1460,6 +1564,7 @@ private fun reviewCheckLabel(check: String): String = when (check) {
 private enum class PlanFilter(val label: String, val statusKey: String?) {
     ALL("Todos", null),
     APPROVED("Aprobados", "APPROVED_PLAN"),
+    LOCKED("Futuro fijo", "LOCKED_FUTURE"),
     PROPOSED("Propuestas", "PROPOSED"),
     SELECTED("Seleccionados", "HUMAN_SELECTED"),
     DEFERRED("Postergados", "DEFERRED"),
@@ -1471,11 +1576,12 @@ private fun PlanSection(
     projectId: String,
     vm: JarvisViewModel,
 ) {
-    var title by rememberSaveable { mutableStateOf("") }
-    var body by rememberSaveable { mutableStateOf("") }
+    var councilTitle by rememberSaveable { mutableStateOf("") }
+    var councilPrompt by rememberSaveable { mutableStateOf("") }
+    var councilReply by rememberSaveable { mutableStateOf("") }
     var selectedFilter by rememberSaveable { mutableStateOf(PlanFilter.ALL) }
-    var createExpanded by rememberSaveable { mutableStateOf(false) }
 
+    val council = state.planningCouncil
     val filteredPlans = remember(state.plans, selectedFilter) {
         if (selectedFilter.statusKey == null) state.plans
         else state.plans.filter { it.status == selectedFilter.statusKey }
@@ -1483,10 +1589,280 @@ private fun PlanSection(
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(14.dp),
+        contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // Filtros de estado en español
+        item {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xEE0E182A),
+                border = BorderStroke(1.dp, JarvisViolet.copy(alpha = 0.45f)),
+                shadowElevation = 3.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            JarvisOrb(
+                                size = 28.dp,
+                                activity = if (state.busy && council != null) OrbActivity.THINKING else OrbActivity.IDLE,
+                                contentDescription = "Sala de Planificación",
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    "SALA DE PLANIFICACIÓN",
+                                    style = HudTextStyle.copy(fontSize = 10.sp),
+                                    color = JarvisViolet,
+                                )
+                                Text(
+                                    "Consejo visible · futuro no ocurrido",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFFF8FAFC),
+                                )
+                            }
+                        }
+                        if (council != null) {
+                            TextButton(
+                                onClick = { vm.clearPlanningCouncil() },
+                                enabled = !state.busy,
+                            ) { Text("Nueva sala") }
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Showrunner propone · Lore Keeper protege lo establecido · Challenger tensiona la idea · Story Architect entra cuando hay impacto de largo plazo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        MiniPill("SHOWRUNNER", JarvisCyan)
+                        MiniPill("LORE KEEPER", JarvisGreen)
+                        MiniPill("CHALLENGER", JarvisAmber)
+                        MiniPill("STORY ARCHITECT · SEGÚN APLIQUE", JarvisViolet)
+                    }
+                }
+            }
+        }
+
+        if (state.planningCouncilSessions.isNotEmpty()) {
+            item {
+                Column {
+                    Text(
+                        "SALAS RECIENTES",
+                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        color = Color(0xFF94A3B8),
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        state.planningCouncilSessions.take(12).forEach { session ->
+                            FilterChip(
+                                selected = council?.session?.session_id == session.session_id,
+                                onClick = { vm.openPlanningCouncil(projectId, session.session_id) },
+                                enabled = !state.busy,
+                                label = {
+                                    Text(
+                                        session.title.ifBlank { "Sala" },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (council == null) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0x990E182A),
+                    border = BorderStroke(1.dp, Color(0x332A3B57)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            "¿QUÉ IDEA QUIERES EXPLORAR?",
+                            style = HudTextStyle,
+                            color = JarvisCyan,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        SimpleField(
+                            value = councilTitle,
+                            onValueChange = { councilTitle = it },
+                            label = "Título opcional de la sala",
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = councilPrompt,
+                            onValueChange = { councilPrompt = it },
+                            label = { Text("Idea, evento futuro o dirección narrativa") },
+                            placeholder = {
+                                Text("Ej: Quiero explorar qué consecuencias tendría que Alexander tome esta decisión dentro de varios capítulos...")
+                            },
+                            minLines = 5,
+                            colors = jarvisTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Nada de esta conversación se vuelve canon automáticamente. Las intervenciones pueden guardarse como PROPUESTA y sólo tú cambias su autoridad.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                vm.startPlanningCouncil(projectId, councilTitle, councilPrompt)
+                                councilPrompt = ""
+                                councilTitle = ""
+                            },
+                            enabled = councilPrompt.isNotBlank() && !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = JarvisViolet,
+                                contentColor = Color(0xFFF8FAFC),
+                            ),
+                        ) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text("Abrir Consejo en Vivo", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0x66101B2E),
+                    border = BorderStroke(1.dp, JarvisViolet.copy(alpha = 0.28f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Text(
+                            council.session.title,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFFF8FAFC),
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            council.session.seed_prompt,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        MiniPill("NO CANON · EN PLANIFICACIÓN", JarvisViolet)
+                    }
+                }
+            }
+
+            items(council.messages, key = { it.message_id }) { message ->
+                PlanningCouncilMessageCard(
+                    message = message,
+                    busy = state.busy,
+                    onSaveIdea = { vm.savePlanningCouncilIdea(projectId, message.message_id) },
+                )
+            }
+
+            if (state.busy) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = JarvisAmber.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = JarvisAmber,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                state.busyLabel.ifBlank { "CONSEJO TRABAJANDO" },
+                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                color = JarvisAmber,
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0x990E182A),
+                    border = BorderStroke(1.dp, Color(0x332A3B57)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Text(
+                            "INTERVENIR EN LA SALA",
+                            style = HudTextStyle.copy(fontSize = 9.sp),
+                            color = JarvisCyan,
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        OutlinedTextField(
+                            value = councilReply,
+                            onValueChange = { councilReply = it },
+                            placeholder = {
+                                Text("Ej: Me gusta la alternativa del Challenger, pero no quiero retrasar la revelación.")
+                            },
+                            minLines = 3,
+                            colors = jarvisTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(
+                                onSend = {
+                                    if (councilReply.isNotBlank() && !state.busy) {
+                                        vm.continuePlanningCouncil(projectId, councilReply)
+                                        councilReply = ""
+                                    }
+                                },
+                            ),
+                        )
+                        Spacer(Modifier.height(7.dp))
+                        Button(
+                            onClick = {
+                                vm.continuePlanningCouncil(projectId, councilReply)
+                                councilReply = ""
+                            },
+                            enabled = councilReply.isNotBlank() && !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Responder al Consejo")
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Row(
                 modifier = Modifier
@@ -1497,7 +1873,6 @@ private fun PlanSection(
                 PlanFilter.entries.forEach { filter ->
                     val count = if (filter.statusKey == null) state.plans.size
                     else state.plans.count { it.status == filter.statusKey }
-
                     FilterChip(
                         selected = selectedFilter == filter,
                         onClick = { selectedFilter = filter },
@@ -1524,65 +1899,12 @@ private fun PlanSection(
             }
         }
 
-        // Formulario de propuesta de plan colapsable
         item {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0x990E182A),
-                border = BorderStroke(1.dp, Color(0x332A3B57)),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { createExpanded = !createExpanded },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.Add, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "Proponer Nuevo Arco o Dirección",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFF1F5F9),
-                            )
-                        }
-                        IconButton(onClick = { createExpanded = !createExpanded }) {
-                            Icon(
-                                if (createExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                contentDescription = null,
-                                tint = JarvisCyan,
-                            )
-                        }
-                    }
-
-                    if (createExpanded) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "La planificación es un estado de trabajo persistente, no es canon. Los nuevos ítems empiezan como PROPUESTA.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        SimpleField(title, { title = it }, "Título del plan")
-                        Spacer(Modifier.height(6.dp))
-                        SimpleField(body, { body = it }, "Dirección narrativa o nota futura", 4)
-                        Spacer(Modifier.height(10.dp))
-                        Button(
-                            onClick = {
-                                vm.createWritingPlan(projectId, title, body)
-                                title = ""
-                                body = ""
-                                createExpanded = false
-                            },
-                            enabled = body.isNotBlank() && !state.busy,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Agregar propuesta de plan") }
-                    }
-                }
-            }
+            Text(
+                "IDEAS Y PLANES GUARDADOS",
+                style = HudTextStyle,
+                color = JarvisCyan,
+            )
         }
 
         if (filteredPlans.isEmpty()) {
@@ -1590,7 +1912,7 @@ private fun PlanSection(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 24.dp),
+                        .padding(vertical = 18.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -1604,6 +1926,72 @@ private fun PlanSection(
             items(filteredPlans) { item ->
                 PlanningCard(item, state.busy) { status ->
                     vm.setWritingPlanStatus(projectId, item.item_id, status)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanningCouncilMessageCard(
+    message: WritingPlanningCouncilMessage,
+    busy: Boolean,
+    onSaveIdea: () -> Unit,
+) {
+    val isUser = message.role == "user"
+    val accent = when (message.role) {
+        "showrunner" -> JarvisCyan
+        "lore_keeper" -> JarvisGreen
+        "challenger" -> JarvisAmber
+        "story_architect" -> JarvisViolet
+        else -> Color(0xFF94A3B8)
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+    ) {
+        Surface(
+            shape = if (isUser) RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
+            else RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+            color = if (isUser) Color(0xFF1E3A5F) else Color(0xEE0E182A),
+            border = BorderStroke(1.dp, accent.copy(alpha = 0.38f)),
+            modifier = Modifier.fillMaxWidth(if (isUser) 0.90f else 0.98f),
+        ) {
+            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        message.role_label.ifBlank { message.role.uppercase() },
+                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        color = accent,
+                    )
+                    if (!isUser) {
+                        if (message.saved_plan_item_id.isNotBlank()) {
+                            MiniPill("IDEA GUARDADA", JarvisGreen)
+                        } else {
+                            TextButton(
+                                onClick = onSaveIdea,
+                                enabled = !busy,
+                            ) {
+                                Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Guardar idea", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(3.dp))
+                if (isUser) {
+                    Text(
+                        message.body,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF8FAFC),
+                    )
+                } else {
+                    RichModelText(message.body)
                 }
             }
         }
@@ -1630,6 +2018,7 @@ private fun PlanningCard(
         ) {
             TextButton(onClick = { onStatus("HUMAN_SELECTED") }, enabled = !busy) { Text("Seleccionar") }
             TextButton(onClick = { onStatus("APPROVED_PLAN") }, enabled = !busy) { Text("Aprobar plan") }
+            TextButton(onClick = { onStatus("LOCKED_FUTURE") }, enabled = !busy) { Text("Fijar futuro") }
             TextButton(onClick = { onStatus("DEFERRED") }, enabled = !busy) { Text("Postergar") }
             TextButton(onClick = { onStatus("REJECTED_FOR_CURRENT_ARC") }, enabled = !busy) { Text("Rechazar") }
         }
@@ -4020,41 +4409,51 @@ private fun AuthorityStat(
     }
 }
 
+private fun writingRoomActivityLabel(
+    state: JarvisViewModel.WritingWorkspaceState,
+    strings: AppStrings,
+): String = when {
+    state.streamingText.isNotBlank() -> strings.writingRoomResponding
+    state.chatHistory.lastOrNull()?.response == null && state.chatHistory.isNotEmpty() ->
+        strings.writingRoomAnalyzing
+    else -> state.busyLabel.ifBlank { strings.thinking }
+}
+
 @Composable
 private fun RichModelText(text: String) {
     SelectionContainer {
         val lines = text.replace("\r\n", "\n").split("\n")
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 lines.forEach { raw ->
                     val line = raw.trimEnd()
                     when {
-                        line.isBlank() -> Spacer(Modifier.height(6.dp))
+                        line.isBlank() -> Spacer(Modifier.height(3.dp))
                         line.startsWith("### ") -> Text(
                             line.removePrefix("### "),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = Color(0xFF67E8F9),
                         )
                         line.startsWith("## ") -> Text(
                             line.removePrefix("## "),
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFF67E8F9),
                         )
                         line.startsWith("# ") -> Text(
                             line.removePrefix("# "),
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFFE0F2FE),
                         )
                         line.startsWith("- ") || line.startsWith("* ") -> Row(
                             verticalAlignment = Alignment.Top,
                         ) {
-                            Text("•", color = JarvisCyan, fontSize = 16.sp, modifier = Modifier.padding(top = 1.dp))
-                            Spacer(Modifier.size(8.dp))
+                            Text("•", color = JarvisCyan, fontSize = 14.sp, modifier = Modifier.padding(top = 1.dp))
+                            Spacer(Modifier.size(6.dp))
                             Text(
                                 inlineMarkdown(line.drop(2)),
                                 style = MaterialTheme.typography.bodyLarge.copy(
                                     color = Color(0xFFE2E8F0),
-                                    fontSize = 15.sp,
-                                    lineHeight = 24.sp,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
                                 ),
                                 modifier = Modifier.weight(1f),
                             )
@@ -4066,10 +4465,10 @@ private fun RichModelText(text: String) {
                                     line.take(split),
                                     color = JarvisCyan,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
+                                    fontSize = 14.sp,
                                     modifier = Modifier.padding(top = 1.dp),
                                 )
-                                Spacer(Modifier.size(8.dp))
+                                Spacer(Modifier.size(6.dp))
                                 Text(
                                     inlineMarkdown(line.drop(split + 1)),
                                     style = MaterialTheme.typography.bodyLarge.copy(
@@ -4085,8 +4484,8 @@ private fun RichModelText(text: String) {
                             inlineMarkdown(line),
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 color = Color(0xFFE2E8F0),
-                                fontSize = 15.sp,
-                                lineHeight = 24.sp,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
                             ),
                         )
                     }

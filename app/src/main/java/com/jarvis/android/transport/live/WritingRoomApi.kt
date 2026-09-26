@@ -329,6 +329,56 @@ data class WritingPlanItemResponse(
 )
 
 @Serializable
+data class WritingPlanningCouncilSession(
+    val session_id: String = "",
+    val project_id: String = "",
+    val title: String = "",
+    val seed_prompt: String = "",
+    val status: String = "",
+    val created_utc: String = "",
+    val updated_utc: String = "",
+)
+
+@Serializable
+data class WritingPlanningCouncilMessage(
+    val message_id: String = "",
+    val role: String = "",
+    val role_label: String = "",
+    val body: String = "",
+    val round_index: Int = 0,
+    val saved_plan_item_id: String = "",
+    val created_utc: String = "",
+)
+
+@Serializable
+data class WritingPlanningCouncil(
+    val schema: String = "",
+    val project_id: String = "",
+    val session: WritingPlanningCouncilSession = WritingPlanningCouncilSession(),
+    val messages: List<WritingPlanningCouncilMessage> = emptyList(),
+    val needs_story_architect: Boolean = false,
+)
+
+@Serializable
+data class WritingPlanningCouncilList(
+    val schema: String = "",
+    val project_id: String = "",
+    val items: List<WritingPlanningCouncilSession> = emptyList(),
+)
+
+@Serializable
+data class WritingPlanningCouncilTurn(
+    val schema: String = "",
+    val participant: String = "",
+    val participant_label: String = "",
+    val phase: String = "",
+    val turn: JarvisAppSession.WritingRoomTurn = JarvisAppSession.WritingRoomTurn(),
+    val project_id: String = "",
+    val session: WritingPlanningCouncilSession = WritingPlanningCouncilSession(),
+    val messages: List<WritingPlanningCouncilMessage> = emptyList(),
+)
+
+@Serializable
 data class WritingAuthorIntent(
     val objective: String = "",
     val must_have: String = "",
@@ -692,6 +742,96 @@ suspend fun JarvisAppSession.writingRoomPlanList(projectId: String): Result<Writ
         buildJsonObject { put("project_id", projectId) },
     )
 
+suspend fun JarvisAppSession.writingRoomPlanningCouncilStart(
+    projectId: String,
+    prompt: String,
+    title: String = "",
+): Result<WritingPlanningCouncil> {
+    val clean = prompt.trim()
+    if (clean.isEmpty()) return Result.failure(TransportException("Planning Council prompt is empty"))
+    return writingPost(
+        "/api/app/writing-room/plan/council/start",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("prompt", clean)
+            put("title", title.trim())
+        },
+    )
+}
+
+suspend fun JarvisAppSession.writingRoomPlanningCouncilGet(
+    projectId: String,
+    sessionId: String,
+): Result<WritingPlanningCouncil> =
+    writingPost(
+        "/api/app/writing-room/plan/council/get",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("session_id", sessionId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomPlanningCouncilList(
+    projectId: String,
+    limit: Int = 20,
+): Result<WritingPlanningCouncilList> =
+    writingPost(
+        "/api/app/writing-room/plan/council/list",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("limit", limit.coerceIn(1, 100))
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomPlanningCouncilTurn(
+    projectId: String,
+    sessionId: String,
+    participant: String,
+    phase: String = "discussion",
+): Result<WritingPlanningCouncilTurn> =
+    writingPost(
+        "/api/app/writing-room/plan/council/turn",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("session_id", sessionId)
+            put("participant", participant)
+            put("phase", phase)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomPlanningCouncilMessage(
+    projectId: String,
+    sessionId: String,
+    message: String,
+): Result<WritingPlanningCouncil> {
+    val clean = message.trim()
+    if (clean.isEmpty()) return Result.failure(TransportException("Planning Council message is empty"))
+    return writingPost(
+        "/api/app/writing-room/plan/council/message",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("session_id", sessionId)
+            put("message", clean)
+        },
+    )
+}
+
+suspend fun JarvisAppSession.writingRoomPlanningCouncilSaveIdea(
+    projectId: String,
+    sessionId: String,
+    messageId: String,
+    title: String = "",
+): Result<WritingPlanItemResponse> =
+    writingPost(
+        "/api/app/writing-room/plan/council/save",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("session_id", sessionId)
+            put("message_id", messageId)
+            put("title", title.trim())
+        },
+    )
+
 suspend fun JarvisAppSession.writingRoomPlanCreate(
     projectId: String,
     title: String,
@@ -777,6 +917,23 @@ suspend fun JarvisAppSession.writingRoomChapterShowrunner(
     projectId: String,
     chapterId: String,
 ): Result<WritingChapterAction> = writingRoomChapterAction(projectId, chapterId, "showrunner")
+
+suspend fun JarvisAppSession.writingRoomChapterPlanApprove(
+    projectId: String,
+    chapterId: String,
+    title: String,
+): Result<WritingChapterResponse> {
+    val cleanTitle = title.trim()
+    if (cleanTitle.isEmpty()) return Result.failure(TransportException("Chapter title is required"))
+    return writingPost(
+        "/api/app/writing-room/chapter/plan/approve",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("title", cleanTitle)
+        },
+    )
+}
 
 suspend fun JarvisAppSession.writingRoomChapterWrite(
     projectId: String,

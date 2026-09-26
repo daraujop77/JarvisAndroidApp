@@ -160,6 +160,8 @@ interface AppStrings {
     val workspaceOverview: String
     val workspaceWrite: String
     val workspaceChat: String
+    val writingRoomAnalyzing: String
+    val writingRoomResponding: String
     val workspacePlan: String
     val workspaceWiki: String
     val workspaceLibrary: String
@@ -334,6 +336,8 @@ object EnAppStrings : AppStrings {
     override val workspaceOverview = "Overview"
     override val workspaceWrite = "Write"
     override val workspaceChat = "Copilot"
+    override val writingRoomAnalyzing = "ANALYZING CANON"
+    override val writingRoomResponding = "WRITING RESPONSE"
     override val workspacePlan = "Plans"
     override val workspaceWiki = "Wiki"
     override val workspaceLibrary = "Library"
@@ -508,6 +512,8 @@ object EsAppStrings : AppStrings {
     override val workspaceOverview = "Resumen"
     override val workspaceWrite = "Escribir"
     override val workspaceChat = "Copiloto"
+    override val writingRoomAnalyzing = "ANALIZANDO CANON"
+    override val writingRoomResponding = "REDACTANDO RESPUESTA"
     override val workspacePlan = "Planes"
     override val workspaceWiki = "Wiki"
     override val workspaceLibrary = "Biblioteca"
