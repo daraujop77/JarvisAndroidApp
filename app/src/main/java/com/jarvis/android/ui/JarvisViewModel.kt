@@ -1357,6 +1357,46 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /** True when this install can recover an expired access session without a password. */
+    val canBiometricReauth: Boolean
+        get() = container.liveSession.hasRefreshCredential
+
+    /**
+     * Called only after BiometricPrompt/device-credential verification.
+     * Exchanges the encrypted, device-bound refresh credential for a fresh
+     * bearer, then reconnects the existing LIVE transport.
+     */
+    fun biometricReauth(onDone: (Boolean) -> Unit = {}) {
+        if (_liveAuth.value is LiveAuthState.Busy) return
+        _liveAuth.value = LiveAuthState.Busy
+        viewModelScope.launch {
+            val result = container.liveSession.refresh()
+            if (result.isSuccess) {
+                container.settings.setPaired(true, container.deviceIdentity.provision())
+                container.settings.setUseFake(false)
+                container.settings.setBaseUrl(container.liveSession.baseUrl)
+                container.settings.setLastControlPlaneUrl(container.liveSession.baseUrl)
+                _liveAuth.value = LiveAuthState.Authed(result.getOrThrow().username)
+                session.reconnectNow()
+                onDone(true)
+            } else {
+                _liveAuth.value = LiveAuthState.Error(
+                    result.exceptionOrNull()?.message ?: "device reauthentication failed",
+                )
+                onDone(false)
+            }
+        }
+    }
+
+    /** Explicit escape hatch when the device credential is no longer usable. */
+    fun pairAgain() {
+        container.liveSession.clear()
+        _liveAuth.value = LiveAuthState.Idle
+        viewModelScope.launch {
+            container.settings.setPaired(false)
+        }
+    }
+
     /** PCB-LIVE-4: server-driven profile catalog (from /api/app/status). */
     private val _chatAccess = MutableStateFlow<com.jarvis.android.transport.live.JarvisAppSession.ChatAccess?>(null)
     val chatAccess: StateFlow<com.jarvis.android.transport.live.JarvisAppSession.ChatAccess?> = _chatAccess
