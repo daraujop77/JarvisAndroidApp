@@ -56,21 +56,23 @@ class SecureRefreshCredentialStore(context: Context) : RefreshCredentialStore {
     }
 
     @Synchronized
-    override fun load(): RefreshCredential? = runCatching {
-        val iv = prefs.getString(KEY_IV, null)?.let { Base64.decode(it, Base64.NO_WRAP) }
-            ?: return null
-        val ciphertext = prefs.getString(KEY_CIPHERTEXT, null)?.let {
-            Base64.decode(it, Base64.NO_WRAP)
-        } ?: return null
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
-        val token = cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
-        if (token.isBlank()) return null
-        RefreshCredential(token, prefs.getString(KEY_EXPIRES, null))
-    }.getOrElse {
-        // A replaced/invalidated Keystore key must fail closed.
-        clear()
-        null
+    override fun load(): RefreshCredential? {
+        return runCatching {
+            val iv = prefs.getString(KEY_IV, null)?.let { Base64.decode(it, Base64.NO_WRAP) }
+                ?: return@runCatching null
+            val ciphertext = prefs.getString(KEY_CIPHERTEXT, null)?.let {
+                Base64.decode(it, Base64.NO_WRAP)
+            } ?: return@runCatching null
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
+            val token = cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+            if (token.isBlank()) return@runCatching null
+            RefreshCredential(token, prefs.getString(KEY_EXPIRES, null))
+        }.getOrElse {
+            // A replaced/invalidated Keystore key must fail closed.
+            clear()
+            null
+        }
     }
 
     override fun hasUsableCredential(): Boolean {
