@@ -79,7 +79,11 @@ class AppContainer(private val context: Context) {
      */
     @Volatile
     var transportMode: TransportMode =
-        if (liveSession.isAuthenticated) TransportMode.LIVE else TransportMode.HTTP
+        if (liveSession.isAuthenticated || liveSession.hasRefreshCredential) {
+            TransportMode.LIVE
+        } else {
+            TransportMode.HTTP
+        }
         private set
 
     /**
@@ -133,7 +137,7 @@ class AppContainer(private val context: Context) {
      * target for when PC-A activates it.
      */
     fun resolveMode(useFake: Boolean): TransportMode = when {
-        liveSession.isAuthenticated -> TransportMode.LIVE
+        liveSession.isAuthenticated || liveSession.hasRefreshCredential -> TransportMode.LIVE
         else -> TransportMode.HTTP
     }
 
