@@ -1,6 +1,9 @@
 package com.jarvis.android.transport.live
 
 import android.content.Context
+import com.jarvis.android.security.MemoryRefreshCredentialStore
+import com.jarvis.android.security.RefreshCredentialStore
+import com.jarvis.android.security.SecureRefreshCredentialStore
 import com.jarvis.android.transport.TransportException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,6 +42,7 @@ import java.util.concurrent.TimeUnit
 class JarvisAppSession(
     private val store: Store,
     private val client: OkHttpClient = defaultClient(),
+    private val refreshStore: RefreshCredentialStore = MemoryRefreshCredentialStore(),
 ) {
 
     /** Persistence seam (SharedPreferences in prod, in-memory in tests). */
@@ -84,6 +88,7 @@ class JarvisAppSession(
     val username: String get() = store.get(KEY_USERNAME) ?: ""
     val role: String get() = store.get(KEY_ROLE) ?: ""
     val expiresUtc: String? get() = store.get(KEY_EXPIRES)
+    val hasRefreshCredential: Boolean get() = refreshStore.hasUsableCredential()
 
     /** Stable app-scope session id minted at login (mirrors PC-A web client). */
     val appSessionId: String
@@ -119,6 +124,7 @@ class JarvisAppSession(
             val body = buildJsonObject {
                 put("username", user)
                 put("password", password)
+                put("device_id", deviceId)
             }.toString()
             runCatching {
                 val resp = post(root, "/api/app/login", body, auth = null)
@@ -137,21 +143,24 @@ class JarvisAppSession(
                         KEY_APP_SESSION to null, // fresh app session per login
                     ),
                 )
+                parsed.refresh_token.takeIf { it.isNotBlank() }?.let {
+                    refreshStore.save(it, parsed.refresh_expires_utc)
+                }
                 parsed.user
             }
         }
 
-    /** Validate the stored token against `/api/app/session`; clears it on 401. */
+    /** Validate the stored access token. Expiry clears only the short-lived token. */
     suspend fun restore(): Result<AppUser> = withContext(Dispatchers.IO) {
-        val t = token ?: return@withContext Result.failure(TransportException("no session"))
+        token ?: return@withContext Result.failure(TransportException("no session"))
         if (expired) {
-            clear()
+            clearAccess()
             return@withContext Result.failure(TransportException("session expired"))
         }
         runCatching {
             val resp = get(baseUrl, "/api/app/session", auth = authHeader())
             if (resp.first == 401) {
-                clear()
+                clearAccess()
                 throw TransportException("session expired")
             }
             requireOk(resp)
@@ -161,15 +170,75 @@ class JarvisAppSession(
         }
     }
 
+    /**
+     * Exchange the device-bound refresh credential for a fresh 24h bearer.
+     * The refresh credential rotates on every successful exchange.
+     */
+    suspend fun refresh(): Result<AppUser> = withContext(Dispatchers.IO) {
+        val credential = refreshStore.load()
+            ?: return@withContext Result.failure(TransportException("pairing required"))
+        val root = normalizeBase(baseUrl)
+            ?: return@withContext Result.failure(TransportException("invalid gateway URL"))
+        if (!isAllowedLiveHost(root)) {
+            return@withContext Result.failure(
+                TransportException("live front door must be a private-network host (Tailscale/LAN)"),
+            )
+        }
+        runCatching {
+            val body = buildJsonObject {
+                put("refresh_token", credential.token)
+                put("device_id", deviceId)
+            }.toString()
+            val resp = post(root, "/api/app/refresh", body, auth = null)
+            if (resp.first == 401 || resp.first == 403) {
+                clearAccess()
+                refreshStore.clear()
+                throw TransportException("device credential expired or revoked")
+            }
+            requireOk(resp)
+            val parsed = json.decodeFromString(LoginResponse.serializer(), resp.second)
+            check(parsed.authenticated && parsed.token.isNotBlank()) { "refresh response missing token" }
+            check(parsed.refresh_token.isNotBlank()) { "refresh response missing device credential" }
+            store.put(
+                mapOf(
+                    KEY_TOKEN to parsed.token,
+                    KEY_USER_ID to parsed.user.id,
+                    KEY_USERNAME to parsed.user.username,
+                    KEY_ROLE to parsed.user.role,
+                    KEY_EXPIRES to parsed.expires_utc,
+                    KEY_APP_SESSION to null,
+                ),
+            )
+            refreshStore.save(parsed.refresh_token, parsed.refresh_expires_utc)
+            parsed.user
+        }
+    }
+
     suspend fun logout(): Boolean = withContext(Dispatchers.IO) {
-        val t = token ?: return@withContext false
-        val ok = runCatching { post(baseUrl, "/api/app/logout", "{}", auth = t).first in 200..299 }
-            .getOrDefault(false)
+        val ok = token?.let {
+            runCatching {
+                post(baseUrl, "/api/app/logout", "{}", auth = authHeader()).first in 200..299
+            }.getOrDefault(false)
+        } ?: false
         clear()
         ok
     }
 
-    fun clear() = store.clear()
+    /** Drop only the short-lived bearer while preserving the paired device credential. */
+    fun clearAccess() {
+        store.put(
+            mapOf(
+                KEY_TOKEN to null,
+                KEY_EXPIRES to null,
+                KEY_APP_SESSION to null,
+            ),
+        )
+    }
+
+    fun clear() {
+        store.clear()
+        refreshStore.clear()
+    }
 
     fun authHeader(): String? = token?.let { "Bearer $it" }
 
@@ -374,7 +443,7 @@ class JarvisAppSession(
         runCatching {
             val resp = get(baseUrl, "/api/app/usage", auth = authHeader())
             if (resp.first == 401) {
-                clear()
+                clearAccess()
                 throw TransportException("session expired")
             }
             requireOk(resp)
@@ -728,7 +797,7 @@ class JarvisAppSession(
         prompt: String,
     ): Result<WritingRoomTurn> = withContext(Dispatchers.IO) {
         if (expired) {
-            clear()
+            clearAccess()
             return@withContext Result.failure(TransportException("session expired"))
         }
         val auth = authHeader()
@@ -748,7 +817,7 @@ class JarvisAppSession(
             }.toString()
             val resp = post(baseUrl, "/api/app/writing-room/council", body, auth)
             if (resp.first == 401) {
-                clear()
+                clearAccess()
                 throw TransportException("session expired")
             }
             requireOk(resp)
@@ -819,6 +888,9 @@ class JarvisAppSession(
         val authenticated: Boolean = false,
         val token: String = "",
         val expires_utc: String? = null,
+        val refresh_token: String = "",
+        val refresh_expires_utc: String? = null,
+        val device_id: String? = null,
         val user: AppUser = AppUser(),
     )
 
@@ -845,7 +917,10 @@ class JarvisAppSession(
 
         internal val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
-        fun forContext(context: Context): JarvisAppSession = JarvisAppSession(PrefsStore(context))
+        fun forContext(context: Context): JarvisAppSession = JarvisAppSession(
+            store = PrefsStore(context),
+            refreshStore = SecureRefreshCredentialStore(context),
+        )
 
         internal fun normalizeBase(raw: String): String? {
             val trimmed = raw.trim().trimEnd('/')
