@@ -79,6 +79,7 @@ import com.jarvis.android.ui.screens.LockScreen
 import com.jarvis.android.ui.screens.PairingScreen
 import com.jarvis.android.ui.screens.ProjectsScreen
 import com.jarvis.android.ui.screens.SettingsScreen
+import com.jarvis.android.ui.screens.SessionReauthScreen
 import com.jarvis.android.ui.screens.TasksScreen
 import com.jarvis.android.ui.screens.UsageScreen
 import com.jarvis.android.ui.screens.WelcomeScreen
@@ -116,7 +117,7 @@ sealed class TopLevelDestination(val route: String, val label: String, val icon:
 }
 
 /** Which full-screen surface owns the window right now. */
-private enum class Shell { BOOT, LOCKED, PAIRING, MAIN }
+private enum class Shell { BOOT, LOCKED, REAUTH, PAIRING, MAIN }
 
 @Composable
 fun JarvisRoot(
@@ -128,6 +129,7 @@ fun JarvisRoot(
 
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val liveAuth by vm.liveAuth.collectAsStateWithLifecycle()
     val bootShown by vm.bootShown.collectAsStateWithLifecycle()
     val unlocked by vm.unlocked.collectAsStateWithLifecycle()
     val relock by app.relockRequested.collectAsStateWithLifecycle()
@@ -139,17 +141,25 @@ fun JarvisRoot(
         }
     }
 
-    // Fail closed: revoked / expired / protocol-mismatch lose the chat
-    // surface. Re-pair (or update + re-pair) is the only recovery — never a
-    // silent reconnect from MAIN.
-    val credentialsInvalid = snapshot.phase == SessionPhase.REVOKED ||
-        snapshot.phase == SessionPhase.AUTH_EXPIRED ||
+    // Revocation/protocol mismatch still fail closed. Ordinary access-token
+    // expiry is recoverable only when this install has a device credential.
+    val hardInvalid = snapshot.phase == SessionPhase.REVOKED ||
         snapshot.phase == SessionPhase.MISMATCH
+    val authExpired = snapshot.phase == SessionPhase.AUTH_EXPIRED ||
+        !vm.liveAuthenticated
+    val reauthRecovered = liveAuth is JarvisViewModel.LiveAuthState.Authed &&
+        vm.liveAuthenticated
+    val canReauth = settings.paired &&
+        !hardInvalid &&
+        authExpired &&
+        !reauthRecovered &&
+        vm.canBiometricReauth
 
     val shell = when {
         !bootShown -> Shell.BOOT
         settings.appLockEnabled && !unlocked -> Shell.LOCKED
-        !settings.paired || !vm.liveAuthenticated || credentialsInvalid -> Shell.PAIRING
+        canReauth -> Shell.REAUTH
+        !settings.paired || !vm.liveAuthenticated || hardInvalid -> Shell.PAIRING
         else -> Shell.MAIN
     }
 
@@ -179,11 +189,13 @@ fun JarvisRoot(
 
                 Shell.LOCKED -> LockScreen(onUnlocked = vm::onUnlocked)
 
+                Shell.REAUTH -> SessionReauthScreen(vm)
+
                 Shell.PAIRING -> PairingScreen(
                     vm = vm,
                     lockedReason = when (snapshot.phase) {
                         SessionPhase.REVOKED -> "This device was revoked on the Jarvis PC. Pair again to restore access."
-                        SessionPhase.AUTH_EXPIRED -> "Your session expired. Pair again to restore access."
+                        SessionPhase.AUTH_EXPIRED -> "This device session expired and cannot be renewed. Pair again to restore access."
                         SessionPhase.MISMATCH -> "This app is out of date for the Jarvis PC protocol. Update, then pair again."
                         else -> null
                     },
