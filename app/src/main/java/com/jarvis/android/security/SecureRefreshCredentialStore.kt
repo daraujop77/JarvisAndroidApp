@@ -74,8 +74,10 @@ class SecureRefreshCredentialStore(context: Context) : RefreshCredentialStore {
     }
 
     override fun hasUsableCredential(): Boolean {
-        val credential = load() ?: return false
-        val expiry = credential.expiresUtc ?: return true
+        if (prefs.getString(KEY_CIPHERTEXT, null).isNullOrBlank() ||
+            prefs.getString(KEY_IV, null).isNullOrBlank()
+        ) return false
+        val expiry = prefs.getString(KEY_EXPIRES, null) ?: return true
         return runCatching {
             Instant.parse(expiry).isAfter(Instant.now().plusSeconds(30))
         }.getOrDefault(false)
