@@ -2936,7 +2936,6 @@ private fun WikiSection(
                 }
             }
         }
-        }
     }
 }
 
