@@ -352,6 +352,13 @@ fun WritingWorkspaceV1Screen(
             WorkspaceTab.WRITE -> WriteSection(state, projectId, vm)
             WorkspaceTab.CHAT -> ChatSection(state, projectId, title, vm)
             WorkspaceTab.PLAN -> PlanSection(state, projectId, vm)
+            WorkspaceTab.CANON -> CanonSection(
+                state = state,
+                projectId = projectId,
+                vm = vm,
+                onOpenChapter = { tab = WorkspaceTab.LIBRARY },
+                onOpenWiki = { tab = WorkspaceTab.WIKI },
+            )
             WorkspaceTab.WIKI -> WikiSection(
                 state = state,
                 projectId = projectId,
@@ -2345,6 +2352,161 @@ private fun PlanningCard(
             TextButton(onClick = { onStatus("LOCKED_FUTURE") }, enabled = !busy) { Text("Fijar futuro") }
             TextButton(onClick = { onStatus("DEFERRED") }, enabled = !busy) { Text("Postergar") }
             TextButton(onClick = { onStatus("REJECTED_FOR_CURRENT_ARC") }, enabled = !busy) { Text("Rechazar") }
+        }
+    }
+}
+
+@Composable
+private fun CanonSection(
+    state: JarvisViewModel.WritingWorkspaceState,
+    projectId: String,
+    vm: JarvisViewModel,
+    onOpenChapter: () -> Unit,
+    onOpenWiki: () -> Unit,
+) {
+    var canonView by rememberSaveable { mutableStateOf("timeline") }
+    val timeline = state.wikiTimeline
+    val explorer = state.canonExplorer
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            WorkspaceCard("Canon", JarvisGreen) {
+                Text(
+                    "Navega la historia establecida, su cronología y las relaciones de lore sin mezclar hechos ocurridos con planes futuros.",
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                    color = Color(0xFFCBD5E1),
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    listOf(
+                        "timeline" to "Línea de tiempo",
+                        "explorer" to "Mapa del canon",
+                        "lore" to "Lore",
+                    ).forEach { (id, label) ->
+                        FilterChip(
+                            selected = canonView == id,
+                            onClick = { canonView = id },
+                            label = { Text(label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = Color(0x33101B2E),
+                                selectedContainerColor = JarvisGreen.copy(alpha = 0.16f),
+                                labelColor = Color(0xFFCBD5E1),
+                                selectedLabelColor = JarvisGreen,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+
+        when (canonView) {
+            "timeline" -> {
+                item {
+                    Text(
+                        "HISTORIA OCURRIDA / REFERENCIAS RECUPERADAS",
+                        style = HudTextStyle,
+                        color = JarvisCyan,
+                    )
+                }
+                val occurred = timeline?.occurred.orEmpty().sortedBy { it.chapter_number }
+                items(occurred, key = { "canon_timeline_${it.chapter_number}" }) { event ->
+                    TimelineChapterCard(
+                        item = event,
+                        onOpen = {
+                            vm.readWritingLibraryDocument(projectId, event.document_id)
+                            onOpenChapter()
+                        },
+                        onCharacter = { characterId ->
+                            vm.searchWritingWiki(projectId, characterId)
+                            onOpenWiki()
+                        },
+                    )
+                }
+                val future = timeline?.future.orEmpty()
+                if (future.isNotEmpty()) {
+                    item {
+                        Text(
+                            "FUTURO APROBADO / FIJADO / PROPUESTO · TODAVÍA NO OCURRIÓ",
+                            style = HudTextStyle,
+                            color = JarvisViolet,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    items(future, key = { "canon_future_${it.id}" }) { event ->
+                        TimelineFutureCard(event)
+                    }
+                }
+            }
+
+            "explorer" -> {
+                item {
+                    WorkspaceCard("Mapa del canon", JarvisViolet) {
+                        Text(
+                            "Personajes, lugares, arcos, eventos y relaciones enlazados con capítulos y fuentes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                }
+                explorer?.sections.orEmpty()
+                    .filter { it.items.isNotEmpty() }
+                    .forEach { section ->
+                        item(key = "canon_section_${section.id}") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(section.label.uppercase(), style = HudTextStyle, color = JarvisCyan)
+                                Spacer(Modifier.weight(1f))
+                                MiniPill("${section.items.size}", JarvisCyan)
+                            }
+                        }
+                        items(section.items, key = { "canon_node_${it.id}" }) { entry ->
+                            CanonExplorerEntryCard(
+                                item = entry,
+                                onOpen = {
+                                    vm.searchWritingWiki(projectId, entry.name)
+                                    onOpenWiki()
+                                },
+                            )
+                        }
+                    }
+            }
+
+            else -> {
+                val loreSections = explorer?.sections.orEmpty()
+                    .filter { it.id in setOf("lore", "locations", "arcs", "questions") && it.items.isNotEmpty() }
+                item {
+                    WorkspaceCard("Explorador de Lore", JarvisAmber) {
+                        Text(
+                            "Reglas del mundo, lugares, arcos y misterios con autoridad y evidencia visible.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                }
+                loreSections.forEach { section ->
+                    item(key = "lore_section_${section.id}") {
+                        Text(section.label.uppercase(), style = HudTextStyle, color = JarvisAmber)
+                    }
+                    items(section.items, key = { "lore_node_${it.id}" }) { entry ->
+                        CanonExplorerEntryCard(
+                            item = entry,
+                            onOpen = {
+                                vm.searchWritingWiki(projectId, entry.name)
+                                onOpenWiki()
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -5197,6 +5359,7 @@ private enum class WorkspaceTab(val icon: ImageVector) {
     WRITE(Icons.Filled.EditNote),
     CHAT(Icons.AutoMirrored.Filled.Chat),
     PLAN(Icons.Filled.AccountTree),
+    CANON(Icons.Filled.AutoStories),
     WIKI(Icons.Filled.AutoStories),
     LIBRARY(Icons.Filled.LocalLibrary);
 
@@ -5205,6 +5368,7 @@ private enum class WorkspaceTab(val icon: ImageVector) {
         WRITE -> strings.workspaceWrite
         CHAT -> strings.workspaceChat
         PLAN -> strings.workspacePlan
+        CANON -> "Canon"
         WIKI -> strings.workspaceWiki
         LIBRARY -> strings.workspaceLibrary
     }
