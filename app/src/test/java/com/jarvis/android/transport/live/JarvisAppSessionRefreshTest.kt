@@ -68,6 +68,25 @@ class JarvisAppSessionRefreshTest {
     }
 
     @Test
+    fun legacyPrivateControlPlaneMigratesToPublicFunnelPort() {
+        val store = JarvisAppSession.MemoryStore().apply {
+            put(
+                mapOf(
+                    JarvisAppSession.KEY_BASE to
+                        JarvisAppSession.LEGACY_PRIVATE_CONTROL_PLANE_URL,
+                )
+            )
+        }
+        val session = JarvisAppSession(store)
+
+        assertEquals(JarvisAppSession.PUBLIC_CONTROL_PLANE_URL, session.baseUrl)
+        assertEquals(
+            JarvisAppSession.PUBLIC_CONTROL_PLANE_URL,
+            store.snapshot()[JarvisAppSession.KEY_BASE],
+        )
+    }
+
+    @Test
     fun localAccessExpiryPreservesRefreshCredential() = runBlocking(Dispatchers.IO) {
         val store = JarvisAppSession.MemoryStore()
         val refreshStore = MemoryRefreshCredentialStore().apply {
