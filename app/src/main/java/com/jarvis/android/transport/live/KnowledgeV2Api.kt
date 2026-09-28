@@ -331,7 +331,9 @@ object KnowledgeV2ViewStateStore {
     fun clearPrincipal(principalId: String) {
         if (principalId.isBlank()) return
         val prefix = principalId + "\u001f"
-        state.keys.removeIf { it.startsWith(prefix) }
+        state.keys
+            .filter { it.startsWith(prefix) }
+            .forEach { state.remove(it) }
     }
 
     fun clearAll() = state.clear()
