@@ -994,11 +994,19 @@ private fun WriteSection(
 
     var draft by rememberSaveable { mutableStateOf("") }
     val active = state.activeChapter
+    var revisionHistoryExpanded by rememberSaveable(active?.chapter_id) { mutableStateOf(false) }
+    val writeListState = rememberLazyListState()
 
     LaunchedEffect(active?.chapter_id, active?.draft_text, active?.title) {
         if (active != null) {
             draft = active.draft_text
             selectedChapterTitle = if (active.title == "Nuevo capítulo") "" else active.title
+            writeListState.scrollToItem(0)
+        }
+    }
+    LaunchedEffect(revisionHistoryExpanded, active?.chapter_id) {
+        if (revisionHistoryExpanded && active != null) {
+            vm.loadWritingChapterRevisions(projectId, active.chapter_id)
         }
     }
 
@@ -1009,7 +1017,8 @@ private fun WriteSection(
     val readingTimeMin = remember(wordCount) { maxOf(1, wordCount / 200) }
 
     LazyColumn(
-        Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
+        state = writeListState,
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -1165,14 +1174,27 @@ private fun WriteSection(
                                 }
                             }
 
-                            Button(
-                                onClick = { vm.saveWritingChapterDraft(projectId, active.chapter_id, draft) },
-                                enabled = !state.busy,
-                                colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = Color(0xFF02101F)),
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Guardar", fontWeight = FontWeight.Bold)
+                                OutlinedButton(
+                                    onClick = { revisionHistoryExpanded = !revisionHistoryExpanded },
+                                    enabled = !state.busy,
+                                ) {
+                                    Icon(Icons.Filled.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Historial (${active.revision_count})")
+                                }
+                                Button(
+                                    onClick = { vm.saveWritingChapterDraft(projectId, active.chapter_id, draft) },
+                                    enabled = !state.busy,
+                                    colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = Color(0xFF02101F)),
+                                ) {
+                                    Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Guardar versión", fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
 
@@ -1212,6 +1234,111 @@ private fun WriteSection(
                     colors = jarvisTextFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+
+            if (revisionHistoryExpanded) {
+                item {
+                    WorkspaceCard("Historial de versiones · ${active.title}", JarvisViolet) {
+                        Text(
+                            "Cada guardado conserva una revisión. Restaurar no borra las versiones posteriores: crea una nueva versión DRAFT que puedes seguir editando.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        if (state.chapterRevisionChapterId != active.chapter_id) {
+                            Text("Cargando historial…", color = Color(0xFF94A3B8))
+                        } else if (state.chapterRevisions.isEmpty()) {
+                            Text(
+                                "Aún no hay versiones guardadas. Usa “Guardar versión” para crear la primera.",
+                                color = Color(0xFF94A3B8),
+                            )
+                        } else {
+                            state.chapterRevisions.forEach { revision ->
+                                val sourceLabel = when (revision.source) {
+                                    "manual_save" -> "Edición manual"
+                                    "ai_write" -> "Borrador IA"
+                                    "restore" -> "Restauración"
+                                    "legacy_baseline" -> "Versión recuperada"
+                                    else -> revision.source.ifBlank { "Edición" }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0x99111C30),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (revision.is_current) JarvisGreen.copy(alpha = 0.55f)
+                                        else Color(0x334B6482),
+                                    ),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Column(Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                "VERSIÓN ${revision.revision_number} · $sourceLabel",
+                                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                                color = if (revision.is_current) JarvisGreen else JarvisCyan,
+                                            )
+                                            if (revision.is_current) {
+                                                Text(
+                                                    "ACTUAL",
+                                                    style = HudTextStyle.copy(fontSize = 9.sp),
+                                                    color = JarvisGreen,
+                                                )
+                                            }
+                                        }
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            "${revision.word_count} palabras · ${revision.char_count} caracteres · ${revision.created_utc}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFF94A3B8),
+                                        )
+                                        if (revision.preview.isNotBlank()) {
+                                            Spacer(Modifier.height(7.dp))
+                                            Text(
+                                                revision.preview,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFFE2E8F0),
+                                                maxLines = 6,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        if (revision.restored_from_revision_id.isNotBlank()) {
+                                            Spacer(Modifier.height(5.dp))
+                                            Text(
+                                                "Creada al restaurar una versión anterior.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = JarvisAmber,
+                                            )
+                                        }
+                                        if (!revision.is_current) {
+                                            Spacer(Modifier.height(8.dp))
+                                            OutlinedButton(
+                                                onClick = {
+                                                    vm.restoreWritingChapterRevision(
+                                                        projectId,
+                                                        active.chapter_id,
+                                                        revision.revision_id,
+                                                    )
+                                                },
+                                                enabled = !state.busy,
+                                                modifier = Modifier.fillMaxWidth(),
+                                            ) {
+                                                Icon(Icons.Filled.History, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(5.dp))
+                                                Text("Restaurar como nueva versión")
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                            }
+                        }
+                    }
+                }
             }
 
             state.engineReview?.let { review ->
@@ -1351,8 +1478,18 @@ private fun WriteSection(
                     Spacer(Modifier.height(8.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                     ) {
+                        TextButton(
+                            onClick = { vm.openWritingChapter(projectId, chapter.chapter_id) },
+                            enabled = !state.busy,
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Editar")
+                        }
                         TextButton(
                             onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "showrunner") },
                             enabled = !state.busy,
