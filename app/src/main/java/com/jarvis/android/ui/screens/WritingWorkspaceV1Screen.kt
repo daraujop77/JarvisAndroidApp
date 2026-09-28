@@ -352,7 +352,12 @@ fun WritingWorkspaceV1Screen(
             WorkspaceTab.WRITE -> WriteSection(state, projectId, vm)
             WorkspaceTab.CHAT -> ChatSection(state, projectId, title, vm)
             WorkspaceTab.PLAN -> PlanSection(state, projectId, vm)
-            WorkspaceTab.WIKI -> WikiSection(state, projectId, vm)
+            WorkspaceTab.WIKI -> WikiSection(
+                state = state,
+                projectId = projectId,
+                vm = vm,
+                onOpenChapter = { tab = WorkspaceTab.LIBRARY },
+            )
             WorkspaceTab.LIBRARY -> LibrarySection(
                 state = state,
                 projectId = projectId,
@@ -2294,14 +2299,17 @@ private fun WikiSection(
     state: JarvisViewModel.WritingWorkspaceState,
     projectId: String,
     vm: JarvisViewModel,
+    onOpenChapter: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedCharacterId by rememberSaveable { mutableStateOf<String?>(null) }
     var viewingCharactersDirectory by rememberSaveable { mutableStateOf(false) }
-    var selectedMilestoneEra by rememberSaveable { mutableStateOf<String?>(null) }
+    var knowledgeView by rememberSaveable { mutableStateOf("explore") }
 
     val home = state.wikiHome
     val wiki = state.wiki
+    val timeline = state.wikiTimeline
+    val canonExplorer = state.canonExplorer
     val settings by vm.settings.collectAsStateWithLifecycle()
     val liveCharacters = remember(state.wikiCharacters) {
         mergeStructuredCharacters(state.wikiCharacters)
@@ -2372,7 +2380,30 @@ private fun WikiSection(
                         style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
                         color = Color(0xFF94A3B8),
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        listOf(
+                            "explore" to "Explorar",
+                            "timeline" to "Línea de tiempo",
+                            "canon" to "Canon & Lore",
+                        ).forEach { (mode, label) ->
+                            FilterChip(
+                                selected = knowledgeView == mode && wiki == null,
+                                onClick = {
+                                    knowledgeView = mode
+                                    query = ""
+                                    vm.clearWritingWikiSearch()
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
@@ -2411,12 +2442,19 @@ private fun WikiSection(
                             ),
                         )
                         FilterChip(
-                            selected = false,
+                            selected = knowledgeView == "canon" && wiki == null,
                             onClick = {
-                                query = "facciones y vinculos"
-                                vm.searchWritingWiki(projectId, "facciones y vinculos")
+                                knowledgeView = "canon"
+                                query = ""
+                                vm.clearWritingWikiSearch()
                             },
-                            label = { Text("Facciones (${CANON_FACTIONS.size})") },
+                            label = {
+                                Text(
+                                    "Canon & Lore (" +
+                                        (canonExplorer?.sections?.sumOf { it.items.size } ?: 0) +
+                                        ")",
+                                )
+                            },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = Color(0x33101B2E),
                                 labelColor = JarvisGreen,
@@ -2428,12 +2466,13 @@ private fun WikiSection(
                             ),
                         )
                         FilterChip(
-                            selected = false,
+                            selected = knowledgeView == "timeline" && wiki == null,
                             onClick = {
-                                query = "hitos cronologicos"
-                                vm.searchWritingWiki(projectId, "hitos cronologicos")
+                                knowledgeView = "timeline"
+                                query = ""
+                                vm.clearWritingWikiSearch()
                             },
-                            label = { Text("Hitos Cap 1–37 (${CANON_MILESTONES.size})") },
+                            label = { Text("Hitos Cap 1–37 (${timeline?.occurred?.size ?: 0})") },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = Color(0x33101B2E),
                                 labelColor = JarvisAmber,
