@@ -1008,6 +1008,7 @@ private fun WriteSection(
     val active = state.activeChapter
     var revisionHistoryExpanded by rememberSaveable(active?.chapter_id) { mutableStateOf(false) }
     var chapterPendingDelete by rememberSaveable { mutableStateOf<String?>(null) }
+    var trashExpanded by rememberSaveable { mutableStateOf(false) }
     val writeListState = rememberLazyListState()
 
     LaunchedEffect(active?.chapter_id, active?.draft_text, active?.title) {
@@ -1020,6 +1021,11 @@ private fun WriteSection(
     LaunchedEffect(revisionHistoryExpanded, active?.chapter_id) {
         if (revisionHistoryExpanded && active != null) {
             vm.loadWritingChapterRevisions(projectId, active.chapter_id)
+        }
+    }
+    LaunchedEffect(trashExpanded) {
+        if (trashExpanded) {
+            vm.loadWritingChapterTrash(projectId)
         }
     }
 
@@ -1037,9 +1043,9 @@ private fun WriteSection(
             text = {
                 Text(
                     if (deleteTarget.source_chapter_number != null) {
-                        "Se eliminarán esta sesión editable y su historial de versiones. El Capítulo ${deleteTarget.source_chapter_number} de la Biblioteca/Canon NO se borrará."
+                        "Esta sesión editable se moverá a Papelera junto con todo su historial de versiones. El Capítulo ${deleteTarget.source_chapter_number} de la Biblioteca/Canon NO se borrará y podrás restaurar la sesión."
                     } else {
-                        "Se eliminarán esta sesión y su historial de versiones. Esta acción no modifica las fuentes oficiales."
+                        "Esta sesión se moverá a Papelera sin borrar su historial. Podrás restaurarla y esta acción no modifica las fuentes oficiales."
                     },
                 )
             },
@@ -1051,7 +1057,7 @@ private fun WriteSection(
                     },
                     enabled = !state.busy,
                 ) {
-                    Text("Eliminar", color = JarvisRed)
+                    Text("Mover a Papelera", color = JarvisRed)
                 }
             },
             dismissButton = {
@@ -1499,80 +1505,129 @@ private fun WriteSection(
             }
         }
 
-        // Historial de sesiones de capítulos anteriores
-        if (state.chapters.isNotEmpty()) {
-            item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+        // Sesiones editables + papelera reversible.
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(Icons.Filled.History, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
+                Text(
+                    "Sesiones de Capítulos",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFF1F5F9),
+                )
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { trashExpanded = !trashExpanded },
+                    enabled = !state.busy,
                 ) {
-                    Icon(Icons.Filled.History, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
-                    Text(
-                        "Sesiones de Capítulos",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFFF1F5F9),
-                    )
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (trashExpanded) "Cerrar Papelera" else "Papelera")
                 }
             }
-            items(state.chapters) { chapter ->
-                WorkspaceCard("${chapter.title} · ${chapter.status}") {
-                    if (chapter.source_chapter_number != null) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            MiniPill("CAP ${chapter.source_chapter_number}", JarvisCyan)
-                            if (chapter.source_canon_status.isNotBlank()) {
-                                MiniPill(
-                                    authorityLabel(chapter.source_canon_status),
-                                    authorityColor(chapter.source_canon_status),
-                                )
-                            }
-                            MiniPill("${chapter.revision_count} VERSIONES", JarvisViolet)
-                        }
-                        Spacer(Modifier.height(6.dp))
-                    }
-                    Text(chapter.objective, color = Color(0xFFE2E8F0))
-                    if (chapter.story_point.isNotBlank()) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(chapter.story_point, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.height(8.dp))
+        }
+        items(state.chapters, key = { "session_${it.chapter_id}" }) { chapter ->
+            WorkspaceCard("${chapter.title} · ${chapter.status}") {
+                if (chapter.source_chapter_number != null) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        TextButton(
-                            onClick = { vm.openWritingChapter(projectId, chapter.chapter_id) },
-                            enabled = !state.busy,
-                        ) {
-                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Editar")
+                        MiniPill("CAP ${chapter.source_chapter_number}", JarvisCyan)
+                        if (chapter.source_canon_status.isNotBlank()) {
+                            MiniPill(
+                                authorityLabel(chapter.source_canon_status),
+                                authorityColor(chapter.source_canon_status),
+                            )
                         }
-                        TextButton(
-                            onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "showrunner") },
+                        MiniPill("${chapter.revision_count} VERSIONES", JarvisViolet)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+                Text(chapter.objective, color = Color(0xFFE2E8F0))
+                if (chapter.story_point.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(chapter.story_point, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                ) {
+                    TextButton(
+                        onClick = { vm.openWritingChapter(projectId, chapter.chapter_id) },
+                        enabled = !state.busy,
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Editar")
+                    }
+                    TextButton(
+                        onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "showrunner") },
+                        enabled = !state.busy,
+                    ) { Text("Brief") }
+                    TextButton(
+                        onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "write") },
+                        enabled = !state.busy && chapter.title != "Nuevo capítulo",
+                    ) { Text("Escribir") }
+                    TextButton(
+                        onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "review") },
+                        enabled = !state.busy,
+                    ) { Text("Revisar") }
+                    TextButton(
+                        onClick = { chapterPendingDelete = chapter.chapter_id },
+                        enabled = !state.busy && chapter.status != "HUMAN_APPROVED_PENDING_SOURCE",
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Papelera", color = JarvisRed)
+                    }
+                }
+            }
+        }
+        if (trashExpanded) {
+            item {
+                Text(
+                    "PAPELERA · LAS VERSIONES SE CONSERVAN",
+                    style = HudTextStyle,
+                    color = JarvisAmber,
+                )
+            }
+            if (state.chapterTrash.isEmpty()) {
+                item {
+                    WorkspaceCard("Papelera vacía", JarvisAmber) {
+                        Text(
+                            "No hay sesiones eliminadas. Las sesiones enviadas aquí pueden restaurarse sin perder su historial.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                }
+            } else {
+                items(state.chapterTrash, key = { "trash_${it.chapter_id}" }) { deleted ->
+                    WorkspaceCard(deleted.title.ifBlank { "Sesión eliminada" }, JarvisAmber) {
+                        Text(
+                            "Estado anterior: ${deleted.status}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                        if (deleted.delete_reason.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(deleted.delete_reason, style = MaterialTheme.typography.bodySmall, color = Color(0xFF94A3B8))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { vm.restoreDeletedWritingChapter(projectId, deleted.chapter_id) },
                             enabled = !state.busy,
-                        ) { Text("Brief") }
-                        TextButton(
-                            onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "write") },
-                            enabled = !state.busy && chapter.title != "Nuevo capítulo",
-                        ) { Text("Escribir") }
-                        TextButton(
-                            onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "review") },
-                            enabled = !state.busy,
-                        ) { Text("Revisar") }
-                        TextButton(
-                            onClick = { chapterPendingDelete = chapter.chapter_id },
-                            enabled = !state.busy && chapter.status != "HUMAN_APPROVED_PENDING_SOURCE",
                         ) {
-                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Eliminar", color = JarvisRed)
+                            Text("Restaurar sesión")
                         }
                     }
                 }
