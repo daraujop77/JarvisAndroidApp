@@ -62,14 +62,13 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
-import com.jarvis.android.data.story.CANON_FACTIONS
-import com.jarvis.android.data.story.CANON_MILESTONES
 import com.jarvis.android.data.story.CharacterChapterActivity
 import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -113,6 +112,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.live.WritingChapter
 import com.jarvis.android.transport.live.WritingEngineReviewEnvelope
+import com.jarvis.android.transport.live.WritingExplorerEntry
+import com.jarvis.android.transport.live.WritingTimelineFuture
+import com.jarvis.android.transport.live.WritingTimelineOccurred
 import com.jarvis.android.transport.live.WritingPlanItem
 import com.jarvis.android.transport.live.WritingPlanningCouncilMessage
 import com.jarvis.android.transport.live.WritingRoomAutoChat
@@ -350,8 +352,25 @@ fun WritingWorkspaceV1Screen(
             WorkspaceTab.WRITE -> WriteSection(state, projectId, vm)
             WorkspaceTab.CHAT -> ChatSection(state, projectId, title, vm)
             WorkspaceTab.PLAN -> PlanSection(state, projectId, vm)
-            WorkspaceTab.WIKI -> WikiSection(state, projectId, vm)
-            WorkspaceTab.LIBRARY -> LibrarySection(state, projectId, vm)
+            WorkspaceTab.CANON -> CanonSection(
+                state = state,
+                projectId = projectId,
+                vm = vm,
+                onOpenChapter = { tab = WorkspaceTab.LIBRARY },
+                onOpenWiki = { tab = WorkspaceTab.WIKI },
+            )
+            WorkspaceTab.WIKI -> WikiSection(
+                state = state,
+                projectId = projectId,
+                vm = vm,
+                onOpenChapter = { tab = WorkspaceTab.LIBRARY },
+            )
+            WorkspaceTab.LIBRARY -> LibrarySection(
+                state = state,
+                projectId = projectId,
+                vm = vm,
+                onEditChapter = { tab = WorkspaceTab.WRITE },
+            )
         }
     }
 }
@@ -995,6 +1014,8 @@ private fun WriteSection(
     var draft by rememberSaveable { mutableStateOf("") }
     val active = state.activeChapter
     var revisionHistoryExpanded by rememberSaveable(active?.chapter_id) { mutableStateOf(false) }
+    var chapterPendingDelete by rememberSaveable { mutableStateOf<String?>(null) }
+    var trashExpanded by rememberSaveable { mutableStateOf(false) }
     val writeListState = rememberLazyListState()
 
     LaunchedEffect(active?.chapter_id, active?.draft_text, active?.title) {
@@ -1009,12 +1030,50 @@ private fun WriteSection(
             vm.loadWritingChapterRevisions(projectId, active.chapter_id)
         }
     }
+    LaunchedEffect(trashExpanded) {
+        if (trashExpanded) {
+            vm.loadWritingChapterTrash(projectId)
+        }
+    }
 
     val wordCount = remember(draft) {
         if (draft.isBlank()) 0 else draft.trim().split(Regex("\\s+")).count { it.isNotBlank() }
     }
     val charCount = draft.length
     val readingTimeMin = remember(wordCount) { maxOf(1, wordCount / 200) }
+
+    val deleteTarget = state.chapters.firstOrNull { it.chapter_id == chapterPendingDelete }
+    if (deleteTarget != null) {
+        AlertDialog(
+            onDismissRequest = { chapterPendingDelete = null },
+            title = { Text("Eliminar sesión del capítulo") },
+            text = {
+                Text(
+                    if (deleteTarget.source_chapter_number != null) {
+                        "Esta sesión editable se moverá a Papelera junto con todo su historial de versiones. El Capítulo ${deleteTarget.source_chapter_number} de la Biblioteca/Canon NO se borrará y podrás restaurar la sesión."
+                    } else {
+                        "Esta sesión se moverá a Papelera sin borrar su historial. Podrás restaurarla y esta acción no modifica las fuentes oficiales."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.deleteWritingChapter(projectId, deleteTarget.chapter_id)
+                        chapterPendingDelete = null
+                    },
+                    enabled = !state.busy,
+                ) {
+                    Text("Mover a Papelera", color = JarvisRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chapterPendingDelete = null }) {
+                    Text("Cancelar")
+                }
+            },
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1453,55 +1512,130 @@ private fun WriteSection(
             }
         }
 
-        // Historial de sesiones de capítulos anteriores
-        if (state.chapters.isNotEmpty()) {
-            item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+        // Sesiones editables + papelera reversible.
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(Icons.Filled.History, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
+                Text(
+                    "Sesiones de Capítulos",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFF1F5F9),
+                )
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { trashExpanded = !trashExpanded },
+                    enabled = !state.busy,
                 ) {
-                    Icon(Icons.Filled.History, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
-                    Text(
-                        "Sesiones de Capítulos",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFFF1F5F9),
-                    )
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (trashExpanded) "Cerrar Papelera" else "Papelera")
                 }
             }
-            items(state.chapters) { chapter ->
-                WorkspaceCard("${chapter.title} · ${chapter.status}") {
-                    Text(chapter.objective, color = Color(0xFFE2E8F0))
-                    if (chapter.story_point.isNotBlank()) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(chapter.story_point, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.height(8.dp))
+        }
+        items(state.chapters, key = { "session_${it.chapter_id}" }) { chapter ->
+            WorkspaceCard("${chapter.title} · ${chapter.status}") {
+                if (chapter.source_chapter_number != null) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        TextButton(
-                            onClick = { vm.openWritingChapter(projectId, chapter.chapter_id) },
+                        MiniPill("CAP ${chapter.source_chapter_number}", JarvisCyan)
+                        if (chapter.source_canon_status.isNotBlank()) {
+                            MiniPill(
+                                authorityLabel(chapter.source_canon_status),
+                                authorityColor(chapter.source_canon_status),
+                            )
+                        }
+                        MiniPill("${chapter.revision_count} VERSIONES", JarvisViolet)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+                Text(chapter.objective, color = Color(0xFFE2E8F0))
+                if (chapter.story_point.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(chapter.story_point, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                ) {
+                    TextButton(
+                        onClick = { vm.openWritingChapter(projectId, chapter.chapter_id) },
+                        enabled = !state.busy,
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Editar")
+                    }
+                    TextButton(
+                        onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "showrunner") },
+                        enabled = !state.busy,
+                    ) { Text("Brief") }
+                    TextButton(
+                        onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "write") },
+                        enabled = !state.busy && chapter.title != "Nuevo capítulo",
+                    ) { Text("Escribir") }
+                    TextButton(
+                        onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "review") },
+                        enabled = !state.busy,
+                    ) { Text("Revisar") }
+                    TextButton(
+                        onClick = { chapterPendingDelete = chapter.chapter_id },
+                        enabled = !state.busy && chapter.status != "HUMAN_APPROVED_PENDING_SOURCE",
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Papelera", color = JarvisRed)
+                    }
+                }
+            }
+        }
+        if (trashExpanded) {
+            item {
+                Text(
+                    "PAPELERA · LAS VERSIONES SE CONSERVAN",
+                    style = HudTextStyle,
+                    color = JarvisAmber,
+                )
+            }
+            if (state.chapterTrash.isEmpty()) {
+                item {
+                    WorkspaceCard("Papelera vacía", JarvisAmber) {
+                        Text(
+                            "No hay sesiones eliminadas. Las sesiones enviadas aquí pueden restaurarse sin perder su historial.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                }
+            } else {
+                items(state.chapterTrash, key = { "trash_${it.chapter_id}" }) { deleted ->
+                    WorkspaceCard(deleted.title.ifBlank { "Sesión eliminada" }, JarvisAmber) {
+                        Text(
+                            "Estado anterior: ${deleted.status}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                        if (deleted.delete_reason.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(deleted.delete_reason, style = MaterialTheme.typography.bodySmall, color = Color(0xFF94A3B8))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { vm.restoreDeletedWritingChapter(projectId, deleted.chapter_id) },
                             enabled = !state.busy,
                         ) {
-                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Editar")
+                            Text("Restaurar sesión")
                         }
-                        TextButton(
-                            onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "showrunner") },
-                            enabled = !state.busy,
-                        ) { Text("Brief") }
-                        TextButton(
-                            onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "write") },
-                            enabled = !state.busy && chapter.title != "Nuevo capítulo",
-                        ) { Text("Escribir") }
-                        TextButton(
-                            onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "review") },
-                            enabled = !state.busy,
-                        ) { Text("Revisar") }
                     }
                 }
             }
@@ -2223,18 +2357,176 @@ private fun PlanningCard(
 }
 
 @Composable
+private fun CanonSection(
+    state: JarvisViewModel.WritingWorkspaceState,
+    projectId: String,
+    vm: JarvisViewModel,
+    onOpenChapter: () -> Unit,
+    onOpenWiki: () -> Unit,
+) {
+    var canonView by rememberSaveable { mutableStateOf("timeline") }
+    val timeline = state.wikiTimeline
+    val explorer = state.canonExplorer
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            WorkspaceCard("Canon", JarvisGreen) {
+                Text(
+                    "Navega la historia establecida, su cronología y las relaciones de lore sin mezclar hechos ocurridos con planes futuros.",
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                    color = Color(0xFFCBD5E1),
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    listOf(
+                        "timeline" to "Línea de tiempo",
+                        "explorer" to "Mapa del canon",
+                        "lore" to "Lore",
+                    ).forEach { (id, label) ->
+                        FilterChip(
+                            selected = canonView == id,
+                            onClick = { canonView = id },
+                            label = { Text(label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = Color(0x33101B2E),
+                                selectedContainerColor = JarvisGreen.copy(alpha = 0.16f),
+                                labelColor = Color(0xFFCBD5E1),
+                                selectedLabelColor = JarvisGreen,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+
+        when (canonView) {
+            "timeline" -> {
+                item {
+                    Text(
+                        "HISTORIA OCURRIDA / REFERENCIAS RECUPERADAS",
+                        style = HudTextStyle,
+                        color = JarvisCyan,
+                    )
+                }
+                val occurred = timeline?.occurred.orEmpty().sortedBy { it.chapter_number }
+                items(occurred, key = { "canon_timeline_${it.chapter_number}" }) { event ->
+                    TimelineChapterCard(
+                        item = event,
+                        onOpen = {
+                            vm.readWritingLibraryDocument(projectId, event.document_id)
+                            onOpenChapter()
+                        },
+                        onCharacter = { characterId ->
+                            vm.searchWritingWiki(projectId, characterId)
+                            onOpenWiki()
+                        },
+                    )
+                }
+                val future = timeline?.future.orEmpty()
+                if (future.isNotEmpty()) {
+                    item {
+                        Text(
+                            "FUTURO APROBADO / FIJADO / PROPUESTO · TODAVÍA NO OCURRIÓ",
+                            style = HudTextStyle,
+                            color = JarvisViolet,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    items(future, key = { "canon_future_${it.id}" }) { event ->
+                        TimelineFutureCard(event)
+                    }
+                }
+            }
+
+            "explorer" -> {
+                item {
+                    WorkspaceCard("Mapa del canon", JarvisViolet) {
+                        Text(
+                            "Personajes, lugares, arcos, eventos y relaciones enlazados con capítulos y fuentes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                }
+                explorer?.sections.orEmpty()
+                    .filter { it.items.isNotEmpty() }
+                    .forEach { section ->
+                        item(key = "canon_section_${section.id}") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(section.label.uppercase(), style = HudTextStyle, color = JarvisCyan)
+                                Spacer(Modifier.weight(1f))
+                                MiniPill("${section.items.size}", JarvisCyan)
+                            }
+                        }
+                        items(section.items, key = { "canon_node_${it.id}" }) { entry ->
+                            CanonExplorerEntryCard(
+                                item = entry,
+                                onOpen = {
+                                    vm.searchWritingWiki(projectId, entry.name)
+                                    onOpenWiki()
+                                },
+                            )
+                        }
+                    }
+            }
+
+            else -> {
+                val loreSections = explorer?.sections.orEmpty()
+                    .filter { it.id in setOf("lore", "locations", "arcs", "questions") && it.items.isNotEmpty() }
+                item {
+                    WorkspaceCard("Explorador de Lore", JarvisAmber) {
+                        Text(
+                            "Reglas del mundo, lugares, arcos y misterios con autoridad y evidencia visible.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                }
+                loreSections.forEach { section ->
+                    item(key = "lore_section_${section.id}") {
+                        Text(section.label.uppercase(), style = HudTextStyle, color = JarvisAmber)
+                    }
+                    items(section.items, key = { "lore_node_${it.id}" }) { entry ->
+                        CanonExplorerEntryCard(
+                            item = entry,
+                            onOpen = {
+                                vm.searchWritingWiki(projectId, entry.name)
+                                onOpenWiki()
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun WikiSection(
     state: JarvisViewModel.WritingWorkspaceState,
     projectId: String,
     vm: JarvisViewModel,
+    onOpenChapter: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedCharacterId by rememberSaveable { mutableStateOf<String?>(null) }
     var viewingCharactersDirectory by rememberSaveable { mutableStateOf(false) }
-    var selectedMilestoneEra by rememberSaveable { mutableStateOf<String?>(null) }
+    var knowledgeView by rememberSaveable { mutableStateOf("explore") }
 
     val home = state.wikiHome
     val wiki = state.wiki
+    val timeline = state.wikiTimeline
+    val canonExplorer = state.canonExplorer
     val settings by vm.settings.collectAsStateWithLifecycle()
     val liveCharacters = remember(state.wikiCharacters) {
         mergeStructuredCharacters(state.wikiCharacters)
@@ -2305,7 +2597,30 @@ private fun WikiSection(
                         style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
                         color = Color(0xFF94A3B8),
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        listOf(
+                            "explore" to "Explorar",
+                            "timeline" to "Línea de tiempo",
+                            "canon" to "Canon & Lore",
+                        ).forEach { (mode, label) ->
+                            FilterChip(
+                                selected = knowledgeView == mode && wiki == null,
+                                onClick = {
+                                    knowledgeView = mode
+                                    query = ""
+                                    vm.clearWritingWikiSearch()
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
@@ -2344,12 +2659,19 @@ private fun WikiSection(
                             ),
                         )
                         FilterChip(
-                            selected = false,
+                            selected = knowledgeView == "canon" && wiki == null,
                             onClick = {
-                                query = "facciones y vinculos"
-                                vm.searchWritingWiki(projectId, "facciones y vinculos")
+                                knowledgeView = "canon"
+                                query = ""
+                                vm.clearWritingWikiSearch()
                             },
-                            label = { Text("Facciones (${CANON_FACTIONS.size})") },
+                            label = {
+                                Text(
+                                    "Canon & Lore (" +
+                                        (canonExplorer?.sections?.sumOf { it.items.size } ?: 0) +
+                                        ")",
+                                )
+                            },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = Color(0x33101B2E),
                                 labelColor = JarvisGreen,
@@ -2361,12 +2683,13 @@ private fun WikiSection(
                             ),
                         )
                         FilterChip(
-                            selected = false,
+                            selected = knowledgeView == "timeline" && wiki == null,
                             onClick = {
-                                query = "hitos cronologicos"
-                                vm.searchWritingWiki(projectId, "hitos cronologicos")
+                                knowledgeView = "timeline"
+                                query = ""
+                                vm.clearWritingWikiSearch()
                             },
-                            label = { Text("Hitos Cap 1–37 (${CANON_MILESTONES.size})") },
+                            label = { Text("Hitos Cap 1–37 (${timeline?.occurred?.size ?: 0})") },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = Color(0x33101B2E),
                                 labelColor = JarvisAmber,
@@ -2562,273 +2885,268 @@ private fun WikiSection(
                 }
             }
         } else {
-            val categories = home?.categories?.ifEmpty { null } ?: listOf(
-                WritingWikiCategory(
-                    id = "characters",
-                    label = "Personajes",
-                    subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
-                    query = "characters",
-                    source_count = liveCharacters.size,
-                ),
-                WritingWikiCategory(
-                    id = "canon",
-                    label = "Canon y Continuidad",
-                    subtitle = "Reglas fundamentales del mundo y líneas temporales",
-                    query = "canon",
-                    source_count = 6,
-                ),
-                WritingWikiCategory(
-                    id = "arcs",
-                    label = "Arcos y Capítulos",
-                    subtitle = "Estructura de la historia hasta el Capítulo 37",
-                    query = "arcs",
-                    source_count = 37,
-                ),
-            )
-
-            item {
-                Text(
-                    strings.exploreByCategory,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFFF8FAFC),
-                )
-            }
-            items(categories) { category ->
-                val isCharacterCategory = category.id.equals("characters", ignoreCase = true) ||
-                    category.label.contains("personaje", ignoreCase = true) ||
-                    category.label.contains("character", ignoreCase = true) ||
-                    category.query.equals("characters", ignoreCase = true) ||
-                    category.query.equals("personajes", ignoreCase = true)
-
-                val displayCategory = if (isCharacterCategory) {
-                    category.copy(
-                        label = "Personajes",
-                        subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
-                        source_count = liveCharacters.size,
-                    )
-                } else {
-                    category
-                }
-
-                WikiCategoryCard(displayCategory) {
-                    if (isCharacterCategory) {
-                        viewingCharactersDirectory = true
-                    } else {
-                        query = category.query
-                        vm.searchWritingWiki(projectId, category.query)
-                    }
-                }
-            }
-
-            // --- CANON TIMELINE MILESTONES (ERA PROGRESSION) ---
-            item {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Línea Temporal & Hitos (Capítulos 1–37)",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFFF8FAFC),
-                )
-            }
-            items(CANON_MILESTONES, key = { it.id }) { milestone ->
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xEE0E182A),
-                    border = BorderStroke(1.dp, milestone.badgeColor.copy(alpha = 0.38f)),
-                    shadowElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            MiniPill(milestone.era, milestone.badgeColor)
-                            Spacer(Modifier.width(8.dp))
+            when (knowledgeView) {
+                "timeline" -> {
+                    item {
+                        WorkspaceCard("Línea de tiempo canónica", JarvisCyan) {
                             Text(
-                                milestone.title,
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFF8FAFC),
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            milestone.summary,
-                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
-                            color = Color(0xFFCBD5E1),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            "Personajes clave del hito:",
-                            style = HudTextStyle,
-                            color = Color(0xFF94A3B8),
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            milestone.keyCharacterIds.mapNotNull { id ->
-                                liveCharacters.firstOrNull { it.id.equals(id, ignoreCase = true) }
-                            }.forEach { char ->
-                                Surface(
-                                    onClick = { selectedCharacterId = char.id },
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0x33101B2E),
-                                    border = BorderStroke(1.dp, char.themeColor.copy(alpha = 0.45f)),
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .background(char.themeColor.copy(alpha = 0.25f), CircleShape),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                char.avatarInitial,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = char.themeColor,
-                                            )
-                                        }
-                                        Text(
-                                            char.name,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                            color = Color(0xFFF8FAFC),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- INTERACTIVE FACTIONS & BONDS WEB ---
-            item {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Facciones & Alianzas Canónicas",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFFF8FAFC),
-                )
-            }
-            items(CANON_FACTIONS, key = { it.id }) { faction ->
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xEE0E182A),
-                    border = BorderStroke(1.dp, faction.accentColor.copy(alpha = 0.38f)),
-                    shadowElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                faction.name,
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFF8FAFC),
-                            )
-                            Spacer(Modifier.weight(1f))
-                            MiniPill("${faction.memberIds.size} MIEMBROS", faction.accentColor)
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            faction.description,
-                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
-                            color = Color(0xFF94A3B8),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            faction.memberIds.mapNotNull { id ->
-                                liveCharacters.firstOrNull { it.id.equals(id, ignoreCase = true) }
-                            }.forEach { member ->
-                                Surface(
-                                    onClick = { selectedCharacterId = member.id },
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color(0x44060D1A),
-                                    border = BorderStroke(1.dp, member.themeColor.copy(alpha = 0.45f)),
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .background(member.themeColor.copy(alpha = 0.25f), CircleShape),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                member.avatarInitial,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = member.themeColor,
-                                            )
-                                        }
-                                        Text(
-                                            member.name,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                            color = Color(0xFFF8FAFC),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (home != null) {
-                item {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Canon Authority Map",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFFF8FAFC),
-                    )
-                }
-                items(home.legend) { legend ->
-                    WorkspaceCard(legend.label, authorityColor(legend.status)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            MiniPill(
-                                "${home.authority_counts[legend.status] ?: 0}",
-                                authorityColor(legend.status),
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                legend.meaning,
-                                style = MaterialTheme.typography.bodyMedium,
+                                "Recorre capítulo por capítulo. OFFICIAL_CANON, REFERENCE y el futuro aprobado se muestran separados para no mezclar lo ocurrido con lo planeado.",
+                                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
                                 color = Color(0xFFCBD5E1),
                             )
+                            if (timeline != null) {
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    MiniPill("${timeline.occurred.size} CAPÍTULOS", JarvisCyan)
+                                    MiniPill("${timeline.future.size} FUTUROS", JarvisViolet)
+                                }
+                            }
+                        }
+                    }
+                    val occurred = timeline?.occurred.orEmpty()
+                    if (occurred.isEmpty()) {
+                        item {
+                            WorkspaceCard("Timeline no disponible", JarvisAmber) {
+                                Text(
+                                    "No se pudo construir la línea de tiempo desde las fuentes actuales.",
+                                    color = Color(0xFFCBD5E1),
+                                )
+                            }
+                        }
+                    } else {
+                        items(occurred, key = { "timeline_${it.chapter_number}" }) { chapter ->
+                            TimelineChapterCard(
+                                item = chapter,
+                                onOpen = {
+                                    vm.readWritingLibraryDocument(projectId, chapter.document_id)
+                                    onOpenChapter()
+                                },
+                                onCharacter = { selectedCharacterId = it },
+                            )
+                        }
+                    }
+
+                    val future = timeline?.future.orEmpty()
+                    if (future.isNotEmpty()) {
+                        item {
+                            Text(
+                                "FUTURO APROBADO / FIJADO · TODAVÍA NO OCURRIÓ",
+                                style = HudTextStyle,
+                                color = JarvisViolet,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        items(future, key = { "future_${it.id}" }) { event ->
+                            TimelineFutureCard(event)
                         }
                     }
                 }
 
-                if (home.featured.isNotEmpty()) {
+                "canon" -> {
                     item {
-                        Spacer(Modifier.height(4.dp))
+                        WorkspaceCard("Mapa de Canon & Lore", JarvisViolet) {
+                            Text(
+                                "Vista enciclopédica conectada: personajes, reglas del mundo, lugares, arcos, misterios y eventos con su autoridad y capítulos asociados.",
+                                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                                color = Color(0xFFCBD5E1),
+                            )
+                            val counts = canonExplorer?.authority_counts.orEmpty()
+                            if (counts.isNotEmpty()) {
+                                Spacer(Modifier.height(9.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    counts.entries
+                                        .sortedByDescending { it.value }
+                                        .forEach { (authority, count) ->
+                                            MiniPill("$count ${authorityLabel(authority)}", authorityColor(authority))
+                                        }
+                                }
+                            }
+                        }
+                    }
+
+                    val sections = canonExplorer?.sections.orEmpty()
+                    if (sections.isEmpty()) {
+                        item {
+                            WorkspaceCard("Canon Explorer no disponible", JarvisAmber) {
+                                Text(
+                                    "No se encontraron entradas estructuradas de canon/lore.",
+                                    color = Color(0xFFCBD5E1),
+                                )
+                            }
+                        }
+                    } else {
+                        sections.filter { it.items.isNotEmpty() }.forEach { section ->
+                            item(key = "section_${section.id}") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        section.label.uppercase(),
+                                        style = HudTextStyle,
+                                        color = JarvisCyan,
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    MiniPill("${section.items.size}", JarvisCyan)
+                                }
+                            }
+                            items(section.items, key = { "atlas_${it.id}" }) { entry ->
+                                CanonExplorerEntryCard(
+                                    item = entry,
+                                    onOpen = {
+                                        if (entry.type == "character") {
+                                            selectedCharacterId = entry.id
+                                        } else {
+                                            query = entry.name
+                                            vm.searchWritingWiki(projectId, entry.name)
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                else -> {
+                    val categories = home?.categories?.ifEmpty { null } ?: listOf(
+                        WritingWikiCategory(
+                            id = "characters",
+                            label = "Personajes",
+                            subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
+                            query = "characters",
+                            source_count = liveCharacters.size,
+                        ),
+                        WritingWikiCategory(
+                            id = "canon",
+                            label = "Canon y Continuidad",
+                            subtitle = "Reglas fundamentales del mundo y líneas temporales",
+                            query = "canon",
+                            source_count = canonExplorer?.sections
+                                ?.firstOrNull { it.id == "lore" }?.items?.size ?: 0,
+                        ),
+                        WritingWikiCategory(
+                            id = "arcs",
+                            label = "Arcos y Capítulos",
+                            subtitle = "Estructura de la historia y sus hilos abiertos",
+                            query = "arcs",
+                            source_count = timeline?.occurred?.size ?: 0,
+                        ),
+                    )
+
+                    item {
                         Text(
-                            "Featured Canon Documents",
+                            strings.exploreByCategory,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = Color(0xFFF8FAFC),
                         )
                     }
-                    items(home.featured) { source ->
-                        WorkspaceCard(source.title, authorityColor(source.canon_status)) {
-                            MiniPill(authorityLabel(source.canon_status), authorityColor(source.canon_status))
-                            if (source.authority.isNotBlank()) {
-                                Spacer(Modifier.height(6.dp))
-                                Text(source.authority, style = HudTextStyle, color = Color(0xFF94A3B8))
+                    items(categories) { category ->
+                        val isCharacterCategory = category.id.equals("characters", ignoreCase = true) ||
+                            category.label.contains("personaje", ignoreCase = true) ||
+                            category.label.contains("character", ignoreCase = true) ||
+                            category.query.equals("characters", ignoreCase = true) ||
+                            category.query.equals("personajes", ignoreCase = true)
+
+                        val displayCategory = if (isCharacterCategory) {
+                            category.copy(
+                                label = "Personajes",
+                                subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
+                                source_count = liveCharacters.size,
+                            )
+                        } else {
+                            category
+                        }
+
+                        WikiCategoryCard(displayCategory) {
+                            if (isCharacterCategory) {
+                                viewingCharactersDirectory = true
+                            } else {
+                                query = category.query
+                                vm.searchWritingWiki(projectId, category.query)
+                            }
+                        }
+                    }
+
+                    item {
+                        WorkspaceCard("Acceso rápido al canon", JarvisCyan) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                OutlinedButton(onClick = { knowledgeView = "timeline" }) {
+                                    Icon(Icons.Filled.History, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Línea de tiempo")
+                                }
+                                OutlinedButton(onClick = { knowledgeView = "canon" }) {
+                                    Icon(Icons.Filled.AccountTree, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Canon & Lore")
+                                }
+                                OutlinedButton(onClick = { viewingCharactersDirectory = true }) {
+                                    Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Personajes")
+                                }
+                            }
+                        }
+                    }
+
+                    if (home != null) {
+                        item {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Mapa de autoridad",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = Color(0xFFF8FAFC),
+                            )
+                        }
+                        items(home.legend) { legend ->
+                            WorkspaceCard(legend.label, authorityColor(legend.status)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    MiniPill(
+                                        "${home.authority_counts[legend.status] ?: 0}",
+                                        authorityColor(legend.status),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        legend.meaning,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color(0xFFCBD5E1),
+                                    )
+                                }
+                            }
+                        }
+
+                        if (home.featured.isNotEmpty()) {
+                            item {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Fuentes destacadas",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = Color(0xFFF8FAFC),
+                                )
+                            }
+                            items(home.featured) { source ->
+                                WorkspaceCard(source.title, authorityColor(source.canon_status)) {
+                                    MiniPill(authorityLabel(source.canon_status), authorityColor(source.canon_status))
+                                    if (source.authority.isNotBlank()) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(source.authority, style = HudTextStyle, color = Color(0xFF94A3B8))
+                                    }
+                                }
                             }
                         }
                     }
@@ -3722,41 +4040,6 @@ private fun CharacterDetailWiki(
                 }
             }
 
-            val relevantMilestones = CANON_MILESTONES.filter { it.keyCharacterIds.contains(character.id) }
-            if (relevantMilestones.isNotEmpty()) {
-                item {
-                    WorkspaceCard("Hitos Canónicos Vinculados al Personaje", accent = JarvisCyan) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            relevantMilestones.forEach { milestone ->
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0x66060D1A),
-                                    border = BorderStroke(1.dp, milestone.badgeColor.copy(alpha = 0.45f)),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Column(Modifier.padding(12.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            MiniPill(milestone.era, milestone.badgeColor)
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(
-                                                milestone.title,
-                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                                color = Color(0xFFF8FAFC),
-                                            )
-                                        }
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            milestone.summary,
-                                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
-                                            color = Color(0xFFCBD5E1),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         // --- APARICIONES ---
@@ -4323,6 +4606,154 @@ private fun WikiCategoryCard(category: WritingWikiCategory, onClick: () -> Unit)
     }
 }
 
+@Composable
+private fun TimelineChapterCard(
+    item: WritingTimelineOccurred,
+    onOpen: () -> Unit,
+    onCharacter: (String) -> Unit,
+) {
+    val accent = authorityColor(item.canon_status)
+    WorkspaceCard(item.title, accent) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MiniPill("CAP ${item.chapter_number}", accent)
+            MiniPill(authorityLabel(item.canon_status), accent)
+            if (item.content_kind != "FULL_TEXT") {
+                MiniPill(contentKindLabel(item.content_kind), contentKindColor(item.content_kind))
+            }
+        }
+        if (item.summary.isNotBlank()) {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                item.summary,
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                color = Color(0xFFCBD5E1),
+            )
+        }
+        if (item.related_characters.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item.related_characters.forEach { character ->
+                    Surface(
+                        onClick = { onCharacter(character.id) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0x33101B2E),
+                        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.35f)),
+                    ) {
+                        Text(
+                            character.name,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFF1F5F9),
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onOpen,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(5.dp))
+            Text("Abrir capítulo")
+        }
+    }
+}
+
+@Composable
+private fun TimelineFutureCard(item: WritingTimelineFuture) {
+    WorkspaceCard(item.name, authorityColor(item.authority)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MiniPill(authorityLabel(item.authority), authorityColor(item.authority))
+            if (item.chapter_refs.isNotEmpty()) {
+                MiniPill(formatChapterLabel(item.chapter_refs), JarvisViolet)
+            }
+        }
+        if (item.summary.isNotBlank()) {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                item.summary,
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                color = Color(0xFFCBD5E1),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CanonExplorerEntryCard(
+    item: WritingExplorerEntry,
+    onOpen: () -> Unit,
+) {
+    val accent = authorityColor(item.authority)
+    Surface(
+        onClick = onOpen,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xEE0E182A),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
+    ) {
+        Column(Modifier.padding(13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    item.name,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFF8FAFC),
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                MiniPill(authorityLabel(item.authority), accent)
+            }
+            if (item.summary.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    item.summary,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                    color = Color(0xFFCBD5E1),
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val refs = (item.chapter_refs + item.future_refs).distinct().sorted()
+            if (refs.isNotEmpty() || item.relationships.isNotEmpty()) {
+                Spacer(Modifier.height(7.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (refs.isNotEmpty()) {
+                        MiniPill(formatChapterLabel(refs), JarvisCyan)
+                    }
+                    if (item.relationships.isNotEmpty()) {
+                        MiniPill("${item.relationships.size} VÍNCULOS", JarvisViolet)
+                    }
+                    if (item.source_refs.isNotEmpty()) {
+                        MiniPill("${item.source_refs.size} FUENTES", JarvisGreen)
+                    }
+                }
+            }
+        }
+    }
+}
+
 /**
  * Modern Publication & Export Studio.
  */
@@ -4331,8 +4762,10 @@ private fun LibrarySection(
     state: JarvisViewModel.WritingWorkspaceState,
     projectId: String,
     vm: JarvisViewModel,
+    onEditChapter: () -> Unit,
 ) {
     val library = state.library
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val pdfLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf"),
     ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
@@ -4365,15 +4798,207 @@ private fun LibrarySection(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            WorkspaceCard("Centro de Publicación y Exportación", JarvisCyan) {
+            WorkspaceCard("Biblioteca de Capítulos", JarvisCyan) {
                 Text(
-                    "Compila capítulos oficiales en formatos de lectura y manuscrito. Las exportaciones se generan bajo demanda desde el canon oficial.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Cada capítulo aparece por separado aunque la fuente original esté agrupada. Los archivos fuente se conservan intactos como respaldo.",
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                    color = Color(0xFFCBD5E1),
                 )
+                val counts = library?.chapter_counts.orEmpty()
+                if (counts.isNotEmpty()) {
+                    Spacer(Modifier.height(9.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        MiniPill("${counts["total"] ?: 0} CAPÍTULOS", JarvisCyan)
+                        MiniPill("${counts["official"] ?: 0} CANON", JarvisGreen)
+                        MiniPill("${counts["reference"] ?: 0} REFERENCIA", JarvisCyan)
+                        MiniPill("${counts["partial_text"] ?: 0} PARCIALES", JarvisAmber)
+                        MiniPill("${counts["summary_only"] ?: 0} SOLO RESUMEN", JarvisAmber)
+                    }
+                }
+            }
+        }
 
+        val chapters = library?.chapters.orEmpty().sortedBy { it.chapter_number }
+        if (chapters.isNotEmpty()) {
+            item {
+                Text(
+                    "CAPÍTULOS INDIVIDUALES",
+                    style = HudTextStyle,
+                    color = Color(0xFF94A3B8),
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            items(chapters, key = { "library_chapter_${it.chapter_number}" }) { chapter ->
+                val accent = authorityColor(chapter.canon_status)
+                WorkspaceCard(chapter.title, accent) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        MiniPill("CAP ${chapter.chapter_number}", accent)
+                        MiniPill(authorityLabel(chapter.canon_status), accent)
+                        if (chapter.content_kind != "FULL_TEXT") {
+                            MiniPill(contentKindLabel(chapter.content_kind), contentKindColor(chapter.content_kind))
+                        } else if (chapter.source_grouped) {
+                            MiniPill("FUENTE AGRUPADA", Color(0xFF94A3B8))
+                        }
+                    }
+                    val summary = chapter.canon_summary.ifBlank { chapter.excerpt }
+                    if (summary.isNotBlank()) {
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            summary,
+                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                            color = Color(0xFFCBD5E1),
+                            maxLines = 5,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        when (chapter.content_kind) {
+                            "FULL_TEXT" -> "${chapter.word_count} palabras · Fuente: ${chapter.source_title}"
+                            "PARTIAL_TEXT" -> "${chapter.word_count} palabras recuperadas · Texto parcial; puede editarse sin promoverlo a canon."
+                            else -> "La fuente recuperada contiene un resumen, no un manuscrito editable."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (chapter.content_kind == "FULL_TEXT") Color(0xFF94A3B8) else JarvisAmber,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Button(
+                            onClick = { vm.readWritingLibraryDocument(projectId, chapter.document_id) },
+                            enabled = !state.busy,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Leer")
+                        }
+                        if (settings.isOwner && contentKindCanEdit(chapter.content_kind)) {
+                            OutlinedButton(
+                                onClick = {
+                                    vm.editWritingLibraryChapter(
+                                        projectId = projectId,
+                                        documentId = chapter.document_id,
+                                        onReady = onEditChapter,
+                                    )
+                                },
+                                enabled = !state.busy,
+                            ) {
+                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(5.dp))
+                                Text("Editar")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        state.document?.let { document ->
+            item {
+                WorkspaceCard(document.title, authorityColor(document.canon_status)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        document.chapter_number?.let { MiniPill("CAP $it", authorityColor(document.canon_status)) }
+                        MiniPill(authorityLabel(document.canon_status), authorityColor(document.canon_status))
+                        if (document.content_kind.isNotBlank() && document.content_kind != "FULL_TEXT") {
+                            MiniPill(contentKindLabel(document.content_kind), contentKindColor(document.content_kind))
+                        }
+                    }
+                    if (document.content_kind.isNotBlank() && document.content_kind != "FULL_TEXT") {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (document.content_kind == "PARTIAL_TEXT") {
+                                "Este capítulo conserva texto parcial recuperado. Puedes editar una copia de trabajo, pero seguirá marcado como REFERENCIA hasta una decisión humana."
+                            } else {
+                                "Este capítulo solo conserva una recapitulación. No se habilita edición de manuscrito para evitar inventar texto que no existe."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisAmber,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    RichModelText(document.text)
+
+                    val currentIndex = document.chapter_number?.let { number ->
+                        chapters.indexOfFirst { it.chapter_number == number }
+                    } ?: -1
+                    if (currentIndex >= 0) {
+                        val previous = chapters.getOrNull(currentIndex - 1)
+                        val next = chapters.getOrNull(currentIndex + 1)
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedButton(
+                                onClick = { previous?.let { vm.readWritingLibraryDocument(projectId, it.document_id) } },
+                                enabled = !state.busy && previous != null,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(previous?.let { "← Cap ${it.chapter_number}" } ?: "← Anterior")
+                            }
+                            OutlinedButton(
+                                onClick = { next?.let { vm.readWritingLibraryDocument(projectId, it.document_id) } },
+                                enabled = !state.busy && next != null,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(next?.let { "Cap ${it.chapter_number} →" } ?: "Siguiente →")
+                            }
+                        }
+                    }
+
+                    if (
+                        settings.isOwner &&
+                        document.document_id.startsWith("chapter:") &&
+                        contentKindCanEdit(document.content_kind)
+                    ) {
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                vm.editWritingLibraryChapter(
+                                    projectId = projectId,
+                                    documentId = document.document_id,
+                                    onReady = onEditChapter,
+                                )
+                            },
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Editar este capítulo", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            WorkspaceCard("Publicación y Exportación", JarvisViolet) {
+                Text(
+                    "Las exportaciones siguen usando las fuentes oficiales. Los documentos agrupados originales quedan disponibles debajo como respaldo y procedencia.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFCBD5E1),
+                )
                 Spacer(Modifier.height(12.dp))
-
                 val exports = library?.exports.orEmpty()
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -4409,7 +5034,6 @@ private fun LibrarySection(
                         )
                     }
                 }
-
                 if (!state.exportMessage.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
                     Text(state.exportMessage.orEmpty(), color = MaterialTheme.colorScheme.primary)
@@ -4417,39 +5041,35 @@ private fun LibrarySection(
             }
         }
 
-        if (library != null) {
+        if (library != null && library.items.isNotEmpty()) {
             item {
                 Text(
-                    "ARCHIVOS DEL CANON OFICIAL",
+                    "FUENTES AGRUPADAS · RESPALDO",
                     style = HudTextStyle,
                     color = Color(0xFF94A3B8),
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-            items(library.items) { item ->
-                WorkspaceCard(item.title, JarvisGreen) {
-                    MiniPill("CANON OFICIAL", JarvisGreen)
+            items(library.items, key = { "source_${it.document_id}" }) { item ->
+                WorkspaceCard(item.title, Color(0xFF94A3B8)) {
                     val range = when {
                         item.chapter_min != null && item.chapter_max != null && item.chapter_min != item.chapter_max ->
                             "Capítulos ${item.chapter_min} al ${item.chapter_max}"
                         item.chapter_max != null -> "Capítulo ${item.chapter_max}"
-                        else -> ""
+                        else -> "Fuente canónica"
                     }
-                    if (range.isNotBlank()) {
-                        Spacer(Modifier.height(3.dp))
-                        Text(range, color = Color(0xFFCBD5E1))
-                    }
+                    Text(range, color = Color(0xFFCBD5E1))
                     Spacer(Modifier.height(8.dp))
                     Row(
-                        Modifier
+                        modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Button(
+                        OutlinedButton(
                             onClick = { vm.readWritingLibraryDocument(projectId, item.document_id) },
                             enabled = !state.busy,
-                        ) { Text("Leer") }
+                        ) { Text("Ver fuente") }
                         OutlinedButton(
                             onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "pdf") },
                             enabled = !state.busy && library.exports["pdf"] == "ready",
@@ -4458,24 +5078,7 @@ private fun LibrarySection(
                             onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "docx") },
                             enabled = !state.busy && library.exports["docx"] == "ready",
                         ) { Text("DOCX") }
-                        OutlinedButton(
-                            onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "epub") },
-                            enabled = !state.busy && library.exports["epub"] == "ready",
-                        ) { Text("EPUB") }
-                        OutlinedButton(
-                            onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "markdown") },
-                            enabled = !state.busy && library.exports["markdown"] == "ready",
-                        ) { Text("MD") }
                     }
-                }
-            }
-        }
-        state.document?.let { document ->
-            item {
-                WorkspaceCard(document.title, JarvisGreen) {
-                    MiniPill("CANON OFICIAL", JarvisGreen)
-                    Spacer(Modifier.height(8.dp))
-                    RichModelText(document.text)
                 }
             }
         }
@@ -4712,6 +5315,23 @@ private fun inlineMarkdown(text: String): AnnotatedString = buildAnnotatedString
     }
 }
 
+private fun contentKindLabel(kind: String): String = when (kind) {
+    "FULL_TEXT" -> "TEXTO COMPLETO"
+    "PARTIAL_TEXT" -> "TEXTO PARCIAL"
+    "SUMMARY_ONLY" -> "SOLO RESUMEN"
+    else -> kind.ifBlank { "FUENTE" }
+}
+
+private fun contentKindColor(kind: String): Color = when (kind) {
+    "FULL_TEXT" -> JarvisGreen
+    "PARTIAL_TEXT" -> JarvisAmber
+    "SUMMARY_ONLY" -> JarvisAmber
+    else -> Color(0xFF94A3B8)
+}
+
+private fun contentKindCanEdit(kind: String): Boolean =
+    kind == "FULL_TEXT" || kind == "PARTIAL_TEXT"
+
 private fun authorityColor(status: String): Color = when (status) {
     "OFFICIAL_CANON" -> JarvisGreen
     "REFERENCE" -> JarvisCyan
@@ -4739,6 +5359,7 @@ private enum class WorkspaceTab(val icon: ImageVector) {
     WRITE(Icons.Filled.EditNote),
     CHAT(Icons.AutoMirrored.Filled.Chat),
     PLAN(Icons.Filled.AccountTree),
+    CANON(Icons.Filled.AutoStories),
     WIKI(Icons.Filled.AutoStories),
     LIBRARY(Icons.Filled.LocalLibrary);
 
@@ -4747,6 +5368,7 @@ private enum class WorkspaceTab(val icon: ImageVector) {
         WRITE -> strings.workspaceWrite
         CHAT -> strings.workspaceChat
         PLAN -> strings.workspacePlan
+        CANON -> "Canon"
         WIKI -> strings.workspaceWiki
         LIBRARY -> strings.workspaceLibrary
     }
