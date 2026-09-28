@@ -4,11 +4,16 @@ import com.jarvis.android.transport.TransportException
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
@@ -149,6 +154,7 @@ data class KnowledgeAssertion(
     val assertion_version_id: String = "",
     val subject_id: String = "",
     val predicate_id: String = "",
+    @SerialName("object")
     val object_: JsonObject = JsonObject(emptyMap()),
     val authority: JsonObject = JsonObject(emptyMap()),
     val temporal: JsonObject = JsonObject(emptyMap()),
