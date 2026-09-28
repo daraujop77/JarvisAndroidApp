@@ -83,7 +83,15 @@ class JarvisAppSession(
     data class AppUser(val id: String = "", val username: String = "", val role: String = "")
 
     val token: String? get() = store.get(KEY_TOKEN)
-    val baseUrl: String get() = store.get(KEY_BASE) ?: ""
+    val baseUrl: String
+        get() {
+            val stored = store.get(KEY_BASE) ?: return ""
+            val migrated = migrateKnownControlPlaneBase(stored)
+            if (migrated != stored) {
+                store.put(mapOf(KEY_BASE to migrated))
+            }
+            return migrated
+        }
     val userId: String get() = store.get(KEY_USER_ID) ?: ""
     val username: String get() = store.get(KEY_USERNAME) ?: ""
     val role: String get() = store.get(KEY_ROLE) ?: ""
@@ -915,12 +923,27 @@ class JarvisAppSession(
         const val KEY_PROFILE = "chat_profile"
         const val KEY_PROFILE_CONV = "chat_profile_"
 
+        private const val CONTROL_PLANE_HOST = "vps-8817149e.tail6eec63.ts.net"
+        internal const val LEGACY_PRIVATE_CONTROL_PLANE_URL =
+            "https://vps-8817149e.tail6eec63.ts.net"
+        internal const val PUBLIC_CONTROL_PLANE_URL =
+            "https://vps-8817149e.tail6eec63.ts.net:8443"
+
         internal val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
         fun forContext(context: Context): JarvisAppSession = JarvisAppSession(
             store = PrefsStore(context),
             refreshStore = SecureRefreshCredentialStore(context),
         )
+
+        internal fun migrateKnownControlPlaneBase(raw: String): String {
+            val normalized = normalizeBase(raw) ?: return raw
+            return if (normalized == LEGACY_PRIVATE_CONTROL_PLANE_URL) {
+                PUBLIC_CONTROL_PLANE_URL
+            } else {
+                normalized
+            }
+        }
 
         internal fun normalizeBase(raw: String): String? {
             val trimmed = raw.trim().trimEnd('/')
@@ -937,14 +960,15 @@ class JarvisAppSession(
 
         /**
          * Fail-closed URL policy: loopback, RFC1918, Tailscale CGNAT
-         * (100.64.0.0/10), `*.ts.net` MagicDNS names, or a tailnet single-label
-         * host. Anything else — any public hostname — is rejected so a stray
-         * URL can never leak the bearer token off the approved private network.
+         * (100.64.0.0/10), the approved JARVIS control-plane `*.ts.net` host,
+         * or a tailnet single-label host. The approved control-plane hostname may
+         * be reached through Tailscale Funnel on port 8443; arbitrary public
+         * hosts remain rejected so a stray URL cannot receive the bearer token.
          */
         fun isAllowedLiveHost(base: String): Boolean {
             val host = runCatching { java.net.URI(base).host }.getOrNull()?.lowercase() ?: return false
             if (host == "localhost" || host == "127.0.0.1" || host == "::1") return true
-            if (host.endsWith(".ts.net")) return true
+            if (host.endsWith(".ts.net")) return host == CONTROL_PLANE_HOST
             ipv4(host)?.let { (a, b, _, _) ->
                 if (a == 10 || a == 127) return true
                 if (a == 100 && b in 64..127) return true // Tailscale CGNAT
