@@ -201,6 +201,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val planningCouncilSessions: List<WritingPlanningCouncilSession> = emptyList(),
         val chapters: List<WritingChapterSummary> = emptyList(),
         val activeChapter: WritingChapter? = null,
+        val chapterRevisions: List<WritingChapterRevisionSummary> = emptyList(),
+        val chapterRevisionChapterId: String? = null,
         val engineReview: WritingEngineReviewEnvelope? = null,
         val library: WritingLibraryList? = null,
         val document: WritingLibraryDocument? = null,
@@ -814,29 +816,107 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             val action = result.getOrThrow()
             val chapter = action.chapter
             val list = container.liveSession.writingRoomChapterList(projectId)
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = false,
                 busyLabel = "",
                 activeChapter = chapter,
+                chapterRevisions = revisions.getOrNull()?.items ?: _writingWorkspace.value.chapterRevisions,
+                chapterRevisionChapterId = if (revisions.isSuccess) chapterId else _writingWorkspace.value.chapterRevisionChapterId,
                 engineReview = if (step == "review") action.engine_review else null,
                 chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
-                error = list.exceptionOrNull()?.message,
+                error = list.exceptionOrNull()?.message ?: revisions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun openWritingChapter(projectId: String, chapterId: String) {
+        writingWorkspaceBusy("ABRIENDO CAPÍTULO")
+        viewModelScope.launch {
+            val chapterResult = container.liveSession.writingRoomChapterGet(projectId, chapterId)
+            if (chapterResult.isFailure) {
+                writingWorkspaceError(chapterResult.exceptionOrNull())
+                return@launch
+            }
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                activeChapter = chapterResult.getOrThrow().chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                engineReview = null,
+                error = revisions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun loadWritingChapterRevisions(projectId: String, chapterId: String) {
+        if (_writingWorkspace.value.chapterRevisionChapterId == chapterId &&
+            _writingWorkspace.value.chapterRevisions.isNotEmpty()
+        ) return
+        viewModelScope.launch {
+            container.liveSession.writingRoomChapterRevisions(projectId, chapterId).fold(
+                onSuccess = { response ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        chapterRevisions = response.items,
+                        chapterRevisionChapterId = chapterId,
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        error = error.message ?: "No se pudo cargar el historial del capítulo",
+                    )
+                },
+            )
+        }
+    }
+
+    fun restoreWritingChapterRevision(projectId: String, chapterId: String, revisionId: String) {
+        writingWorkspaceBusy("RESTAURANDO VERSIÓN")
+        viewModelScope.launch {
+            val restored = container.liveSession.writingRoomChapterRevisionRestore(
+                projectId,
+                chapterId,
+                revisionId,
+            )
+            if (restored.isFailure) {
+                writingWorkspaceError(restored.exceptionOrNull())
+                return@launch
+            }
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                activeChapter = restored.getOrThrow().chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                engineReview = null,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                error = revisions.exceptionOrNull()?.message ?: list.exceptionOrNull()?.message,
             )
         }
     }
 
     fun saveWritingChapterDraft(projectId: String, chapterId: String, draftText: String) {
-        writingWorkspaceBusy("Saving draft")
+        writingWorkspaceBusy("GUARDANDO NUEVA VERSIÓN")
         viewModelScope.launch {
             val result = container.liveSession.writingRoomSaveDraft(projectId, chapterId, draftText)
             result.fold(
                 onSuccess = {
+                    val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+                    val list = container.liveSession.writingRoomChapterList(projectId)
                     _writingWorkspace.value = _writingWorkspace.value.copy(
                         busy = false,
                         busyLabel = "",
                         activeChapter = it.chapter,
+                        chapterRevisions = revisions.getOrNull()?.items ?: _writingWorkspace.value.chapterRevisions,
+                        chapterRevisionChapterId = if (revisions.isSuccess) chapterId else _writingWorkspace.value.chapterRevisionChapterId,
+                        chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
                         engineReview = null,
-                        error = null,
+                        error = revisions.exceptionOrNull()?.message ?: list.exceptionOrNull()?.message,
                     )
                 },
                 onFailure = ::writingWorkspaceError,
