@@ -4461,7 +4461,7 @@ private fun TimelineChapterCard(
             MiniPill("CAP ${item.chapter_number}", accent)
             MiniPill(authorityLabel(item.canon_status), accent)
             if (item.content_kind != "FULL_TEXT") {
-                MiniPill("SOLO RESUMEN", JarvisAmber)
+                MiniPill(contentKindLabel(item.content_kind), contentKindColor(item.content_kind))
             }
         }
         if (item.summary.isNotBlank()) {
@@ -4654,7 +4654,8 @@ private fun LibrarySection(
                         MiniPill("${counts["total"] ?: 0} CAPÍTULOS", JarvisCyan)
                         MiniPill("${counts["official"] ?: 0} CANON", JarvisGreen)
                         MiniPill("${counts["reference"] ?: 0} REFERENCIA", JarvisCyan)
-                        MiniPill("${counts["recap_only"] ?: 0} SOLO RESUMEN", JarvisAmber)
+                        MiniPill("${counts["partial_text"] ?: 0} PARCIALES", JarvisAmber)
+                        MiniPill("${counts["summary_only"] ?: 0} SOLO RESUMEN", JarvisAmber)
                     }
                 }
             }
@@ -4682,7 +4683,7 @@ private fun LibrarySection(
                         MiniPill("CAP ${chapter.chapter_number}", accent)
                         MiniPill(authorityLabel(chapter.canon_status), accent)
                         if (chapter.content_kind != "FULL_TEXT") {
-                            MiniPill("SOLO RESUMEN", JarvisAmber)
+                            MiniPill(contentKindLabel(chapter.content_kind), contentKindColor(chapter.content_kind))
                         } else if (chapter.source_grouped) {
                             MiniPill("FUENTE AGRUPADA", Color(0xFF94A3B8))
                         }
@@ -4700,10 +4701,10 @@ private fun LibrarySection(
                     }
                     Spacer(Modifier.height(7.dp))
                     Text(
-                        if (chapter.content_kind == "FULL_TEXT") {
-                            "${chapter.word_count} palabras · Fuente: ${chapter.source_title}"
-                        } else {
-                            "La fuente recuperada contiene un resumen, no el manuscrito completo."
+                        when (chapter.content_kind) {
+                            "FULL_TEXT" -> "${chapter.word_count} palabras · Fuente: ${chapter.source_title}"
+                            "PARTIAL_TEXT" -> "${chapter.word_count} palabras recuperadas · Texto parcial; puede editarse sin promoverlo a canon."
+                            else -> "La fuente recuperada contiene un resumen, no un manuscrito editable."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (chapter.content_kind == "FULL_TEXT") Color(0xFF94A3B8) else JarvisAmber,
@@ -4723,7 +4724,7 @@ private fun LibrarySection(
                             Spacer(Modifier.width(5.dp))
                             Text("Leer")
                         }
-                        if (settings.isOwner && chapter.content_kind == "FULL_TEXT") {
+                        if (settings.isOwner && contentKindCanEdit(chapter.content_kind)) {
                             OutlinedButton(
                                 onClick = {
                                     vm.editWritingLibraryChapter(
@@ -4756,23 +4757,56 @@ private fun LibrarySection(
                         document.chapter_number?.let { MiniPill("CAP $it", authorityColor(document.canon_status)) }
                         MiniPill(authorityLabel(document.canon_status), authorityColor(document.canon_status))
                         if (document.content_kind.isNotBlank() && document.content_kind != "FULL_TEXT") {
-                            MiniPill("SOLO RESUMEN", JarvisAmber)
+                            MiniPill(contentKindLabel(document.content_kind), contentKindColor(document.content_kind))
                         }
                     }
                     if (document.content_kind.isNotBlank() && document.content_kind != "FULL_TEXT") {
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Este capítulo no tiene manuscrito completo preservado en la fuente actual. Se muestra únicamente la recapitulación recuperada.",
+                            if (document.content_kind == "PARTIAL_TEXT") {
+                                "Este capítulo conserva texto parcial recuperado. Puedes editar una copia de trabajo, pero seguirá marcado como REFERENCIA hasta una decisión humana."
+                            } else {
+                                "Este capítulo solo conserva una recapitulación. No se habilita edición de manuscrito para evitar inventar texto que no existe."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = JarvisAmber,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
                     RichModelText(document.text)
+
+                    val currentIndex = document.chapter_number?.let { number ->
+                        chapters.indexOfFirst { it.chapter_number == number }
+                    } ?: -1
+                    if (currentIndex >= 0) {
+                        val previous = chapters.getOrNull(currentIndex - 1)
+                        val next = chapters.getOrNull(currentIndex + 1)
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedButton(
+                                onClick = { previous?.let { vm.readWritingLibraryDocument(projectId, it.document_id) } },
+                                enabled = !state.busy && previous != null,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(previous?.let { "← Cap ${it.chapter_number}" } ?: "← Anterior")
+                            }
+                            OutlinedButton(
+                                onClick = { next?.let { vm.readWritingLibraryDocument(projectId, it.document_id) } },
+                                enabled = !state.busy && next != null,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(next?.let { "Cap ${it.chapter_number} →" } ?: "Siguiente →")
+                            }
+                        }
+                    }
+
                     if (
                         settings.isOwner &&
                         document.document_id.startsWith("chapter:") &&
-                        document.content_kind == "FULL_TEXT"
+                        contentKindCanEdit(document.content_kind)
                     ) {
                         Spacer(Modifier.height(10.dp))
                         Button(
@@ -5118,6 +5152,23 @@ private fun inlineMarkdown(text: String): AnnotatedString = buildAnnotatedString
         pop()
     }
 }
+
+private fun contentKindLabel(kind: String): String = when (kind) {
+    "FULL_TEXT" -> "TEXTO COMPLETO"
+    "PARTIAL_TEXT" -> "TEXTO PARCIAL"
+    "SUMMARY_ONLY" -> "SOLO RESUMEN"
+    else -> kind.ifBlank { "FUENTE" }
+}
+
+private fun contentKindColor(kind: String): Color = when (kind) {
+    "FULL_TEXT" -> JarvisGreen
+    "PARTIAL_TEXT" -> JarvisAmber
+    "SUMMARY_ONLY" -> JarvisAmber
+    else -> Color(0xFF94A3B8)
+}
+
+private fun contentKindCanEdit(kind: String): Boolean =
+    kind == "FULL_TEXT" || kind == "PARTIAL_TEXT"
 
 private fun authorityColor(status: String): Color = when (status) {
     "OFFICIAL_CANON" -> JarvisGreen
