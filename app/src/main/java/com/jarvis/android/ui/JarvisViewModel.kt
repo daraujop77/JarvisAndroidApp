@@ -1683,7 +1683,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 }
 
-private const val DEFAULT_CONTROL_PLANE_URL = "https://vps-8817149e.tail6eec63.ts.net"
+private const val DEFAULT_CONTROL_PLANE_URL = "https://vps-8817149e.tail6eec63.ts.net:8443"
 
 class JarvisViewModelFactory(private val app: JarvisApp) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
