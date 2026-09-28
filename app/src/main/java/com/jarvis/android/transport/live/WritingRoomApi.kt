@@ -402,8 +402,52 @@ data class WritingChapter(
     val canon_review_text: String = "",
     val characters: List<String> = emptyList(),
     val author_intent: WritingAuthorIntent = WritingAuthorIntent(),
+    val revision_count: Int = 0,
+    val current_revision_number: Int? = null,
     val created_utc: String = "",
     val updated_utc: String = "",
+)
+
+@Serializable
+data class WritingChapterRevisionSummary(
+    val revision_id: String = "",
+    val revision_number: Int = 0,
+    val source: String = "",
+    val restored_from_revision_id: String = "",
+    val context_pack_id: String = "",
+    val created_utc: String = "",
+    val char_count: Int = 0,
+    val word_count: Int = 0,
+    val preview: String = "",
+    val is_current: Boolean = false,
+)
+
+@Serializable
+data class WritingChapterRevisionList(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val current_revision_number: Int? = null,
+    val items: List<WritingChapterRevisionSummary> = emptyList(),
+)
+
+@Serializable
+data class WritingChapterRevision(
+    val revision_id: String = "",
+    val revision_number: Int = 0,
+    val draft_text: String = "",
+    val source: String = "",
+    val restored_from_revision_id: String = "",
+    val context_pack_id: String = "",
+    val created_utc: String = "",
+)
+
+@Serializable
+data class WritingChapterRevisionResponse(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val revision: WritingChapterRevision = WritingChapterRevision(),
 )
 
 @Serializable
@@ -414,6 +458,7 @@ data class WritingChapterSummary(
     val story_point: String = "",
     val status: String = "",
     val context_pack_id: String = "",
+    val revision_count: Int = 0,
     val created_utc: String = "",
     val updated_utc: String = "",
 )
@@ -867,6 +912,58 @@ suspend fun JarvisAppSession.writingRoomChapterList(projectId: String): Result<W
     writingPost(
         "/api/app/writing-room/chapter/list",
         buildJsonObject { put("project_id", projectId) },
+    )
+
+suspend fun JarvisAppSession.writingRoomChapterGet(
+    projectId: String,
+    chapterId: String,
+): Result<WritingChapterResponse> =
+    writingPost(
+        "/api/app/writing-room/chapter/get",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomChapterRevisions(
+    projectId: String,
+    chapterId: String,
+): Result<WritingChapterRevisionList> =
+    writingPost(
+        "/api/app/writing-room/chapter/revisions",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomChapterRevisionGet(
+    projectId: String,
+    chapterId: String,
+    revisionId: String,
+): Result<WritingChapterRevisionResponse> =
+    writingPost(
+        "/api/app/writing-room/chapter/revision/get",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("revision_id", revisionId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomChapterRevisionRestore(
+    projectId: String,
+    chapterId: String,
+    revisionId: String,
+): Result<WritingChapterResponse> =
+    writingPost(
+        "/api/app/writing-room/chapter/revision/restore",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("revision_id", revisionId)
+        },
     )
 
 suspend fun JarvisAppSession.writingRoomChapterStart(
