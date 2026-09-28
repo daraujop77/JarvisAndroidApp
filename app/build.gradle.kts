@@ -37,8 +37,8 @@ android {
         targetSdk = 36
         // Google Play can override versionCode independently so direct APK
         // updates keep their existing version sequence.
-        versionCode = jarvisVersionCode ?: 43
-        versionName = "0.1.42-biometric-reauth-v43"
+        versionCode = jarvisVersionCode ?: 44
+        versionName = "0.1.43-public-ingress-v44"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Checked-in schemas are what Lane C migration tests diff against.
