@@ -1104,12 +1104,49 @@ data class WritingChapterDeleteAck(
     val source_canon_status: String = "",
 )
 
+@Serializable
+data class WritingChapterTrashItem(
+    val chapter_id: String = "",
+    val title: String = "",
+    val status: String = "",
+    val deleted_by: String = "",
+    val delete_reason: String = "",
+    val deleted_utc: String = "",
+)
+
+@Serializable
+data class WritingChapterTrashList(
+    val schema: String = "",
+    val project_id: String = "",
+    val items: List<WritingChapterTrashItem> = emptyList(),
+)
+
 suspend fun JarvisAppSession.writingRoomChapterDelete(
     projectId: String,
     chapterId: String,
 ): Result<WritingChapterDeleteAck> =
     writingPost(
         "/api/app/writing-room/chapter/delete",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomChapterTrash(
+    projectId: String,
+): Result<WritingChapterTrashList> =
+    writingPost(
+        "/api/app/writing-room/chapter/trash",
+        buildJsonObject { put("project_id", projectId) },
+    )
+
+suspend fun JarvisAppSession.writingRoomChapterRestoreDeleted(
+    projectId: String,
+    chapterId: String,
+): Result<WritingChapterResponse> =
+    writingPost(
+        "/api/app/writing-room/chapter/restore-deleted",
         buildJsonObject {
             put("project_id", projectId)
             put("chapter_id", chapterId)
