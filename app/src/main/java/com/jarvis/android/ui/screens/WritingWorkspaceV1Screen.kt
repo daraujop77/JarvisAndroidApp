@@ -1002,6 +1002,7 @@ private fun WriteSection(
     var draft by rememberSaveable { mutableStateOf("") }
     val active = state.activeChapter
     var revisionHistoryExpanded by rememberSaveable(active?.chapter_id) { mutableStateOf(false) }
+    var chapterPendingDelete by rememberSaveable { mutableStateOf<String?>(null) }
     val writeListState = rememberLazyListState()
 
     LaunchedEffect(active?.chapter_id, active?.draft_text, active?.title) {
@@ -1022,6 +1023,39 @@ private fun WriteSection(
     }
     val charCount = draft.length
     val readingTimeMin = remember(wordCount) { maxOf(1, wordCount / 200) }
+
+    val deleteTarget = state.chapters.firstOrNull { it.chapter_id == chapterPendingDelete }
+    if (deleteTarget != null) {
+        AlertDialog(
+            onDismissRequest = { chapterPendingDelete = null },
+            title = { Text("Eliminar sesión del capítulo") },
+            text = {
+                Text(
+                    if (deleteTarget.source_chapter_number != null) {
+                        "Se eliminarán esta sesión editable y su historial de versiones. El Capítulo ${deleteTarget.source_chapter_number} de la Biblioteca/Canon NO se borrará."
+                    } else {
+                        "Se eliminarán esta sesión y su historial de versiones. Esta acción no modifica las fuentes oficiales."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.deleteWritingChapter(projectId, deleteTarget.chapter_id)
+                        chapterPendingDelete = null
+                    },
+                    enabled = !state.busy,
+                ) {
+                    Text("Eliminar", color = JarvisRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chapterPendingDelete = null }) {
+                    Text("Cancelar")
+                }
+            },
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1477,6 +1511,24 @@ private fun WriteSection(
             }
             items(state.chapters) { chapter ->
                 WorkspaceCard("${chapter.title} · ${chapter.status}") {
+                    if (chapter.source_chapter_number != null) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            MiniPill("CAP ${chapter.source_chapter_number}", JarvisCyan)
+                            if (chapter.source_canon_status.isNotBlank()) {
+                                MiniPill(
+                                    authorityLabel(chapter.source_canon_status),
+                                    authorityColor(chapter.source_canon_status),
+                                )
+                            }
+                            MiniPill("${chapter.revision_count} VERSIONES", JarvisViolet)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                    }
                     Text(chapter.objective, color = Color(0xFFE2E8F0))
                     if (chapter.story_point.isNotBlank()) {
                         Spacer(Modifier.height(2.dp))
@@ -1509,6 +1561,14 @@ private fun WriteSection(
                             onClick = { vm.runWritingChapterStep(projectId, chapter.chapter_id, "review") },
                             enabled = !state.busy,
                         ) { Text("Revisar") }
+                        TextButton(
+                            onClick = { chapterPendingDelete = chapter.chapter_id },
+                            enabled = !state.busy && chapter.status != "HUMAN_APPROVED_PENDING_SOURCE",
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Eliminar", color = JarvisRed)
+                        }
                     }
                 }
             }
