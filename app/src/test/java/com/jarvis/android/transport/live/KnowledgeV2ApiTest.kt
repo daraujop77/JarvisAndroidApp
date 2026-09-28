@@ -207,10 +207,10 @@ class KnowledgeV2ApiTest {
         assertEquals("edge_guardian", graph.data.edges.single().edge_id)
 
         val body = lastBody.get()
-        assertTrue(body.contains(""project_id":"prj_story""))
-        assertTrue(body.contains(""snapshot_id":"ks_story_1""))
-        assertTrue(body.contains(""node_id":"character:alexander""))
-        assertTrue(body.contains(""predicate_ids":["related_to"]"))
+        assertTrue(body.contains("\\\"project_id\\\":\\\"prj_story\\\""))
+        assertTrue(body.contains("\\\"snapshot_id\\\":\\\"ks_story_1\\\""))
+        assertTrue(body.contains("\\\"node_id\\\":\\\"character:alexander\\\""))
+        assertTrue(body.contains("\\\"predicate_ids\\\":[\\\"related_to\\\"]"))
     }
 
     @Test
