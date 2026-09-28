@@ -404,6 +404,9 @@ data class WritingChapter(
     val author_intent: WritingAuthorIntent = WritingAuthorIntent(),
     val revision_count: Int = 0,
     val current_revision_number: Int? = null,
+    val source_document_id: String = "",
+    val source_chapter_number: Int? = null,
+    val source_canon_status: String = "",
     val created_utc: String = "",
     val updated_utc: String = "",
 )
@@ -459,6 +462,9 @@ data class WritingChapterSummary(
     val status: String = "",
     val context_pack_id: String = "",
     val revision_count: Int = 0,
+    val source_document_id: String = "",
+    val source_chapter_number: Int? = null,
+    val source_canon_status: String = "",
     val created_utc: String = "",
     val updated_utc: String = "",
 )
@@ -546,6 +552,104 @@ data class WritingChapterAction(
 )
 
 @Serializable
+data class WritingLibraryChapter(
+    val document_id: String = "",
+    val chapter_number: Int = 0,
+    val title: String = "",
+    val excerpt: String = "",
+    val word_count: Int = 0,
+    val char_count: Int = 0,
+    val content_kind: String = "",
+    val grouped_range: List<Int> = emptyList(),
+    val source_grouped: Boolean = false,
+    val source_document_id: String = "",
+    val source_title: String = "",
+    val drive_url: String = "",
+    val canon_status: String = "",
+    val authority: String = "",
+    val source_ref: String = "",
+    val canon_summary: String = "",
+    val wiki_entry_id: String = "",
+)
+
+@Serializable
+data class WritingTimelineCharacterRef(
+    val id: String = "",
+    val name: String = "",
+)
+
+@Serializable
+data class WritingTimelineArcRef(
+    val id: String = "",
+    val name: String = "",
+)
+
+@Serializable
+data class WritingTimelineOccurred(
+    val chapter_number: Int = 0,
+    val document_id: String = "",
+    val title: String = "",
+    val summary: String = "",
+    val summary_source: String = "",
+    val canon_status: String = "",
+    val content_kind: String = "",
+    val wiki_entry_id: String = "",
+    val source_ref: String = "",
+    val related_characters: List<WritingTimelineCharacterRef> = emptyList(),
+    val related_arcs: List<WritingTimelineArcRef> = emptyList(),
+)
+
+@Serializable
+data class WritingTimelineFuture(
+    val id: String = "",
+    val type: String = "",
+    val name: String = "",
+    val authority: String = "",
+    val summary: String = "",
+    val chapter_refs: List<Int> = emptyList(),
+    val source_refs: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingWikiTimeline(
+    val schema: String = "",
+    val project_id: String = "",
+    val occurred: List<WritingTimelineOccurred> = emptyList(),
+    val future: List<WritingTimelineFuture> = emptyList(),
+    val rules: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingExplorerEntry(
+    val id: String = "",
+    val type: String = "",
+    val name: String = "",
+    val authority: String = "",
+    val summary: String = "",
+    val chapter_refs: List<Int> = emptyList(),
+    val future_refs: List<Int> = emptyList(),
+    val relationships: List<WritingWikiRelationship> = emptyList(),
+    val source_refs: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingExplorerSection(
+    val id: String = "",
+    val label: String = "",
+    val items: List<WritingExplorerEntry> = emptyList(),
+)
+
+@Serializable
+data class WritingCanonExplorer(
+    val schema: String = "",
+    val project_id: String = "",
+    val authority: String = "",
+    val authority_counts: Map<String, Int> = emptyMap(),
+    val sections: List<WritingExplorerSection> = emptyList(),
+    val legend: List<WritingWikiLegendItem> = emptyList(),
+)
+
+@Serializable
 data class WritingLibraryItem(
     val document_id: String = "",
     val title: String = "",
@@ -561,6 +665,8 @@ data class WritingLibraryList(
     val schema: String = "",
     val project_id: String = "",
     val items: List<WritingLibraryItem> = emptyList(),
+    val chapters: List<WritingLibraryChapter> = emptyList(),
+    val chapter_counts: Map<String, Int> = emptyMap(),
     val exports: Map<String, String> = emptyMap(),
 )
 
@@ -570,6 +676,10 @@ data class WritingLibraryDocument(
     val title: String = "",
     val drive_url: String = "",
     val canon_status: String = "",
+    val chapter_number: Int? = null,
+    val content_kind: String = "",
+    val source_document_id: String = "",
+    val source_title: String = "",
     val text: String = "",
 )
 
@@ -765,6 +875,22 @@ suspend fun JarvisAppSession.writingRoomVisualAssetFetch(
         },
     )
 }
+
+suspend fun JarvisAppSession.writingRoomWikiTimeline(
+    projectId: String,
+): Result<WritingWikiTimeline> =
+    writingPost(
+        "/api/app/writing-room/wiki/timeline",
+        buildJsonObject { put("project_id", projectId) },
+    )
+
+suspend fun JarvisAppSession.writingRoomWikiExplorer(
+    projectId: String,
+): Result<WritingCanonExplorer> =
+    writingPost(
+        "/api/app/writing-room/wiki/explorer",
+        buildJsonObject { put("project_id", projectId) },
+    )
 
 suspend fun JarvisAppSession.writingRoomWikiEntry(
     projectId: String,
@@ -966,6 +1092,30 @@ suspend fun JarvisAppSession.writingRoomChapterRevisionRestore(
         },
     )
 
+@Serializable
+data class WritingChapterDeleteAck(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val deleted: Boolean = false,
+    val source_untouched: Boolean = true,
+    val source_document_id: String = "",
+    val source_chapter_number: Int? = null,
+    val source_canon_status: String = "",
+)
+
+suspend fun JarvisAppSession.writingRoomChapterDelete(
+    projectId: String,
+    chapterId: String,
+): Result<WritingChapterDeleteAck> =
+    writingPost(
+        "/api/app/writing-room/chapter/delete",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
 suspend fun JarvisAppSession.writingRoomChapterStart(
     projectId: String,
     title: String,
@@ -1060,6 +1210,18 @@ suspend fun JarvisAppSession.writingRoomLibraryList(projectId: String): Result<W
     writingPost(
         "/api/app/writing-room/library/list",
         buildJsonObject { put("project_id", projectId) },
+    )
+
+suspend fun JarvisAppSession.writingRoomLibraryChapterEdit(
+    projectId: String,
+    documentId: String,
+): Result<WritingChapterResponse> =
+    writingPost(
+        "/api/app/writing-room/library/chapter/edit",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("document_id", documentId)
+        },
     )
 
 suspend fun JarvisAppSession.writingRoomLibraryRead(
