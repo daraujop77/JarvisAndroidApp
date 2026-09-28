@@ -195,6 +195,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val streamingText: String = "",
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
+        val wikiTimeline: WritingWikiTimeline? = null,
+        val canonExplorer: WritingCanonExplorer? = null,
         val wikiCharacters: List<WritingWikiEntity> = emptyList(),
         val plans: List<WritingPlanItem> = emptyList(),
         val planningCouncil: WritingPlanningCouncil? = null,
@@ -252,11 +254,16 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 entryType = "character",
                 topK = 100,
             )
+            val wikiTimeline = container.liveSession.writingRoomWikiTimeline(projectId)
+            val canonExplorer = container.liveSession.writingRoomWikiExplorer(projectId)
             val plans = container.liveSession.writingRoomPlanList(projectId)
             val councilSessions = container.liveSession.writingRoomPlanningCouncilList(projectId)
             val chapters = container.liveSession.writingRoomChapterList(projectId)
             val library = container.liveSession.writingRoomLibraryList(projectId)
-            val failure = listOf(overview, wikiHome, wikiCharacters, plans, councilSessions, chapters, library).firstOrNull { it.isFailure }
+            val failure = listOf(
+                overview, wikiHome, wikiCharacters, wikiTimeline, canonExplorer,
+                plans, councilSessions, chapters, library,
+            ).firstOrNull { it.isFailure }
             if (failure != null) {
                 writingWorkspaceError(failure.exceptionOrNull())
                 return@launch
@@ -266,6 +273,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 busyLabel = "",
                 overview = overview.getOrNull(),
                 wikiHome = wikiHome.getOrNull(),
+                wikiTimeline = wikiTimeline.getOrNull(),
+                canonExplorer = canonExplorer.getOrNull(),
                 wikiCharacters = wikiCharacters.getOrNull()?.entries.orEmpty(),
                 plans = plans.getOrNull()?.items.orEmpty(),
                 planningCouncilSessions = councilSessions.getOrNull()?.items.orEmpty(),
@@ -920,6 +929,59 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     )
                 },
                 onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun editWritingLibraryChapter(
+        projectId: String,
+        documentId: String,
+        onReady: () -> Unit = {},
+    ) {
+        writingWorkspaceBusy("ABRIENDO CAPÍTULO PARA EDICIÓN")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomLibraryChapterEdit(projectId, documentId)
+            if (result.isFailure) {
+                writingWorkspaceError(result.exceptionOrNull())
+                return@launch
+            }
+            val chapter = result.getOrThrow().chapter
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapter.chapter_id)
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                activeChapter = chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapter.chapter_id,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                engineReview = null,
+                error = revisions.exceptionOrNull()?.message ?: list.exceptionOrNull()?.message,
+            )
+            onReady()
+        }
+    }
+
+    fun deleteWritingChapter(projectId: String, chapterId: String) {
+        writingWorkspaceBusy("ELIMINANDO SESIÓN DEL CAPÍTULO")
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomChapterDelete(projectId, chapterId)
+            if (result.isFailure) {
+                writingWorkspaceError(result.exceptionOrNull())
+                return@launch
+            }
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            val current = _writingWorkspace.value
+            val deletingActive = current.activeChapter?.chapter_id == chapterId
+            _writingWorkspace.value = current.copy(
+                busy = false,
+                busyLabel = "",
+                chapters = list.getOrNull()?.items ?: current.chapters.filterNot { it.chapter_id == chapterId },
+                activeChapter = if (deletingActive) null else current.activeChapter,
+                chapterRevisions = if (deletingActive) emptyList() else current.chapterRevisions,
+                chapterRevisionChapterId = if (deletingActive) null else current.chapterRevisionChapterId,
+                engineReview = if (deletingActive) null else current.engineReview,
+                error = list.exceptionOrNull()?.message,
             )
         }
     }
