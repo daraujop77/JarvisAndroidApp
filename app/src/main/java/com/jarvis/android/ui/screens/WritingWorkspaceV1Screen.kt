@@ -2668,278 +2668,274 @@ private fun WikiSection(
                 }
             }
         } else {
-            val categories = home?.categories?.ifEmpty { null } ?: listOf(
-                WritingWikiCategory(
-                    id = "characters",
-                    label = "Personajes",
-                    subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
-                    query = "characters",
-                    source_count = liveCharacters.size,
-                ),
-                WritingWikiCategory(
-                    id = "canon",
-                    label = "Canon y Continuidad",
-                    subtitle = "Reglas fundamentales del mundo y líneas temporales",
-                    query = "canon",
-                    source_count = 6,
-                ),
-                WritingWikiCategory(
-                    id = "arcs",
-                    label = "Arcos y Capítulos",
-                    subtitle = "Estructura de la historia hasta el Capítulo 37",
-                    query = "arcs",
-                    source_count = 37,
-                ),
-            )
-
-            item {
-                Text(
-                    strings.exploreByCategory,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFFF8FAFC),
-                )
-            }
-            items(categories) { category ->
-                val isCharacterCategory = category.id.equals("characters", ignoreCase = true) ||
-                    category.label.contains("personaje", ignoreCase = true) ||
-                    category.label.contains("character", ignoreCase = true) ||
-                    category.query.equals("characters", ignoreCase = true) ||
-                    category.query.equals("personajes", ignoreCase = true)
-
-                val displayCategory = if (isCharacterCategory) {
-                    category.copy(
-                        label = "Personajes",
-                        subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
-                        source_count = liveCharacters.size,
-                    )
-                } else {
-                    category
-                }
-
-                WikiCategoryCard(displayCategory) {
-                    if (isCharacterCategory) {
-                        viewingCharactersDirectory = true
-                    } else {
-                        query = category.query
-                        vm.searchWritingWiki(projectId, category.query)
-                    }
-                }
-            }
-
-            // --- CANON TIMELINE MILESTONES (ERA PROGRESSION) ---
-            item {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Línea Temporal & Hitos (Capítulos 1–37)",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFFF8FAFC),
-                )
-            }
-            items(CANON_MILESTONES, key = { it.id }) { milestone ->
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xEE0E182A),
-                    border = BorderStroke(1.dp, milestone.badgeColor.copy(alpha = 0.38f)),
-                    shadowElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            MiniPill(milestone.era, milestone.badgeColor)
-                            Spacer(Modifier.width(8.dp))
+            when (knowledgeView) {
+                "timeline" -> {
+                    item {
+                        WorkspaceCard("Línea de tiempo canónica", JarvisCyan) {
                             Text(
-                                milestone.title,
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFF8FAFC),
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            milestone.summary,
-                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
-                            color = Color(0xFFCBD5E1),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            "Personajes clave del hito:",
-                            style = HudTextStyle,
-                            color = Color(0xFF94A3B8),
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            milestone.keyCharacterIds.mapNotNull { id ->
-                                liveCharacters.firstOrNull { it.id.equals(id, ignoreCase = true) }
-                            }.forEach { char ->
-                                Surface(
-                                    onClick = { selectedCharacterId = char.id },
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0x33101B2E),
-                                    border = BorderStroke(1.dp, char.themeColor.copy(alpha = 0.45f)),
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .background(char.themeColor.copy(alpha = 0.25f), CircleShape),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                char.avatarInitial,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = char.themeColor,
-                                            )
-                                        }
-                                        Text(
-                                            char.name,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                            color = Color(0xFFF8FAFC),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- INTERACTIVE FACTIONS & BONDS WEB ---
-            item {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Facciones & Alianzas Canónicas",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFFF8FAFC),
-                )
-            }
-            items(CANON_FACTIONS, key = { it.id }) { faction ->
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xEE0E182A),
-                    border = BorderStroke(1.dp, faction.accentColor.copy(alpha = 0.38f)),
-                    shadowElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                faction.name,
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFF8FAFC),
-                            )
-                            Spacer(Modifier.weight(1f))
-                            MiniPill("${faction.memberIds.size} MIEMBROS", faction.accentColor)
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            faction.description,
-                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
-                            color = Color(0xFF94A3B8),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            faction.memberIds.mapNotNull { id ->
-                                liveCharacters.firstOrNull { it.id.equals(id, ignoreCase = true) }
-                            }.forEach { member ->
-                                Surface(
-                                    onClick = { selectedCharacterId = member.id },
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color(0x44060D1A),
-                                    border = BorderStroke(1.dp, member.themeColor.copy(alpha = 0.45f)),
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .background(member.themeColor.copy(alpha = 0.25f), CircleShape),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                member.avatarInitial,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = member.themeColor,
-                                            )
-                                        }
-                                        Text(
-                                            member.name,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                            color = Color(0xFFF8FAFC),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (home != null) {
-                item {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Canon Authority Map",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFFF8FAFC),
-                    )
-                }
-                items(home.legend) { legend ->
-                    WorkspaceCard(legend.label, authorityColor(legend.status)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            MiniPill(
-                                "${home.authority_counts[legend.status] ?: 0}",
-                                authorityColor(legend.status),
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                legend.meaning,
-                                style = MaterialTheme.typography.bodyMedium,
+                                "Recorre capítulo por capítulo. OFFICIAL_CANON, REFERENCE y el futuro aprobado se muestran separados para no mezclar lo ocurrido con lo planeado.",
+                                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
                                 color = Color(0xFFCBD5E1),
                             )
+                            if (timeline != null) {
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    MiniPill("${timeline.occurred.size} CAPÍTULOS", JarvisCyan)
+                                    MiniPill("${timeline.future.size} FUTUROS", JarvisViolet)
+                                }
+                            }
+                        }
+                    }
+                    val occurred = timeline?.occurred.orEmpty()
+                    if (occurred.isEmpty()) {
+                        item {
+                            WorkspaceCard("Timeline no disponible", JarvisAmber) {
+                                Text(
+                                    "No se pudo construir la línea de tiempo desde las fuentes actuales.",
+                                    color = Color(0xFFCBD5E1),
+                                )
+                            }
+                        }
+                    } else {
+                        items(occurred, key = { "timeline_${it.chapter_number}" }) { chapter ->
+                            TimelineChapterCard(
+                                item = chapter,
+                                onOpen = {
+                                    vm.readWritingLibraryDocument(projectId, chapter.document_id)
+                                    onOpenChapter()
+                                },
+                                onCharacter = { selectedCharacterId = it },
+                            )
+                        }
+                    }
+
+                    val future = timeline?.future.orEmpty()
+                    if (future.isNotEmpty()) {
+                        item {
+                            Text(
+                                "FUTURO APROBADO / FIJADO · TODAVÍA NO OCURRIÓ",
+                                style = HudTextStyle,
+                                color = JarvisViolet,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        items(future, key = { "future_${it.id}" }) { event ->
+                            TimelineFutureCard(event)
                         }
                     }
                 }
 
-                if (home.featured.isNotEmpty()) {
+                "canon" -> {
                     item {
-                        Spacer(Modifier.height(4.dp))
+                        WorkspaceCard("Mapa de Canon & Lore", JarvisViolet) {
+                            Text(
+                                "Vista enciclopédica conectada: personajes, reglas del mundo, lugares, arcos, misterios y eventos con su autoridad y capítulos asociados.",
+                                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                                color = Color(0xFFCBD5E1),
+                            )
+                            val counts = canonExplorer?.authority_counts.orEmpty()
+                            if (counts.isNotEmpty()) {
+                                Spacer(Modifier.height(9.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    counts.entries
+                                        .sortedByDescending { it.value }
+                                        .forEach { (authority, count) ->
+                                            MiniPill("$count ${authorityLabel(authority)}", authorityColor(authority))
+                                        }
+                                }
+                            }
+                        }
+                    }
+
+                    val sections = canonExplorer?.sections.orEmpty()
+                    if (sections.isEmpty()) {
+                        item {
+                            WorkspaceCard("Canon Explorer no disponible", JarvisAmber) {
+                                Text(
+                                    "No se encontraron entradas estructuradas de canon/lore.",
+                                    color = Color(0xFFCBD5E1),
+                                )
+                            }
+                        }
+                    } else {
+                        sections.filter { it.items.isNotEmpty() }.forEach { section ->
+                            item(key = "section_${section.id}") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        section.label.uppercase(),
+                                        style = HudTextStyle,
+                                        color = JarvisCyan,
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    MiniPill("${section.items.size}", JarvisCyan)
+                                }
+                            }
+                            items(section.items, key = { "atlas_${it.id}" }) { entry ->
+                                CanonExplorerEntryCard(
+                                    item = entry,
+                                    onOpen = {
+                                        if (entry.type == "character") {
+                                            selectedCharacterId = entry.id
+                                        } else {
+                                            query = entry.name
+                                            vm.searchWritingWiki(projectId, entry.name)
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                else -> {
+                    val categories = home?.categories?.ifEmpty { null } ?: listOf(
+                        WritingWikiCategory(
+                            id = "characters",
+                            label = "Personajes",
+                            subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
+                            query = "characters",
+                            source_count = liveCharacters.size,
+                        ),
+                        WritingWikiCategory(
+                            id = "canon",
+                            label = "Canon y Continuidad",
+                            subtitle = "Reglas fundamentales del mundo y líneas temporales",
+                            query = "canon",
+                            source_count = canonExplorer?.sections
+                                ?.firstOrNull { it.id == "lore" }?.items?.size ?: 0,
+                        ),
+                        WritingWikiCategory(
+                            id = "arcs",
+                            label = "Arcos y Capítulos",
+                            subtitle = "Estructura de la historia y sus hilos abiertos",
+                            query = "arcs",
+                            source_count = timeline?.occurred?.size ?: 0,
+                        ),
+                    )
+
+                    item {
                         Text(
-                            "Featured Canon Documents",
+                            strings.exploreByCategory,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = Color(0xFFF8FAFC),
                         )
                     }
-                    items(home.featured) { source ->
-                        WorkspaceCard(source.title, authorityColor(source.canon_status)) {
-                            MiniPill(authorityLabel(source.canon_status), authorityColor(source.canon_status))
-                            if (source.authority.isNotBlank()) {
-                                Spacer(Modifier.height(6.dp))
-                                Text(source.authority, style = HudTextStyle, color = Color(0xFF94A3B8))
+                    items(categories) { category ->
+                        val isCharacterCategory = category.id.equals("characters", ignoreCase = true) ||
+                            category.label.contains("personaje", ignoreCase = true) ||
+                            category.label.contains("character", ignoreCase = true) ||
+                            category.query.equals("characters", ignoreCase = true) ||
+                            category.query.equals("personajes", ignoreCase = true)
+
+                        val displayCategory = if (isCharacterCategory) {
+                            category.copy(
+                                label = "Personajes",
+                                subtitle = "Expedientes canónicos, estado vital, poderes y trayectoria",
+                                source_count = liveCharacters.size,
+                            )
+                        } else {
+                            category
+                        }
+
+                        WikiCategoryCard(displayCategory) {
+                            if (isCharacterCategory) {
+                                viewingCharactersDirectory = true
+                            } else {
+                                query = category.query
+                                vm.searchWritingWiki(projectId, category.query)
+                            }
+                        }
+                    }
+
+                    item {
+                        WorkspaceCard("Acceso rápido al canon", JarvisCyan) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                OutlinedButton(onClick = { knowledgeView = "timeline" }) {
+                                    Icon(Icons.Filled.History, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Línea de tiempo")
+                                }
+                                OutlinedButton(onClick = { knowledgeView = "canon" }) {
+                                    Icon(Icons.Filled.AccountTree, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Canon & Lore")
+                                }
+                                OutlinedButton(onClick = { viewingCharactersDirectory = true }) {
+                                    Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("Personajes")
+                                }
+                            }
+                        }
+                    }
+
+                    if (home != null) {
+                        item {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Mapa de autoridad",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = Color(0xFFF8FAFC),
+                            )
+                        }
+                        items(home.legend) { legend ->
+                            WorkspaceCard(legend.label, authorityColor(legend.status)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    MiniPill(
+                                        "${home.authority_counts[legend.status] ?: 0}",
+                                        authorityColor(legend.status),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        legend.meaning,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color(0xFFCBD5E1),
+                                    )
+                                }
+                            }
+                        }
+
+                        if (home.featured.isNotEmpty()) {
+                            item {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Fuentes destacadas",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = Color(0xFFF8FAFC),
+                                )
+                            }
+                            items(home.featured) { source ->
+                                WorkspaceCard(source.title, authorityColor(source.canon_status)) {
+                                    MiniPill(authorityLabel(source.canon_status), authorityColor(source.canon_status))
+                                    if (source.authority.isNotBlank()) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(source.authority, style = HudTextStyle, color = Color(0xFF94A3B8))
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 }
@@ -4425,6 +4421,154 @@ private fun WikiCategoryCard(category: WritingWikiCategory, onClick: () -> Unit)
             }
             Spacer(Modifier.size(10.dp))
             MiniPill("${category.source_count}", JarvisCyan)
+        }
+    }
+}
+
+@Composable
+private fun TimelineChapterCard(
+    item: WritingTimelineOccurred,
+    onOpen: () -> Unit,
+    onCharacter: (String) -> Unit,
+) {
+    val accent = authorityColor(item.canon_status)
+    WorkspaceCard(item.title, accent) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MiniPill("CAP ${item.chapter_number}", accent)
+            MiniPill(authorityLabel(item.canon_status), accent)
+            if (item.content_kind != "FULL_TEXT") {
+                MiniPill("SOLO RESUMEN", JarvisAmber)
+            }
+        }
+        if (item.summary.isNotBlank()) {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                item.summary,
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                color = Color(0xFFCBD5E1),
+            )
+        }
+        if (item.related_characters.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item.related_characters.forEach { character ->
+                    Surface(
+                        onClick = { onCharacter(character.id) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0x33101B2E),
+                        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.35f)),
+                    ) {
+                        Text(
+                            character.name,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFF1F5F9),
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onOpen,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(5.dp))
+            Text("Abrir capítulo")
+        }
+    }
+}
+
+@Composable
+private fun TimelineFutureCard(item: WritingTimelineFuture) {
+    WorkspaceCard(item.name, authorityColor(item.authority)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MiniPill(authorityLabel(item.authority), authorityColor(item.authority))
+            if (item.chapter_refs.isNotEmpty()) {
+                MiniPill(formatChapterLabel(item.chapter_refs), JarvisViolet)
+            }
+        }
+        if (item.summary.isNotBlank()) {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                item.summary,
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                color = Color(0xFFCBD5E1),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CanonExplorerEntryCard(
+    item: WritingExplorerEntry,
+    onOpen: () -> Unit,
+) {
+    val accent = authorityColor(item.authority)
+    Surface(
+        onClick = onOpen,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xEE0E182A),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
+    ) {
+        Column(Modifier.padding(13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    item.name,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFF8FAFC),
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                MiniPill(authorityLabel(item.authority), accent)
+            }
+            if (item.summary.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    item.summary,
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                    color = Color(0xFFCBD5E1),
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val refs = (item.chapter_refs + item.future_refs).distinct().sorted()
+            if (refs.isNotEmpty() || item.relationships.isNotEmpty()) {
+                Spacer(Modifier.height(7.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (refs.isNotEmpty()) {
+                        MiniPill(formatChapterLabel(refs), JarvisCyan)
+                    }
+                    if (item.relationships.isNotEmpty()) {
+                        MiniPill("${item.relationships.size} VÍNCULOS", JarvisViolet)
+                    }
+                    if (item.source_refs.isNotEmpty()) {
+                        MiniPill("${item.source_refs.size} FUENTES", JarvisGreen)
+                    }
+                }
+            }
         }
     }
 }
