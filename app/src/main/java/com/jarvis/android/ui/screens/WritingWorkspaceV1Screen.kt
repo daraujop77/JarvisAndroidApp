@@ -62,14 +62,13 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
-import com.jarvis.android.data.story.CANON_FACTIONS
-import com.jarvis.android.data.story.CANON_MILESTONES
 import com.jarvis.android.data.story.CharacterChapterActivity
 import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -113,6 +112,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.live.WritingChapter
 import com.jarvis.android.transport.live.WritingEngineReviewEnvelope
+import com.jarvis.android.transport.live.WritingExplorerEntry
+import com.jarvis.android.transport.live.WritingTimelineFuture
+import com.jarvis.android.transport.live.WritingTimelineOccurred
 import com.jarvis.android.transport.live.WritingPlanItem
 import com.jarvis.android.transport.live.WritingPlanningCouncilMessage
 import com.jarvis.android.transport.live.WritingRoomAutoChat
@@ -351,7 +353,12 @@ fun WritingWorkspaceV1Screen(
             WorkspaceTab.CHAT -> ChatSection(state, projectId, title, vm)
             WorkspaceTab.PLAN -> PlanSection(state, projectId, vm)
             WorkspaceTab.WIKI -> WikiSection(state, projectId, vm)
-            WorkspaceTab.LIBRARY -> LibrarySection(state, projectId, vm)
+            WorkspaceTab.LIBRARY -> LibrarySection(
+                state = state,
+                projectId = projectId,
+                vm = vm,
+                onEditChapter = { tab = WorkspaceTab.WRITE },
+            )
         }
     }
 }
