@@ -3824,41 +3824,6 @@ private fun CharacterDetailWiki(
                 }
             }
 
-            val relevantMilestones = CANON_MILESTONES.filter { it.keyCharacterIds.contains(character.id) }
-            if (relevantMilestones.isNotEmpty()) {
-                item {
-                    WorkspaceCard("Hitos Canónicos Vinculados al Personaje", accent = JarvisCyan) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            relevantMilestones.forEach { milestone ->
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0x66060D1A),
-                                    border = BorderStroke(1.dp, milestone.badgeColor.copy(alpha = 0.45f)),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Column(Modifier.padding(12.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            MiniPill(milestone.era, milestone.badgeColor)
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(
-                                                milestone.title,
-                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                                color = Color(0xFFF8FAFC),
-                                            )
-                                        }
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            milestone.summary,
-                                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
-                                            color = Color(0xFFCBD5E1),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         // --- APARICIONES ---
@@ -4581,8 +4546,10 @@ private fun LibrarySection(
     state: JarvisViewModel.WritingWorkspaceState,
     projectId: String,
     vm: JarvisViewModel,
+    onEditChapter: () -> Unit,
 ) {
     val library = state.library
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val pdfLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf"),
     ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
@@ -4615,15 +4582,173 @@ private fun LibrarySection(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            WorkspaceCard("Centro de Publicación y Exportación", JarvisCyan) {
+            WorkspaceCard("Biblioteca de Capítulos", JarvisCyan) {
                 Text(
-                    "Compila capítulos oficiales en formatos de lectura y manuscrito. Las exportaciones se generan bajo demanda desde el canon oficial.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Cada capítulo aparece por separado aunque la fuente original esté agrupada. Los archivos fuente se conservan intactos como respaldo.",
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                    color = Color(0xFFCBD5E1),
                 )
+                val counts = library?.chapter_counts.orEmpty()
+                if (counts.isNotEmpty()) {
+                    Spacer(Modifier.height(9.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        MiniPill("${counts["total"] ?: 0} CAPÍTULOS", JarvisCyan)
+                        MiniPill("${counts["official"] ?: 0} CANON", JarvisGreen)
+                        MiniPill("${counts["reference"] ?: 0} REFERENCIA", JarvisCyan)
+                        MiniPill("${counts["recap_only"] ?: 0} SOLO RESUMEN", JarvisAmber)
+                    }
+                }
+            }
+        }
 
+        val chapters = library?.chapters.orEmpty().sortedBy { it.chapter_number }
+        if (chapters.isNotEmpty()) {
+            item {
+                Text(
+                    "CAPÍTULOS INDIVIDUALES",
+                    style = HudTextStyle,
+                    color = Color(0xFF94A3B8),
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            items(chapters, key = { "library_chapter_${it.chapter_number}" }) { chapter ->
+                val accent = authorityColor(chapter.canon_status)
+                WorkspaceCard(chapter.title, accent) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        MiniPill("CAP ${chapter.chapter_number}", accent)
+                        MiniPill(authorityLabel(chapter.canon_status), accent)
+                        if (chapter.content_kind != "FULL_TEXT") {
+                            MiniPill("SOLO RESUMEN", JarvisAmber)
+                        } else if (chapter.source_grouped) {
+                            MiniPill("FUENTE AGRUPADA", Color(0xFF94A3B8))
+                        }
+                    }
+                    val summary = chapter.canon_summary.ifBlank { chapter.excerpt }
+                    if (summary.isNotBlank()) {
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            summary,
+                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                            color = Color(0xFFCBD5E1),
+                            maxLines = 5,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        if (chapter.content_kind == "FULL_TEXT") {
+                            "${chapter.word_count} palabras · Fuente: ${chapter.source_title}"
+                        } else {
+                            "La fuente recuperada contiene un resumen, no el manuscrito completo."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (chapter.content_kind == "FULL_TEXT") Color(0xFF94A3B8) else JarvisAmber,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Button(
+                            onClick = { vm.readWritingLibraryDocument(projectId, chapter.document_id) },
+                            enabled = !state.busy,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Leer")
+                        }
+                        if (settings.isOwner && chapter.content_kind == "FULL_TEXT") {
+                            OutlinedButton(
+                                onClick = {
+                                    vm.editWritingLibraryChapter(
+                                        projectId = projectId,
+                                        documentId = chapter.document_id,
+                                        onReady = onEditChapter,
+                                    )
+                                },
+                                enabled = !state.busy,
+                            ) {
+                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(5.dp))
+                                Text("Editar")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        state.document?.let { document ->
+            item {
+                WorkspaceCard(document.title, authorityColor(document.canon_status)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        document.chapter_number?.let { MiniPill("CAP $it", authorityColor(document.canon_status)) }
+                        MiniPill(authorityLabel(document.canon_status), authorityColor(document.canon_status))
+                        if (document.content_kind.isNotBlank() && document.content_kind != "FULL_TEXT") {
+                            MiniPill("SOLO RESUMEN", JarvisAmber)
+                        }
+                    }
+                    if (document.content_kind.isNotBlank() && document.content_kind != "FULL_TEXT") {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Este capítulo no tiene manuscrito completo preservado en la fuente actual. Se muestra únicamente la recapitulación recuperada.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisAmber,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    RichModelText(document.text)
+                    if (
+                        settings.isOwner &&
+                        document.document_id.startsWith("chapter:") &&
+                        document.content_kind == "FULL_TEXT"
+                    ) {
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                vm.editWritingLibraryChapter(
+                                    projectId = projectId,
+                                    documentId = document.document_id,
+                                    onReady = onEditChapter,
+                                )
+                            },
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Editar este capítulo", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            WorkspaceCard("Publicación y Exportación", JarvisViolet) {
+                Text(
+                    "Las exportaciones siguen usando las fuentes oficiales. Los documentos agrupados originales quedan disponibles debajo como respaldo y procedencia.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFCBD5E1),
+                )
                 Spacer(Modifier.height(12.dp))
-
                 val exports = library?.exports.orEmpty()
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -4659,7 +4784,6 @@ private fun LibrarySection(
                         )
                     }
                 }
-
                 if (!state.exportMessage.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
                     Text(state.exportMessage.orEmpty(), color = MaterialTheme.colorScheme.primary)
@@ -4667,39 +4791,35 @@ private fun LibrarySection(
             }
         }
 
-        if (library != null) {
+        if (library != null && library.items.isNotEmpty()) {
             item {
                 Text(
-                    "ARCHIVOS DEL CANON OFICIAL",
+                    "FUENTES AGRUPADAS · RESPALDO",
                     style = HudTextStyle,
                     color = Color(0xFF94A3B8),
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-            items(library.items) { item ->
-                WorkspaceCard(item.title, JarvisGreen) {
-                    MiniPill("CANON OFICIAL", JarvisGreen)
+            items(library.items, key = { "source_${it.document_id}" }) { item ->
+                WorkspaceCard(item.title, Color(0xFF94A3B8)) {
                     val range = when {
                         item.chapter_min != null && item.chapter_max != null && item.chapter_min != item.chapter_max ->
                             "Capítulos ${item.chapter_min} al ${item.chapter_max}"
                         item.chapter_max != null -> "Capítulo ${item.chapter_max}"
-                        else -> ""
+                        else -> "Fuente canónica"
                     }
-                    if (range.isNotBlank()) {
-                        Spacer(Modifier.height(3.dp))
-                        Text(range, color = Color(0xFFCBD5E1))
-                    }
+                    Text(range, color = Color(0xFFCBD5E1))
                     Spacer(Modifier.height(8.dp))
                     Row(
-                        Modifier
+                        modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Button(
+                        OutlinedButton(
                             onClick = { vm.readWritingLibraryDocument(projectId, item.document_id) },
                             enabled = !state.busy,
-                        ) { Text("Leer") }
+                        ) { Text("Ver fuente") }
                         OutlinedButton(
                             onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "pdf") },
                             enabled = !state.busy && library.exports["pdf"] == "ready",
@@ -4708,24 +4828,7 @@ private fun LibrarySection(
                             onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "docx") },
                             enabled = !state.busy && library.exports["docx"] == "ready",
                         ) { Text("DOCX") }
-                        OutlinedButton(
-                            onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "epub") },
-                            enabled = !state.busy && library.exports["epub"] == "ready",
-                        ) { Text("EPUB") }
-                        OutlinedButton(
-                            onClick = { vm.requestWritingLibraryExport(projectId, item.document_id, "markdown") },
-                            enabled = !state.busy && library.exports["markdown"] == "ready",
-                        ) { Text("MD") }
                     }
-                }
-            }
-        }
-        state.document?.let { document ->
-            item {
-                WorkspaceCard(document.title, JarvisGreen) {
-                    MiniPill("CANON OFICIAL", JarvisGreen)
-                    Spacer(Modifier.height(8.dp))
-                    RichModelText(document.text)
                 }
             }
         }
