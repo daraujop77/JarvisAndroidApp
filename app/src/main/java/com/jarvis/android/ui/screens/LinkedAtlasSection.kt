@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.jarvis.android.transport.live.KnowledgeAssertion
 import com.jarvis.android.transport.live.KnowledgeEdge
 import com.jarvis.android.transport.live.KnowledgeGraphResponse
+import com.jarvis.android.transport.live.KnowledgeNode
 import com.jarvis.android.transport.live.KnowledgeTimelineEntry
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.theme.HudTextStyle
