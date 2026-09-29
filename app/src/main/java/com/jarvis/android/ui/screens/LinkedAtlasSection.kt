@@ -461,7 +461,7 @@ private fun AtlasTimelineRail(
                         buildString {
                             append("${entry.entity_ids.size} entidades")
                             if (entry.assertion_ids.isNotEmpty()) {
-                                append(" · ${entry.assertion_ids.size} relaciones verificadas")
+                                append(" · ${entry.assertion_ids.size} hechos enlazados")
                             }
                         },
                         style = MaterialTheme.typography.labelSmall,
@@ -689,7 +689,7 @@ private fun AtlasEvidence(
     onOpenSourceDocument: (String) -> Unit,
 ) {
     AtlasCard(JarvisAmber) {
-        Text("EVIDENCIA Y PROCEDENCIA", style = HudTextStyle, color = JarvisAmber)
+        Text("FUENTES Y PROCEDENCIA", style = HudTextStyle, color = JarvisAmber)
         val node = state.knowledgeSelectedNode
         val edge = state.knowledgeSelectedEdge
         if (node == null && edge == null) {
@@ -707,7 +707,7 @@ private fun AtlasEvidence(
         }
         edge?.let { response ->
             Spacer(Modifier.height(8.dp))
-            Text("Relacion: ${response.data.edge.predicate_id}", color = JarvisViolet)
+            Text("Relación: ${atlasPredicateLabel(response.data.edge.predicate_id)}", color = JarvisViolet)
             response.data.assertions.take(20).forEach { AtlasAssertion(it, onResolveEvidence) }
         }
         state.knowledgeResolvedSource?.let { resolved ->
@@ -763,7 +763,7 @@ private fun AtlasAssertion(assertion: KnowledgeAssertion, onResolveEvidence: (St
         color = Color(0x551E293B),
     ) {
         Column(Modifier.padding(8.dp)) {
-            Text(assertion.predicate_id.ifBlank { assertion.assertion_id }, color = Color.White)
+            Text(atlasPredicateLabel(assertion.predicate_id).ifBlank { assertion.assertion_id }, color = Color.White)
             val authority = listOf("status", "authority", "level", "kind")
                 .firstNotNullOfOrNull { key ->
                     assertion.authority[key]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
