@@ -2364,6 +2364,16 @@ private fun CanonSection(
     onOpenChapter: () -> Unit,
     onOpenWiki: () -> Unit,
 ) {
+    if (state.knowledgeCapabilities != null) {
+        LinkedAtlasSection(
+            state = state,
+            projectId = projectId,
+            vm = vm,
+            onOpenWiki = onOpenWiki,
+        )
+        return
+    }
+
     var canonView by rememberSaveable { mutableStateOf("timeline") }
     val timeline = state.wikiTimeline
     val explorer = state.canonExplorer
