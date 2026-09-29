@@ -625,67 +625,149 @@ fun SettingsScreen(
                 }
             }
 
+            SettingsSectionLabel("CONECTIVIDAD")
             SettingsCard(
                 title = strings.connectionSection,
                 icon = { HudConnectionIcon(tint = accents.orbGlow) },
+                badgeText = if (health.isNullOrBlank()) "SIN PROBAR" else "VERIFICADO",
+                badgeColor = if (health.isNullOrBlank()) Color(0xFF8BA2BE) else JarvisGreen,
             ) {
-                if (vm.developerOptionsEnabled) {
-                    SwitchRow(
-                        title = strings.useFakeGateway,
-                        subtitle = strings.useFakeGatewaySubtitle,
-                        checked = settings.useFakeGateway,
-                        onChange = vm::setUseFake,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        strings.restartAppNotice,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                }
-                var url by remember(settings.gatewayBaseUrl) { mutableStateOf(settings.gatewayBaseUrl) }
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text(strings.gatewayBaseUrl) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                val gatewayHost = settings.gatewayBaseUrl
+                    .substringAfter("://", settings.gatewayBaseUrl)
+                    .substringBefore("/")
+                    .ifBlank { "No configurado" }
+
+                Surface(
                     shape = RoundedCornerShape(14.dp),
-                    colors = jarvisTextFieldColors(),
-                )
+                    color = Color(0xAA08101E),
+                    border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.22f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("PASARELA ACTIVA", style = HudTextStyle, color = JarvisCyan)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            gatewayHost,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color(0xFFE8EEF8),
+                            maxLines = 1,
+                        )
+                        Text(
+                            "La URL completa se muestra solo al editar la conexión.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF8BA2BE),
+                        )
+                    }
+                }
+
+                health?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = JarvisGreen.copy(alpha = 0.10f),
+                        border = BorderStroke(1.dp, JarvisGreen.copy(alpha = 0.28f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = JarvisGreen,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFCDEFE2),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = vm::checkHealth,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JarvisCyan,
+                            contentColor = Color(0xFF041018),
+                        ),
+                    ) {
+                        Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(strings.checkHealth, fontWeight = FontWeight.SemiBold)
+                    }
                     OutlinedButton(
-                        onClick = { vm.setBaseUrl(url) },
+                        onClick = { connectionAdvanced = !connectionAdvanced },
+                        modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisCyan),
                     ) {
-                        Text(strings.saveUrl, fontWeight = FontWeight.SemiBold)
-                    }
-                    Button(
-                        onClick = vm::checkHealth,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = Color(0xFF041018)),
-                    ) {
-                        Text(strings.checkHealth, fontWeight = FontWeight.SemiBold)
+                        Text(if (connectionAdvanced) "Ocultar" else "Editar")
                     }
                 }
-                health?.let {
-                    Spacer(Modifier.height(10.dp))
+
+                if (connectionAdvanced) {
+                    Spacer(Modifier.height(12.dp))
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF08101E),
-                        border = BorderStroke(1.dp, Color(0x3322D3EE)),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0x66101B2E),
+                        border = BorderStroke(1.dp, Color(0x334B6B93)),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            it,
-                            style = HudTextStyle,
-                            color = JarvisCyan,
-                            modifier = Modifier.padding(10.dp),
-                        )
+                        Column(Modifier.padding(12.dp)) {
+                            Text("CONFIGURACIÓN AVANZADA", style = HudTextStyle, color = JarvisAmber)
+                            Spacer(Modifier.height(8.dp))
+                            if (vm.developerOptionsEnabled) {
+                                SwitchRow(
+                                    title = strings.useFakeGateway,
+                                    subtitle = strings.useFakeGatewaySubtitle,
+                                    checked = settings.useFakeGateway,
+                                    onChange = vm::setUseFake,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            var url by remember(settings.gatewayBaseUrl) { mutableStateOf(settings.gatewayBaseUrl) }
+                            OutlinedTextField(
+                                value = url,
+                                onValueChange = { url = it },
+                                label = { Text(strings.gatewayBaseUrl) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = jarvisTextFieldColors(),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { vm.setBaseUrl(url) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisCyan),
+                            ) {
+                                Text(strings.saveUrl, fontWeight = FontWeight.SemiBold)
+                            }
+                            if (vm.developerOptionsEnabled) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    strings.restartAppNotice,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF8BA2BE),
+                                )
+                            }
+                        }
                     }
                 }
             }
