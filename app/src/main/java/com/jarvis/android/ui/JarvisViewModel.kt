@@ -202,6 +202,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val knowledgeGraphV2: KnowledgeGraphResponse? = null,
         val knowledgeSelectedNode: KnowledgeNodeResponse? = null,
         val knowledgeSelectedEdge: KnowledgeEdgeResponse? = null,
+        val knowledgeResolvedSource: KnowledgeSourceResolveResponse? = null,
         val knowledgeAtlasLoading: Boolean = false,
         val knowledgeAtlasError: String? = null,
         val knowledgeSnapshotChanged: Boolean = false,
@@ -257,6 +258,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 knowledgeGraphV2 = null,
                 knowledgeSelectedNode = null,
                 knowledgeSelectedEdge = null,
+                knowledgeResolvedSource = null,
                 knowledgeAtlasLoading = false,
                 knowledgeAtlasError = null,
                 knowledgeSnapshotChanged = false,
@@ -362,6 +364,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 knowledgeCapabilities = capabilities,
                 knowledgeTimelineV2 = timeline.getOrNull() ?: current.knowledgeTimelineV2,
                 knowledgeGraphV2 = graph.getOrNull() ?: current.knowledgeGraphV2,
+                knowledgeSelectedNode = if (beforeSnapshot != null && beforeSnapshot != snapshotId) null else current.knowledgeSelectedNode,
+                knowledgeSelectedEdge = if (beforeSnapshot != null && beforeSnapshot != snapshotId) null else current.knowledgeSelectedEdge,
+                knowledgeResolvedSource = if (beforeSnapshot != null && beforeSnapshot != snapshotId) null else current.knowledgeResolvedSource,
                 knowledgeAtlasLoading = false,
                 knowledgeAtlasError = failures.takeIf { it.isNotEmpty() }
                     ?.joinToString(prefix = "Atlas parcialmente disponible: ", separator = " | "),
@@ -378,6 +383,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             knowledgeAtlasLoading = true,
             knowledgeAtlasError = null,
             knowledgeSelectedEdge = null,
+            knowledgeResolvedSource = null,
         )
         viewModelScope.launch {
             val node = container.liveSession.knowledgeNode(
@@ -410,6 +416,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _writingWorkspace.value = _writingWorkspace.value.copy(
             knowledgeAtlasLoading = true,
             knowledgeAtlasError = null,
+            knowledgeResolvedSource = null,
         )
         viewModelScope.launch {
             val edge = container.liveSession.knowledgeEdge(
@@ -426,10 +433,34 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun resolveKnowledgeEvidence(projectId: String, evidenceId: String) {
+        val clean = evidenceId.trim()
+        val snapshotId = _writingWorkspace.value.knowledgeCapabilities?.snapshot_id.orEmpty()
+        if (clean.isEmpty() || snapshotId.isEmpty()) return
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            knowledgeAtlasLoading = true,
+            knowledgeAtlasError = null,
+        )
+        viewModelScope.launch {
+            val source = container.liveSession.knowledgeSource(
+                projectId = projectId,
+                evidenceId = clean,
+                snapshotId = snapshotId,
+            )
+            if (_writingWorkspace.value.chatProjectId != projectId) return@launch
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                knowledgeResolvedSource = source.getOrNull(),
+                knowledgeAtlasLoading = false,
+                knowledgeAtlasError = source.exceptionOrNull()?.message,
+            )
+        }
+    }
+
     fun clearKnowledgeSelection() {
         _writingWorkspace.value = _writingWorkspace.value.copy(
             knowledgeSelectedNode = null,
             knowledgeSelectedEdge = null,
+            knowledgeResolvedSource = null,
         )
     }
 

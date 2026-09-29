@@ -2370,6 +2370,7 @@ private fun CanonSection(
             projectId = projectId,
             vm = vm,
             onOpenWiki = onOpenWiki,
+            onOpenChapter = onOpenChapter,
         )
         return
     }

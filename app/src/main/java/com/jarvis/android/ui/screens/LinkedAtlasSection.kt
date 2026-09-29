@@ -68,6 +68,7 @@ internal fun LinkedAtlasSection(
     projectId: String,
     vm: JarvisViewModel,
     onOpenWiki: () -> Unit,
+    onOpenChapter: () -> Unit,
 ) {
     var view by rememberSaveable { mutableStateOf("timeline") }
     var query by rememberSaveable { mutableStateOf("") }
@@ -214,6 +215,13 @@ internal fun LinkedAtlasSection(
                             onOpenWiki()
                         }
                     },
+                    onResolveEvidence = { evidenceId ->
+                        vm.resolveKnowledgeEvidence(projectId, evidenceId)
+                    },
+                    onOpenSourceDocument = { documentId ->
+                        vm.readWritingLibraryDocument(projectId, documentId)
+                        onOpenChapter()
+                    },
                 )
             }
         }
@@ -284,11 +292,12 @@ private fun AtlasTimelineCard(entry: KnowledgeTimelineEntry, selectedNodeId: Str
 
 @Composable
 private fun AtlasGraph(graph: KnowledgeGraphResponse, selectedNodeId: String?, onNode: (String) -> Unit) {
-    val nodes = graph.data.nodes.take(24)
+    val nodes = atlasVisibleNodes(graph.data.nodes, selectedNodeId)
     val ids = nodes.map { it.node_id }.toSet()
     val edges = graph.data.edges.filter { it.source_id in ids && it.target_id in ids }
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp), color = Color(0xC90B1322)) {
-        BoxWithConstraints(Modifier.fillMaxWidth().height(420.dp).background(Color(0xAA08111F))) {
+    Column {
+        Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp), color = Color(0xC90B1322)) {
+            BoxWithConstraints(Modifier.fillMaxWidth().height(420.dp).background(Color(0xAA08111F))) {
             val cx = maxWidth / 2
             val cy = 205.dp
             val rx = ((maxWidth.value / 2f) - 48f).coerceAtLeast(82f)
@@ -338,6 +347,15 @@ private fun AtlasGraph(graph: KnowledgeGraphResponse, selectedNodeId: String?, o
                 }
             }
         }
+        }
+        if (graph.data.nodes.size > nodes.size) {
+            Text(
+                "Mostrando ${nodes.size} de ${graph.data.nodes.size} nodos en el lienzo. Usa filtros o selecciona un nodo para reenfocar sin perderlo del mapa.",
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 7.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF94A3B8),
+            )
+        }
     }
 }
 
@@ -357,7 +375,12 @@ private fun AtlasEdgeRow(edge: KnowledgeEdge, label: (String) -> String, selecte
 }
 
 @Composable
-private fun AtlasEvidence(state: JarvisViewModel.WritingWorkspaceState, onOpenWiki: () -> Unit) {
+private fun AtlasEvidence(
+    state: JarvisViewModel.WritingWorkspaceState,
+    onOpenWiki: () -> Unit,
+    onResolveEvidence: (String) -> Unit,
+    onOpenSourceDocument: (String) -> Unit,
+) {
     AtlasCard(JarvisAmber) {
         Text("EVIDENCIA Y PROCEDENCIA", style = HudTextStyle, color = JarvisAmber)
         val node = state.knowledgeSelectedNode
@@ -372,19 +395,61 @@ private fun AtlasEvidence(state: JarvisViewModel.WritingWorkspaceState, onOpenWi
         }
         node?.let { response ->
             Text(response.data.node.label, color = Color.White, fontWeight = FontWeight.SemiBold)
-            response.data.assertions.take(20).forEach { AtlasAssertion(it) }
+            response.data.assertions.take(20).forEach { AtlasAssertion(it, onResolveEvidence) }
             OutlinedButton(onClick = onOpenWiki) { Text("Abrir articulo Wiki") }
         }
         edge?.let { response ->
             Spacer(Modifier.height(8.dp))
             Text("Relacion: ${response.data.edge.predicate_id}", color = JarvisViolet)
-            response.data.assertions.take(20).forEach { AtlasAssertion(it) }
+            response.data.assertions.take(20).forEach { AtlasAssertion(it, onResolveEvidence) }
+        }
+        state.knowledgeResolvedSource?.let { resolved ->
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = JarvisCyan.copy(alpha = 0.10f),
+                border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.28f)),
+            ) {
+                Column(Modifier.padding(9.dp)) {
+                    Text("FUENTE RESUELTA", style = HudTextStyle, color = JarvisCyan)
+                    val source = resolved.data.source
+                    Text(
+                        source.source_document_id.ifBlank { source.source_id },
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        listOf(source.role, source.authority, source.provider)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" / "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFCBD5E1),
+                    )
+                    val evidence = resolved.data.evidence
+                    val locator = buildList {
+                        evidence.chapter_number?.let { add("cap. $it") }
+                        evidence.section?.takeIf { it.isNotBlank() }?.let(::add)
+                        evidence.source_line_start?.let { start ->
+                            add("lineas $start-${evidence.source_line_end ?: start}")
+                        }
+                    }.joinToString(" / ")
+                    if (locator.isNotBlank()) {
+                        Text(locator, style = MaterialTheme.typography.labelSmall, color = JarvisGreen)
+                    }
+                    if (source.source_document_id.isNotBlank()) {
+                        TextButton(onClick = { onOpenSourceDocument(source.source_document_id) }) {
+                            Text("Abrir documento fuente")
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun AtlasAssertion(assertion: KnowledgeAssertion) {
+private fun AtlasAssertion(assertion: KnowledgeAssertion, onResolveEvidence: (String) -> Unit) {
     Surface(
         Modifier.fillMaxWidth().padding(top = 6.dp),
         shape = RoundedCornerShape(9.dp),
@@ -407,12 +472,22 @@ private fun AtlasAssertion(assertion: KnowledgeAssertion) {
                     evidence.source_line_start?.let { start ->
                         parts.add("lineas $start-${evidence.source_line_end ?: start}")
                     }
-                    Text(
-                        "- ${evidence.support.ifBlank { "EVIDENCE" }} / ${evidence.locator_precision.ifBlank { "UNKNOWN" }}" +
-                            if (parts.isEmpty()) "" else " / ${parts.joinToString(" / ")}",
-                        color = Color(0xFFCBD5E1),
-                        style = MaterialTheme.typography.labelSmall,
-                    )
+                    Column {
+                        Text(
+                            "- ${evidence.support.ifBlank { "EVIDENCE" }} / ${evidence.locator_precision.ifBlank { "UNKNOWN" }}" +
+                                if (parts.isEmpty()) "" else " / ${parts.joinToString(" / ")}",
+                            color = Color(0xFFCBD5E1),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        if (evidence.evidence_id.isNotBlank()) {
+                            TextButton(
+                                onClick = { onResolveEvidence(evidence.evidence_id) },
+                                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                            ) {
+                                Text("Resolver fuente", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
                 }
             }
         }
