@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -295,9 +296,9 @@ private fun AtlasGraph(graph: KnowledgeGraphResponse, selectedNodeId: String?, o
             val ry = 148f
             val pos: Map<String, Pair<Dp, Dp>> = nodes.mapIndexed { index, node ->
                 val angle = 2.0 * PI * index.toDouble() / nodes.size.coerceAtLeast(1) - PI / 2.0
-                node.node_id to (
-                    cx + (rx * cos(angle)).toFloat().dp to
-                    cy + (ry * sin(angle)).toFloat().dp
+                node.node_id to Pair(
+                    cx + (rx * cos(angle)).toFloat().dp,
+                    cy + (ry * sin(angle)).toFloat().dp,
                 )
             }.toMap()
             Canvas(Modifier.fillMaxSize()) {
