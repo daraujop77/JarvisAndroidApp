@@ -829,6 +829,200 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SystemControlCenterCard(
+    versionName: String,
+    versionCode: Int,
+    isOwner: Boolean,
+    appLockEnabled: Boolean,
+    gatewayBaseUrl: String,
+    health: String?,
+    onCheckHealth: () -> Unit,
+) {
+    val accents = LocalJarvisAccents.current
+    val gatewayHost = gatewayBaseUrl
+        .substringAfter("://", gatewayBaseUrl)
+        .substringBefore("/")
+        .ifBlank { "No configurado" }
+    val connectionReady = !health.isNullOrBlank()
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xE6101A2C),
+        border = BorderStroke(
+            1.dp,
+            Brush.horizontalGradient(
+                listOf(
+                    JarvisCyan.copy(alpha = 0.60f),
+                    Color(0x558B5CF6),
+                    accents.orbGlow.copy(alpha = 0.32f),
+                ),
+            ),
+        ),
+        shadowElevation = 6.dp,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(JarvisCyan.copy(alpha = 0.12f))
+                        .border(1.dp, JarvisCyan.copy(alpha = 0.35f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Dns,
+                        contentDescription = null,
+                        tint = JarvisCyan,
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Centro de control",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFFF4F8FF),
+                    )
+                    Text(
+                        "Sistema, conexión, seguridad y servicios de IA",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF93A9C3),
+                    )
+                }
+                SettingsStatusPill(
+                    text = if (connectionReady) "EN LÍNEA" else "SIN PROBAR",
+                    color = if (connectionReady) JarvisGreen else JarvisAmber,
+                )
+            }
+
+            Spacer(Modifier.height(13.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                SettingsMetric(
+                    title = "APP",
+                    value = "v$versionCode",
+                    icon = Icons.Filled.SystemUpdate,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsMetric(
+                    title = "PERFIL",
+                    value = if (isOwner) "Owner" else "Guest",
+                    icon = Icons.Filled.Person,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsMetric(
+                    title = "SEGURIDAD",
+                    value = if (appLockEnabled) "Activa" else "Abierta",
+                    icon = Icons.Filled.Security,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xA608101E),
+                border = BorderStroke(1.dp, Color(0x2922D3EE)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.Wifi,
+                        contentDescription = null,
+                        tint = if (connectionReady) JarvisGreen else JarvisCyan,
+                        modifier = Modifier.size(17.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            gatewayHost,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color(0xFFE8EEF8),
+                            maxLines = 1,
+                        )
+                        Text(
+                            versionName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF7F95B1),
+                            maxLines = 1,
+                        )
+                    }
+                    TextButton(onClick = onCheckHealth) {
+                        Text("Verificar", color = JarvisCyan)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsMetric(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0x80101B2E),
+        border = BorderStroke(1.dp, Color(0x2022D3EE)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.Start,
+        ) {
+            Icon(icon, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.height(5.dp))
+            Text(title, style = HudTextStyle, color = Color(0xFF7188A5))
+            Text(
+                value,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = Color(0xFFE8EEF8),
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsStatusPill(text: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = color.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.42f)),
+    ) {
+        Text(
+            text,
+            style = HudTextStyle,
+            color = color,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SettingsSectionLabel(text: String) {
+    Text(
+        text,
+        style = HudTextStyle.copy(
+            letterSpacing = 1.4.sp,
+            fontWeight = FontWeight.Bold,
+        ),
+        color = Color(0xFF66809F),
+        modifier = Modifier.padding(start = 4.dp, top = 3.dp, bottom = 1.dp),
+    )
+}
+
+@Composable
 private fun SettingsCard(
     title: String,
     badgeText: String? = null,
@@ -838,8 +1032,8 @@ private fun SettingsCard(
 ) {
     val accents = LocalJarvisAccents.current
     Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color(0xCC0E182A),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xD10E182A),
         border = BorderStroke(
             1.dp,
             Brush.horizontalGradient(
@@ -868,7 +1062,7 @@ private fun SettingsCard(
                         ),
                     ),
             )
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 13.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -909,7 +1103,7 @@ private fun SettingsCard(
                         }
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
                 content()
             }
         }
