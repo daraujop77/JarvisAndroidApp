@@ -110,6 +110,8 @@ fun SettingsScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val health by vm.healthStatus.collectAsStateWithLifecycle()
+    val healthOk = health?.trim()?.startsWith("ok", ignoreCase = true) == true
+    val healthChecking = health?.trim()?.startsWith("checking", ignoreCase = true) == true
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val appUpdate by vm.appUpdateState.collectAsStateWithLifecycle()
     var connectionAdvanced by remember { mutableStateOf(false) }
@@ -629,8 +631,18 @@ fun SettingsScreen(
             SettingsCard(
                 title = strings.connectionSection,
                 icon = { HudConnectionIcon(tint = accents.orbGlow) },
-                badgeText = if (health.isNullOrBlank()) "SIN PROBAR" else "VERIFICADO",
-                badgeColor = if (health.isNullOrBlank()) Color(0xFF8BA2BE) else JarvisGreen,
+                badgeText = when {
+                    healthOk -> "EN LÍNEA"
+                    healthChecking -> "PROBANDO"
+                    health.isNullOrBlank() -> "SIN PROBAR"
+                    else -> "ERROR"
+                },
+                badgeColor = when {
+                    healthOk -> JarvisGreen
+                    healthChecking -> JarvisCyan
+                    health.isNullOrBlank() -> Color(0xFF8BA2BE)
+                    else -> JarvisRed
+                },
             ) {
                 val gatewayHost = settings.gatewayBaseUrl
                     .substringAfter("://", settings.gatewayBaseUrl)
@@ -661,11 +673,16 @@ fun SettingsScreen(
                 }
 
                 health?.let {
+                    val healthColor = when {
+                        healthOk -> JarvisGreen
+                        healthChecking -> JarvisCyan
+                        else -> JarvisRed
+                    }
                     Spacer(Modifier.height(8.dp))
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = JarvisGreen.copy(alpha = 0.10f),
-                        border = BorderStroke(1.dp, JarvisGreen.copy(alpha = 0.28f)),
+                        color = healthColor.copy(alpha = 0.10f),
+                        border = BorderStroke(1.dp, healthColor.copy(alpha = 0.28f)),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
@@ -675,14 +692,14 @@ fun SettingsScreen(
                             Icon(
                                 Icons.Filled.CheckCircle,
                                 contentDescription = null,
-                                tint = JarvisGreen,
+                                tint = healthColor,
                                 modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 it,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFCDEFE2),
+                                color = healthColor,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -843,7 +860,8 @@ private fun SystemControlCenterCard(
         .substringAfter("://", gatewayBaseUrl)
         .substringBefore("/")
         .ifBlank { "No configurado" }
-    val connectionReady = !health.isNullOrBlank()
+    val connectionReady = health?.trim()?.startsWith("ok", ignoreCase = true) == true
+    val connectionChecking = health?.trim()?.startsWith("checking", ignoreCase = true) == true
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -892,8 +910,18 @@ private fun SystemControlCenterCard(
                     )
                 }
                 SettingsStatusPill(
-                    text = if (connectionReady) "EN LÍNEA" else "SIN PROBAR",
-                    color = if (connectionReady) JarvisGreen else JarvisAmber,
+                    text = when {
+                        connectionReady -> "EN LÍNEA"
+                        connectionChecking -> "PROBANDO"
+                        health.isNullOrBlank() -> "SIN PROBAR"
+                        else -> "ERROR"
+                    },
+                    color = when {
+                        connectionReady -> JarvisGreen
+                        connectionChecking -> JarvisCyan
+                        health.isNullOrBlank() -> JarvisAmber
+                        else -> JarvisRed
+                    },
                 )
             }
 
