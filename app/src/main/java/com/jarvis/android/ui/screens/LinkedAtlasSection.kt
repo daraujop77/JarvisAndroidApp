@@ -347,6 +347,7 @@ private fun AtlasGraph(graph: KnowledgeGraphResponse, selectedNodeId: String?, o
                 }
             }
         }
+        }
         if (graph.data.nodes.size > nodes.size) {
             Text(
                 "Mostrando ${nodes.size} de ${graph.data.nodes.size} nodos en el lienzo. Usa filtros o selecciona un nodo para reenfocar sin perderlo del mapa.",
