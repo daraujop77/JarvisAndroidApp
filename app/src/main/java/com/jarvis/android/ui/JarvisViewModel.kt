@@ -197,6 +197,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val wiki: WritingWikiSearch? = null,
         val wikiTimeline: WritingWikiTimeline? = null,
         val canonExplorer: WritingCanonExplorer? = null,
+        val knowledgeCapabilities: KnowledgeCapabilitiesResponse? = null,
+        val knowledgeTimelineV2: KnowledgeTimelineResponse? = null,
+        val knowledgeGraphV2: KnowledgeGraphResponse? = null,
+        val knowledgeSelectedNode: KnowledgeNodeResponse? = null,
+        val knowledgeSelectedEdge: KnowledgeEdgeResponse? = null,
+        val knowledgeAtlasLoading: Boolean = false,
+        val knowledgeAtlasError: String? = null,
+        val knowledgeSnapshotChanged: Boolean = false,
         val wikiCharacters: List<WritingWikiEntity> = emptyList(),
         val plans: List<WritingPlanItem> = emptyList(),
         val planningCouncil: WritingPlanningCouncil? = null,
@@ -244,6 +252,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 chat = null,
                 chatHistory = emptyList(),
                 streamingText = "",
+                knowledgeCapabilities = null,
+                knowledgeTimelineV2 = null,
+                knowledgeGraphV2 = null,
+                knowledgeSelectedNode = null,
+                knowledgeSelectedEdge = null,
+                knowledgeAtlasLoading = false,
+                knowledgeAtlasError = null,
+                knowledgeSnapshotChanged = false,
             )
         }
         writingWorkspaceBusy("Loading workspace")
@@ -283,7 +299,138 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 library = library.getOrNull(),
                 error = null,
             )
+            refreshKnowledgeAtlas(projectId = projectId, refreshSnapshot = true)
         }
+    }
+
+    fun refreshKnowledgeAtlas(
+        projectId: String,
+        query: String = "",
+        lane: String? = null,
+        refreshSnapshot: Boolean = false,
+    ) {
+        val initial = _writingWorkspace.value
+        _writingWorkspace.value = initial.copy(
+            knowledgeAtlasLoading = true,
+            knowledgeAtlasError = null,
+        )
+        viewModelScope.launch {
+            val beforeSnapshot = _writingWorkspace.value.knowledgeCapabilities?.snapshot_id
+            val capabilities = if (!refreshSnapshot && _writingWorkspace.value.knowledgeCapabilities != null) {
+                _writingWorkspace.value.knowledgeCapabilities!!
+            } else {
+                container.liveSession.knowledgeCapabilities(projectId).getOrElse { error ->
+                    if (_writingWorkspace.value.chatProjectId == projectId) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            knowledgeAtlasLoading = false,
+                            knowledgeAtlasError = error.message ?: "Knowledge v2 no disponible; se mantiene Canon v46.",
+                        )
+                    }
+                    return@launch
+                }
+            }
+            val snapshotId = capabilities.snapshot_id
+            if (snapshotId.isBlank()) {
+                if (_writingWorkspace.value.chatProjectId == projectId) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        knowledgeAtlasLoading = false,
+                        knowledgeAtlasError = "Knowledge v2 no tiene una snapshot activa.",
+                    )
+                }
+                return@launch
+            }
+            val timeline = container.liveSession.knowledgeTimeline(
+                projectId = projectId,
+                snapshotId = snapshotId,
+                query = query,
+                lane = lane,
+                limit = 200,
+            )
+            val graph = container.liveSession.knowledgeGraph(
+                projectId = projectId,
+                snapshotId = snapshotId,
+                query = query,
+                limit = 500,
+            )
+            if (_writingWorkspace.value.chatProjectId != projectId) return@launch
+            val current = _writingWorkspace.value
+            val failures = listOfNotNull(
+                timeline.exceptionOrNull()?.message,
+                graph.exceptionOrNull()?.message,
+            )
+            _writingWorkspace.value = current.copy(
+                knowledgeCapabilities = capabilities,
+                knowledgeTimelineV2 = timeline.getOrNull() ?: current.knowledgeTimelineV2,
+                knowledgeGraphV2 = graph.getOrNull() ?: current.knowledgeGraphV2,
+                knowledgeAtlasLoading = false,
+                knowledgeAtlasError = failures.takeIf { it.isNotEmpty() }
+                    ?.joinToString(prefix = "Atlas parcialmente disponible: ", separator = " | "),
+                knowledgeSnapshotChanged = beforeSnapshot != null && beforeSnapshot != snapshotId,
+            )
+        }
+    }
+
+    fun focusKnowledgeNode(projectId: String, nodeId: String) {
+        val clean = nodeId.trim()
+        val snapshotId = _writingWorkspace.value.knowledgeCapabilities?.snapshot_id.orEmpty()
+        if (clean.isEmpty() || snapshotId.isEmpty()) return
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            knowledgeAtlasLoading = true,
+            knowledgeAtlasError = null,
+            knowledgeSelectedEdge = null,
+        )
+        viewModelScope.launch {
+            val node = container.liveSession.knowledgeNode(
+                projectId = projectId,
+                nodeId = clean,
+                snapshotId = snapshotId,
+            )
+            val graph = container.liveSession.knowledgeGraph(
+                projectId = projectId,
+                snapshotId = snapshotId,
+                nodeId = clean,
+                limit = 500,
+            )
+            if (_writingWorkspace.value.chatProjectId != projectId) return@launch
+            val current = _writingWorkspace.value
+            _writingWorkspace.value = current.copy(
+                knowledgeSelectedNode = node.getOrNull() ?: current.knowledgeSelectedNode,
+                knowledgeSelectedEdge = null,
+                knowledgeGraphV2 = graph.getOrNull() ?: current.knowledgeGraphV2,
+                knowledgeAtlasLoading = false,
+                knowledgeAtlasError = node.exceptionOrNull()?.message ?: graph.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun focusKnowledgeEdge(projectId: String, edgeId: String) {
+        val clean = edgeId.trim()
+        val snapshotId = _writingWorkspace.value.knowledgeCapabilities?.snapshot_id.orEmpty()
+        if (clean.isEmpty() || snapshotId.isEmpty()) return
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            knowledgeAtlasLoading = true,
+            knowledgeAtlasError = null,
+        )
+        viewModelScope.launch {
+            val edge = container.liveSession.knowledgeEdge(
+                projectId = projectId,
+                edgeId = clean,
+                snapshotId = snapshotId,
+            )
+            if (_writingWorkspace.value.chatProjectId != projectId) return@launch
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                knowledgeSelectedEdge = edge.getOrNull(),
+                knowledgeAtlasLoading = false,
+                knowledgeAtlasError = edge.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun clearKnowledgeSelection() {
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            knowledgeSelectedNode = null,
+            knowledgeSelectedEdge = null,
+        )
     }
 
     fun runWritingRoomAutoChat(
