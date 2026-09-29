@@ -82,7 +82,7 @@ jobs:
           retention-days: 14
 
       - name: Publish signed APK as GitHub Release asset
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
