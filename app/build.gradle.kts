@@ -37,8 +37,8 @@ android {
         targetSdk = 36
         // Google Play can override versionCode independently so direct APK
         // updates keep their existing version sequence.
-        versionCode = jarvisVersionCode ?: 46
-        versionName = "0.1.45-canon-explorer-v46"
+        versionCode = jarvisVersionCode ?: 47
+        versionName = "0.1.46-knowledge-atlas-v47"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Checked-in schemas are what Lane C migration tests diff against.
