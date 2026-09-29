@@ -2384,8 +2384,55 @@ private fun CanonSection(
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        state.knowledgeAtlasError?.let { atlasError ->
+            item(key = "knowledge_v2_fallback_status") {
+                WorkspaceCard("Atlas vinculado no disponible", JarvisAmber) {
+                    Text(
+                        "Knowledge v2 no pudo cargar para este proyecto. Se mantiene Canon v46 como modo compatible para no perder acceso a la historia.",
+                        style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),
+                        color = Color(0xFFCBD5E1),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0x33101B2E),
+                        border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            atlasError,
+                            modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = JarvisAmber,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            vm.refreshKnowledgeAtlas(
+                                projectId = projectId,
+                                refreshSnapshot = true,
+                            )
+                        },
+                        enabled = !state.knowledgeAtlasLoading,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (state.knowledgeAtlasLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(15.dp),
+                                strokeWidth = 2.dp,
+                                color = JarvisCyan,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(if (state.knowledgeAtlasLoading) "Reintentando Atlas…" else "Reintentar Atlas")
+                    }
+                }
+            }
+        }
+
         item {
-            WorkspaceCard("Canon", JarvisGreen) {
+            WorkspaceCard("Canon · modo compatible v46", JarvisGreen) {
                 Text(
                     "Navega la historia establecida, su cronología y las relaciones de lore sin mezclar hechos ocurridos con planes futuros.",
                     style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),

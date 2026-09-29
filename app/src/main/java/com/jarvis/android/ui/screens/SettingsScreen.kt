@@ -56,6 +56,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -110,8 +111,11 @@ fun SettingsScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val health by vm.healthStatus.collectAsStateWithLifecycle()
+    val healthOk = health?.trim()?.startsWith("ok", ignoreCase = true) == true
+    val healthChecking = health?.trim()?.startsWith("checking", ignoreCase = true) == true
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val appUpdate by vm.appUpdateState.collectAsStateWithLifecycle()
+    var connectionAdvanced by remember { mutableStateOf(false) }
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { vm.setAvatar(it) } }
@@ -128,7 +132,7 @@ fun SettingsScreen(
                         Column {
                             Text(strings.settingsTitle, style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "SYSTEM CONFIG & TELEMETRY",
+                                "JARVIS CONTROL CENTER",
                                 style = HudTextStyle,
                                 color = LocalJarvisAccents.current.orbGlow,
                             )
@@ -151,8 +155,19 @@ fun SettingsScreen(
                 .padding(pad)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            SystemControlCenterCard(
+                versionName = BuildConfig.VERSION_NAME,
+                versionCode = BuildConfig.VERSION_CODE,
+                isOwner = settings.isOwner,
+                appLockEnabled = settings.appLockEnabled,
+                gatewayBaseUrl = settings.gatewayBaseUrl,
+                health = health,
+                onCheckHealth = vm::checkHealth,
+            )
+
+            SettingsSectionLabel("PREFERENCIAS")
             SettingsCard(
                 title = strings.languageSection,
                 icon = { HudLanguageIcon(tint = accents.orbGlow) },
@@ -433,6 +448,7 @@ fun SettingsScreen(
                 }
             }
 
+            SettingsSectionLabel("SISTEMA E IA")
             SettingsCard(
                 title = strings.usageSection,
                 icon = { HudUsageIcon(tint = accents.orbGlow) },
@@ -612,67 +628,164 @@ fun SettingsScreen(
                 }
             }
 
+            SettingsSectionLabel("CONECTIVIDAD")
             SettingsCard(
                 title = strings.connectionSection,
                 icon = { HudConnectionIcon(tint = accents.orbGlow) },
+                badgeText = when {
+                    healthOk -> "EN LÍNEA"
+                    healthChecking -> "PROBANDO"
+                    health.isNullOrBlank() -> "SIN PROBAR"
+                    else -> "ERROR"
+                },
+                badgeColor = when {
+                    healthOk -> JarvisGreen
+                    healthChecking -> JarvisCyan
+                    health.isNullOrBlank() -> Color(0xFF8BA2BE)
+                    else -> JarvisRed
+                },
             ) {
-                if (vm.developerOptionsEnabled) {
-                    SwitchRow(
-                        title = strings.useFakeGateway,
-                        subtitle = strings.useFakeGatewaySubtitle,
-                        checked = settings.useFakeGateway,
-                        onChange = vm::setUseFake,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        strings.restartAppNotice,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                }
-                var url by remember(settings.gatewayBaseUrl) { mutableStateOf(settings.gatewayBaseUrl) }
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text(strings.gatewayBaseUrl) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                val gatewayHost = settings.gatewayBaseUrl
+                    .substringAfter("://", settings.gatewayBaseUrl)
+                    .substringBefore("/")
+                    .ifBlank { "No configurado" }
+
+                Surface(
                     shape = RoundedCornerShape(14.dp),
-                    colors = jarvisTextFieldColors(),
-                )
+                    color = Color(0xAA08101E),
+                    border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.22f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("PASARELA ACTIVA", style = HudTextStyle, color = JarvisCyan)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            gatewayHost,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color(0xFFE8EEF8),
+                            maxLines = 1,
+                        )
+                        Text(
+                            "La URL completa se muestra solo al editar la conexión.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF8BA2BE),
+                        )
+                    }
+                }
+
+                health?.let {
+                    val healthColor = when {
+                        healthOk -> JarvisGreen
+                        healthChecking -> JarvisCyan
+                        else -> JarvisRed
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = healthColor.copy(alpha = 0.10f),
+                        border = BorderStroke(1.dp, healthColor.copy(alpha = 0.28f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = healthColor,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = healthColor,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = vm::checkHealth,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JarvisCyan,
+                            contentColor = Color(0xFF041018),
+                        ),
+                    ) {
+                        Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(strings.checkHealth, fontWeight = FontWeight.SemiBold)
+                    }
                     OutlinedButton(
-                        onClick = { vm.setBaseUrl(url) },
+                        onClick = { connectionAdvanced = !connectionAdvanced },
+                        modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisCyan),
                     ) {
-                        Text(strings.saveUrl, fontWeight = FontWeight.SemiBold)
-                    }
-                    Button(
-                        onClick = vm::checkHealth,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = Color(0xFF041018)),
-                    ) {
-                        Text(strings.checkHealth, fontWeight = FontWeight.SemiBold)
+                        Text(if (connectionAdvanced) "Ocultar" else "Editar")
                     }
                 }
-                health?.let {
-                    Spacer(Modifier.height(10.dp))
+
+                if (connectionAdvanced) {
+                    Spacer(Modifier.height(12.dp))
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF08101E),
-                        border = BorderStroke(1.dp, Color(0x3322D3EE)),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0x66101B2E),
+                        border = BorderStroke(1.dp, Color(0x334B6B93)),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            it,
-                            style = HudTextStyle,
-                            color = JarvisCyan,
-                            modifier = Modifier.padding(10.dp),
-                        )
+                        Column(Modifier.padding(12.dp)) {
+                            Text("CONFIGURACIÓN AVANZADA", style = HudTextStyle, color = JarvisAmber)
+                            Spacer(Modifier.height(8.dp))
+                            if (vm.developerOptionsEnabled) {
+                                SwitchRow(
+                                    title = strings.useFakeGateway,
+                                    subtitle = strings.useFakeGatewaySubtitle,
+                                    checked = settings.useFakeGateway,
+                                    onChange = vm::setUseFake,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            var url by remember(settings.gatewayBaseUrl) { mutableStateOf(settings.gatewayBaseUrl) }
+                            OutlinedTextField(
+                                value = url,
+                                onValueChange = { url = it },
+                                label = { Text(strings.gatewayBaseUrl) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = jarvisTextFieldColors(),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { vm.setBaseUrl(url) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisCyan),
+                            ) {
+                                Text(strings.saveUrl, fontWeight = FontWeight.SemiBold)
+                            }
+                            if (vm.developerOptionsEnabled) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    strings.restartAppNotice,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF8BA2BE),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -734,6 +847,211 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SystemControlCenterCard(
+    versionName: String,
+    versionCode: Int,
+    isOwner: Boolean,
+    appLockEnabled: Boolean,
+    gatewayBaseUrl: String,
+    health: String?,
+    onCheckHealth: () -> Unit,
+) {
+    val accents = LocalJarvisAccents.current
+    val gatewayHost = gatewayBaseUrl
+        .substringAfter("://", gatewayBaseUrl)
+        .substringBefore("/")
+        .ifBlank { "No configurado" }
+    val connectionReady = health?.trim()?.startsWith("ok", ignoreCase = true) == true
+    val connectionChecking = health?.trim()?.startsWith("checking", ignoreCase = true) == true
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xE6101A2C),
+        border = BorderStroke(
+            1.dp,
+            Brush.horizontalGradient(
+                listOf(
+                    JarvisCyan.copy(alpha = 0.60f),
+                    Color(0x558B5CF6),
+                    accents.orbGlow.copy(alpha = 0.32f),
+                ),
+            ),
+        ),
+        shadowElevation = 6.dp,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(JarvisCyan.copy(alpha = 0.12f))
+                        .border(1.dp, JarvisCyan.copy(alpha = 0.35f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Dns,
+                        contentDescription = null,
+                        tint = JarvisCyan,
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Centro de control",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFFF4F8FF),
+                    )
+                    Text(
+                        "Sistema, conexión, seguridad y servicios de IA",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF93A9C3),
+                    )
+                }
+                SettingsStatusPill(
+                    text = when {
+                        connectionReady -> "EN LÍNEA"
+                        connectionChecking -> "PROBANDO"
+                        health.isNullOrBlank() -> "SIN PROBAR"
+                        else -> "ERROR"
+                    },
+                    color = when {
+                        connectionReady -> JarvisGreen
+                        connectionChecking -> JarvisCyan
+                        health.isNullOrBlank() -> JarvisAmber
+                        else -> JarvisRed
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(13.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                SettingsMetric(
+                    title = "APP",
+                    value = "v$versionCode",
+                    icon = Icons.Filled.SystemUpdate,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsMetric(
+                    title = "PERFIL",
+                    value = if (isOwner) "Owner" else "Guest",
+                    icon = Icons.Filled.Person,
+                    modifier = Modifier.weight(1f),
+                )
+                SettingsMetric(
+                    title = "SEGURIDAD",
+                    value = if (appLockEnabled) "Activa" else "Abierta",
+                    icon = Icons.Filled.Security,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xA608101E),
+                border = BorderStroke(1.dp, Color(0x2922D3EE)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.Wifi,
+                        contentDescription = null,
+                        tint = if (connectionReady) JarvisGreen else JarvisCyan,
+                        modifier = Modifier.size(17.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            gatewayHost,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color(0xFFE8EEF8),
+                            maxLines = 1,
+                        )
+                        Text(
+                            versionName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF7F95B1),
+                            maxLines = 1,
+                        )
+                    }
+                    TextButton(onClick = onCheckHealth) {
+                        Text("Verificar", color = JarvisCyan)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsMetric(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0x80101B2E),
+        border = BorderStroke(1.dp, Color(0x2022D3EE)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.Start,
+        ) {
+            Icon(icon, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.height(5.dp))
+            Text(title, style = HudTextStyle, color = Color(0xFF7188A5))
+            Text(
+                value,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = Color(0xFFE8EEF8),
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsStatusPill(text: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = color.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.42f)),
+    ) {
+        Text(
+            text,
+            style = HudTextStyle,
+            color = color,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SettingsSectionLabel(text: String) {
+    Text(
+        text,
+        style = HudTextStyle.copy(
+            letterSpacing = 1.4.sp,
+            fontWeight = FontWeight.Bold,
+        ),
+        color = Color(0xFF66809F),
+        modifier = Modifier.padding(start = 4.dp, top = 3.dp, bottom = 1.dp),
+    )
+}
+
+@Composable
 private fun SettingsCard(
     title: String,
     badgeText: String? = null,
@@ -743,8 +1061,8 @@ private fun SettingsCard(
 ) {
     val accents = LocalJarvisAccents.current
     Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color(0xCC0E182A),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xD10E182A),
         border = BorderStroke(
             1.dp,
             Brush.horizontalGradient(
@@ -773,7 +1091,7 @@ private fun SettingsCard(
                         ),
                     ),
             )
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 13.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -814,7 +1132,7 @@ private fun SettingsCard(
                         }
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
                 content()
             }
         }
