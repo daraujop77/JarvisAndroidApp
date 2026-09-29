@@ -140,6 +140,7 @@ class JarvisAppSession(
                 requireOk(resp)
                 val parsed = json.decodeFromString(LoginResponse.serializer(), resp.second)
                 check(parsed.authenticated && parsed.token.isNotBlank()) { "login response missing token" }
+                KnowledgeV2ViewStateStore.clearAll()
                 store.put(
                     mapOf(
                         KEY_TOKEN to parsed.token,
@@ -234,6 +235,7 @@ class JarvisAppSession(
 
     /** Drop only the short-lived bearer while preserving the paired device credential. */
     fun clearAccess() {
+        KnowledgeV2ViewStateStore.clearPrincipal(userId)
         store.put(
             mapOf(
                 KEY_TOKEN to null,
@@ -244,6 +246,7 @@ class JarvisAppSession(
     }
 
     fun clear() {
+        KnowledgeV2ViewStateStore.clearAll()
         store.clear()
         refreshStore.clear()
     }
