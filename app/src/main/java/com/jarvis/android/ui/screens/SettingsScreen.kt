@@ -112,6 +112,7 @@ fun SettingsScreen(
     val health by vm.healthStatus.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val appUpdate by vm.appUpdateState.collectAsStateWithLifecycle()
+    var connectionAdvanced by remember { mutableStateOf(false) }
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { vm.setAvatar(it) } }
@@ -128,7 +129,7 @@ fun SettingsScreen(
                         Column {
                             Text(strings.settingsTitle, style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "SYSTEM CONFIG & TELEMETRY",
+                                "JARVIS CONTROL CENTER",
                                 style = HudTextStyle,
                                 color = LocalJarvisAccents.current.orbGlow,
                             )
@@ -151,8 +152,19 @@ fun SettingsScreen(
                 .padding(pad)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            SystemControlCenterCard(
+                versionName = BuildConfig.VERSION_NAME,
+                versionCode = BuildConfig.VERSION_CODE,
+                isOwner = settings.isOwner,
+                appLockEnabled = settings.appLockEnabled,
+                gatewayBaseUrl = settings.gatewayBaseUrl,
+                health = health,
+                onCheckHealth = vm::checkHealth,
+            )
+
+            SettingsSectionLabel("PREFERENCIAS")
             SettingsCard(
                 title = strings.languageSection,
                 icon = { HudLanguageIcon(tint = accents.orbGlow) },
@@ -433,6 +445,7 @@ fun SettingsScreen(
                 }
             }
 
+            SettingsSectionLabel("SISTEMA E IA")
             SettingsCard(
                 title = strings.usageSection,
                 icon = { HudUsageIcon(tint = accents.orbGlow) },
