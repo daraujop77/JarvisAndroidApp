@@ -210,6 +210,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val plans: List<WritingPlanItem> = emptyList(),
         val planningCouncil: WritingPlanningCouncil? = null,
         val planningCouncilSessions: List<WritingPlanningCouncilSession> = emptyList(),
+        val planningV2ChapterId: String? = null,
+        val planningV2AggregateVersion: Int = 0,
+        val planningV2Turns: List<WritingPlanningTurnItem> = emptyList(),
+        val planningV2Direction: WritingDirectionStateResult? = null,
         val chapters: List<WritingChapterSummary> = emptyList(),
         val activeChapter: WritingChapter? = null,
         val chapterRevisions: List<WritingChapterRevisionSummary> = emptyList(),
@@ -262,6 +266,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 knowledgeAtlasLoading = false,
                 knowledgeAtlasError = null,
                 knowledgeSnapshotChanged = false,
+                planningV2ChapterId = null,
+                planningV2AggregateVersion = 0,
+                planningV2Turns = emptyList(),
+                planningV2Direction = null,
             )
         }
         writingWorkspaceBusy("Loading workspace")
@@ -861,6 +869,224 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+
+    fun startPersistentWritingPlanning(projectId: String, firstMessage: String) {
+        val clean = firstMessage.trim()
+        if (clean.isEmpty()) return
+        writingWorkspaceBusy("SHOWRUNNER · ABRIENDO PLANEACIÓN")
+        viewModelScope.launch {
+            val startKey = "android-w1-start-" + java.util.UUID.randomUUID().toString()
+            val started = container.liveSession.writingRoomPlanningSessionStart(
+                projectId = projectId,
+                idempotencyKey = startKey,
+            )
+            if (started.isFailure) {
+                writingWorkspaceError(started.exceptionOrNull())
+                return@launch
+            }
+
+            val session = started.getOrThrow().result
+            val chapterResult = container.liveSession.writingRoomChapterGet(
+                projectId,
+                session.chapter_id,
+            )
+            val provisionalChapter = chapterResult.getOrNull()?.chapter
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                planningV2ChapterId = session.chapter_id,
+                planningV2AggregateVersion = session.aggregate_version,
+                planningV2Turns = emptyList(),
+                planningV2Direction = null,
+                activeChapter = provisionalChapter ?: _writingWorkspace.value.activeChapter,
+                engineReview = null,
+                busy = true,
+                busyLabel = "SHOWRUNNER · EXPLORANDO DIRECCIÓN",
+                error = chapterResult.exceptionOrNull()?.message,
+            )
+
+            val turn = container.liveSession.writingRoomPlanningTurn(
+                projectId = projectId,
+                chapterId = session.chapter_id,
+                expectedVersion = session.aggregate_version,
+                idempotencyKey = "android-w1-turn-" + java.util.UUID.randomUUID().toString(),
+                message = clean,
+            )
+            if (turn.isFailure) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    busy = false,
+                    busyLabel = "",
+                    error = turn.exceptionOrNull()?.message ?: "No se pudo iniciar la conversación con Showrunner",
+                )
+                return@launch
+            }
+
+            val history = container.liveSession.writingRoomPlanningHistory(
+                projectId,
+                session.chapter_id,
+            )
+            val direction = container.liveSession.writingRoomDirectionStatus(
+                projectId,
+                session.chapter_id,
+            )
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            val historyResult = history.getOrNull()?.result
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2ChapterId = session.chapter_id,
+                planningV2AggregateVersion = historyResult?.aggregate_version
+                    ?: turn.getOrThrow().result.aggregate_version,
+                planningV2Turns = historyResult?.items ?: listOf(turn.getOrThrow().result),
+                planningV2Direction = direction.getOrNull()?.result,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                error = history.exceptionOrNull()?.message
+                    ?: direction.exceptionOrNull()?.message
+                    ?: list.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun continuePersistentWritingPlanning(projectId: String, message: String) {
+        val clean = message.trim()
+        val current = _writingWorkspace.value
+        val chapterId = current.planningV2ChapterId ?: current.activeChapter?.chapter_id ?: return
+        val expectedVersion = current.planningV2AggregateVersion
+        if (clean.isEmpty() || expectedVersion < 1) return
+
+        writingWorkspaceBusy("SHOWRUNNER · CONTINUANDO PLANEACIÓN")
+        viewModelScope.launch {
+            val turn = container.liveSession.writingRoomPlanningTurn(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = expectedVersion,
+                idempotencyKey = "android-w1-turn-" + java.util.UUID.randomUUID().toString(),
+                message = clean,
+            )
+            if (turn.isFailure) {
+                writingWorkspaceError(turn.exceptionOrNull())
+                return@launch
+            }
+            val history = container.liveSession.writingRoomPlanningHistory(projectId, chapterId)
+            val direction = container.liveSession.writingRoomDirectionStatus(projectId, chapterId)
+            val historyResult = history.getOrNull()?.result
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2ChapterId = chapterId,
+                planningV2AggregateVersion = historyResult?.aggregate_version
+                    ?: turn.getOrThrow().result.aggregate_version,
+                planningV2Turns = historyResult?.items
+                    ?: (_writingWorkspace.value.planningV2Turns + turn.getOrThrow().result),
+                planningV2Direction = direction.getOrNull()?.result
+                    ?: _writingWorkspace.value.planningV2Direction,
+                error = history.exceptionOrNull()?.message ?: direction.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun preparePersistentWritingDirection(projectId: String) {
+        val current = _writingWorkspace.value
+        val chapterId = current.planningV2ChapterId ?: return
+        val expectedVersion = current.planningV2AggregateVersion
+        if (expectedVersion < 1 || current.planningV2Turns.none { it.assistant_message.isNotBlank() }) return
+
+        writingWorkspaceBusy("REVISANDO DIRECCIÓN · CANON KEEPER + CHALLENGER")
+        viewModelScope.launch {
+            val prepared = container.liveSession.writingRoomDirectionPrepare(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = expectedVersion,
+                idempotencyKey = "android-w1-direction-" + java.util.UUID.randomUUID().toString(),
+            )
+            prepared.fold(
+                onSuccess = { response ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        planningV2AggregateVersion = response.result.aggregate_version,
+                        planningV2Direction = response.result,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun approvePersistentWritingDirection(
+        projectId: String,
+        selectedTitle: String,
+    ) {
+        val current = _writingWorkspace.value
+        val chapterId = current.planningV2ChapterId ?: return
+        val direction = current.planningV2Direction ?: return
+        val proposal = direction.proposal ?: return
+        val title = selectedTitle.trim()
+        if (
+            !direction.approval_ready ||
+            title.isEmpty() ||
+            title !in proposal.payload.title_options
+        ) return
+
+        writingWorkspaceBusy("APROBANDO BRIEF INMUTABLE")
+        viewModelScope.launch {
+            val approved = container.liveSession.writingRoomDirectionApprove(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = current.planningV2AggregateVersion,
+                idempotencyKey = "android-w1-approve-" + java.util.UUID.randomUUID().toString(),
+                proposalRevisionId = proposal.proposal_revision_id,
+                proposalHash = proposal.proposal_hash,
+                reviewIds = direction.bound_review_ids,
+                selectedTitle = title,
+            )
+            if (approved.isFailure) {
+                writingWorkspaceError(approved.exceptionOrNull())
+                return@launch
+            }
+            val result = approved.getOrThrow().result
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate_version,
+                planningV2Direction = result,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                error = list.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    private suspend fun restorePersistentPlanningIfPresent(
+        projectId: String,
+        chapterId: String,
+    ) {
+        val history = container.liveSession.writingRoomPlanningHistory(
+            projectId = projectId,
+            chapterId = chapterId,
+            limit = 100,
+        )
+        val historyResult = history.getOrNull()?.result
+        if (historyResult == null || historyResult.items.isEmpty()) {
+            if (_writingWorkspace.value.planningV2ChapterId == chapterId) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    planningV2ChapterId = null,
+                    planningV2AggregateVersion = 0,
+                    planningV2Turns = emptyList(),
+                    planningV2Direction = null,
+                )
+            }
+            return
+        }
+        val direction = container.liveSession.writingRoomDirectionStatus(projectId, chapterId)
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            planningV2ChapterId = chapterId,
+            planningV2AggregateVersion = historyResult.aggregate_version,
+            planningV2Turns = historyResult.items,
+            planningV2Direction = direction.getOrNull()?.result,
+            error = direction.exceptionOrNull()?.message,
+        )
+    }
+
     fun startWritingChapter(
         projectId: String,
         title: String,
@@ -1036,6 +1262,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 engineReview = null,
                 error = revisions.exceptionOrNull()?.message,
             )
+            restorePersistentPlanningIfPresent(projectId, chapterId)
         }
     }
 

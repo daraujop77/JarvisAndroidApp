@@ -1013,6 +1013,8 @@ private fun WriteSection(
 
     var draft by rememberSaveable { mutableStateOf("") }
     val active = state.activeChapter
+    var planningReply by rememberSaveable(active?.chapter_id) { mutableStateOf("") }
+    var selectedDirectionTitle by rememberSaveable(active?.chapter_id) { mutableStateOf("") }
     var revisionHistoryExpanded by rememberSaveable(active?.chapter_id) { mutableStateOf(false) }
     var chapterPendingDelete by rememberSaveable { mutableStateOf<String?>(null) }
     var trashExpanded by rememberSaveable { mutableStateOf(false) }
@@ -1023,6 +1025,14 @@ private fun WriteSection(
             draft = active.draft_text
             selectedChapterTitle = if (active.title == "Nuevo capítulo") "" else active.title
             writeListState.scrollToItem(0)
+        }
+    }
+    LaunchedEffect(state.planningV2Direction?.proposal?.proposal_revision_id) {
+        val proposal = state.planningV2Direction?.proposal?.payload
+        if (proposal != null && selectedDirectionTitle !in proposal.title_options) {
+            selectedDirectionTitle = proposal.recommended_title
+                .takeIf { it in proposal.title_options }
+                ?: proposal.title_options.firstOrNull().orEmpty()
         }
     }
     LaunchedEffect(revisionHistoryExpanded, active?.chapter_id) {
@@ -1076,14 +1086,34 @@ private fun WriteSection(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
         state = writeListState,
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // El Showrunner analiza primero el brief. El título y la dirección siguen siendo propuesta
-        // hasta que el usuario los aprueba explícitamente.
-        if (active != null && active.title == "Nuevo capítulo") {
+        val persistentPlanningActive =
+            active != null && state.planningV2ChapterId == active.chapter_id
+
+        if (persistentPlanningActive) {
+            item {
+                PersistentPlanningCard(
+                    state = state,
+                    projectId = projectId,
+                    vm = vm,
+                    reply = planningReply,
+                    onReplyChange = { planningReply = it },
+                    selectedTitle = selectedDirectionTitle,
+                    onSelectedTitleChange = { selectedDirectionTitle = it },
+                    onReplySent = { planningReply = "" },
+                )
+            }
+        }
+
+        // Legacy sessions remain readable/editable, but new planning uses the
+        // versioned persistent W1 contract above.
+        if (active != null && active.title == "Nuevo capítulo" && !persistentPlanningActive) {
             item {
                 Surface(
                     shape = RoundedCornerShape(18.dp),
@@ -1486,16 +1516,20 @@ private fun WriteSection(
 
                     Button(
                         onClick = {
-                            vm.startWritingChapter(
+                            vm.startPersistentWritingPlanning(
                                 projectId = projectId,
-                                title = "",
-                                objective = chapterBrief,
-                                storyPoint = "",
-                                characters = characters.split(',').map { it.trim() }.filter { it.isNotEmpty() },
-                                mustHave = "",
-                                mustAvoid = mustAvoid,
-                                tone = tone,
-                                desiredEnd = "",
+                                firstMessage = buildString {
+                                    append(chapterBrief.trim())
+                                    val extras = buildList {
+                                        if (characters.isNotBlank()) add("Personajes: ${characters.trim()}")
+                                        if (tone.isNotBlank()) add("Tono: ${tone.trim()}")
+                                        if (mustAvoid.isNotBlank()) add("Evitar: ${mustAvoid.trim()}")
+                                    }
+                                    if (extras.isNotEmpty()) {
+                                        append("\n\n")
+                                        append(extras.joinToString("\n"))
+                                    }
+                                },
                             )
                             selectedChapterTitle = ""
                         },
@@ -1505,7 +1539,7 @@ private fun WriteSection(
                     ) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Analizar Brief con Showrunner", fontWeight = FontWeight.Bold)
+                        Text("Abrir planeación con Showrunner", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1636,6 +1670,285 @@ private fun WriteSection(
                         ) {
                             Text("Restaurar sesión")
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun PersistentPlanningCard(
+    state: JarvisViewModel.WritingWorkspaceState,
+    projectId: String,
+    vm: JarvisViewModel,
+    reply: String,
+    onReplyChange: (String) -> Unit,
+    selectedTitle: String,
+    onSelectedTitleChange: (String) -> Unit,
+    onReplySent: () -> Unit,
+) {
+    val direction = state.planningV2Direction
+    val stage = direction?.chapter_stage ?: "PLANNING"
+    val proposal = direction?.proposal?.payload
+    val approvedBrief = direction?.brief?.payload
+    val canKeepPlanning = stage == "PLANNING"
+
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xEE0E182A),
+        border = BorderStroke(
+            1.dp,
+            when (stage) {
+                "BRIEF_APPROVED" -> JarvisGreen.copy(alpha = 0.55f)
+                "DIRECTION_READY" -> JarvisAmber.copy(alpha = 0.55f)
+                else -> JarvisCyan.copy(alpha = 0.42f)
+            },
+        ),
+        shadowElevation = 3.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                JarvisOrb(
+                    size = 30.dp,
+                    activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
+                    contentDescription = "Planeación persistente",
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "PLANEACIÓN DEL CAPÍTULO · SHOWRUNNER",
+                        style = HudTextStyle.copy(fontSize = 10.sp),
+                        color = JarvisCyan,
+                    )
+                    Text(
+                        when (stage) {
+                            "BRIEF_APPROVED" -> "Brief aprobado e inmutable"
+                            "DIRECTION_READY" -> "Dirección revisada · esperando tu aprobación"
+                            else -> "Conversación persistente"
+                        },
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFFF8FAFC),
+                    )
+                }
+                MiniPill(
+                    stage,
+                    when (stage) {
+                        "BRIEF_APPROVED" -> JarvisGreen
+                        "DIRECTION_READY" -> JarvisAmber
+                        else -> JarvisCyan
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Esta conversación está ligada a este capítulo. Los mensajes normales sólo usan Showrunner; Canon Keeper y Challenger entran al congelar la dirección.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (state.planningV2Turns.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                state.planningV2Turns.takeLast(12).forEach { turn ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0x66111C30),
+                        border = BorderStroke(1.dp, Color(0x334B6482)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text("TÚ", style = HudTextStyle.copy(fontSize = 9.sp), color = JarvisGreen)
+                            Text(turn.user_message, color = Color(0xFFE2E8F0))
+                            if (turn.assistant_message.isNotBlank()) {
+                                Spacer(Modifier.height(7.dp))
+                                Text(
+                                    "SHOWRUNNER",
+                                    style = HudTextStyle.copy(fontSize = 9.sp),
+                                    color = JarvisCyan,
+                                )
+                                RichModelText(turn.assistant_message)
+                            } else {
+                                Spacer(Modifier.height(7.dp))
+                                Text(
+                                    "Respuesta pendiente · ${turn.status.ifBlank { turn.job_status }}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisAmber,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+
+            if (canKeepPlanning) {
+                OutlinedTextField(
+                    value = reply,
+                    onValueChange = onReplyChange,
+                    label = { Text("Continuar con Showrunner") },
+                    placeholder = { Text("Ajusta la dirección, haz una pregunta o define otra condición…") },
+                    minLines = 3,
+                    colors = jarvisTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            vm.continuePersistentWritingPlanning(projectId, reply)
+                            onReplySent()
+                        },
+                        enabled = reply.isNotBlank() && !state.busy,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Enviar")
+                    }
+                    Button(
+                        onClick = { vm.preparePersistentWritingDirection(projectId) },
+                        enabled = state.planningV2Turns.any { it.assistant_message.isNotBlank() } && !state.busy,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JarvisAmber,
+                            contentColor = Color(0xFF1B1300),
+                        ),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Revisar dirección", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            if (proposal != null) {
+                Spacer(Modifier.height(14.dp))
+                Text("DIRECCIÓN CONGELADA", style = HudTextStyle, color = JarvisAmber)
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    proposal.direction,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFF1F5F9),
+                )
+                if (proposal.beats.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    proposal.beats.forEachIndexed { index, beat ->
+                        Text(
+                            "${index + 1}. $beat",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                }
+                if (proposal.ending.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Final propuesto: ${proposal.ending}", color = Color(0xFFE2E8F0))
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Text("REVISIONES OBLIGATORIAS", style = HudTextStyle, color = JarvisViolet)
+                Spacer(Modifier.height(5.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    direction?.reviews.orEmpty().forEach { review ->
+                        val color = when (review.validation_status) {
+                            "PASS" -> JarvisGreen
+                            "BLOCKED" -> JarvisRed
+                            else -> JarvisAmber
+                        }
+                        MiniPill(
+                            "${review.review_kind.replace('_', ' ').uppercase()} · ${review.validation_status}",
+                            color,
+                        )
+                    }
+                }
+
+                if (direction?.approval_ready == true) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("ELIGE EL TÍTULO REVISADO", style = HudTextStyle, color = JarvisCyan)
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        proposal.title_options.forEach { option ->
+                            FilterChip(
+                                selected = selectedTitle == option,
+                                onClick = { onSelectedTitleChange(option) },
+                                enabled = !state.busy,
+                                label = { Text(option) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            vm.approvePersistentWritingDirection(
+                                projectId = projectId,
+                                selectedTitle = selectedTitle,
+                            )
+                        },
+                        enabled = selectedTitle in proposal.title_options && !state.busy,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JarvisGreen,
+                            contentColor = Color(0xFF02101F),
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Aprobar Brief exacto", fontWeight = FontWeight.Bold)
+                    }
+                } else if (stage != "BRIEF_APPROVED") {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "La aprobación permanece bloqueada hasta que Canon Keeper y Challenger tengan PASS válido.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisAmber,
+                    )
+                }
+            }
+
+            if (approvedBrief != null || stage == "BRIEF_APPROVED") {
+                Spacer(Modifier.height(14.dp))
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = JarvisGreen.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, JarvisGreen.copy(alpha = 0.40f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            "BRIEF APROBADO",
+                            style = HudTextStyle,
+                            color = JarvisGreen,
+                        )
+                        if (approvedBrief != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                approvedBrief.title,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFF8FAFC),
+                            )
+                            if (approvedBrief.direction.isNotBlank()) {
+                                Spacer(Modifier.height(5.dp))
+                                Text(approvedBrief.direction, color = Color(0xFFE2E8F0))
+                            }
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            "Se guardó un único intent de borrador. La redacción automática sigue desactivada hasta W2; esta pantalla no simula que el capítulo ya fue escrito.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
                     }
                 }
             }

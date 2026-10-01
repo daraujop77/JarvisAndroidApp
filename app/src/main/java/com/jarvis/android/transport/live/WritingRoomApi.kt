@@ -378,6 +378,197 @@ data class WritingPlanningCouncilTurn(
     val messages: List<WritingPlanningCouncilMessage> = emptyList(),
 )
 
+
+@Serializable
+data class WritingPlanningSessionResult(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val session_id: String = "",
+    val title: String = "",
+    val stage: String = "",
+    val aggregate_version: Int = 1,
+)
+
+@Serializable
+data class WritingPlanningSessionResponse(
+    val schema: String = "",
+    val operation: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val session_id: String = "",
+    val aggregate_version: Int = 1,
+    val stage: String = "",
+    val result: WritingPlanningSessionResult = WritingPlanningSessionResult(),
+)
+
+@Serializable
+data class WritingPlanningTurnItem(
+    val turn_id: String = "",
+    val turn_number: Int = 0,
+    val planning_revision_id: String = "",
+    val expected_aggregate_version: Int = 0,
+    val aggregate_version: Int = 0,
+    val user_message: String = "",
+    val assistant_message: String = "",
+    val status: String = "",
+    val job_status: String = "",
+    val progress_sequence: Int = 0,
+    val error_code: String = "",
+    val created_utc: String = "",
+    val completed_utc: String = "",
+)
+
+@Serializable
+data class WritingPlanningTurnResponse(
+    val schema: String = "",
+    val operation: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val session_id: String = "",
+    val aggregate_version: Int = 0,
+    val result: WritingPlanningTurnItem = WritingPlanningTurnItem(),
+)
+
+@Serializable
+data class WritingPlanningHistoryResult(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val stage: String = "",
+    val aggregate_version: Int = 1,
+    val items: List<WritingPlanningTurnItem> = emptyList(),
+)
+
+@Serializable
+data class WritingPlanningHistoryResponse(
+    val schema: String = "",
+    val operation: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val session_id: String = "",
+    val aggregate_version: Int = 1,
+    val stage: String = "",
+    val result: WritingPlanningHistoryResult = WritingPlanningHistoryResult(),
+)
+
+@Serializable
+data class WritingDirectionProposalPayload(
+    val title_options: List<String> = emptyList(),
+    val recommended_title: String = "",
+    val direction: String = "",
+    val beats: List<String> = emptyList(),
+    val ending: String = "",
+    val unresolved_choices: List<String> = emptyList(),
+    val canon_constraints: List<String> = emptyList(),
+    val risks: List<String> = emptyList(),
+    val authority: String = "",
+)
+
+@Serializable
+data class WritingDirectionProposalRecord(
+    val proposal_revision_id: String = "",
+    val revision_number: Int = 0,
+    val proposal_hash: String = "",
+    val context_pack_id: String = "",
+    val context_hash: String = "",
+    val source_revision: String = "",
+    val payload: WritingDirectionProposalPayload = WritingDirectionProposalPayload(),
+    val created_by: String = "",
+    val created_utc: String = "",
+)
+
+@Serializable
+data class WritingDirectionReviewFinding(
+    val message: String = "",
+    val severity: String = "",
+    val evidence: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingDirectionReviewPayload(
+    val status: String = "",
+    val findings: List<WritingDirectionReviewFinding> = emptyList(),
+    val error: String = "",
+    val error_type: String = "",
+)
+
+@Serializable
+data class WritingDirectionReviewRecord(
+    val review_id: String = "",
+    val proposal_revision_id: String = "",
+    val proposal_hash: String = "",
+    val context_pack_id: String = "",
+    val context_hash: String = "",
+    val review_kind: String = "",
+    val validation_status: String = "",
+    val review_hash: String = "",
+    val payload: WritingDirectionReviewPayload = WritingDirectionReviewPayload(),
+    val created_by: String = "",
+    val created_utc: String = "",
+)
+
+@Serializable
+data class WritingDirectionBriefPayload(
+    val title: String = "",
+    val direction: String = "",
+    val beats: List<String> = emptyList(),
+    val ending: String = "",
+    val unresolved_choices: List<String> = emptyList(),
+    val canon_constraints: List<String> = emptyList(),
+    val risks: List<String> = emptyList(),
+    val authority: String = "",
+)
+
+@Serializable
+data class WritingDirectionBriefRecord(
+    val brief_revision_id: String = "",
+    val revision_number: Int = 0,
+    val proposal_revision_id: String = "",
+    val proposal_hash: String = "",
+    val context_pack_id: String = "",
+    val context_hash: String = "",
+    val source_revision: String = "",
+    val brief_hash: String = "",
+    val payload: WritingDirectionBriefPayload = WritingDirectionBriefPayload(),
+    val approved_by: String = "",
+    val approved_utc: String = "",
+)
+
+@Serializable
+data class WritingDraftExecutionState(
+    val state: String = "",
+    val automatic_execution_enabled: Boolean = false,
+    val reason: String = "",
+)
+
+@Serializable
+data class WritingDirectionStateResult(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val chapter_stage: String = "",
+    val publication_state: String = "",
+    val aggregate_version: Int = 1,
+    val proposal: WritingDirectionProposalRecord? = null,
+    val reviews: List<WritingDirectionReviewRecord> = emptyList(),
+    val bound_review_ids: List<String> = emptyList(),
+    val brief: WritingDirectionBriefRecord? = null,
+    val approval_ready: Boolean = false,
+    val draft_execution: WritingDraftExecutionState? = null,
+)
+
+@Serializable
+data class WritingDirectionStateResponse(
+    val schema: String = "",
+    val operation: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val session_id: String = "",
+    val aggregate_version: Int = 1,
+    val result: WritingDirectionStateResult = WritingDirectionStateResult(),
+)
+
 @Serializable
 data class WritingAuthorIntent(
     val objective: String = "",
@@ -1031,6 +1222,116 @@ suspend fun JarvisAppSession.writingRoomPlanStatus(
             put("project_id", projectId)
             put("item_id", itemId)
             put("status", status)
+        },
+    )
+
+
+suspend fun JarvisAppSession.writingRoomPlanningSessionStart(
+    projectId: String,
+    idempotencyKey: String,
+): Result<WritingPlanningSessionResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/planning/session/start",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.planning-session-start.request.v1")
+            put("project_id", projectId)
+            put("idempotency_key", idempotencyKey)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomPlanningTurn(
+    projectId: String,
+    chapterId: String,
+    expectedVersion: Int,
+    idempotencyKey: String,
+    message: String,
+): Result<WritingPlanningTurnResponse> {
+    val clean = message.trim()
+    if (clean.isEmpty()) return Result.failure(TransportException("Planning message is empty"))
+    return writingPost(
+        "/api/app/writing-room/v2/planning/turn",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.planning-turn.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("expected_version", expectedVersion)
+            put("idempotency_key", idempotencyKey)
+            put("message", clean)
+        },
+    )
+}
+
+suspend fun JarvisAppSession.writingRoomPlanningHistory(
+    projectId: String,
+    chapterId: String,
+    limit: Int = 100,
+): Result<WritingPlanningHistoryResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/planning/history",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.planning-history.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("limit", limit.coerceIn(1, 200))
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomDirectionStatus(
+    projectId: String,
+    chapterId: String,
+): Result<WritingDirectionStateResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/planning/direction/status",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.direction-status.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomDirectionPrepare(
+    projectId: String,
+    chapterId: String,
+    expectedVersion: Int,
+    idempotencyKey: String,
+): Result<WritingDirectionStateResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/planning/direction/prepare",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.direction-prepare.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("expected_version", expectedVersion)
+            put("idempotency_key", idempotencyKey)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomDirectionApprove(
+    projectId: String,
+    chapterId: String,
+    expectedVersion: Int,
+    idempotencyKey: String,
+    proposalRevisionId: String,
+    proposalHash: String,
+    reviewIds: List<String>,
+    selectedTitle: String,
+): Result<WritingDirectionStateResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/planning/direction/approve",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.direction-approve.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("expected_version", expectedVersion)
+            put("idempotency_key", idempotencyKey)
+            put("proposal_revision_id", proposalRevisionId)
+            put("proposal_hash", proposalHash)
+            put("review_ids", buildJsonArray {
+                reviewIds.filter(String::isNotBlank).forEach {
+                    add(kotlinx.serialization.json.JsonPrimitive(it))
+                }
+            })
+            put("selected_title", selectedTitle.trim())
         },
     )
 
