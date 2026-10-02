@@ -1075,6 +1075,145 @@ data class WritingVisualAssetContent(
 )
 
 @Serializable
+data class WritingVisualAssetStorage(
+    val backend: String = "",
+    val state: String = "",
+    val drive_file_id: String = "",
+    val drive_parent_id: String = "",
+)
+
+@Serializable
+data class WritingVisualAsset(
+    val asset_id: String = "",
+    val project_id: String = "",
+    val kind: String = "",
+    val status: String = "",
+    val source: String = "",
+    val sha256: String = "",
+    val mime_type: String = "image/jpeg",
+    val size_bytes: Int = 0,
+    val character_ids: List<String> = emptyList(),
+    val chapter_ids: List<String> = emptyList(),
+    val event_ids: List<String> = emptyList(),
+    val location_ids: List<String> = emptyList(),
+    val scene_ids: List<String> = emptyList(),
+    val perspective: String = "custom",
+    val visual_revision: Int = 0,
+    val alt: String = "",
+    val provenance: Map<String, JsonElement> = emptyMap(),
+    val created_by: String = "",
+    val approved_by: String = "",
+    val created_utc: String = "",
+    val approved_utc: String = "",
+    val storage: WritingVisualAssetStorage = WritingVisualAssetStorage(),
+)
+
+@Serializable
+data class WritingVisualAssetResponse(
+    val schema: String = "",
+    val asset: WritingVisualAsset = WritingVisualAsset(),
+)
+
+@Serializable
+data class WritingVisualPackSlot(
+    val slot_key: String = "",
+    val perspective: String = "",
+    val asset_id: String = "",
+    val asset_sha256: String = "",
+    val required: Boolean = true,
+    val created_utc: String = "",
+)
+
+@Serializable
+data class WritingVisualReferencePack(
+    val schema: String = "",
+    val pack_id: String = "",
+    val project_id: String = "",
+    val character_id: String = "",
+    val revision: Int = 0,
+    val state: String = "",
+    val master_asset_id: String = "",
+    val master_sha256: String = "",
+    val parent_pack_id: String = "",
+    val created_by: String = "",
+    val created_utc: String = "",
+    val approved_by: String = "",
+    val approved_utc: String = "",
+    val deprecated_by: String = "",
+    val deprecated_utc: String = "",
+    val slots: List<WritingVisualPackSlot> = emptyList(),
+)
+
+@Serializable
+data class WritingVisualGalleryDelivery(
+    val mode: String = "",
+    val backend: String = "",
+    val state: String = "",
+    val asset_id: String = "",
+)
+
+@Serializable
+data class WritingVisualGalleryAsset(
+    val asset_id: String = "",
+    val kind: String = "",
+    val status: String = "",
+    val sha256: String = "",
+    val mime_type: String = "image/jpeg",
+    val perspective: String = "",
+    val visual_revision: Int = 0,
+    val alt: String = "",
+    val character_ids: List<String> = emptyList(),
+    val chapter_ids: List<String> = emptyList(),
+    val scene_ids: List<String> = emptyList(),
+    val event_ids: List<String> = emptyList(),
+    val location_ids: List<String> = emptyList(),
+    val delivery: WritingVisualGalleryDelivery = WritingVisualGalleryDelivery(),
+)
+
+@Serializable
+data class WritingCharacterVisualGallery(
+    val schema: String = "",
+    val project_id: String = "",
+    val entity_type: String = "",
+    val entity_id: String = "",
+    val primary: WritingVisualGalleryAsset? = null,
+    val identity_pack: List<WritingVisualGalleryAsset> = emptyList(),
+    val outfits: List<WritingVisualGalleryAsset> = emptyList(),
+    val scenes: List<WritingVisualGalleryAsset> = emptyList(),
+)
+
+@Serializable
+data class WritingVisualCharacterDetail(
+    val schema: String = "",
+    val project_id: String = "",
+    val character_id: String = "",
+    val gallery: WritingCharacterVisualGallery? = null,
+    val active_reference_pack: WritingVisualReferencePack? = null,
+    val reference_packs: List<WritingVisualReferencePack> = emptyList(),
+)
+
+@Serializable
+data class WritingVisualReferencePacksResponse(
+    val schema: String = "",
+    val project_id: String = "",
+    val character_id: String = "",
+    val active_reference_pack: WritingVisualReferencePack? = null,
+    val reference_packs: List<WritingVisualReferencePack> = emptyList(),
+)
+
+@Serializable
+data class WritingVisualReferencePackResponse(
+    val schema: String = "",
+    val pack: WritingVisualReferencePack = WritingVisualReferencePack(),
+)
+
+@Serializable
+data class WritingVisualAssetApprovalResponse(
+    val schema: String = "",
+    val asset: WritingVisualAsset = WritingVisualAsset(),
+)
+
+@Serializable
 data class WritingLibraryExport(
     val schema: String = "",
     val project_id: String = "",
@@ -1250,6 +1389,144 @@ suspend fun JarvisAppSession.writingRoomVisualAssetFetch(
         },
     )
 }
+
+suspend fun JarvisAppSession.writingRoomVisualCharacterDetail(
+    projectId: String,
+    characterId: String,
+): Result<WritingVisualCharacterDetail> {
+    val character = characterId.trim()
+    if (character.isEmpty()) return Result.failure(TransportException("Visual character id is empty"))
+    return writingPost(
+        "/api/app/writing-room/v2/visual/characters/detail",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", character)
+        },
+    )
+}
+
+suspend fun JarvisAppSession.writingRoomVisualReferencePacks(
+    projectId: String,
+    characterId: String,
+): Result<WritingVisualReferencePacksResponse> {
+    val character = characterId.trim()
+    if (character.isEmpty()) return Result.failure(TransportException("Visual character id is empty"))
+    return writingPost(
+        "/api/app/writing-room/v2/visual/reference-packs/list",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", character)
+        },
+    )
+}
+
+suspend fun JarvisAppSession.writingRoomVisualApproveExact(
+    projectId: String,
+    assetId: String,
+    assetSha256: String,
+    visualRevision: Int = 0,
+): Result<WritingVisualAssetApprovalResponse> {
+    val asset = assetId.trim()
+    val hash = assetSha256.trim()
+    if (asset.isEmpty()) return Result.failure(TransportException("Visual asset id is empty"))
+    if (hash.length != 64) return Result.failure(TransportException("Visual asset SHA-256 is invalid"))
+    return writingPost(
+        "/api/app/writing-room/v2/visual/assets/approve-exact",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("asset_id", asset)
+            put("asset_sha256", hash)
+            put("visual_revision", visualRevision.coerceAtLeast(0))
+        },
+    )
+}
+
+suspend fun JarvisAppSession.writingRoomVisualCreateReferencePack(
+    projectId: String,
+    characterId: String,
+    masterAssetId: String,
+    masterSha256: String,
+    parentPackId: String? = null,
+): Result<WritingVisualReferencePackResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/visual/reference-packs/create",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId.trim())
+            put("master_asset_id", masterAssetId.trim())
+            put("master_sha256", masterSha256.trim())
+            parentPackId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("parent_pack_id", it) }
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomVisualAddPackSlot(
+    projectId: String,
+    packId: String,
+    slotKey: String,
+    assetId: String,
+    assetSha256: String,
+    required: Boolean = true,
+): Result<WritingVisualReferencePackResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/visual/reference-packs/slot/add",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("pack_id", packId.trim())
+            put("slot_key", slotKey.trim())
+            put("asset_id", assetId.trim())
+            put("asset_sha256", assetSha256.trim())
+            put("required", required)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomVisualPreparePack(
+    projectId: String,
+    packId: String,
+): Result<WritingVisualReferencePackResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/visual/reference-packs/prepare",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("pack_id", packId.trim())
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomVisualApprovePack(
+    projectId: String,
+    packId: String,
+): Result<WritingVisualReferencePackResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/visual/reference-packs/approve",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("pack_id", packId.trim())
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomVisualIngest(
+    projectId: String,
+    assetId: String?,
+    imageBase64: String,
+    mimeType: String,
+    kind: String,
+    characterId: String,
+    perspective: String,
+    alt: String = "",
+): Result<WritingVisualAssetResponse> =
+    writingPost(
+        "/api/app/writing-room/visual-assets/ingest",
+        buildJsonObject {
+            put("project_id", projectId)
+            assetId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("asset_id", it) }
+            put("image_base64", imageBase64)
+            put("mime_type", mimeType)
+            put("kind", kind)
+            put("source", "MANUAL_UPLOAD")
+            put("character_ids", buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive(characterId.trim())) })
+            put("perspective", perspective)
+            if (alt.isNotBlank()) put("alt", alt.trim())
+        },
+    )
 
 suspend fun JarvisAppSession.writingRoomWikiTimeline(
     projectId: String,
