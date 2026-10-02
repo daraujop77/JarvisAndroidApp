@@ -1780,6 +1780,227 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _writingWorkspace.value = _writingWorkspace.value.copy(pendingExport = null)
     }
 
+    data class VisualCharacterStudioState(
+        val projectId: String? = null,
+        val characterId: String? = null,
+        val busy: Boolean = false,
+        val detail: WritingVisualCharacterDetail? = null,
+        val candidate: WritingVisualAsset? = null,
+        val pendingAssetId: String? = null,
+        val pendingAttachmentId: String? = null,
+        val pendingMimeType: String = "image/jpeg",
+        val message: String? = null,
+        val error: String? = null,
+    )
+
+    private val _visualCharacterStudio = MutableStateFlow(VisualCharacterStudioState())
+    val visualCharacterStudio: StateFlow<VisualCharacterStudioState> = _visualCharacterStudio
+
+    fun loadVisualCharacter(projectId: String, characterId: String) {
+        val project = projectId.trim()
+        val character = characterId.trim()
+        if (project.isEmpty() || character.isEmpty()) return
+        val current = _visualCharacterStudio.value
+        _visualCharacterStudio.value = current.copy(
+            projectId = project,
+            characterId = character,
+            busy = true,
+            error = null,
+            message = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.writingRoomVisualCharacterDetail(project, character).fold(
+                onSuccess = { detail ->
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        projectId = project,
+                        characterId = character,
+                        busy = false,
+                        detail = detail,
+                        error = null,
+                    )
+                    val assetIds = buildList {
+                        detail.gallery?.primary?.asset_id?.takeIf { it.isNotBlank() }?.let(::add)
+                        detail.active_reference_pack?.slots.orEmpty()
+                            .map { it.asset_id }
+                            .filter { it.isNotBlank() }
+                            .forEach(::add)
+                    }.distinct()
+                    assetIds.forEach { loadWikiVisual(project, it) }
+                },
+                onFailure = { error ->
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        error = error.message ?: "No se pudo cargar Character Studio.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun stageVisualMasterFromUri(
+        uri: Uri,
+        projectId: String,
+        characterId: String,
+        characterName: String,
+    ) {
+        val project = projectId.trim()
+        val character = characterId.trim()
+        if (project.isEmpty() || character.isEmpty() || _visualCharacterStudio.value.busy) return
+        _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+            projectId = project,
+            characterId = character,
+            busy = true,
+            candidate = null,
+            message = null,
+            error = null,
+        )
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            if (staged == null) {
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    error = "No se pudo leer la imagen seleccionada.",
+                )
+                return@launch
+            }
+            val assetId = "va_android_" + java.util.UUID.randomUUID().toString().replace("-", "")
+            _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                pendingAssetId = assetId,
+                pendingAttachmentId = staged.attachmentId,
+                pendingMimeType = staged.mimeType.ifBlank { "image/jpeg" },
+            )
+            uploadPendingVisualMaster(project, character, characterName)
+        }
+    }
+
+    fun retryVisualMasterUpload(characterName: String) {
+        val state = _visualCharacterStudio.value
+        val project = state.projectId ?: return
+        val character = state.characterId ?: return
+        if (state.pendingAssetId.isNullOrBlank() || state.pendingAttachmentId.isNullOrBlank() || state.busy) return
+        _visualCharacterStudio.value = state.copy(busy = true, error = null, message = null)
+        viewModelScope.launch {
+            uploadPendingVisualMaster(project, character, characterName)
+        }
+    }
+
+    private suspend fun uploadPendingVisualMaster(
+        projectId: String,
+        characterId: String,
+        characterName: String,
+    ) {
+        val state = _visualCharacterStudio.value
+        val assetId = state.pendingAssetId ?: return
+        val attachmentId = state.pendingAttachmentId ?: return
+        val encoded = withContext(Dispatchers.IO) {
+            runCatching {
+                val file = container.attachmentStore.resolve(attachmentId)
+                    ?: error("La imagen candidata ya no está disponible.")
+                val bytes = file.readBytes()
+                require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                    "La imagen candidata es demasiado grande."
+                }
+                Base64.encodeToString(bytes, Base64.NO_WRAP)
+            }
+        }
+        if (encoded.isFailure) {
+            _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                busy = false,
+                error = encoded.exceptionOrNull()?.message ?: "No se pudo preparar la imagen.",
+            )
+            return
+        }
+
+        container.liveSession.writingRoomVisualIngest(
+            projectId = projectId,
+            assetId = assetId,
+            imageBase64 = encoded.getOrThrow(),
+            mimeType = state.pendingMimeType,
+            kind = "PRIMARY_REFERENCE",
+            characterId = characterId,
+            perspective = "front",
+            alt = "Referencia visual candidata de " + characterName.ifBlank { characterId.substringAfter(":") },
+        ).fold(
+            onSuccess = { response ->
+                _wikiVisualAttachments.update { it + (response.asset.asset_id to attachmentId) }
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    candidate = response.asset,
+                    message = "Candidato guardado. Revisa la imagen antes de aprobarla.",
+                    error = null,
+                )
+            },
+            onFailure = { error ->
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    error = (error.message ?: "No se pudo guardar el candidato.") +
+                        " Puedes reintentar el almacenamiento sin seleccionar otra imagen.",
+                )
+            },
+        )
+    }
+
+    fun approveVisualMasterCandidate(
+        projectId: String,
+        characterId: String,
+    ) {
+        val candidate = _visualCharacterStudio.value.candidate ?: return
+        if (_visualCharacterStudio.value.busy) return
+        val nextRevision = ((_visualCharacterStudio.value.detail?.gallery?.primary?.visual_revision ?: 0) + 1)
+            .coerceAtLeast(1)
+        _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+            busy = true,
+            message = null,
+            error = null,
+        )
+        viewModelScope.launch {
+            val approved = container.liveSession.writingRoomVisualApproveExact(
+                projectId = projectId,
+                assetId = candidate.asset_id,
+                assetSha256 = candidate.sha256,
+                visualRevision = nextRevision,
+            )
+            if (approved.isFailure) {
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    error = approved.exceptionOrNull()?.message ?: "No se pudo aprobar el master.",
+                )
+                return@launch
+            }
+
+            val active = _visualCharacterStudio.value.detail?.active_reference_pack
+            val pack = container.liveSession.writingRoomVisualCreateReferencePack(
+                projectId = projectId,
+                characterId = characterId,
+                masterAssetId = approved.getOrThrow().asset.asset_id,
+                masterSha256 = approved.getOrThrow().asset.sha256,
+                parentPackId = active?.pack_id,
+            )
+            if (pack.isFailure) {
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    candidate = approved.getOrThrow().asset,
+                    error = pack.exceptionOrNull()?.message
+                        ?: "El master quedó aprobado, pero no se pudo crear la nueva revisión del pack.",
+                )
+                return@launch
+            }
+            _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                busy = false,
+                candidate = null,
+                pendingAssetId = null,
+                pendingAttachmentId = null,
+                message = "Master aprobado. Pack ${pack.getOrThrow().pack.revision} creado en DRAFT para sus vistas.",
+                error = null,
+            )
+            loadVisualCharacter(projectId, characterId)
+        }
+    }
+
+    fun clearVisualCharacterStudioMessage() {
+        _visualCharacterStudio.value = _visualCharacterStudio.value.copy(message = null, error = null)
+    }
+
     sealed interface ImageGenerationState {
         data object Idle : ImageGenerationState
         data object Busy : ImageGenerationState
