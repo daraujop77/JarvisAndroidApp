@@ -14,6 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -557,6 +558,20 @@ class JarvisAppSession(
         }
     }
 
+    data class ImageVisualAssetRequest(
+        val projectId: String,
+        val kind: String,
+        val characterIds: List<String> = emptyList(),
+        val chapterIds: List<String> = emptyList(),
+        val sceneIds: List<String> = emptyList(),
+        val eventIds: List<String> = emptyList(),
+        val locationIds: List<String> = emptyList(),
+        val perspective: String = "custom",
+        val surface: String = "image_studio",
+        val alt: String = "",
+        val assetId: String? = null,
+    )
+
     data class ImageGenerationReply(
         val mimeType: String,
         val dataBase64: String,
@@ -569,12 +584,16 @@ class JarvisAppSession(
         val fallbackUsed: Boolean,
         val attemptCount: Int,
         val durationMs: Long,
+        val visualAsset: WritingVisualAsset? = null,
+        val storageRetryRequired: Boolean = false,
+        val vpsPersistence: String = "",
     )
 
     suspend fun generateImage(
         prompt: String,
         mode: String = "speed",
         model: String? = null,
+        visualAsset: ImageVisualAssetRequest? = null,
     ): Result<ImageGenerationReply> = withContext(Dispatchers.IO) {
         if (!isAuthenticated) {
             return@withContext Result.failure(TransportException("JARVIS session is not authenticated"))
@@ -595,6 +614,21 @@ class JarvisAppSession(
                 put("prompt", cleanPrompt)
                 put("mode", mode)
                 if (!model.isNullOrBlank()) put("model", model)
+                visualAsset?.let { request ->
+                    put("visual_asset", buildJsonObject {
+                        put("project_id", request.projectId.trim())
+                        put("kind", request.kind.trim())
+                        put("surface", request.surface.trim())
+                        put("perspective", request.perspective.trim())
+                        if (request.alt.isNotBlank()) put("alt", request.alt.trim())
+                        request.assetId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("asset_id", it) }
+                        put("character_ids", JsonArray(request.characterIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                        put("chapter_ids", JsonArray(request.chapterIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                        put("scene_ids", JsonArray(request.sceneIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                        put("event_ids", JsonArray(request.eventIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                        put("location_ids", JsonArray(request.locationIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                    })
+                }
             }.toString()
             val response = post(root, "/api/app/images/generations", body, auth = authHeader())
             requireImageGenerationOk(response)
@@ -610,12 +644,20 @@ class JarvisAppSession(
             val fallbackUsed = obj["fallback_used"]?.jsonPrimitive?.booleanOrNull ?: false
             val attemptCount = obj["attempt_count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 1
             val durationMs = obj["duration_ms"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+            val vpsPersistence = obj["vps_persistence"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val storageRetryRequired = obj["storage_retry_required"]?.jsonPrimitive?.booleanOrNull ?: false
+            val visual = obj["visual_asset"]?.let { element ->
+                if (element is kotlinx.serialization.json.JsonNull) null else runCatching {
+                    json.decodeFromJsonElement(WritingVisualAsset.serializer(), element)
+                }.getOrNull()
+            }
             if (mimeType.isBlank() || dataBase64.isBlank() || sizeBytes <= 0L) {
                 throw TransportException("image generation returned an invalid image")
             }
             ImageGenerationReply(
                 mimeType, dataBase64, sizeBytes, provider, routedModel, route,
                 requestedMode, requestedModel, fallbackUsed, attemptCount, durationMs,
+                visual, storageRetryRequired, vpsPersistence,
             )
         }
     }

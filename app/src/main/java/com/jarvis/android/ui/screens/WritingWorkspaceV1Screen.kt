@@ -133,6 +133,7 @@ import com.jarvis.android.ui.theme.JarvisViolet
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 import com.jarvis.android.ui.writing.DraftReviewScreen
+import com.jarvis.android.ui.writing.VisualStudioSection
 import com.jarvis.android.ui.writing.findStructuredCharacterByReference
 import com.jarvis.android.ui.writing.mergeStructuredCharacters
 import com.jarvis.android.ui.writing.searchStructuredCharacters
@@ -140,8 +141,8 @@ import com.jarvis.android.ui.writing.searchStructuredCharacters
 /**
  * Product Writing Room v1 surface.
  *
- * The six sections mirror the server-owned workspace contract:
- * Overview / Write / Chat / Plan / Wiki / Library.
+ * The workspace keeps narrative and visual authoring project-scoped:
+ * Overview / Write / Chat / Plan / Canon / Wiki / Visual / Library.
  * SQLite stores workflow state only. Story canon remains human-authoritative.
  */
 @Composable
@@ -365,6 +366,11 @@ fun WritingWorkspaceV1Screen(
                 projectId = projectId,
                 vm = vm,
                 onOpenChapter = { tab = WorkspaceTab.LIBRARY },
+            )
+            WorkspaceTab.VISUAL -> VisualStudioSection(
+                vm = vm,
+                projectId = projectId,
+                characters = state.wikiCharacters,
             )
             WorkspaceTab.LIBRARY -> LibrarySection(
                 state = state,
@@ -5756,6 +5762,7 @@ private enum class WorkspaceTab(val icon: ImageVector) {
     PLAN(Icons.Filled.AccountTree),
     CANON(Icons.Filled.AutoStories),
     WIKI(Icons.Filled.AutoStories),
+    VISUAL(Icons.Filled.AddPhotoAlternate),
     LIBRARY(Icons.Filled.LocalLibrary);
 
     fun label(strings: AppStrings): String = when (this) {
@@ -5765,6 +5772,7 @@ private enum class WorkspaceTab(val icon: ImageVector) {
         PLAN -> strings.workspacePlan
         CANON -> "Canon"
         WIKI -> strings.workspaceWiki
+        VISUAL -> "Visual"
         LIBRARY -> strings.workspaceLibrary
     }
 }

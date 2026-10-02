@@ -744,6 +744,52 @@ class WritingRoomWorkspaceApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/v2/visual/characters/detail" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.visual-studio.character-detail.v1",
+                          "project_id":"prj_story",
+                          "character_id":"character:alexander",
+                          "gallery":{
+                            "schema":"jarvis.story.wiki.visual-gallery.v1",
+                            "project_id":"prj_story",
+                            "entity_type":"character",
+                            "entity_id":"character:alexander",
+                            "primary":{"asset_id":"va_master","kind":"PRIMARY_REFERENCE","status":"APPROVED","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mime_type":"image/png","perspective":"front","visual_revision":3},
+                            "identity_pack":[],
+                            "outfits":[],
+                            "scenes":[]
+                          },
+                          "active_reference_pack":{"schema":"jarvis.visual-studio.reference-pack.v1","pack_id":"vrp_1","project_id":"prj_story","character_id":"character:alexander","revision":1,"state":"APPROVED","master_asset_id":"va_master","master_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","slots":[{"slot_key":"left_profile","perspective":"left_profile","asset_id":"va_left","asset_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","required":true}]},
+                          "reference_packs":[]
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/visual/assets/approve-exact" -> MockResponse().setBody(
+                        """
+                        {"schema":"jarvis.visual-studio.asset-approval.v1","asset":{"asset_id":"va_left","project_id":"prj_story","kind":"IDENTITY_PACK","status":"APPROVED","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","mime_type":"image/png","perspective":"left_profile","visual_revision":4,"storage":{"backend":"google_drive","state":"stored","drive_file_id":"drive-left"}}}
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/visual/reference-packs/create" -> MockResponse().setBody(
+                        """
+                        {"schema":"jarvis.visual-studio.reference-pack.v1","pack":{"schema":"jarvis.visual-studio.reference-pack.v1","pack_id":"vrp_2","project_id":"prj_story","character_id":"character:alexander","revision":2,"state":"DRAFT","master_asset_id":"va_master","master_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","slots":[]}}
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/visual/reference-packs/slot/add" -> MockResponse().setBody(
+                        """
+                        {"schema":"jarvis.visual-studio.reference-pack.v1","pack":{"schema":"jarvis.visual-studio.reference-pack.v1","pack_id":"vrp_2","project_id":"prj_story","character_id":"character:alexander","revision":2,"state":"DRAFT","master_asset_id":"va_master","master_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","slots":[{"slot_key":"left_profile","perspective":"left_profile","asset_id":"va_left","asset_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","required":true}]}}
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/visual/reference-packs/prepare" -> MockResponse().setBody(
+                        """
+                        {"schema":"jarvis.visual-studio.reference-pack.v1","pack":{"schema":"jarvis.visual-studio.reference-pack.v1","pack_id":"vrp_2","project_id":"prj_story","character_id":"character:alexander","revision":2,"state":"READY_FOR_APPROVAL","master_asset_id":"va_master","master_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","slots":[{"slot_key":"left_profile","perspective":"left_profile","asset_id":"va_left","asset_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","required":true}]}}
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/visual/reference-packs/approve" -> MockResponse().setBody(
+                        """
+                        {"schema":"jarvis.visual-studio.reference-pack.v1","pack":{"schema":"jarvis.visual-studio.reference-pack.v1","pack_id":"vrp_2","project_id":"prj_story","character_id":"character:alexander","revision":2,"state":"APPROVED","master_asset_id":"va_master","master_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","approved_by":"owner","slots":[{"slot_key":"left_profile","perspective":"left_profile","asset_id":"va_left","asset_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","required":true}]}}
+                        """.trimIndent(),
+                    )
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -1014,6 +1060,63 @@ class WritingRoomWorkspaceApiTest {
             "false",
             approved.result.publish_job?.payload?.get("automatic_execution_enabled").toString(),
         )
+    }
+
+    @Test
+    fun visualCharacterStudioUsesExactHashAndPackLifecycleContracts() = runBlocking(Dispatchers.IO) {
+        val session = session()
+        val detail = session.writingRoomVisualCharacterDetail(
+            "prj_story",
+            "character:alexander",
+        ).getOrThrow()
+        assertEquals("va_master", detail.gallery?.primary?.asset_id)
+        assertEquals("vrp_1", detail.active_reference_pack?.pack_id)
+        assertEquals("left_profile", detail.active_reference_pack?.slots?.single()?.slot_key)
+
+        val approved = session.writingRoomVisualApproveExact(
+            projectId = "prj_story",
+            assetId = "va_left",
+            assetSha256 = "b".repeat(64),
+            visualRevision = 4,
+        ).getOrThrow()
+        assertEquals("APPROVED", approved.asset.status)
+        assertEquals("stored", approved.asset.storage.state)
+
+        val created = session.writingRoomVisualCreateReferencePack(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            masterAssetId = "va_master",
+            masterSha256 = "a".repeat(64),
+            parentPackId = "vrp_1",
+        ).getOrThrow()
+        assertEquals("DRAFT", created.pack.state)
+
+        val slotted = session.writingRoomVisualAddPackSlot(
+            projectId = "prj_story",
+            packId = created.pack.pack_id,
+            slotKey = "left_profile",
+            assetId = "va_left",
+            assetSha256 = "b".repeat(64),
+        ).getOrThrow()
+        assertEquals("left_profile", slotted.pack.slots.single().slot_key)
+
+        val ready = session.writingRoomVisualPreparePack(
+            "prj_story",
+            created.pack.pack_id,
+        ).getOrThrow()
+        assertEquals("READY_FOR_APPROVAL", ready.pack.state)
+
+        val pack = session.writingRoomVisualApprovePack(
+            "prj_story",
+            created.pack.pack_id,
+        ).getOrThrow()
+        assertEquals("APPROVED", pack.pack.state)
+        assertEquals("owner", pack.pack.approved_by)
+
+        repeat(6) {
+            val recorded = server.takeRequest()
+            assertEquals("Bearer test-token", recorded.getHeader("Authorization"))
+        }
     }
 
     @Test
