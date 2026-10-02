@@ -1,8 +1,11 @@
 package com.jarvis.android.ui.writing
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,8 +19,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,13 +32,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.live.VisualSceneReference
 import com.jarvis.android.transport.live.WritingWikiEntity
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.JarvisAmber
 import com.jarvis.android.ui.theme.JarvisCyan
 import com.jarvis.android.ui.theme.JarvisGreen
@@ -49,6 +59,7 @@ fun SceneBuilderScreen(
 ) {
     val writing by vm.writingWorkspace.collectAsStateWithLifecycle()
     val builder by vm.sceneBuilder.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val accents = LocalJarvisAccents.current
     val activeChapterId = writing.activeChapter?.chapter_id.orEmpty()
     val chapterId = writing.planningV2ChapterId.orEmpty().ifBlank { activeChapterId }
@@ -73,6 +84,7 @@ fun SceneBuilderScreen(
     var weather by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
     var composition by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
     var instruction by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
+    var generationMode by rememberSaveable(projectId) { mutableStateOf("quality") }
 
     val selectedCharacterIds = selectedCharactersCsv
         .split("|")
@@ -244,7 +256,7 @@ fun SceneBuilderScreen(
                 value = instruction,
                 onValueChange = { instruction = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Instrucción visual opcional") },
+                label = { Text("Instrucción visual para generar") },
                 minLines = 2,
             )
         }
@@ -368,6 +380,191 @@ fun SceneBuilderScreen(
                         }
                     }
                 }
+            }
+
+            if (context.generation_ready && !context.exploratory) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xCC101B2E),
+                        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.35f)),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                "GENERACIÓN DE ESCENA",
+                                color = JarvisCyan,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = generationMode == "quality",
+                                    onClick = { generationMode = "quality" },
+                                    label = { Text("Quality") },
+                                )
+                                FilterChip(
+                                    selected = generationMode == "speed",
+                                    onClick = { generationMode = "speed" },
+                                    label = { Text("Speed") },
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    vm.generateSceneVisual(
+                                        projectId = projectId,
+                                        mode = generationMode,
+                                        aspectRatio = "landscape",
+                                    )
+                                },
+                                enabled = (
+                                    settings.isOwner &&
+                                        !builder.busy &&
+                                        context.selection.instruction.isNotBlank()
+                                    ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    if (builder.busy) {
+                                        builder.busyLabel.ifBlank { "Generando…" }
+                                    } else {
+                                        "Generar escena con referencias"
+                                    },
+                                )
+                            }
+                            if (!settings.isOwner) {
+                                Spacer(Modifier.height(5.dp))
+                                Text(
+                                    "Solo el owner puede generar o aprobar arte visual.",
+                                    color = Color(0xFF94A3B8),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            } else if (context.selection.instruction.isBlank()) {
+                                Spacer(Modifier.height(5.dp))
+                                Text(
+                                    "Agrega una instrucción visual y vuelve a preparar referencias antes de generar.",
+                                    color = JarvisAmber,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        builder.generated?.let { generated ->
+            val asset = generated.visual_asset
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xCC0E182A),
+                    border = BorderStroke(
+                        1.dp,
+                        if (asset?.status == "APPROVED") {
+                            JarvisGreen.copy(alpha = 0.50f)
+                        } else {
+                            JarvisAmber.copy(alpha = 0.50f)
+                        },
+                    ),
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(
+                            if (asset?.status == "APPROVED") {
+                                "ESCENA VISUAL APROBADA"
+                            } else {
+                                "ESCENA CANDIDATA"
+                            },
+                            color = if (asset?.status == "APPROVED") JarvisGreen else JarvisAmber,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        SceneGeneratedPreview(
+                            attachmentId = builder.generatedAttachmentId,
+                            vm = vm,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            generated.provider + " · " + generated.model,
+                            color = JarvisCyan,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Refs exactas: " + generated.reference_count +
+                                " · SHA " + (asset?.sha256?.take(12) ?: "—") + "…",
+                            color = Color(0xFFCBD5E1),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Storage: " + (asset?.storage?.state ?: "unknown"),
+                            color = if (asset?.storage?.state == "stored") JarvisGreen else JarvisAmber,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (asset != null && settings.isOwner) {
+                            Spacer(Modifier.height(10.dp))
+                            if (asset.storage.state != "stored") {
+                                OutlinedButton(
+                                    onClick = vm::retrySceneVisualStorage,
+                                    enabled = !builder.busy,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Reintentar Drive sin regenerar")
+                                }
+                            } else if (asset.status == "CANDIDATE") {
+                                Button(
+                                    onClick = vm::approveSceneVisual,
+                                    enabled = !builder.busy,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Aprobar escena visual")
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Una imagen candidata o aprobada no altera hechos, timeline ni canon narrativo.",
+                            color = Color(0xFF94A3B8),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SceneGeneratedPreview(
+    attachmentId: String?,
+    vm: JarvisViewModel,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(360.dp)
+            .background(Color(0xFF050B14), RoundedCornerShape(14.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (attachmentId.isNullOrBlank()) {
+            CircularProgressIndicator(color = LocalJarvisAccents.current.orbGlow)
+        } else {
+            val bitmap by rememberAttachmentThumb(
+                attachmentId,
+                vm.attachmentStore,
+                maxSize = 2048,
+            )
+            if (bitmap == null) {
+                CircularProgressIndicator(color = LocalJarvisAccents.current.orbGlow)
+            } else {
+                Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = "Escena generada",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
             }
         }
     }

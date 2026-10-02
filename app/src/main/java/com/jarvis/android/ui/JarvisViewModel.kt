@@ -1890,7 +1890,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     data class SceneBuilderState(
         val projectId: String = "",
         val busy: Boolean = false,
+        val busyLabel: String = "",
         val context: VisualSceneContext? = null,
+        val generated: VisualStudioGeneratedImage? = null,
+        val generatedAttachmentId: String? = null,
         val notice: String? = null,
         val error: String? = null,
     )
@@ -1902,6 +1905,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val ids = (
             _characterStudio.value.attachmentIds.values +
                 _locationStudio.value.attachmentIds.values +
+                listOfNotNull(_sceneBuilder.value.generatedAttachmentId) +
                 _wikiVisualAttachments.value.values
         ).distinct()
         _characterStudio.value = CharacterStudioState()
@@ -4295,6 +4299,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun clearSceneBuilderContext(projectId: String) {
+        _sceneBuilder.value.generatedAttachmentId?.let { attachmentId ->
+            deleteVisualStudioAttachments(listOf(attachmentId))
+        }
         _sceneBuilder.value = SceneBuilderState(projectId = projectId)
     }
 
@@ -4329,10 +4336,16 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             )
             return
         }
+        _sceneBuilder.value.generatedAttachmentId?.let { attachmentId ->
+            deleteVisualStudioAttachments(listOf(attachmentId))
+        }
         _sceneBuilder.value = _sceneBuilder.value.copy(
             projectId = projectId,
             busy = true,
+            busyLabel = "Congelando contexto visual",
             context = null,
+            generated = null,
+            generatedAttachmentId = null,
             notice = null,
             error = null,
         )
@@ -4358,6 +4371,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     val context = response.context
                     _sceneBuilder.value = _sceneBuilder.value.copy(
                         busy = false,
+                        busyLabel = "",
                         context = context,
                         notice = if (context.generation_ready) {
                             "Contexto congelado. Las referencias exactas están listas para generación."
@@ -4371,9 +4385,204 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     if (_sceneBuilder.value.projectId != projectId) return@fold
                     _sceneBuilder.value = _sceneBuilder.value.copy(
                         busy = false,
+                        busyLabel = "",
                         context = null,
                         error = error.message ?: "No se pudo preparar el contexto visual de la escena.",
                     )
+                },
+            )
+        }
+    }
+
+    fun generateSceneVisual(
+        projectId: String,
+        mode: String = "quality",
+        model: String? = null,
+        aspectRatio: String = "landscape",
+    ) {
+        val state = _sceneBuilder.value
+        val context = state.context ?: return
+        if (
+            state.busy ||
+            context.project_id != projectId ||
+            !context.generation_ready ||
+            context.exploratory ||
+            context.selection.instruction.isBlank()
+        ) return
+        _sceneBuilder.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Generando escena con referencias congeladas",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.generateSceneVisualAssetImage(
+                projectId = projectId,
+                contextId = context.context_id,
+                contextHash = context.context_hash,
+                mode = mode,
+                model = model,
+                aspectRatio = aspectRatio,
+            ).fold(
+                onSuccess = { reply ->
+                    val oldAttachment = _sceneBuilder.value.generatedAttachmentId
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(
+                            reply.data_base64,
+                        )
+                    }
+                    if (oldAttachment != null && oldAttachment != staged?.attachmentId) {
+                        deleteVisualStudioAttachments(listOf(oldAttachment))
+                    }
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            generated = reply,
+                            generatedAttachmentId = staged?.attachmentId,
+                            notice = if (reply.storage_retry_required) {
+                                "La escena se generó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
+                            } else {
+                                "Escena generada y guardada como CANDIDATE. No modifica canon narrativo ni visual hasta aprobación humana."
+                            },
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo generar la escena.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveSceneVisual() {
+        val state = _sceneBuilder.value
+        val asset = state.generated?.visual_asset ?: return
+        if (
+            state.busy ||
+            asset.status != "CANDIDATE" ||
+            asset.storage.state != "stored"
+        ) return
+        _sceneBuilder.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando escena visual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualAssetApproveExact(
+                projectId = asset.project_id,
+                assetId = asset.asset_id,
+                assetSha256 = asset.sha256,
+                visualRevision = asset.visual_revision,
+            ).fold(
+                onSuccess = { response ->
+                    _sceneBuilder.update { current ->
+                        current.copy(
+                            busy = false,
+                            busyLabel = "",
+                            generated = current.generated?.copy(
+                                visual_asset = response.asset,
+                            ),
+                            notice = "Escena visual aprobada. La aprobación no crea hechos narrativos nuevos.",
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo aprobar la escena visual.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun retrySceneVisualStorage() {
+        val state = _sceneBuilder.value
+        val reply = state.generated ?: return
+        val asset = reply.visual_asset ?: return
+        val attachmentId = state.generatedAttachmentId
+        if (state.busy || asset.storage.state == "stored") return
+        if (attachmentId.isNullOrBlank()) {
+            _sceneBuilder.update {
+                it.copy(
+                    error = "Los bytes locales de la escena ya no están disponibles. JARVIS no regenerará la imagen automáticamente.",
+                )
+            }
+            return
+        }
+        _sceneBuilder.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Reintentando guardado de escena en Drive",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val encoded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(attachmentId)
+                        ?: error("Los bytes locales de la escena ya no están disponibles.")
+                    Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                }
+            }
+            if (encoded.isFailure) {
+                _sceneBuilder.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = encoded.exceptionOrNull()?.message,
+                    )
+                }
+                return@launch
+            }
+            container.liveSession.visualSceneAssetIngest(
+                projectId = asset.project_id,
+                imageBase64 = encoded.getOrThrow(),
+                asset = asset,
+            ).fold(
+                onSuccess = { response ->
+                    _sceneBuilder.update { current ->
+                        current.copy(
+                            busy = false,
+                            busyLabel = "",
+                            generated = current.generated?.copy(
+                                visual_asset = response.asset,
+                                storage_retry_required = false,
+                            ),
+                            notice = "Guardado en Drive reanudado sin repetir la generación.",
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "Drive sigue sin poder guardar la escena candidata.",
+                        )
+                    }
                 },
             )
         }

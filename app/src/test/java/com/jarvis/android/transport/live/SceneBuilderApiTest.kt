@@ -95,6 +95,53 @@ class SceneBuilderApiTest {
                             }
                             """.trimIndent(),
                         )
+                    "/api/app/writing-room/v2/visual/scenes/generate" ->
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.scene-generation.v1",
+                              "mime_type":"image/png",
+                              "data_base64":"aW1hZ2U=",
+                              "size_bytes":5,
+                              "provider":"xai-oauth",
+                              "model":"grok-imagine-image-2.0",
+                              "route":"cloud_image_generation:xai-oauth",
+                              "requested_mode":"quality",
+                              "fallback_used":false,
+                              "attempt_count":1,
+                              "duration_ms":1200,
+                              "reference_count":2,
+                              "vps_persistence":"visual_asset_candidate",
+                              "storage_retry_required":false,
+                              "scene_context_id":"svc_123",
+                              "scene_context_hash":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                              "visual_asset":{
+                                "asset_id":"va_scene_1",
+                                "project_id":"prj_story",
+                                "kind":"SCENE_ART",
+                                "status":"CANDIDATE",
+                                "source":"CLOUD_GENERATOR",
+                                "sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                "mime_type":"image/png",
+                                "size_bytes":5,
+                                "character_ids":["character:alexander"],
+                                "chapter_ids":["chapter_12"],
+                                "event_ids":[],
+                                "location_ids":["location:grayhaven"],
+                                "scene_ids":["scene:arrival"],
+                                "perspective":"scene",
+                                "visual_revision":0,
+                                "provenance":{},
+                                "storage":{
+                                  "backend":"google_drive",
+                                  "state":"stored",
+                                  "drive_file_id":"drive-scene-1",
+                                  "drive_parent_id":"drive-scenes"
+                                }
+                              }
+                            }
+                            """.trimIndent(),
+                        )
                     "/api/app/writing-room/v2/visual/scenes/context/get" ->
                         MockResponse().setBody(
                             """
@@ -197,4 +244,30 @@ class SceneBuilderApiTest {
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("svc_123", body["context_id"]!!.jsonPrimitive.content)
     }
+    @Test
+    fun sceneGenerationUsesFrozenContextWithoutResendingPromptOrReferences() = runBlocking {
+        val result = session().generateSceneVisualAssetImage(
+            projectId = "prj_story",
+            contextId = "svc_123",
+            contextHash = "A".repeat(64),
+            mode = "quality",
+            aspectRatio = "landscape",
+        ).getOrThrow()
+
+        assertEquals("svc_123", result.scene_context_id)
+        assertEquals("SCENE_ART", result.visual_asset?.kind)
+        assertEquals("CANDIDATE", result.visual_asset?.status)
+        assertEquals(2, result.reference_count)
+
+        val request = server.takeRequest()
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("svc_123", body["context_id"]!!.jsonPrimitive.content)
+        assertEquals("A".repeat(64), body["context_hash"]!!.jsonPrimitive.content)
+        assertEquals("quality", body["mode"]!!.jsonPrimitive.content)
+        assertEquals("landscape", body["aspect_ratio"]!!.jsonPrimitive.content)
+        assertFalse(body.containsKey("prompt"))
+        assertFalse(body.containsKey("references"))
+    }
+
+
 }

@@ -235,6 +235,8 @@ data class VisualStudioGeneratedImage(
     val reference_count: Int = 0,
     val vps_persistence: String = "",
     val storage_retry_required: Boolean = false,
+    val scene_context_id: String = "",
+    val scene_context_hash: String = "",
     val visual_asset: VisualStudioAsset? = null,
 )
 
@@ -466,6 +468,8 @@ private fun parseVisualStudioGeneratedImage(value: JsonObject): VisualStudioGene
         reference_count = value.intValue("reference_count"),
         vps_persistence = value.stringValue("vps_persistence"),
         storage_retry_required = value.booleanValue("storage_retry_required"),
+        scene_context_id = value.stringValue("scene_context_id"),
+        scene_context_hash = value.stringValue("scene_context_hash"),
         visual_asset = assetObject?.let(::parseVisualStudioAsset),
     )
 }
@@ -1002,5 +1006,99 @@ suspend fun JarvisAppSession.visualSceneContextGet(
         buildJsonObject {
             put("project_id", projectId)
             put("context_id", contextId)
+        },
+    )
+
+
+suspend fun JarvisAppSession.generateSceneVisualAssetImage(
+    projectId: String,
+    contextId: String,
+    contextHash: String,
+    mode: String = "quality",
+    model: String? = null,
+    aspectRatio: String = "landscape",
+): Result<VisualStudioGeneratedImage> =
+    visualStudioObjectPost(
+        "/api/app/writing-room/v2/visual/scenes/generate",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("context_id", contextId)
+            put("context_hash", contextHash)
+            put("mode", mode)
+            put("aspect_ratio", aspectRatio)
+            if (!model.isNullOrBlank()) put("model", model)
+        },
+    ).mapCatching { raw ->
+        val reply = parseVisualStudioGeneratedImage(raw)
+        if (reply.data_base64.isBlank() || reply.mime_type.isBlank()) {
+            throw TransportException("scene generation returned no image")
+        }
+        if (reply.visual_asset == null || reply.visual_asset.asset_id.isBlank()) {
+            throw TransportException("scene generation returned no durable candidate")
+        }
+        if (
+            reply.scene_context_id.isNotBlank() &&
+            reply.scene_context_id != contextId
+        ) {
+            throw TransportException("scene generation context mismatch")
+        }
+        reply
+    }
+
+suspend fun JarvisAppSession.visualSceneAssetIngest(
+    projectId: String,
+    imageBase64: String,
+    asset: VisualStudioAsset,
+): Result<VisualStudioAssetResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/visual-assets/ingest",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("image_base64", imageBase64)
+            put("mime_type", asset.mime_type)
+            put("kind", asset.kind)
+            put("source", asset.source)
+            put(
+                "character_ids",
+                buildJsonArray {
+                    asset.character_ids.forEach { add(JsonPrimitive(it)) }
+                },
+            )
+            put(
+                "chapter_ids",
+                buildJsonArray {
+                    asset.chapter_ids.forEach { add(JsonPrimitive(it)) }
+                },
+            )
+            put(
+                "event_ids",
+                buildJsonArray {
+                    asset.event_ids.forEach { add(JsonPrimitive(it)) }
+                },
+            )
+            put(
+                "location_ids",
+                buildJsonArray {
+                    asset.location_ids.forEach { add(JsonPrimitive(it)) }
+                },
+            )
+            put(
+                "scene_ids",
+                buildJsonArray {
+                    asset.scene_ids.forEach { add(JsonPrimitive(it)) }
+                },
+            )
+            put("perspective", asset.perspective)
+            put("asset_id", asset.asset_id)
+            put("provenance", asset.provenance)
+            if (asset.parent_asset_id.isNotBlank()) {
+                put("parent_asset_id", asset.parent_asset_id)
+            }
+            if (asset.parent_sha256.isNotBlank()) {
+                put("parent_sha256", asset.parent_sha256)
+            }
+            if (asset.derivation.isNotBlank()) {
+                put("derivation", asset.derivation)
+            }
         },
     )
