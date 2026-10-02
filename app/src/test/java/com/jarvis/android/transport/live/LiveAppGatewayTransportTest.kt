@@ -119,10 +119,17 @@ class LiveAppGatewayTransportTest {
                     request.path == "/api/app/images/generations" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
                     request.path == "/api/app/images/generations" -> {
-                        postedBodies += "POST /api/app/images/generations\n" + request.body.readUtf8()
-                        MockResponse().setBody(
-                            """{"schema":"jarvis.image.generation.v2","provider":"openai-codex","model":"gpt-image-2-medium","route":"cloud_image_generation:openai-codex","mime_type":"image/png","data_base64":"aW1hZ2U=","size_bytes":5,"requested_mode":"model_select","requested_model":"gpt-image-2-medium","fallback_used":false,"attempt_count":1,"duration_ms":1234}""",
-                        )
+                        val body = request.body.readUtf8()
+                        postedBodies += "POST /api/app/images/generations\n" + body
+                        if (body.contains("\"visual_asset\"")) {
+                            MockResponse().setBody(
+                                """{"schema":"jarvis.image.generation.v2","provider":"openai-codex","model":"gpt-image-2-medium","route":"cloud_image_generation:openai-codex","mime_type":"image/png","data_base64":"aW1hZ2U=","size_bytes":5,"requested_mode":"quality","requested_model":null,"fallback_used":false,"attempt_count":1,"duration_ms":1234,"vps_persistence":"visual_asset_candidate_pending_storage","storage_retry_required":true,"visual_asset":{"asset_id":"va_gen_stable","project_id":"prj_story","kind":"PRIMARY_REFERENCE","status":"CANDIDATE","source":"CLOUD_GENERATOR","sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","mime_type":"image/png","size_bytes":5,"character_ids":["character:alexander"],"perspective":"front","storage":{"backend":"google_drive","state":"pending","drive_file_id":"","drive_parent_id":""}}}""",
+                            )
+                        } else {
+                            MockResponse().setBody(
+                                """{"schema":"jarvis.image.generation.v2","provider":"openai-codex","model":"gpt-image-2-medium","route":"cloud_image_generation:openai-codex","mime_type":"image/png","data_base64":"aW1hZ2U=","size_bytes":5,"requested_mode":"model_select","requested_model":"gpt-image-2-medium","fallback_used":false,"attempt_count":1,"duration_ms":1234}""",
+                            )
+                        }
                     }
                     request.path == "/api/app/writing-room/visual-assets/set-wiki-primary" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
@@ -495,6 +502,37 @@ class LiveAppGatewayTransportTest {
         val body = postedBodies.last { it.startsWith("POST /api/app/images/generations") }
         assertTrue(body.contains("\"mode\":\"model_select\""))
         assertTrue(body.contains("\"model\":\"gpt-image-2-medium\""))
+    }
+
+    @Test
+    fun visualCloudGenerationCarriesProjectMetadataAndStorageRetryCandidate() {
+        val session = JarvisAppSession(seededStore())
+        val result = runBlocking(Dispatchers.IO) {
+            session.generateImage(
+                prompt = "Alexander canonical portrait",
+                mode = "quality",
+                visualAsset = JarvisAppSession.ImageVisualAssetRequest(
+                    projectId = "prj_story",
+                    kind = "PRIMARY_REFERENCE",
+                    characterIds = listOf("character:alexander"),
+                    perspective = "front",
+                    surface = "character_creator",
+                    alt = "Alexander canonical visual",
+                ),
+            )
+        }
+        assertTrue(result.isSuccess)
+        val reply = result.getOrThrow()
+        assertTrue(reply.storageRetryRequired)
+        assertEquals("visual_asset_candidate_pending_storage", reply.vpsPersistence)
+        assertEquals("va_gen_stable", reply.visualAsset?.asset_id)
+        assertEquals("pending", reply.visualAsset?.storage?.state)
+
+        val body = postedBodies.last { it.startsWith("POST /api/app/images/generations") }
+        assertTrue(body.contains("\"project_id\":\"prj_story\""))
+        assertTrue(body.contains("\"kind\":\"PRIMARY_REFERENCE\""))
+        assertTrue(body.contains("\"surface\":\"character_creator\""))
+        assertTrue(body.contains("\"character_ids\":[\"character:alexander\"]"))
     }
 
     @Test
