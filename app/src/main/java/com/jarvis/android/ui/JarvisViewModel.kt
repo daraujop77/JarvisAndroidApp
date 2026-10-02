@@ -1780,6 +1780,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _writingWorkspace.value = _writingWorkspace.value.copy(pendingExport = null)
     }
 
+    data class VisualPendingUpload(
+        val slotKey: String,
+        val perspective: String,
+        val required: Boolean,
+        val assetId: String,
+        val attachmentId: String,
+        val mimeType: String,
+    )
+
     data class VisualCharacterStudioState(
         val projectId: String? = null,
         val characterId: String? = null,
@@ -1789,6 +1798,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val pendingAssetId: String? = null,
         val pendingAttachmentId: String? = null,
         val pendingMimeType: String = "image/jpeg",
+        val viewCandidates: Map<String, WritingVisualAsset> = emptyMap(),
+        val pendingViewUploads: Map<String, VisualPendingUpload> = emptyMap(),
         val message: String? = null,
         val error: String? = null,
     )
@@ -1994,6 +2005,227 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 error = null,
             )
             loadVisualCharacter(projectId, characterId)
+        }
+    }
+
+    fun stageVisualPackSlotFromUri(
+        uri: Uri,
+        slotKey: String,
+        perspective: String,
+        required: Boolean = true,
+        characterName: String = "",
+    ) {
+        val state = _visualCharacterStudio.value
+        val projectId = state.projectId ?: return
+        val characterId = state.characterId ?: return
+        val draftPack = state.detail?.reference_packs
+            ?.filter { it.state == "DRAFT" }
+            ?.maxByOrNull { it.revision }
+            ?: return
+        if (state.busy || slotKey.isBlank() || draftPack.pack_id.isBlank()) return
+        _visualCharacterStudio.value = state.copy(busy = true, error = null, message = null)
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            if (staged == null) {
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    error = "No se pudo leer la vista seleccionada.",
+                )
+                return@launch
+            }
+            val pending = VisualPendingUpload(
+                slotKey = slotKey,
+                perspective = perspective,
+                required = required,
+                assetId = "va_android_" + java.util.UUID.randomUUID().toString().replace("-", ""),
+                attachmentId = staged.attachmentId,
+                mimeType = staged.mimeType.ifBlank { "image/jpeg" },
+            )
+            _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                pendingViewUploads = _visualCharacterStudio.value.pendingViewUploads + (slotKey to pending),
+            )
+            uploadPendingVisualPackSlot(draftPack.pack_id, pending, characterName)
+        }
+    }
+
+    fun retryVisualPackSlotUpload(slotKey: String, characterName: String = "") {
+        val state = _visualCharacterStudio.value
+        val draftPack = state.detail?.reference_packs
+            ?.filter { it.state == "DRAFT" }
+            ?.maxByOrNull { it.revision }
+            ?: return
+        val pending = state.pendingViewUploads[slotKey] ?: return
+        if (state.busy) return
+        _visualCharacterStudio.value = state.copy(busy = true, error = null, message = null)
+        viewModelScope.launch {
+            uploadPendingVisualPackSlot(draftPack.pack_id, pending, characterName)
+        }
+    }
+
+    private suspend fun uploadPendingVisualPackSlot(
+        packId: String,
+        pending: VisualPendingUpload,
+        characterName: String,
+    ) {
+        val state = _visualCharacterStudio.value
+        val projectId = state.projectId ?: return
+        val characterId = state.characterId ?: return
+        val encoded = withContext(Dispatchers.IO) {
+            runCatching {
+                val file = container.attachmentStore.resolve(pending.attachmentId)
+                    ?: error("La vista candidata ya no está disponible.")
+                val bytes = file.readBytes()
+                require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                    "La vista candidata es demasiado grande."
+                }
+                Base64.encodeToString(bytes, Base64.NO_WRAP)
+            }
+        }
+        if (encoded.isFailure) {
+            _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                busy = false,
+                error = encoded.exceptionOrNull()?.message ?: "No se pudo preparar la vista.",
+            )
+            return
+        }
+
+        container.liveSession.writingRoomVisualIngest(
+            projectId = projectId,
+            assetId = pending.assetId,
+            imageBase64 = encoded.getOrThrow(),
+            mimeType = pending.mimeType,
+            kind = "IDENTITY_PACK",
+            characterId = characterId,
+            perspective = pending.perspective,
+            alt = pending.perspective.replace("_", " ") + " de " +
+                characterName.ifBlank { characterId.substringAfter(":") },
+        ).fold(
+            onSuccess = { response ->
+                _wikiVisualAttachments.update {
+                    it + (response.asset.asset_id to pending.attachmentId)
+                }
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    viewCandidates = _visualCharacterStudio.value.viewCandidates +
+                        (pending.slotKey to response.asset),
+                    message = "Vista " + pending.slotKey.replace("_", " ") +
+                        " guardada como candidata. Falta aprobación humana.",
+                    error = null,
+                )
+            },
+            onFailure = { error ->
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    error = (error.message ?: "No se pudo guardar la vista.") +
+                        " Puedes reintentar storage con el mismo asset_id.",
+                )
+            },
+        )
+    }
+
+    fun approveVisualPackSlot(slotKey: String) {
+        val state = _visualCharacterStudio.value
+        val projectId = state.projectId ?: return
+        val draftPack = state.detail?.reference_packs
+            ?.filter { it.state == "DRAFT" }
+            ?.maxByOrNull { it.revision }
+            ?: return
+        val candidate = state.viewCandidates[slotKey] ?: return
+        val pending = state.pendingViewUploads[slotKey] ?: return
+        if (state.busy) return
+        _visualCharacterStudio.value = state.copy(busy = true, error = null, message = null)
+        viewModelScope.launch {
+            val approved = container.liveSession.writingRoomVisualApproveExact(
+                projectId = projectId,
+                assetId = candidate.asset_id,
+                assetSha256 = candidate.sha256,
+                visualRevision = draftPack.revision,
+            )
+            if (approved.isFailure) {
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    error = approved.exceptionOrNull()?.message ?: "No se pudo aprobar la vista.",
+                )
+                return@launch
+            }
+            val asset = approved.getOrThrow().asset
+            val bound = container.liveSession.writingRoomVisualAddPackSlot(
+                projectId = projectId,
+                packId = draftPack.pack_id,
+                slotKey = slotKey,
+                assetId = asset.asset_id,
+                assetSha256 = asset.sha256,
+                required = pending.required,
+            )
+            if (bound.isFailure) {
+                _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                    busy = false,
+                    error = bound.exceptionOrNull()?.message
+                        ?: "La vista quedó aprobada, pero no se pudo enlazar al pack.",
+                )
+                return@launch
+            }
+            _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                busy = false,
+                viewCandidates = _visualCharacterStudio.value.viewCandidates - slotKey,
+                pendingViewUploads = _visualCharacterStudio.value.pendingViewUploads - slotKey,
+                message = "Vista " + slotKey.replace("_", " ") + " aprobada y enlazada al pack.",
+                error = null,
+            )
+            loadVisualCharacter(projectId, draftPack.character_id)
+        }
+    }
+
+    fun prepareVisualReferencePack(packId: String) {
+        val state = _visualCharacterStudio.value
+        val projectId = state.projectId ?: return
+        val characterId = state.characterId ?: return
+        if (state.busy || packId.isBlank()) return
+        _visualCharacterStudio.value = state.copy(busy = true, error = null, message = null)
+        viewModelScope.launch {
+            container.liveSession.writingRoomVisualPreparePack(projectId, packId).fold(
+                onSuccess = {
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        message = "Pack listo para aprobación final.",
+                        error = null,
+                    )
+                    loadVisualCharacter(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        error = error.message ?: "El pack todavía no está listo.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun approveVisualReferencePack(packId: String) {
+        val state = _visualCharacterStudio.value
+        val projectId = state.projectId ?: return
+        val characterId = state.characterId ?: return
+        if (state.busy || packId.isBlank()) return
+        _visualCharacterStudio.value = state.copy(busy = true, error = null, message = null)
+        viewModelScope.launch {
+            container.liveSession.writingRoomVisualApprovePack(projectId, packId).fold(
+                onSuccess = { response ->
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        message = "VisualReferencePack rev " + response.pack.revision +
+                            " aprobado y activado.",
+                        error = null,
+                    )
+                    loadVisualCharacter(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        error = error.message ?: "No se pudo aprobar el pack.",
+                    )
+                },
+            )
         }
     }
 
