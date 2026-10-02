@@ -132,7 +132,7 @@ import com.jarvis.android.ui.theme.JarvisRed
 import com.jarvis.android.ui.theme.JarvisViolet
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
-import com.jarvis.android.ui.writing.CharacterStudioScreen
+import com.jarvis.android.ui.writing.VisualStudioScreen
 import com.jarvis.android.ui.writing.DraftReviewScreen
 import com.jarvis.android.ui.writing.findStructuredCharacterByReference
 import com.jarvis.android.ui.writing.mergeStructuredCharacters
@@ -361,10 +361,11 @@ fun WritingWorkspaceV1Screen(
                 onOpenChapter = { tab = WorkspaceTab.LIBRARY },
                 onOpenWiki = { tab = WorkspaceTab.WIKI },
             )
-            WorkspaceTab.VISUAL -> CharacterStudioScreen(
+            WorkspaceTab.VISUAL -> VisualStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 characters = state.wikiCharacters,
+                locations = state.wikiLocations,
             )
             WorkspaceTab.WIKI -> WikiSection(
                 state = state,
