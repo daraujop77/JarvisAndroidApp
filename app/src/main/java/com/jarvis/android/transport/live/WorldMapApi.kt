@@ -21,7 +21,7 @@ class WorldMapConflictException(
     val currentVersion: Int?,
     val currentHash: String?,
     message: String,
-) : TransportException(message)
+) : RuntimeException(message)
 
 @Serializable
 data class WorldMapRevision(
