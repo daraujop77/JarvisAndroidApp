@@ -207,6 +207,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val knowledgeAtlasError: String? = null,
         val knowledgeSnapshotChanged: Boolean = false,
         val wikiCharacters: List<WritingWikiEntity> = emptyList(),
+        val wikiLocations: List<WritingWikiEntity> = emptyList(),
         val plans: List<WritingPlanItem> = emptyList(),
         val planningCouncil: WritingPlanningCouncil? = null,
         val planningCouncilSessions: List<WritingPlanningCouncilSession> = emptyList(),
@@ -257,7 +258,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             // Project changes are an authorization boundary for visual media.
             // Drop local thumbnails/candidates so protected bytes cannot bleed
             // into another project's UI even if asset ids happen to collide.
-            resetCharacterStudioProtectedMedia()
+            resetVisualStudioProtectedMedia()
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 chatProjectId = projectId,
                 chat = null,
@@ -289,6 +290,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 entryType = "character",
                 topK = 100,
             )
+            val wikiLocations = container.liveSession.writingRoomWikiBrowse(
+                projectId = projectId,
+                entryType = "location",
+                topK = 100,
+            )
             val wikiTimeline = container.liveSession.writingRoomWikiTimeline(projectId)
             val canonExplorer = container.liveSession.writingRoomWikiExplorer(projectId)
             val plans = container.liveSession.writingRoomPlanList(projectId)
@@ -296,8 +302,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             val chapters = container.liveSession.writingRoomChapterList(projectId)
             val library = container.liveSession.writingRoomLibraryList(projectId)
             val failure = listOf(
-                overview, wikiHome, wikiCharacters, wikiTimeline, canonExplorer,
-                plans, councilSessions, chapters, library,
+                overview, wikiHome, wikiCharacters, wikiLocations, wikiTimeline,
+                canonExplorer, plans, councilSessions, chapters, library,
             ).firstOrNull { it.isFailure }
             if (failure != null) {
                 writingWorkspaceError(failure.exceptionOrNull())
@@ -311,6 +317,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 wikiTimeline = wikiTimeline.getOrNull(),
                 canonExplorer = canonExplorer.getOrNull(),
                 wikiCharacters = wikiCharacters.getOrNull()?.entries.orEmpty(),
+                wikiLocations = wikiLocations.getOrNull()?.entries.orEmpty(),
                 plans = plans.getOrNull()?.items.orEmpty(),
                 planningCouncilSessions = councilSessions.getOrNull()?.items.orEmpty(),
                 chapters = chapters.getOrNull()?.items.orEmpty(),
@@ -1836,7 +1843,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _characterStudio = MutableStateFlow(CharacterStudioState())
     val characterStudio: StateFlow<CharacterStudioState> = _characterStudio
 
-    private fun deleteCharacterStudioAttachments(ids: Collection<String>) {
+    private fun deleteVisualStudioAttachments(ids: Collection<String>) {
         if (ids.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             ids.distinct().forEach { id ->
@@ -1845,14 +1852,31 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
-    private fun resetCharacterStudioProtectedMedia() {
+    data class LocationStudioState(
+        val projectId: String = "",
+        val locationId: String = "",
+        val busy: Boolean = false,
+        val busyLabel: String = "",
+        val detail: VisualStudioLocationDetail? = null,
+        val assets: List<VisualStudioAsset> = emptyList(),
+        val attachmentIds: Map<String, String> = emptyMap(),
+        val notice: String? = null,
+        val error: String? = null,
+    )
+
+    private val _locationStudio = MutableStateFlow(LocationStudioState())
+    val locationStudio: StateFlow<LocationStudioState> = _locationStudio
+
+    private fun resetVisualStudioProtectedMedia() {
         val ids = (
             _characterStudio.value.attachmentIds.values +
+                _locationStudio.value.attachmentIds.values +
                 _wikiVisualAttachments.value.values
         ).distinct()
         _characterStudio.value = CharacterStudioState()
+        _locationStudio.value = LocationStudioState()
         _wikiVisualAttachments.value = emptyMap()
-        deleteCharacterStudioAttachments(ids)
+        deleteVisualStudioAttachments(ids)
     }
 
     fun openCharacterStudio(projectId: String, characterId: String) {
@@ -1866,7 +1890,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 projectId = cleanProject,
                 characterId = cleanCharacter,
             )
-            deleteCharacterStudioAttachments(oldIds)
+            deleteVisualStudioAttachments(oldIds)
         }
         refreshCharacterStudio(cleanProject, cleanCharacter)
     }
@@ -2953,7 +2977,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun liveLogout(onDone: () -> Unit = {}) {
-        resetCharacterStudioProtectedMedia()
+        resetVisualStudioProtectedMedia()
         viewModelScope.launch {
             container.liveSession.logout()
             container.settings.setPaired(false)
@@ -2993,7 +3017,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun unpair() {
-        resetCharacterStudioProtectedMedia()
+        resetVisualStudioProtectedMedia()
         viewModelScope.launch {
             // A live session must end on the server, not just locally —
             // otherwise "revoke" leaves a valid bearer token behind.
