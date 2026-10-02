@@ -342,7 +342,14 @@ fun WorldMapScreen(
                                             locationId = ""
                                         }
                                     },
-                                    label = { Text(type.lowercase().replaceFirstChar(Char::uppercase)) },
+                                    label = {
+                                        Text(
+                                            type.lowercase().replaceFirstChar {
+                                                if (it.isLowerCase()) it.titlecase()
+                                                else it.toString()
+                                            },
+                                        )
+                                    },
                                 )
                             }
                         }
@@ -646,9 +653,10 @@ private fun WorldMapCanvas(
                             },
                             onDragEnd = {
                                 val moved = localPositions[node.node_id]
-                                    ?: return@detectDragGestures
-                                val (worldX, worldY) = pixelToWorld(moved)
-                                onMoveNode(node, worldX, worldY)
+                                if (moved != null) {
+                                    val (worldX, worldY) = pixelToWorld(moved)
+                                    onMoveNode(node, worldX, worldY)
+                                }
                             },
                         )
                     },
