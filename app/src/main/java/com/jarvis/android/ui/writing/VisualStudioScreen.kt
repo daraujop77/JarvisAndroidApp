@@ -115,7 +115,6 @@ fun VisualStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 locations = locations,
-                onUseInChapter = onUseSceneInChapter,
                 modifier = Modifier.weight(1f),
             )
 
@@ -124,6 +123,7 @@ fun VisualStudioScreen(
                 projectId = projectId,
                 characters = characters,
                 locations = locations,
+                onUseInChapter = onUseSceneInChapter,
                 modifier = Modifier.weight(1f),
             )
 
