@@ -376,6 +376,10 @@ fun WritingWorkspaceV1Screen(
                 characters = state.wikiCharacters,
                 locations = state.wikiLocations,
                 openScenesRequest = visualSceneOpenRequest,
+                onUseSceneInChapter = { chapterId ->
+                    vm.openWritingChapter(projectId, chapterId)
+                    tab = WorkspaceTab.WRITE
+                },
             )
             WorkspaceTab.WIKI -> WikiSection(
                 state = state,

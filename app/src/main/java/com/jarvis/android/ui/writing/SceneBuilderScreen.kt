@@ -55,6 +55,7 @@ fun SceneBuilderScreen(
     projectId: String,
     characters: List<WritingWikiEntity>,
     locations: List<WritingWikiEntity>,
+    onUseInChapter: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val writing by vm.writingWorkspace.collectAsStateWithLifecycle()
@@ -520,6 +521,23 @@ fun SceneBuilderScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     Text("Aprobar escena visual")
+                                }
+                            }
+                            if (
+                                asset.status == "APPROVED" &&
+                                asset.chapter_ids.isNotEmpty()
+                            ) {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        onUseInChapter(
+                                            asset.chapter_ids.first(),
+                                        )
+                                    },
+                                    enabled = !builder.busy,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Usar en capítulo")
                                 }
                             }
                         }

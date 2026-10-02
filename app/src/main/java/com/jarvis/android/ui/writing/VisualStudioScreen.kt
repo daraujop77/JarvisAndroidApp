@@ -39,6 +39,7 @@ fun VisualStudioScreen(
     characters: List<WritingWikiEntity>,
     locations: List<WritingWikiEntity>,
     openScenesRequest: Int = 0,
+    onUseSceneInChapter: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val accents = LocalJarvisAccents.current
@@ -114,6 +115,7 @@ fun VisualStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 locations = locations,
+                onUseInChapter = onUseSceneInChapter,
                 modifier = Modifier.weight(1f),
             )
 
