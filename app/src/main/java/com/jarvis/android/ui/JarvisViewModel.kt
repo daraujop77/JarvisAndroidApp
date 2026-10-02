@@ -1842,8 +1842,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     private fun resetCharacterStudioProtectedMedia() {
-        val ids = _characterStudio.value.attachmentIds.values
+        val ids = (
+            _characterStudio.value.attachmentIds.values +
+                _wikiVisualAttachments.value.values
+        ).distinct()
         _characterStudio.value = CharacterStudioState()
+        _wikiVisualAttachments.value = emptyMap()
         deleteCharacterStudioAttachments(ids)
     }
 
@@ -2945,6 +2949,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun liveLogout(onDone: () -> Unit = {}) {
+        resetCharacterStudioProtectedMedia()
         viewModelScope.launch {
             container.liveSession.logout()
             container.settings.setPaired(false)
