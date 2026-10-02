@@ -27,6 +27,7 @@ import com.jarvis.android.ui.theme.LocalJarvisAccents
 private enum class VisualStudioSection {
     CHARACTERS,
     LOCATIONS,
+    MAP,
 }
 
 @Composable
@@ -75,6 +76,13 @@ fun VisualStudioScreen(
                     },
                     label = { Text("Locaciones") },
                 )
+                FilterChip(
+                    selected = section == VisualStudioSection.MAP,
+                    onClick = {
+                        section = VisualStudioSection.MAP
+                    },
+                    label = { Text("Mapa") },
+                )
             }
         }
 
@@ -90,6 +98,14 @@ fun VisualStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 locations = locations,
+                modifier = Modifier.weight(1f),
+            )
+
+            VisualStudioSection.MAP -> WorldMapScreen(
+                vm = vm,
+                projectId = projectId,
+                locations = locations,
+                characters = characters,
                 modifier = Modifier.weight(1f),
             )
         }
