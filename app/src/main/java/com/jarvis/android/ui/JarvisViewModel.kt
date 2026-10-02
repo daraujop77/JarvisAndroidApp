@@ -1817,6 +1817,621 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _wikiVisualAttachments = MutableStateFlow<Map<String, String>>(emptyMap())
     val wikiVisualAttachments: StateFlow<Map<String, String>> = _wikiVisualAttachments
 
+    data class CharacterStudioState(
+        val projectId: String = "",
+        val characterId: String = "",
+        val busy: Boolean = false,
+        val busyLabel: String = "",
+        val detail: VisualStudioCharacterDetail? = null,
+        val assets: List<VisualStudioAsset> = emptyList(),
+        val attachmentIds: Map<String, String> = emptyMap(),
+        val notice: String? = null,
+        val error: String? = null,
+    )
+
+    private val _characterStudio = MutableStateFlow(CharacterStudioState())
+    val characterStudio: StateFlow<CharacterStudioState> = _characterStudio
+
+    private fun deleteCharacterStudioAttachments(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.distinct().forEach { id ->
+                runCatching { container.attachmentStore.delete(id) }
+            }
+        }
+    }
+
+    private fun resetCharacterStudioProtectedMedia() {
+        val ids = _characterStudio.value.attachmentIds.values
+        _characterStudio.value = CharacterStudioState()
+        deleteCharacterStudioAttachments(ids)
+    }
+
+    fun openCharacterStudio(projectId: String, characterId: String) {
+        val cleanProject = projectId.trim()
+        val cleanCharacter = characterId.trim()
+        if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
+        val current = _characterStudio.value
+        if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            val oldIds = current.attachmentIds.values
+            _characterStudio.value = CharacterStudioState(
+                projectId = cleanProject,
+                characterId = cleanCharacter,
+            )
+            deleteCharacterStudioAttachments(oldIds)
+        }
+        refreshCharacterStudio(cleanProject, cleanCharacter)
+    }
+
+    fun clearCharacterStudioMessage() {
+        _characterStudio.value = _characterStudio.value.copy(notice = null, error = null)
+    }
+
+    fun refreshCharacterStudio(projectId: String, characterId: String) {
+        val cleanProject = projectId.trim()
+        val cleanCharacter = characterId.trim()
+        if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
+        val current = _characterStudio.value
+        _characterStudio.value = current.copy(
+            projectId = cleanProject,
+            characterId = cleanCharacter,
+            busy = true,
+            busyLabel = "Actualizando estudio visual",
+            error = null,
+        )
+        viewModelScope.launch {
+            reloadCharacterStudio(cleanProject, cleanCharacter)
+        }
+    }
+
+    private suspend fun reloadCharacterStudio(projectId: String, characterId: String) {
+        val detail = container.liveSession.visualCharacterDetail(projectId, characterId)
+        val assets = container.liveSession.visualAssetList(projectId, characterId)
+        if (
+            _characterStudio.value.projectId != projectId ||
+            _characterStudio.value.characterId != characterId
+        ) return
+        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull()
+        _characterStudio.value = _characterStudio.value.copy(
+            busy = false,
+            busyLabel = "",
+            detail = detail.getOrNull() ?: _characterStudio.value.detail,
+            assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
+            error = failure?.message,
+        )
+    }
+
+    fun loadCharacterStudioAsset(projectId: String, assetId: String) {
+        val clean = assetId.trim()
+        val state = _characterStudio.value
+        if (
+            clean.isBlank() ||
+            state.projectId != projectId ||
+            state.attachmentIds.containsKey(clean)
+        ) return
+        viewModelScope.launch {
+            container.liveSession.writingRoomVisualAssetFetch(projectId, clean).fold(
+                onSuccess = { content ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(content.image_base64)
+                    }
+                    if (
+                        staged != null &&
+                        _characterStudio.value.projectId == projectId
+                    ) {
+                        _characterStudio.update {
+                            it.copy(
+                                attachmentIds = it.attachmentIds + (clean to staged.attachmentId),
+                            )
+                        }
+                    }
+                },
+                onFailure = {
+                    // Metadata remains usable. Pending Drive storage intentionally has no
+                    // fetchable server bytes, so the UI keeps the retry state instead.
+                },
+            )
+        }
+    }
+
+    private suspend fun rememberCharacterStudioCandidate(
+        projectId: String,
+        characterId: String,
+        reply: VisualStudioGeneratedImage,
+    ) {
+        val asset = reply.visual_asset ?: return
+        val staged = withContext(Dispatchers.IO) {
+            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+        }
+        if (
+            staged != null &&
+            _characterStudio.value.projectId == projectId &&
+            _characterStudio.value.characterId == characterId
+        ) {
+            _characterStudio.update {
+                it.copy(
+                    attachmentIds = it.attachmentIds + (asset.asset_id to staged.attachmentId),
+                    notice = if (reply.storage_retry_required) {
+                        "La imagen se generó y quedó como candidata, pero Drive necesita reintentar el guardado. No se regenerará el modelo."
+                    } else {
+                        "Nueva imagen candidata guardada. Aún no forma parte del canon visual."
+                    },
+                )
+            }
+        }
+    }
+
+    fun generateCharacterVisual(
+        projectId: String,
+        characterId: String,
+        prompt: String,
+        kind: String,
+        perspective: String,
+        parentAsset: VisualStudioAsset? = null,
+    ) {
+        val cleanPrompt = prompt.trim()
+        if (cleanPrompt.isBlank() || _characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = if (kind == "PRIMARY_REFERENCE") {
+                    "Generando candidato de master"
+                } else {
+                    "Generando vista ${perspective.replace('_', ' ')}"
+                },
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.generateVisualAssetImage(
+                projectId = projectId,
+                characterId = characterId,
+                prompt = cleanPrompt,
+                kind = kind,
+                perspective = perspective,
+                mode = "quality",
+                aspectRatio = "portrait",
+                referencePerspectives = if (kind == "IDENTITY_PACK") listOf("front") else emptyList(),
+                referencesPerCharacter = 1,
+                parentAssetId = parentAsset?.asset_id.orEmpty(),
+                parentSha256 = parentAsset?.sha256.orEmpty(),
+                derivation = if (parentAsset == null) "" else "REGENERATION",
+            )
+            if (result.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = result.exceptionOrNull()?.message ?: "No se pudo generar la imagen.",
+                    )
+                }
+                return@launch
+            }
+            rememberCharacterStudioCandidate(projectId, characterId, result.getOrThrow())
+            reloadCharacterStudio(projectId, characterId)
+        }
+    }
+
+    fun uploadCharacterMaster(
+        projectId: String,
+        characterId: String,
+        uri: Uri,
+    ) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Guardando candidato manual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            if (staged == null) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = "No se pudo leer la imagen seleccionada.",
+                    )
+                }
+                return@launch
+            }
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(staged.attachmentId)
+                        ?: error("La imagen temporal ya no está disponible.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (source.isFailure) {
+                withContext(Dispatchers.IO) { container.attachmentStore.delete(staged.attachmentId) }
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message ?: "No se pudo leer la imagen.",
+                    )
+                }
+                return@launch
+            }
+            val mime = app.contentResolver.getType(uri)
+                ?.lowercase()
+                ?.takeIf { it in setOf("image/png", "image/jpeg", "image/webp") }
+                ?: "image/jpeg"
+            val result = container.liveSession.visualAssetIngest(
+                projectId = projectId,
+                imageBase64 = source.getOrThrow(),
+                mimeType = mime,
+                kind = "PRIMARY_REFERENCE",
+                source = "MANUAL_UPLOAD",
+                characterId = characterId,
+                perspective = "front",
+            )
+            result.fold(
+                onSuccess = { response ->
+                    _characterStudio.update {
+                        it.copy(
+                            attachmentIds = it.attachmentIds +
+                                (response.asset.asset_id to staged.attachmentId),
+                            notice = "Master manual guardado como candidato. Revisa y aprueba el hash exacto.",
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    withContext(Dispatchers.IO) {
+                        container.attachmentStore.delete(staged.attachmentId)
+                    }
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo guardar el master.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveCharacterVisual(asset: VisualStudioAsset) {
+        val state = _characterStudio.value
+        if (state.busy || asset.status != "CANDIDATE" || asset.sha256.isBlank()) return
+        val nextRevision = state.assets
+            .filter {
+                it.status == "APPROVED" &&
+                    it.kind == asset.kind &&
+                    it.perspective == asset.perspective
+            }
+            .maxOfOrNull { it.visual_revision }
+            ?.plus(1)
+            ?: 1
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando hash exacto",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualAssetApproveExact(
+                projectId = asset.project_id,
+                assetId = asset.asset_id,
+                assetSha256 = asset.sha256,
+                visualRevision = nextRevision,
+            ).fold(
+                onSuccess = {
+                    _characterStudio.update {
+                        it.copy(notice = "Imagen aprobada. El asset quedó ligado a su SHA-256 exacto.")
+                    }
+                    reloadCharacterStudio(asset.project_id, state.characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo aprobar la imagen.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun retryCharacterVisualStorage(asset: VisualStudioAsset) {
+        val state = _characterStudio.value
+        if (state.busy || asset.storage.state == "stored") return
+        val attachmentId = state.attachmentIds[asset.asset_id]
+        if (attachmentId.isNullOrBlank()) {
+            _characterStudio.update {
+                it.copy(
+                    error = "Los bytes locales del candidato ya no están disponibles. JARVIS no regenerará la imagen automáticamente.",
+                )
+            }
+            return
+        }
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Reintentando guardado en Drive",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val encoded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(attachmentId)
+                        ?: error("Los bytes locales del candidato ya no están disponibles.")
+                    Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                }
+            }
+            if (encoded.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = encoded.exceptionOrNull()?.message,
+                    )
+                }
+                return@launch
+            }
+            container.liveSession.visualAssetIngest(
+                projectId = asset.project_id,
+                imageBase64 = encoded.getOrThrow(),
+                mimeType = asset.mime_type,
+                kind = asset.kind,
+                source = asset.source,
+                characterId = state.characterId,
+                perspective = asset.perspective,
+                assetId = asset.asset_id,
+                parentAssetId = asset.parent_asset_id,
+                parentSha256 = asset.parent_sha256,
+                derivation = asset.derivation,
+            ).fold(
+                onSuccess = {
+                    _characterStudio.update {
+                        it.copy(notice = "Guardado en Drive reanudado sin repetir la generación.")
+                    }
+                    reloadCharacterStudio(asset.project_id, state.characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "Drive sigue sin poder guardar el candidato.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun editCharacterVisual(
+        projectId: String,
+        characterId: String,
+        parentAsset: VisualStudioAsset,
+        instruction: String,
+    ) {
+        val clean = instruction.trim()
+        if (
+            clean.isBlank() ||
+            _characterStudio.value.busy ||
+            parentAsset.status != "APPROVED"
+        ) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Creando edición hija",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val source = container.liveSession.writingRoomVisualAssetFetch(
+                projectId,
+                parentAsset.asset_id,
+            )
+            if (source.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message ?: "No se pudo cargar el parent aprobado.",
+                    )
+                }
+                return@launch
+            }
+            val content = source.getOrThrow()
+            val result = container.liveSession.editVisualAssetImage(
+                imageBase64 = content.image_base64,
+                mimeType = content.mime_type,
+                projectId = projectId,
+                characterId = characterId,
+                instruction = clean,
+                kind = parentAsset.kind,
+                perspective = parentAsset.perspective,
+                parentAssetId = parentAsset.asset_id,
+                parentSha256 = parentAsset.sha256,
+            )
+            if (result.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = result.exceptionOrNull()?.message ?: "No se pudo editar la imagen.",
+                    )
+                }
+                return@launch
+            }
+            rememberCharacterStudioCandidate(projectId, characterId, result.getOrThrow())
+            reloadCharacterStudio(projectId, characterId)
+        }
+    }
+
+    fun createCharacterReferencePack(projectId: String, characterId: String) {
+        val state = _characterStudio.value
+        if (state.busy) return
+        val approved = state.assets.filter { it.status == "APPROVED" }
+        val ordering = compareBy<VisualStudioAsset>({ it.visual_revision }, { it.approved_utc })
+        val master = approved
+            .filter { it.kind == "PRIMARY_REFERENCE" }
+            .maxWithOrNull(ordering)
+        val views = approved
+            .filter { it.kind == "IDENTITY_PACK" && it.perspective.isNotBlank() }
+            .groupBy { it.perspective }
+            .values
+            .mapNotNull { items -> items.maxWithOrNull(ordering) }
+            .sortedBy { it.perspective }
+        if (master == null) {
+            _characterStudio.update {
+                it.copy(error = "Aprueba primero un master del personaje.")
+            }
+            return
+        }
+        if (views.isEmpty()) {
+            _characterStudio.update {
+                it.copy(error = "Aprueba al menos una vista de turnaround antes de crear el pack.")
+            }
+            return
+        }
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Creando revisión de Reference Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val created = container.liveSession.visualReferencePackCreate(
+                projectId = projectId,
+                characterId = characterId,
+                masterAssetId = master.asset_id,
+                masterSha256 = master.sha256,
+                parentPackId = state.detail?.active_reference_pack?.pack_id.orEmpty(),
+            )
+            if (created.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = created.exceptionOrNull()?.message ?: "No se pudo crear el pack.",
+                    )
+                }
+                return@launch
+            }
+            var pack = created.getOrThrow().pack
+            for (view in views) {
+                val added = container.liveSession.visualReferencePackAddSlot(
+                    projectId = projectId,
+                    packId = pack.pack_id,
+                    slotKey = view.perspective,
+                    assetId = view.asset_id,
+                    assetSha256 = view.sha256,
+                    required = true,
+                )
+                if (added.isFailure) {
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = added.exceptionOrNull()?.message
+                                ?: "No se pudo agregar ${view.perspective} al pack.",
+                        )
+                    }
+                    return@launch
+                }
+                pack = added.getOrThrow().pack
+            }
+            _characterStudio.update {
+                it.copy(
+                    busy = false,
+                    busyLabel = "",
+                    notice = "Pack revisión ${pack.revision} creado en DRAFT. Todavía no está aprobado.",
+                )
+            }
+            reloadCharacterStudio(projectId, characterId)
+        }
+    }
+
+    fun prepareCharacterReferencePack(projectId: String, characterId: String, packId: String) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Validando pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualReferencePackPrepare(projectId, packId).fold(
+                onSuccess = { result ->
+                    _characterStudio.update {
+                        it.copy(
+                            notice = "Pack revisión ${result.pack.revision} listo para aprobación humana.",
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "El pack no está listo para aprobación.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveCharacterReferencePack(projectId: String, characterId: String, packId: String) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando Reference Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualReferencePackApprove(projectId, packId).fold(
+                onSuccess = { result ->
+                    _characterStudio.update {
+                        it.copy(
+                            notice = "Reference Pack revisión ${result.pack.revision} aprobado y activo.",
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                    refreshWritingWorkspace(projectId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo aprobar el Reference Pack.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     sealed interface ImageEditState {
         data object Idle : ImageEditState
         data object Busy : ImageEditState
@@ -2369,6 +2984,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun unpair() {
+        resetCharacterStudioProtectedMedia()
         viewModelScope.launch {
             // A live session must end on the server, not just locally —
             // otherwise "revoke" leaves a valid bearer token behind.
