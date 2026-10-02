@@ -125,6 +125,18 @@ data class VisualStudioCharacterGallery(
 )
 
 @Serializable
+data class VisualStudioLocationGallery(
+    val schema: String = "",
+    val project_id: String = "",
+    val entity_type: String = "",
+    val entity_id: String = "",
+    val primary: VisualStudioGalleryCard? = null,
+    val variants: List<VisualStudioGalleryCard> = emptyList(),
+    val scenes: List<VisualStudioGalleryCard> = emptyList(),
+    val reference_pack: VisualStudioReferencePackSummary? = null,
+)
+
+@Serializable
 data class VisualStudioReferencePackSlot(
     val slot_key: String = "",
     val perspective: String = "",
@@ -162,6 +174,42 @@ data class VisualStudioCharacterDetail(
     val gallery: VisualStudioCharacterGallery? = null,
     val active_reference_pack: VisualStudioReferencePack? = null,
     val reference_packs: List<VisualStudioReferencePack> = emptyList(),
+)
+
+@Serializable
+data class VisualStudioLocationReferencePack(
+    val schema: String = "",
+    val pack_id: String = "",
+    val project_id: String = "",
+    val location_id: String = "",
+    val revision: Int = 0,
+    val state: String = "",
+    val master_asset_id: String = "",
+    val master_sha256: String = "",
+    val parent_pack_id: String = "",
+    val created_by: String = "",
+    val created_utc: String = "",
+    val approved_by: String = "",
+    val approved_utc: String = "",
+    val deprecated_by: String = "",
+    val deprecated_utc: String = "",
+    val slots: List<VisualStudioReferencePackSlot> = emptyList(),
+)
+
+@Serializable
+data class VisualStudioLocationDetail(
+    val schema: String = "",
+    val project_id: String = "",
+    val location_id: String = "",
+    val gallery: VisualStudioLocationGallery? = null,
+    val active_reference_pack: VisualStudioLocationReferencePack? = null,
+    val reference_packs: List<VisualStudioLocationReferencePack> = emptyList(),
+)
+
+@Serializable
+data class VisualStudioLocationPackResponse(
+    val schema: String = "",
+    val pack: VisualStudioLocationReferencePack = VisualStudioLocationReferencePack(),
 )
 
 @Serializable
@@ -336,6 +384,18 @@ suspend fun JarvisAppSession.visualCharacterDetail(
         },
     )
 
+suspend fun JarvisAppSession.visualLocationDetail(
+    projectId: String,
+    locationId: String,
+): Result<VisualStudioLocationDetail> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/locations/detail",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("location_id", locationId)
+        },
+    )
+
 suspend fun JarvisAppSession.visualAssetList(
     projectId: String,
     characterId: String,
@@ -372,6 +432,50 @@ suspend fun JarvisAppSession.visualAssetIngest(
             put("kind", kind)
             put("source", source)
             put("character_ids", buildJsonArray { add(JsonPrimitive(characterId)) })
+            put("perspective", perspective)
+            if (!assetId.isNullOrBlank()) put("asset_id", assetId)
+            if (parentAssetId.isNotBlank()) put("parent_asset_id", parentAssetId)
+            if (parentSha256.isNotBlank()) put("parent_sha256", parentSha256)
+            if (derivation.isNotBlank()) put("derivation", derivation)
+        },
+    )
+
+suspend fun JarvisAppSession.visualLocationAssetList(
+    projectId: String,
+    locationId: String,
+    status: String? = null,
+): Result<VisualStudioAssetList> =
+    visualStudioPost(
+        "/api/app/writing-room/visual-assets/list",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("location_id", locationId)
+            if (!status.isNullOrBlank()) put("status", status)
+        },
+    )
+
+suspend fun JarvisAppSession.visualLocationAssetIngest(
+    projectId: String,
+    imageBase64: String,
+    mimeType: String,
+    kind: String,
+    source: String,
+    locationId: String,
+    perspective: String,
+    assetId: String? = null,
+    parentAssetId: String = "",
+    parentSha256: String = "",
+    derivation: String = "",
+): Result<VisualStudioAssetResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/visual-assets/ingest",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("image_base64", imageBase64)
+            put("mime_type", mimeType)
+            put("kind", kind)
+            put("source", source)
+            put("location_ids", buildJsonArray { add(JsonPrimitive(locationId)) })
             put("perspective", perspective)
             if (!assetId.isNullOrBlank()) put("asset_id", assetId)
             if (parentAssetId.isNotBlank()) put("parent_asset_id", parentAssetId)
@@ -458,6 +562,68 @@ suspend fun JarvisAppSession.visualReferencePackApprove(
         },
     )
 
+suspend fun JarvisAppSession.visualLocationReferencePackCreate(
+    projectId: String,
+    locationId: String,
+    masterAssetId: String,
+    masterSha256: String,
+    parentPackId: String = "",
+): Result<VisualStudioLocationPackResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/location-reference-packs/create",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("location_id", locationId)
+            put("master_asset_id", masterAssetId)
+            put("master_sha256", masterSha256)
+            if (parentPackId.isNotBlank()) put("parent_pack_id", parentPackId)
+        },
+    )
+
+suspend fun JarvisAppSession.visualLocationReferencePackAddSlot(
+    projectId: String,
+    packId: String,
+    slotKey: String,
+    assetId: String,
+    assetSha256: String,
+    required: Boolean = false,
+): Result<VisualStudioLocationPackResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/location-reference-packs/slot/add",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("pack_id", packId)
+            put("slot_key", slotKey)
+            put("asset_id", assetId)
+            put("asset_sha256", assetSha256)
+            put("required", required)
+        },
+    )
+
+suspend fun JarvisAppSession.visualLocationReferencePackPrepare(
+    projectId: String,
+    packId: String,
+): Result<VisualStudioLocationPackResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/location-reference-packs/prepare",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("pack_id", packId)
+        },
+    )
+
+suspend fun JarvisAppSession.visualLocationReferencePackApprove(
+    projectId: String,
+    packId: String,
+): Result<VisualStudioLocationPackResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/location-reference-packs/approve",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("pack_id", packId)
+        },
+    )
+
 suspend fun JarvisAppSession.generateVisualAssetImage(
     projectId: String,
     characterId: String,
@@ -512,6 +678,62 @@ suspend fun JarvisAppSession.generateVisualAssetImage(
         reply
     }
 
+suspend fun JarvisAppSession.generateLocationVisualAssetImage(
+    projectId: String,
+    locationId: String,
+    prompt: String,
+    kind: String,
+    perspective: String,
+    mode: String = "quality",
+    model: String? = null,
+    aspectRatio: String = "landscape",
+    referencePerspectives: List<String> = emptyList(),
+    referencesPerLocation: Int = 2,
+    parentAssetId: String = "",
+    parentSha256: String = "",
+    derivation: String = "",
+    assetId: String? = null,
+): Result<VisualStudioGeneratedImage> =
+    visualStudioObjectPost(
+        "/api/app/images/generations",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("prompt", prompt.trim())
+            put("mode", mode)
+            put("aspect_ratio", aspectRatio)
+            if (!model.isNullOrBlank()) put("model", model)
+            put("visual_asset", buildJsonObject {
+                put("surface", "location_creator")
+                put("project_id", projectId)
+                put("kind", kind)
+                put("location_ids", buildJsonArray { add(JsonPrimitive(locationId)) })
+                put("perspective", perspective)
+                if (referencePerspectives.isNotEmpty()) {
+                    put(
+                        "reference_perspectives",
+                        buildJsonArray {
+                            referencePerspectives.forEach { add(JsonPrimitive(it)) }
+                        },
+                    )
+                }
+                put("references_per_location", referencesPerLocation.coerceIn(1, 4))
+                if (!assetId.isNullOrBlank()) put("asset_id", assetId)
+                if (parentAssetId.isNotBlank()) put("parent_asset_id", parentAssetId)
+                if (parentSha256.isNotBlank()) put("parent_sha256", parentSha256)
+                if (derivation.isNotBlank()) put("derivation", derivation)
+            })
+        },
+    ).mapCatching { raw ->
+        val reply = parseVisualStudioGeneratedImage(raw)
+        if (reply.data_base64.isBlank() || reply.mime_type.isBlank()) {
+            throw TransportException("visual generation returned no image")
+        }
+        if (reply.visual_asset == null || reply.visual_asset.asset_id.isBlank()) {
+            throw TransportException("visual generation returned no durable candidate")
+        }
+        reply
+    }
+
 suspend fun JarvisAppSession.editVisualAssetImage(
     imageBase64: String,
     mimeType: String,
@@ -544,6 +766,54 @@ suspend fun JarvisAppSession.editVisualAssetImage(
                 put("project_id", projectId)
                 put("kind", kind)
                 put("character_ids", buildJsonArray { add(JsonPrimitive(characterId)) })
+                put("perspective", perspective)
+                put("parent_asset_id", parentAssetId)
+                put("parent_sha256", parentSha256)
+                put("derivation", derivation)
+            })
+        },
+    ).mapCatching { raw ->
+        val reply = parseVisualStudioGeneratedImage(raw)
+        if (reply.data_base64.isBlank() || reply.mime_type.isBlank()) {
+            throw TransportException("visual edit returned no image")
+        }
+        if (reply.visual_asset == null || reply.visual_asset.asset_id.isBlank()) {
+            throw TransportException("visual edit returned no durable candidate")
+        }
+        reply
+    }
+
+suspend fun JarvisAppSession.editLocationVisualAssetImage(
+    imageBase64: String,
+    mimeType: String,
+    projectId: String,
+    locationId: String,
+    instruction: String,
+    kind: String,
+    perspective: String,
+    parentAssetId: String,
+    parentSha256: String,
+    derivation: String = "EDIT",
+    mode: String = "quality",
+    model: String? = null,
+    aspectRatio: String = "landscape",
+): Result<VisualStudioGeneratedImage> =
+    visualStudioObjectPost(
+        "/api/app/images/edits",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("image_base64", imageBase64)
+            put("mime_type", mimeType)
+            put("instruction", instruction.trim())
+            put("mode", mode)
+            put("preserve_identity", "high")
+            put("aspect_ratio", aspectRatio)
+            if (!model.isNullOrBlank()) put("model", model)
+            put("visual_asset", buildJsonObject {
+                put("surface", "location_creator")
+                put("project_id", projectId)
+                put("kind", kind)
+                put("location_ids", buildJsonArray { add(JsonPrimitive(locationId)) })
                 put("perspective", perspective)
                 put("parent_asset_id", parentAssetId)
                 put("parent_sha256", parentSha256)
