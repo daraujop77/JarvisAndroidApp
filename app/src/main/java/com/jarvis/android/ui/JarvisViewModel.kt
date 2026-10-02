@@ -2464,6 +2464,640 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun openLocationStudio(projectId: String, locationId: String) {
+        val cleanProject = projectId.trim()
+        val cleanLocation = locationId.trim()
+        if (cleanProject.isBlank() || cleanLocation.isBlank()) return
+        val current = _locationStudio.value
+        if (current.projectId != cleanProject || current.locationId != cleanLocation) {
+            val oldIds = current.attachmentIds.values
+            _locationStudio.value = LocationStudioState(
+                projectId = cleanProject,
+                locationId = cleanLocation,
+            )
+            deleteVisualStudioAttachments(oldIds)
+        }
+        refreshLocationStudio(cleanProject, cleanLocation)
+    }
+
+    fun clearLocationStudioMessage() {
+        _locationStudio.value = _locationStudio.value.copy(notice = null, error = null)
+    }
+
+    fun refreshLocationStudio(projectId: String, locationId: String) {
+        val cleanProject = projectId.trim()
+        val cleanLocation = locationId.trim()
+        if (cleanProject.isBlank() || cleanLocation.isBlank()) return
+        _locationStudio.value = _locationStudio.value.copy(
+            projectId = cleanProject,
+            locationId = cleanLocation,
+            busy = true,
+            busyLabel = "Actualizando Location Studio",
+            error = null,
+        )
+        viewModelScope.launch {
+            reloadLocationStudio(cleanProject, cleanLocation)
+        }
+    }
+
+    private suspend fun reloadLocationStudio(projectId: String, locationId: String) {
+        val detail = container.liveSession.visualLocationDetail(projectId, locationId)
+        val assets = container.liveSession.visualLocationAssetList(projectId, locationId)
+        if (
+            _locationStudio.value.projectId != projectId ||
+            _locationStudio.value.locationId != locationId
+        ) return
+        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull()
+        _locationStudio.value = _locationStudio.value.copy(
+            busy = false,
+            busyLabel = "",
+            detail = detail.getOrNull() ?: _locationStudio.value.detail,
+            assets = assets.getOrNull()?.assets ?: _locationStudio.value.assets,
+            error = failure?.message,
+        )
+    }
+
+    fun loadLocationStudioAsset(projectId: String, assetId: String) {
+        val clean = assetId.trim()
+        val state = _locationStudio.value
+        if (
+            clean.isBlank() ||
+            state.projectId != projectId ||
+            state.attachmentIds.containsKey(clean)
+        ) return
+        viewModelScope.launch {
+            container.liveSession.writingRoomVisualAssetFetch(projectId, clean).fold(
+                onSuccess = { content ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(content.image_base64)
+                    }
+                    if (
+                        staged != null &&
+                        _locationStudio.value.projectId == projectId
+                    ) {
+                        _locationStudio.update {
+                            it.copy(
+                                attachmentIds = it.attachmentIds +
+                                    (clean to staged.attachmentId),
+                            )
+                        }
+                    }
+                },
+                onFailure = {
+                    // A pending Drive candidate has metadata but no fetchable
+                    // server bytes. Keep the state visible without regenerating.
+                },
+            )
+        }
+    }
+
+    private suspend fun rememberLocationStudioCandidate(
+        projectId: String,
+        locationId: String,
+        reply: VisualStudioGeneratedImage,
+    ) {
+        val asset = reply.visual_asset ?: return
+        val staged = withContext(Dispatchers.IO) {
+            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+        }
+        if (
+            staged != null &&
+            _locationStudio.value.projectId == projectId &&
+            _locationStudio.value.locationId == locationId
+        ) {
+            _locationStudio.update {
+                it.copy(
+                    attachmentIds = it.attachmentIds +
+                        (asset.asset_id to staged.attachmentId),
+                    notice = if (reply.storage_retry_required) {
+                        "La imagen de locación quedó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
+                    } else {
+                        "Nueva imagen de locación guardada como candidata. Aún no forma parte del canon visual."
+                    },
+                )
+            }
+        }
+    }
+
+    fun generateLocationVisual(
+        projectId: String,
+        locationId: String,
+        prompt: String,
+        kind: String,
+        perspective: String,
+        parentAsset: VisualStudioAsset? = null,
+    ) {
+        val cleanPrompt = prompt.trim()
+        if (cleanPrompt.isBlank() || _locationStudio.value.busy) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = if (kind == "LOCATION_REFERENCE") {
+                    "Generando master de locación"
+                } else {
+                    "Generando variante ${perspective.replace('_', ' ')}"
+                },
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.generateLocationVisualAssetImage(
+                projectId = projectId,
+                locationId = locationId,
+                prompt = cleanPrompt,
+                kind = kind,
+                perspective = perspective,
+                mode = "quality",
+                aspectRatio = "landscape",
+                referencePerspectives = if (kind == "LOCATION_VARIANT") {
+                    listOf("establishing")
+                } else {
+                    emptyList()
+                },
+                referencesPerLocation = 2,
+                parentAssetId = parentAsset?.asset_id.orEmpty(),
+                parentSha256 = parentAsset?.sha256.orEmpty(),
+                derivation = if (parentAsset == null) "" else "REGENERATION",
+            )
+            if (result.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = result.exceptionOrNull()?.message
+                            ?: "No se pudo generar la locación.",
+                    )
+                }
+                return@launch
+            }
+            rememberLocationStudioCandidate(
+                projectId,
+                locationId,
+                result.getOrThrow(),
+            )
+            reloadLocationStudio(projectId, locationId)
+        }
+    }
+
+    fun uploadLocationMaster(
+        projectId: String,
+        locationId: String,
+        uri: Uri,
+    ) {
+        if (_locationStudio.value.busy) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Guardando master manual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) {
+                container.attachmentStore.stageFrom(uri)
+            }
+            if (staged == null) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = "No se pudo leer la imagen seleccionada.",
+                    )
+                }
+                return@launch
+            }
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(staged.attachmentId)
+                        ?: error("La imagen temporal ya no está disponible.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (source.isFailure) {
+                withContext(Dispatchers.IO) {
+                    container.attachmentStore.delete(staged.attachmentId)
+                }
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message
+                            ?: "No se pudo leer la imagen.",
+                    )
+                }
+                return@launch
+            }
+            val mime = app.contentResolver.getType(uri)
+                ?.lowercase()
+                ?.takeIf { it in setOf("image/png", "image/jpeg", "image/webp") }
+                ?: "image/jpeg"
+            container.liveSession.visualLocationAssetIngest(
+                projectId = projectId,
+                imageBase64 = source.getOrThrow(),
+                mimeType = mime,
+                kind = "LOCATION_REFERENCE",
+                source = "MANUAL_UPLOAD",
+                locationId = locationId,
+                perspective = "establishing",
+            ).fold(
+                onSuccess = { response ->
+                    _locationStudio.update {
+                        it.copy(
+                            attachmentIds = it.attachmentIds +
+                                (response.asset.asset_id to staged.attachmentId),
+                            notice = "Master de locación guardado como candidato. Revisa y aprueba el hash exacto.",
+                        )
+                    }
+                    reloadLocationStudio(projectId, locationId)
+                },
+                onFailure = { error ->
+                    withContext(Dispatchers.IO) {
+                        container.attachmentStore.delete(staged.attachmentId)
+                    }
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo guardar el master de locación.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveLocationVisual(asset: VisualStudioAsset) {
+        val state = _locationStudio.value
+        if (state.busy || asset.status != "CANDIDATE" || asset.sha256.isBlank()) return
+        val nextRevision = state.assets
+            .filter {
+                it.status == "APPROVED" &&
+                    it.kind == asset.kind &&
+                    it.perspective == asset.perspective
+            }
+            .maxOfOrNull { it.visual_revision }
+            ?.plus(1)
+            ?: 1
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando hash exacto",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualAssetApproveExact(
+                projectId = asset.project_id,
+                assetId = asset.asset_id,
+                assetSha256 = asset.sha256,
+                visualRevision = nextRevision,
+            ).fold(
+                onSuccess = {
+                    _locationStudio.update {
+                        it.copy(
+                            notice = "Imagen de locación aprobada y ligada a su SHA-256 exacto.",
+                        )
+                    }
+                    reloadLocationStudio(asset.project_id, state.locationId)
+                },
+                onFailure = { error ->
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo aprobar la imagen de locación.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun retryLocationVisualStorage(asset: VisualStudioAsset) {
+        val state = _locationStudio.value
+        if (state.busy || asset.storage.state == "stored") return
+        val attachmentId = state.attachmentIds[asset.asset_id]
+        if (attachmentId.isNullOrBlank()) {
+            _locationStudio.update {
+                it.copy(
+                    error = "Los bytes locales del candidato ya no están disponibles. JARVIS no regenerará la imagen automáticamente.",
+                )
+            }
+            return
+        }
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Reintentando guardado en Drive",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val encoded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(attachmentId)
+                        ?: error("Los bytes locales del candidato ya no están disponibles.")
+                    Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                }
+            }
+            if (encoded.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = encoded.exceptionOrNull()?.message,
+                    )
+                }
+                return@launch
+            }
+            container.liveSession.visualLocationAssetIngest(
+                projectId = asset.project_id,
+                imageBase64 = encoded.getOrThrow(),
+                mimeType = asset.mime_type,
+                kind = asset.kind,
+                source = asset.source,
+                locationId = state.locationId,
+                perspective = asset.perspective,
+                assetId = asset.asset_id,
+                parentAssetId = asset.parent_asset_id,
+                parentSha256 = asset.parent_sha256,
+                derivation = asset.derivation,
+            ).fold(
+                onSuccess = {
+                    _locationStudio.update {
+                        it.copy(
+                            notice = "Guardado de locación en Drive reanudado sin repetir la generación.",
+                        )
+                    }
+                    reloadLocationStudio(asset.project_id, state.locationId)
+                },
+                onFailure = { error ->
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "Drive sigue sin poder guardar el candidato.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun editLocationVisual(
+        projectId: String,
+        locationId: String,
+        parentAsset: VisualStudioAsset,
+        instruction: String,
+    ) {
+        val clean = instruction.trim()
+        if (
+            clean.isBlank() ||
+            _locationStudio.value.busy ||
+            parentAsset.status != "APPROVED"
+        ) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Creando edición hija de locación",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val source = container.liveSession.writingRoomVisualAssetFetch(
+                projectId,
+                parentAsset.asset_id,
+            )
+            if (source.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message
+                            ?: "No se pudo cargar la referencia aprobada.",
+                    )
+                }
+                return@launch
+            }
+            val content = source.getOrThrow()
+            val result = container.liveSession.editLocationVisualAssetImage(
+                imageBase64 = content.image_base64,
+                mimeType = content.mime_type,
+                projectId = projectId,
+                locationId = locationId,
+                instruction = clean,
+                kind = parentAsset.kind,
+                perspective = parentAsset.perspective,
+                parentAssetId = parentAsset.asset_id,
+                parentSha256 = parentAsset.sha256,
+            )
+            if (result.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = result.exceptionOrNull()?.message
+                            ?: "No se pudo editar la locación.",
+                    )
+                }
+                return@launch
+            }
+            rememberLocationStudioCandidate(
+                projectId,
+                locationId,
+                result.getOrThrow(),
+            )
+            reloadLocationStudio(projectId, locationId)
+        }
+    }
+
+    fun createLocationReferencePack(projectId: String, locationId: String) {
+        val state = _locationStudio.value
+        if (state.busy) return
+        val approved = state.assets.filter { it.status == "APPROVED" }
+        val ordering = compareBy<VisualStudioAsset>(
+            { it.visual_revision },
+            { it.approved_utc },
+        )
+        val master = approved
+            .filter { it.kind == "LOCATION_REFERENCE" }
+            .maxWithOrNull(ordering)
+        val variants = approved
+            .filter {
+                it.kind == "LOCATION_VARIANT" &&
+                    it.perspective.isNotBlank()
+            }
+            .groupBy { it.perspective }
+            .values
+            .mapNotNull { items -> items.maxWithOrNull(ordering) }
+            .sortedBy { it.perspective }
+        if (master == null) {
+            _locationStudio.update {
+                it.copy(
+                    error = "Aprueba primero un master de la locación.",
+                )
+            }
+            return
+        }
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Creando revisión del Location Reference Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val created = container.liveSession.visualLocationReferencePackCreate(
+                projectId = projectId,
+                locationId = locationId,
+                masterAssetId = master.asset_id,
+                masterSha256 = master.sha256,
+                parentPackId = state.detail
+                    ?.active_reference_pack
+                    ?.pack_id
+                    .orEmpty(),
+            )
+            if (created.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = created.exceptionOrNull()?.message
+                            ?: "No se pudo crear el pack de locación.",
+                    )
+                }
+                return@launch
+            }
+            var pack = created.getOrThrow().pack
+            for (variant in variants) {
+                val added = container.liveSession.visualLocationReferencePackAddSlot(
+                    projectId = projectId,
+                    packId = pack.pack_id,
+                    slotKey = variant.perspective,
+                    assetId = variant.asset_id,
+                    assetSha256 = variant.sha256,
+                    required = false,
+                )
+                if (added.isFailure) {
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = added.exceptionOrNull()?.message
+                                ?: "No se pudo agregar ${variant.perspective} al pack.",
+                        )
+                    }
+                    return@launch
+                }
+                pack = added.getOrThrow().pack
+            }
+            _locationStudio.update {
+                it.copy(
+                    busy = false,
+                    busyLabel = "",
+                    notice = "Location Pack revisión ${pack.revision} creado en DRAFT.",
+                )
+            }
+            reloadLocationStudio(projectId, locationId)
+        }
+    }
+
+    fun prepareLocationReferencePack(
+        projectId: String,
+        locationId: String,
+        packId: String,
+    ) {
+        if (_locationStudio.value.busy) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Validando Location Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualLocationReferencePackPrepare(
+                projectId,
+                packId,
+            ).fold(
+                onSuccess = { result ->
+                    _locationStudio.update {
+                        it.copy(
+                            notice = "Location Pack revisión ${result.pack.revision} listo para aprobación humana.",
+                        )
+                    }
+                    reloadLocationStudio(projectId, locationId)
+                },
+                onFailure = { error ->
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "El Location Pack no está listo.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveLocationReferencePack(
+        projectId: String,
+        locationId: String,
+        packId: String,
+    ) {
+        if (_locationStudio.value.busy) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando Location Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualLocationReferencePackApprove(
+                projectId,
+                packId,
+            ).fold(
+                onSuccess = { result ->
+                    _locationStudio.update {
+                        it.copy(
+                            notice = "Location Pack revisión ${result.pack.revision} aprobado y activo.",
+                        )
+                    }
+                    reloadLocationStudio(projectId, locationId)
+                    refreshWritingWorkspace(projectId)
+                },
+                onFailure = { error ->
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo aprobar el Location Pack.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     sealed interface ImageEditState {
         data object Idle : ImageEditState
         data object Busy : ImageEditState
