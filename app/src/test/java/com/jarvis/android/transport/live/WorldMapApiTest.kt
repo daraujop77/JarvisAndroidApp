@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -101,6 +102,53 @@ class WorldMapApiTest {
                                 """{"node_id":"world:main","node_type":"WORLD","name":"World","parent_node_id":"","location_id":"","x":0.0,"y":0.0,"z":0.0,"placement_source":"MANUAL","visual_asset_id":"","visual_asset_sha256":""}""",
                             ),
                         )
+
+                    "/api/app/writing-room/v2/world-map/presence/upsert" -> {
+                        val expected = body
+                            ?.get("expected_version")
+                            ?.jsonPrimitive
+                            ?.intOrNull
+                        if (expected != version) {
+                            conflictResponse()
+                        } else {
+                            version += 1
+                            hash = "C".repeat(64)
+                            MockResponse().setBody(
+                                """
+                                {
+                                  "schema":"jarvis.world-map.v1",
+                                  "revision":${revisionJson("DRAFT")},
+                                  "nodes":[{
+                                    "node_id":"world:main",
+                                    "node_type":"WORLD",
+                                    "name":"World",
+                                    "parent_node_id":"",
+                                    "location_id":"",
+                                    "x":0.0,
+                                    "y":0.0,
+                                    "z":0.0,
+                                    "placement_source":"MANUAL",
+                                    "visual_asset_id":"",
+                                    "visual_asset_sha256":""
+                                  }],
+                                  "character_presence":[{
+                                    "presence_id":"wmp_1",
+                                    "character_id":"character:alexander",
+                                    "node_id":"world:main",
+                                    "temporal_kind":"OCCURRED",
+                                    "temporal_ref":"chapter:12",
+                                    "evidence":[{
+                                      "source_id":"chapter:12",
+                                      "source_type":"chapter",
+                                      "chapter_id":"chapter:12",
+                                      "lines":"120-144"
+                                    }]
+                                  }]
+                                }
+                                """.trimIndent(),
+                            )
+                        }
+                    }
 
                     "/api/app/writing-room/v2/world-map/revision/approve" -> {
                         val expected = body
@@ -243,6 +291,62 @@ class WorldMapApiTest {
 
         val status = session.worldMapStatus("prj_story").getOrThrow()
         assertEquals("wmr_1", status.active_revision_id)
+    }
+
+    @Test
+    fun presenceSerializesNarrativeEvidenceExplicitly() = runBlocking {
+        val session = session()
+        val draft = session.worldMapCreateRevision("prj_story").getOrThrow()
+        val placed = session.worldMapUpsertNode(
+            projectId = "prj_story",
+            revisionId = draft.revision.revision_id,
+            expectedVersion = draft.revision.version,
+            nodeId = "world:main",
+            nodeType = "WORLD",
+            name = "World",
+            x = 0.0,
+            y = 0.0,
+        ).getOrThrow()
+
+        val presence = session.worldMapUpsertPresence(
+            projectId = "prj_story",
+            revisionId = placed.revision.revision_id,
+            expectedVersion = placed.revision.version,
+            characterId = "character:alexander",
+            nodeId = "world:main",
+            temporalKind = "OCCURRED",
+            temporalRef = "chapter:12",
+            evidence = listOf(
+                WorldMapEvidence(
+                    source_id = "chapter:12",
+                    source_type = "chapter",
+                    chapter_id = "chapter:12",
+                    lines = "120-144",
+                ),
+            ),
+        ).getOrThrow()
+        assertEquals(
+            "chapter:12",
+            presence.character_presence.single().evidence.single().source_id,
+        )
+
+        repeat(2) { server.takeRequest() }
+        val request = server.takeRequest()
+        val body = json.parseToJsonElement(
+            request.body.readUtf8(),
+        ).jsonObject
+        val evidence = body["evidence"]!!
+            .jsonArray
+            .single()
+            .jsonObject
+        assertEquals(
+            "chapter",
+            evidence["source_type"]!!.jsonPrimitive.content,
+        )
+        assertEquals(
+            "chapter:12",
+            evidence["source_id"]!!.jsonPrimitive.content,
+        )
     }
 
     @Test
