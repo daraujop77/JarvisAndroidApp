@@ -25,6 +25,14 @@ import org.junit.Test
 
 class VisualStudioApiTest {
 
+    private fun <T> Result<T>.orThrowStage(stage: String): T =
+        getOrElse { error ->
+            throw AssertionError(
+                "$stage failed: ${error::class.simpleName}: ${error.message}",
+                error,
+            )
+        }
+
     private lateinit var server: MockWebServer
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -246,7 +254,7 @@ class VisualStudioApiTest {
             prompt = "Canonical Alexander portrait",
             kind = "PRIMARY_REFERENCE",
             perspective = "front",
-        ).getOrThrow()
+        ).orThrowStage("master generation")
         assertEquals("CANDIDATE", master.visual_asset?.status)
         assertEquals("stored", master.visual_asset?.storage?.state)
         assertEquals(0, master.reference_count)
@@ -256,7 +264,7 @@ class VisualStudioApiTest {
             "va_master",
             "A".repeat(64),
             visualRevision = 1,
-        ).getOrThrow()
+        ).orThrowStage("master exact approval")
         assertEquals("APPROVED", masterApproval.asset.status)
 
         val turnaround = session.generateVisualAssetImage(
@@ -266,7 +274,7 @@ class VisualStudioApiTest {
             kind = "IDENTITY_PACK",
             perspective = "left_profile",
             referencePerspectives = listOf("front"),
-        ).getOrThrow()
+        ).orThrowStage("turnaround generation")
         assertEquals("va_left", turnaround.visual_asset?.asset_id)
         assertEquals(1, turnaround.reference_count)
 
@@ -275,7 +283,7 @@ class VisualStudioApiTest {
             "va_left",
             "B".repeat(64),
             visualRevision = 1,
-        ).getOrThrow()
+        ).orThrowStage("turnaround exact approval")
         assertEquals("APPROVED", viewApproval.asset.status)
 
         val draft = session.visualReferencePackCreate(
@@ -283,7 +291,7 @@ class VisualStudioApiTest {
             "character:alexander",
             "va_master",
             "A".repeat(64),
-        ).getOrThrow()
+        ).orThrowStage("pack create")
         assertEquals("DRAFT", draft.pack.state)
 
         val slotted = session.visualReferencePackAddSlot(
@@ -292,26 +300,26 @@ class VisualStudioApiTest {
             "left_profile",
             "va_left",
             "B".repeat(64),
-        ).getOrThrow()
+        ).orThrowStage("pack slot add")
         assertEquals(1, slotted.pack.slots.size)
         assertTrue(slotted.pack.slots.single().required)
 
         val ready = session.visualReferencePackPrepare(
             "prj_story",
             "vrp_1",
-        ).getOrThrow()
+        ).orThrowStage("pack prepare")
         assertEquals("READY_FOR_APPROVAL", ready.pack.state)
 
         val approved = session.visualReferencePackApprove(
             "prj_story",
             "vrp_1",
-        ).getOrThrow()
+        ).orThrowStage("pack approve")
         assertEquals("APPROVED", approved.pack.state)
 
         val detail = session.visualCharacterDetail(
             "prj_story",
             "character:alexander",
-        ).getOrThrow()
+        ).orThrowStage("character detail restore")
         assertEquals("vrp_1", detail.active_reference_pack?.pack_id)
         assertEquals("va_master", detail.gallery?.primary?.asset_id)
         assertEquals("va_left", detail.gallery?.identity_pack?.single()?.asset_id)
