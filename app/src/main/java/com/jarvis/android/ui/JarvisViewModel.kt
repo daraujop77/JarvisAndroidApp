@@ -1887,6 +1887,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _worldMap = MutableStateFlow(WorldMapState())
     val worldMap: StateFlow<WorldMapState> = _worldMap
 
+    data class SceneBuilderState(
+        val projectId: String = "",
+        val busy: Boolean = false,
+        val context: VisualSceneContext? = null,
+        val notice: String? = null,
+        val error: String? = null,
+    )
+
+    private val _sceneBuilder = MutableStateFlow(SceneBuilderState())
+    val sceneBuilder: StateFlow<SceneBuilderState> = _sceneBuilder
+
     private fun resetVisualStudioProtectedMedia() {
         val ids = (
             _characterStudio.value.attachmentIds.values +
@@ -1896,6 +1907,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _characterStudio.value = CharacterStudioState()
         _locationStudio.value = LocationStudioState()
         _worldMap.value = WorldMapState()
+        _sceneBuilder.value = SceneBuilderState()
         _wikiVisualAttachments.value = emptyMap()
         deleteVisualStudioAttachments(ids)
     }
@@ -4274,6 +4286,99 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             )
         }
     }
+
+    fun clearSceneBuilderMessage() {
+        _sceneBuilder.value = _sceneBuilder.value.copy(
+            notice = null,
+            error = null,
+        )
+    }
+
+    fun clearSceneBuilderContext(projectId: String) {
+        _sceneBuilder.value = SceneBuilderState(projectId = projectId)
+    }
+
+    fun previewSceneVisualContext(
+        projectId: String,
+        chapterId: String,
+        sceneId: String,
+        expectedAggregateVersion: Int,
+        briefRevisionId: String,
+        draftRevisionId: String,
+        characterIds: List<String>,
+        locationId: String,
+        era: String = "",
+        state: String = "",
+        time: String = "",
+        weather: String = "",
+        composition: String = "",
+        instruction: String = "",
+    ) {
+        if (
+            projectId.isBlank() ||
+            chapterId.isBlank() ||
+            sceneId.isBlank() ||
+            expectedAggregateVersion < 1 ||
+            (briefRevisionId.isBlank() == draftRevisionId.isBlank()) ||
+            (characterIds.isEmpty() && locationId.isBlank())
+        ) {
+            _sceneBuilder.value = _sceneBuilder.value.copy(
+                projectId = projectId,
+                busy = false,
+                error = "Selecciona un capítulo con Brief/Draft y al menos un personaje o locación.",
+            )
+            return
+        }
+        _sceneBuilder.value = _sceneBuilder.value.copy(
+            projectId = projectId,
+            busy = true,
+            context = null,
+            notice = null,
+            error = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.visualSceneContextPreview(
+                projectId = projectId,
+                chapterId = chapterId,
+                sceneId = sceneId,
+                expectedAggregateVersion = expectedAggregateVersion,
+                briefRevisionId = briefRevisionId,
+                draftRevisionId = draftRevisionId,
+                characterIds = characterIds,
+                locationId = locationId,
+                era = era,
+                state = state,
+                time = time,
+                weather = weather,
+                composition = composition,
+                instruction = instruction,
+            ).fold(
+                onSuccess = { response ->
+                    if (_sceneBuilder.value.projectId != projectId) return@fold
+                    val context = response.context
+                    _sceneBuilder.value = _sceneBuilder.value.copy(
+                        busy = false,
+                        context = context,
+                        notice = if (context.generation_ready) {
+                            "Contexto congelado. Las referencias exactas están listas para generación."
+                        } else {
+                            "Contexto congelado, pero hay referencias que requieren selección explícita."
+                        },
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    if (_sceneBuilder.value.projectId != projectId) return@fold
+                    _sceneBuilder.value = _sceneBuilder.value.copy(
+                        busy = false,
+                        context = null,
+                        error = error.message ?: "No se pudo preparar el contexto visual de la escena.",
+                    )
+                },
+            )
+        }
+    }
+
 }
 
 private const val DEFAULT_CONTROL_PLANE_URL = "https://vps-8817149e.tail6eec63.ts.net:8443"

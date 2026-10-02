@@ -238,6 +238,104 @@ data class VisualStudioGeneratedImage(
     val visual_asset: VisualStudioAsset? = null,
 )
 
+
+@Serializable
+data class VisualSceneApplicability(
+    val status: String = "",
+    val reasons: List<String> = emptyList(),
+)
+
+@Serializable
+data class VisualSceneReference(
+    val asset_id: String = "",
+    val asset_sha256: String = "",
+    val role: String = "",
+    val authority: String = "",
+    val selection: String = "",
+    val kind: String = "",
+    val perspective: String = "",
+    val visual_revision: Int = 0,
+    val pack_id: String = "",
+    val pack_revision: Int = 0,
+    val applicability: VisualSceneApplicability = VisualSceneApplicability(),
+)
+
+@Serializable
+data class VisualSceneUnresolvedRole(
+    val role: String = "",
+    val reason: String = "",
+    val candidates: List<VisualSceneReference> = emptyList(),
+)
+
+@Serializable
+data class VisualSceneSelectionExplanation(
+    val role: String = "",
+    val asset_id: String = "",
+    val reason: String = "",
+    val authority: String = "",
+)
+
+@Serializable
+data class VisualSceneReferenceManifest(
+    val max_references: Int = 0,
+    val references: List<VisualSceneReference> = emptyList(),
+    val textual_fallback_roles: List<String> = emptyList(),
+    val unresolved_roles: List<VisualSceneUnresolvedRole> = emptyList(),
+    val selection_explanations: List<VisualSceneSelectionExplanation> = emptyList(),
+    val approval_policy: String = "",
+)
+
+@Serializable
+data class VisualSceneNarrativeBoundary(
+    val kind: String = "",
+    val revision_id: String = "",
+    val sha256: String = "",
+    val brief_revision_id: String = "",
+)
+
+@Serializable
+data class VisualSceneSourcePin(
+    val revision: String = "",
+    val snapshot_id: String = "",
+)
+
+@Serializable
+data class VisualSceneSelection(
+    val character_ids: List<String> = emptyList(),
+    val location_id: String = "",
+    val era: String = "",
+    val state: String = "",
+    val outfit_ids: Map<String, String> = emptyMap(),
+    val time: String = "",
+    val weather: String = "",
+    val composition: String = "",
+    val instruction: String = "",
+    val reference_perspectives: List<String> = emptyList(),
+)
+
+@Serializable
+data class VisualSceneContext(
+    val schema: String = "",
+    val context_id: String = "",
+    val context_hash: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val scene_id: String = "",
+    val aggregate_version: Int = 0,
+    val narrative_boundary: VisualSceneNarrativeBoundary = VisualSceneNarrativeBoundary(),
+    val source: VisualSceneSourcePin = VisualSceneSourcePin(),
+    val selection: VisualSceneSelection = VisualSceneSelection(),
+    val reference_manifest: VisualSceneReferenceManifest = VisualSceneReferenceManifest(),
+    val exploratory: Boolean = false,
+    val generation_ready: Boolean = false,
+)
+
+@Serializable
+data class VisualSceneContextResponse(
+    val schema: String = "",
+    val context: VisualSceneContext = VisualSceneContext(),
+)
+
 private suspend inline fun <reified T> JarvisAppSession.visualStudioPost(
     path: String,
     body: JsonObject,
@@ -830,3 +928,79 @@ suspend fun JarvisAppSession.editLocationVisualAssetImage(
         }
         reply
     }
+
+
+suspend fun JarvisAppSession.visualSceneContextPreview(
+    projectId: String,
+    chapterId: String,
+    sceneId: String,
+    expectedAggregateVersion: Int,
+    briefRevisionId: String = "",
+    draftRevisionId: String = "",
+    characterIds: List<String> = emptyList(),
+    locationId: String = "",
+    era: String = "",
+    state: String = "",
+    outfitIds: Map<String, String> = emptyMap(),
+    time: String = "",
+    weather: String = "",
+    composition: String = "",
+    instruction: String = "",
+    referencePerspectives: List<String> = emptyList(),
+    maxReferences: Int = 8,
+): Result<VisualSceneContextResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/scenes/context/preview",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("scene_id", sceneId)
+            put("expected_aggregate_version", expectedAggregateVersion)
+            if (briefRevisionId.isNotBlank()) put("brief_revision_id", briefRevisionId)
+            if (draftRevisionId.isNotBlank()) put("draft_revision_id", draftRevisionId)
+            put(
+                "character_ids",
+                buildJsonArray {
+                    characterIds.forEach { add(JsonPrimitive(it)) }
+                },
+            )
+            if (locationId.isNotBlank()) put("location_id", locationId)
+            if (era.isNotBlank()) put("era", era)
+            if (state.isNotBlank()) put("state", state)
+            put(
+                "outfit_ids",
+                buildJsonObject {
+                    outfitIds.forEach { (subjectId, outfitId) ->
+                        if (subjectId.isNotBlank() && outfitId.isNotBlank()) {
+                            put(subjectId, outfitId)
+                        }
+                    }
+                },
+            )
+            if (time.isNotBlank()) put("time", time)
+            if (weather.isNotBlank()) put("weather", weather)
+            if (composition.isNotBlank()) put("composition", composition)
+            if (instruction.isNotBlank()) put("instruction", instruction)
+            if (referencePerspectives.isNotEmpty()) {
+                put(
+                    "reference_perspectives",
+                    buildJsonArray {
+                        referencePerspectives.forEach { add(JsonPrimitive(it)) }
+                    },
+                )
+            }
+            put("max_references", maxReferences.coerceIn(1, 16))
+        },
+    )
+
+suspend fun JarvisAppSession.visualSceneContextGet(
+    projectId: String,
+    contextId: String,
+): Result<VisualSceneContextResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/scenes/context/get",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("context_id", contextId)
+        },
+    )
