@@ -42,6 +42,7 @@ fun DraftReviewScreen(
     onRunReview: () -> Unit,
     onPrepareApproval: () -> Unit,
     onApprove: () -> Unit,
+    onVisualizeScene: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (draft == null && approval == null) return
@@ -158,6 +159,15 @@ fun DraftReviewScreen(
                     enabled = !busy && stage == "BRIEF_APPROVED",
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (busy) "Procesando…" else "Generar borrador") }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onVisualizeScene,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Visualizar escena")
             }
         }
     }

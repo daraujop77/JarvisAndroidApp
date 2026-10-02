@@ -13,6 +13,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,11 +38,18 @@ fun VisualStudioScreen(
     projectId: String,
     characters: List<WritingWikiEntity>,
     locations: List<WritingWikiEntity>,
+    openScenesRequest: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val accents = LocalJarvisAccents.current
     var section by rememberSaveable(projectId) {
         mutableStateOf(VisualStudioSection.CHARACTERS)
+    }
+
+    LaunchedEffect(projectId, openScenesRequest) {
+        if (openScenesRequest > 0) {
+            section = VisualStudioSection.SCENES
+        }
     }
 
     Column(

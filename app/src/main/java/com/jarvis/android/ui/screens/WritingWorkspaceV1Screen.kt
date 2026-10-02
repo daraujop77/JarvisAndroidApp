@@ -158,6 +158,7 @@ fun WritingWorkspaceV1Screen(
     val strings = LocalAppStrings.current
     val state by vm.writingWorkspace.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(WorkspaceTab.OVERVIEW) }
+    var visualSceneOpenRequest by rememberSaveable(projectId) { mutableStateOf(0) }
 
     LaunchedEffect(projectId) {
         vm.refreshWritingWorkspace(projectId)
@@ -351,7 +352,15 @@ fun WritingWorkspaceV1Screen(
         Spacer(Modifier.height(4.dp))
         when (tab) {
             WorkspaceTab.OVERVIEW -> OverviewSection(state, projectId, vm)
-            WorkspaceTab.WRITE -> WriteSection(state, projectId, vm)
+            WorkspaceTab.WRITE -> WriteSection(
+                state = state,
+                projectId = projectId,
+                vm = vm,
+                onVisualizeScene = {
+                    visualSceneOpenRequest += 1
+                    tab = WorkspaceTab.VISUAL
+                },
+            )
             WorkspaceTab.CHAT -> ChatSection(state, projectId, title, vm)
             WorkspaceTab.PLAN -> PlanSection(state, projectId, vm)
             WorkspaceTab.CANON -> CanonSection(
@@ -366,6 +375,7 @@ fun WritingWorkspaceV1Screen(
                 projectId = projectId,
                 characters = state.wikiCharacters,
                 locations = state.wikiLocations,
+                openScenesRequest = visualSceneOpenRequest,
             )
             WorkspaceTab.WIKI -> WikiSection(
                 state = state,
@@ -1011,6 +1021,7 @@ private fun WriteSection(
     state: JarvisViewModel.WritingWorkspaceState,
     projectId: String,
     vm: JarvisViewModel,
+    onVisualizeScene: () -> Unit,
 ) {
     var selectedChapterTitle by rememberSaveable { mutableStateOf("") }
     var chapterBrief by rememberSaveable { mutableStateOf("") }
@@ -1132,6 +1143,7 @@ private fun WriteSection(
                     onRunReview = { vm.reviewPersistentWritingDraft(projectId) },
                     onPrepareApproval = { vm.preparePersistentWritingApproval(projectId) },
                     onApprove = { vm.approvePersistentWritingChapter(projectId) },
+                    onVisualizeScene = onVisualizeScene,
                 )
             }
         }
