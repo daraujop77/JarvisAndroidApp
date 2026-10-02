@@ -1848,6 +1848,181 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun generateVisualMasterCandidate(
+        projectId: String,
+        characterId: String,
+        characterName: String,
+        prompt: String,
+        mode: String = "quality",
+        model: String? = null,
+    ) {
+        val project = projectId.trim()
+        val character = characterId.trim()
+        val cleanPrompt = prompt.trim()
+        if (
+            project.isEmpty() ||
+            character.isEmpty() ||
+            cleanPrompt.isEmpty() ||
+            _visualCharacterStudio.value.busy
+        ) return
+        _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+            projectId = project,
+            characterId = character,
+            busy = true,
+            candidate = null,
+            pendingAssetId = null,
+            pendingAttachmentId = null,
+            message = null,
+            error = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.generateImage(
+                prompt = cleanPrompt,
+                mode = mode,
+                model = model,
+                visualAsset = JarvisAppSession.ImageVisualAssetRequest(
+                    projectId = project,
+                    kind = "PRIMARY_REFERENCE",
+                    characterIds = listOf(character),
+                    perspective = "front",
+                    surface = "character_creator",
+                    alt = "Referencia visual candidata de " +
+                        characterName.ifBlank { character.substringAfter(":") },
+                ),
+            ).fold(
+                onSuccess = { reply ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
+                    }
+                    val candidate = reply.visualAsset
+                    if (staged == null || candidate == null) {
+                        _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                            busy = false,
+                            error = "La generación terminó, pero no devolvió un candidato visual durable.",
+                        )
+                        return@fold
+                    }
+                    _wikiVisualAttachments.update {
+                        it + (candidate.asset_id to staged.attachmentId)
+                    }
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        candidate = candidate,
+                        pendingAssetId = candidate.asset_id,
+                        pendingAttachmentId = staged.attachmentId,
+                        pendingMimeType = reply.mimeType,
+                        message = if (reply.storageRetryRequired) {
+                            "La imagen fue generada una sola vez. Drive quedó pendiente; usa Reintentar storage sin regenerar."
+                        } else {
+                            "Candidato cloud guardado. Revisa la imagen antes de aprobarla."
+                        },
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        error = error.message ?: "No se pudo generar el master visual.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun generateVisualPackSlotCandidate(
+        slotKey: String,
+        perspective: String,
+        characterName: String,
+        required: Boolean = true,
+        mode: String = "quality",
+        model: String? = null,
+    ) {
+        val state = _visualCharacterStudio.value
+        val projectId = state.projectId ?: return
+        val characterId = state.characterId ?: return
+        val draftPack = state.detail?.reference_packs
+            ?.filter { it.state == "DRAFT" }
+            ?.maxByOrNull { it.revision }
+            ?: return
+        if (state.busy || slotKey.isBlank() || perspective.isBlank()) return
+
+        val label = perspective.replace("_", " ")
+        val prompt = buildString {
+            append("Canonical character turnaround for ")
+            append(characterName.ifBlank { characterId.substringAfter(":") })
+            append(", ")
+            append(label)
+            append(". Preserve the exact approved identity, face, hair, age, body proportions, ")
+            append("distinctive features and canonical outfit. Neutral studio background, full-body ")
+            append("character reference, consistent lighting, no text, no redesign.")
+        }
+        _visualCharacterStudio.value = state.copy(
+            busy = true,
+            message = null,
+            error = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.generateImage(
+                prompt = prompt,
+                mode = mode,
+                model = model,
+                visualAsset = JarvisAppSession.ImageVisualAssetRequest(
+                    projectId = projectId,
+                    kind = "IDENTITY_PACK",
+                    characterIds = listOf(characterId),
+                    perspective = perspective,
+                    surface = "character_creator",
+                    alt = label + " de " + characterName.ifBlank { characterId.substringAfter(":") },
+                ),
+            ).fold(
+                onSuccess = { reply ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
+                    }
+                    val candidate = reply.visualAsset
+                    if (staged == null || candidate == null) {
+                        _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                            busy = false,
+                            error = "La vista fue generada, pero no devolvió un candidato visual durable.",
+                        )
+                        return@fold
+                    }
+                    val pending = VisualPendingUpload(
+                        slotKey = slotKey,
+                        perspective = perspective,
+                        required = required,
+                        assetId = candidate.asset_id,
+                        attachmentId = staged.attachmentId,
+                        mimeType = reply.mimeType,
+                    )
+                    _wikiVisualAttachments.update {
+                        it + (candidate.asset_id to staged.attachmentId)
+                    }
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        viewCandidates = _visualCharacterStudio.value.viewCandidates +
+                            (slotKey to candidate),
+                        pendingViewUploads = _visualCharacterStudio.value.pendingViewUploads +
+                            (slotKey to pending),
+                        message = if (reply.storageRetryRequired) {
+                            "La vista " + label +
+                                " se generó una sola vez. Drive quedó pendiente; reintenta storage sin regenerar."
+                        } else {
+                            "Vista " + label + " guardada como candidata. Falta aprobación humana."
+                        },
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    _visualCharacterStudio.value = _visualCharacterStudio.value.copy(
+                        busy = false,
+                        error = error.message ?: "No se pudo generar la vista " + label + ".",
+                    )
+                },
+            )
+        }
+    }
+
     fun stageVisualMasterFromUri(
         uri: Uri,
         projectId: String,
