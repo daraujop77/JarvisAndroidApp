@@ -89,6 +89,13 @@ fun WorldMapScreen(
     var parentNodeId by rememberSaveable(projectId) { mutableStateOf("") }
     var locationId by rememberSaveable(projectId) { mutableStateOf("") }
 
+    var presenceCharacterId by rememberSaveable(projectId) { mutableStateOf("") }
+    var presenceNodeId by rememberSaveable(projectId) { mutableStateOf("") }
+    var presenceTemporalKind by rememberSaveable(projectId) { mutableStateOf("OCCURRED") }
+    var presenceTemporalRef by rememberSaveable(projectId) { mutableStateOf("") }
+    var presenceEvidenceSource by rememberSaveable(projectId) { mutableStateOf("") }
+    var presenceEvidenceLines by rememberSaveable(projectId) { mutableStateOf("") }
+
     LaunchedEffect(projectId) {
         vm.openWorldMap(projectId)
     }
@@ -462,6 +469,180 @@ fun WorldMapScreen(
                 }
             }
 
+            if (draft && settings.isOwner && map.nodes.isNotEmpty()) {
+                item {
+                    WorldMapPanel("PRESENCIA DE PERSONAJES", JarvisCyan) {
+                        Text(
+                            "La presencia requiere tiempo y evidencia narrativa explícita. Una imagen nunca cuenta como evidencia.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF94A3B8),
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Personaje",
+                            style = HudTextStyle,
+                            color = Color(0xFF94A3B8),
+                        )
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            characters
+                                .filter { it.id.isNotBlank() }
+                                .distinctBy { it.id }
+                                .sortedBy { it.name.lowercase() }
+                                .forEach { character ->
+                                    FilterChip(
+                                        selected = presenceCharacterId == character.id,
+                                        onClick = {
+                                            presenceCharacterId = character.id
+                                        },
+                                        label = {
+                                            Text(
+                                                character.canonical_name.ifBlank {
+                                                    character.name.ifBlank { character.id }
+                                                },
+                                            )
+                                        },
+                                    )
+                                }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Nodo",
+                            style = HudTextStyle,
+                            color = Color(0xFF94A3B8),
+                        )
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            map.nodes
+                                .sortedBy { it.name.lowercase() }
+                                .forEach { node ->
+                                    FilterChip(
+                                        selected = presenceNodeId == node.node_id,
+                                        onClick = {
+                                            presenceNodeId = node.node_id
+                                        },
+                                        label = { Text(node.name) },
+                                    )
+                                }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            listOf(
+                                "OCCURRED" to "Ocurrido",
+                                "FUTURE" to "Futuro",
+                                "UNKNOWN" to "Sin fecha",
+                            ).forEach { (id, label) ->
+                                FilterChip(
+                                    selected = presenceTemporalKind == id,
+                                    onClick = {
+                                        presenceTemporalKind = id
+                                        if (id == "UNKNOWN") {
+                                            presenceTemporalRef = ""
+                                        }
+                                    },
+                                    label = { Text(label) },
+                                )
+                            }
+                        }
+
+                        if (presenceTemporalKind != "UNKNOWN") {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = presenceTemporalRef,
+                                onValueChange = {
+                                    if (it.length <= 160) {
+                                        presenceTemporalRef = it
+                                    }
+                                },
+                                label = {
+                                    Text("Referencia temporal, ej. chapter:12")
+                                },
+                                singleLine = true,
+                                colors = jarvisTextFieldColors(),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = presenceEvidenceSource,
+                            onValueChange = {
+                                if (it.length <= 240) {
+                                    presenceEvidenceSource = it
+                                }
+                            },
+                            label = {
+                                Text("Fuente narrativa, ej. chapter:12")
+                            },
+                            singleLine = true,
+                            colors = jarvisTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = presenceEvidenceLines,
+                            onValueChange = {
+                                if (it.length <= 120) {
+                                    presenceEvidenceLines = it
+                                }
+                            },
+                            label = { Text("Líneas/sección (opcional)") },
+                            singleLine = true,
+                            colors = jarvisTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(9.dp))
+                        Button(
+                            onClick = {
+                                vm.upsertWorldMapPresence(
+                                    projectId = projectId,
+                                    characterId = presenceCharacterId,
+                                    nodeId = presenceNodeId,
+                                    temporalKind = presenceTemporalKind,
+                                    temporalRef = presenceTemporalRef,
+                                    evidenceSourceId = presenceEvidenceSource,
+                                    evidenceSourceType = "chapter",
+                                    evidenceLines = presenceEvidenceLines,
+                                )
+                                presenceEvidenceLines = ""
+                            },
+                            enabled = (
+                                !state.busy &&
+                                    presenceCharacterId.isNotBlank() &&
+                                    presenceNodeId.isNotBlank() &&
+                                    presenceEvidenceSource.isNotBlank() &&
+                                    (
+                                        presenceTemporalKind == "UNKNOWN" ||
+                                            presenceTemporalRef.isNotBlank()
+                                    )
+                                ),
+                        ) {
+                            Icon(
+                                Icons.Filled.AddLocationAlt,
+                                contentDescription = null,
+                            )
+                            Text(" Guardar presencia")
+                        }
+                    }
+                }
+            }
+
             if (map.character_presence.isNotEmpty()) {
                 item {
                     Text(
@@ -479,6 +660,13 @@ fun WorldMapScreen(
                         node = map.nodes.firstOrNull { it.node_id == item.node_id },
                         characterLabel = characterNames[item.character_id]
                             ?: item.character_id,
+                        canDelete = draft && settings.isOwner && !state.busy,
+                        onDelete = {
+                            vm.removeWorldMapPresence(
+                                projectId,
+                                item.presence_id,
+                            )
+                        },
                     )
                 }
             }
@@ -702,6 +890,8 @@ private fun WorldPresenceCard(
     item: WorldMapCharacterPresence,
     node: WorldMapNode?,
     characterLabel: String,
+    canDelete: Boolean,
+    onDelete: () -> Unit,
 ) {
     val accent = when (item.temporal_kind) {
         "FUTURE" -> JarvisViolet
@@ -736,6 +926,16 @@ private fun WorldPresenceCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFF94A3B8),
                 )
+            }
+            if (canDelete) {
+                TextButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Filled.DeleteOutline,
+                        contentDescription = null,
+                        tint = JarvisRed,
+                    )
+                    Text(" Quitar del DRAFT", color = JarvisRed)
+                }
             }
         }
     }
