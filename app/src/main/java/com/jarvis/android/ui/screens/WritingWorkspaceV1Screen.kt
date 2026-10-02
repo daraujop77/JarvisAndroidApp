@@ -132,6 +132,7 @@ import com.jarvis.android.ui.theme.JarvisRed
 import com.jarvis.android.ui.theme.JarvisViolet
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.ui.writing.DraftReviewScreen
 import com.jarvis.android.ui.writing.findStructuredCharacterByReference
 import com.jarvis.android.ui.writing.mergeStructuredCharacters
 import com.jarvis.android.ui.writing.searchStructuredCharacters
@@ -1111,6 +1112,23 @@ private fun WriteSection(
             }
         }
 
+        if (
+            persistentPlanningActive &&
+            (state.draftV2 != null || state.approvalV2 != null)
+        ) {
+            item {
+                DraftReviewScreen(
+                    draft = state.draftV2,
+                    approval = state.approvalV2,
+                    busy = state.busy,
+                    onRunDraft = { vm.runPersistentWritingDraft(projectId) },
+                    onRunReview = { vm.reviewPersistentWritingDraft(projectId) },
+                    onPrepareApproval = { vm.preparePersistentWritingApproval(projectId) },
+                    onApprove = { vm.approvePersistentWritingChapter(projectId) },
+                )
+            }
+        }
+
         // Legacy sessions remain readable/editable, but new planning uses the
         // versioned persistent W1 contract above.
         if (active != null && active.title == "Nuevo capítulo" && !persistentPlanningActive) {
@@ -1277,7 +1295,9 @@ private fun WriteSection(
                                 }
                                 Button(
                                     onClick = { vm.saveWritingChapterDraft(projectId, active.chapter_id, draft) },
-                                    enabled = !state.busy,
+                                    enabled = !state.busy &&
+                                        draft != active.draft_text &&
+                                        state.approvalV2?.aggregate?.chapter_stage != "APPROVED",
                                     colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = Color(0xFF02101F)),
                                 ) {
                                     Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1289,25 +1309,28 @@ private fun WriteSection(
 
                         Spacer(Modifier.height(10.dp))
 
-                        // Botones de acción del flujo narrativo de IA
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            OutlinedButton(
-                                onClick = { vm.runWritingChapterStep(projectId, active.chapter_id, "showrunner") },
-                                enabled = !state.busy,
-                            ) { Text("Ver Brief") }
-                            OutlinedButton(
-                                onClick = { vm.runWritingChapterStep(projectId, active.chapter_id, "write") },
-                                enabled = !state.busy,
-                            ) { Text("Borrador IA") }
-                            OutlinedButton(
-                                onClick = { vm.runWritingChapterStep(projectId, active.chapter_id, "review") },
-                                enabled = !state.busy,
-                            ) { Text("Auditar Continuidad") }
+                        // Los capítulos W1/W2 usan únicamente el flujo durable versionado.
+                        // Los botones heredados se conservan sólo para sesiones legacy.
+                        if (!persistentPlanningActive) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                OutlinedButton(
+                                    onClick = { vm.runWritingChapterStep(projectId, active.chapter_id, "showrunner") },
+                                    enabled = !state.busy,
+                                ) { Text("Ver Brief") }
+                                OutlinedButton(
+                                    onClick = { vm.runWritingChapterStep(projectId, active.chapter_id, "write") },
+                                    enabled = !state.busy,
+                                ) { Text("Borrador IA") }
+                                OutlinedButton(
+                                    onClick = { vm.runWritingChapterStep(projectId, active.chapter_id, "review") },
+                                    enabled = !state.busy,
+                                ) { Text("Auditar Continuidad") }
+                            }
                         }
                     }
                 }
@@ -1317,6 +1340,7 @@ private fun WriteSection(
                 OutlinedTextField(
                     value = draft,
                     onValueChange = { draft = it },
+                    enabled = state.approvalV2?.aggregate?.chapter_stage != "APPROVED",
                     label = { Text("Borrador del manuscrito") },
                     placeholder = { Text("Escribe o perfecciona el texto de la escena aquí...") },
                     minLines = 14,
@@ -1945,7 +1969,7 @@ private fun PersistentPlanningCard(
                         }
                         Spacer(Modifier.height(7.dp))
                         Text(
-                            "Se guardó un único intent de borrador. La redacción automática sigue desactivada hasta W2; esta pantalla no simula que el capítulo ya fue escrito.",
+                            "El Brief quedó fijado. W2 redacta, revisa y recupera el borrador de forma durable sin volver a generar pasos ya completados.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFCBD5E1),
                         )

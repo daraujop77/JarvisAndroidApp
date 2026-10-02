@@ -214,6 +214,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val planningV2AggregateVersion: Int = 0,
         val planningV2Turns: List<WritingPlanningTurnItem> = emptyList(),
         val planningV2Direction: WritingDirectionStateResult? = null,
+        val draftV2: WritingDraftExecutionResult? = null,
+        val approvalV2: WritingApprovalStateResult? = null,
         val chapters: List<WritingChapterSummary> = emptyList(),
         val activeChapter: WritingChapter? = null,
         val chapterRevisions: List<WritingChapterRevisionSummary> = emptyList(),
@@ -270,6 +272,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 planningV2AggregateVersion = 0,
                 planningV2Turns = emptyList(),
                 planningV2Direction = null,
+                draftV2 = null,
+                approvalV2 = null,
             )
         }
         writingWorkspaceBusy("Loading workspace")
@@ -1044,14 +1048,41 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 return@launch
             }
             val result = approved.getOrThrow().result
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = true,
+                busyLabel = "WRITER · REDACTANDO CAPÍTULO",
+                planningV2AggregateVersion = result.aggregate_version,
+                planningV2Direction = result,
+                draftV2 = null,
+                approvalV2 = null,
+                error = null,
+            )
+            val drafted = container.liveSession.writingRoomDraftRun(
+                projectId = projectId,
+                chapterId = chapterId,
+            )
+            if (drafted.isFailure) {
+                writingWorkspaceError(drafted.exceptionOrNull())
+                return@launch
+            }
+            val draftResult = drafted.getOrThrow().result
+            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
             val list = container.liveSession.writingRoomChapterList(projectId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = false,
                 busyLabel = "",
-                planningV2AggregateVersion = result.aggregate_version,
-                planningV2Direction = result,
+                planningV2AggregateVersion = draftResult.aggregate.version,
+                planningV2Direction = draftResult.direction,
+                draftV2 = draftResult,
+                approvalV2 = approval.getOrNull()?.result,
+                activeChapter = draftResult.chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
                 chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
-                error = list.exceptionOrNull()?.message,
+                error = approval.exceptionOrNull()?.message
+                    ?: revisions.exceptionOrNull()?.message
+                    ?: list.exceptionOrNull()?.message,
             )
         }
     }
@@ -1085,6 +1116,233 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             planningV2Direction = direction.getOrNull()?.result,
             error = direction.exceptionOrNull()?.message,
         )
+    }
+
+
+    private suspend fun restorePersistentDraftIfPresent(
+        projectId: String,
+        chapterId: String,
+    ) {
+        val draft = container.liveSession.writingRoomDraftStatus(projectId, chapterId)
+        if (draft.isFailure) {
+            if (_writingWorkspace.value.draftV2?.chapter_id == chapterId) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    draftV2 = null,
+                    approvalV2 = null,
+                )
+            }
+            return
+        }
+        val draftResult = draft.getOrThrow().result
+        val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            planningV2AggregateVersion = maxOf(
+                _writingWorkspace.value.planningV2AggregateVersion,
+                draftResult.aggregate.version,
+            ),
+            planningV2Direction = draftResult.direction,
+            draftV2 = draftResult,
+            approvalV2 = approval.getOrNull()?.result,
+            activeChapter = draftResult.chapter,
+            error = approval.exceptionOrNull()?.message,
+        )
+    }
+
+    fun runPersistentWritingDraft(projectId: String) {
+        val current = _writingWorkspace.value
+        val chapterId = current.planningV2ChapterId ?: current.activeChapter?.chapter_id ?: return
+        writingWorkspaceBusy("WRITER · REDACTANDO CAPÍTULO")
+        viewModelScope.launch {
+            val drafted = container.liveSession.writingRoomDraftRun(projectId, chapterId)
+            if (drafted.isFailure) {
+                writingWorkspaceError(drafted.exceptionOrNull())
+                return@launch
+            }
+            val result = drafted.getOrThrow().result
+            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate.version,
+                planningV2Direction = result.direction,
+                draftV2 = result,
+                approvalV2 = approval.getOrNull()?.result,
+                activeChapter = result.chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                error = approval.exceptionOrNull()?.message ?: revisions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun reviewPersistentWritingDraft(projectId: String) {
+        val current = _writingWorkspace.value
+        val chapterId = current.draftV2?.chapter_id ?: current.activeChapter?.chapter_id ?: return
+        writingWorkspaceBusy("REVIEWER + CANON KEEPER · REVISANDO")
+        viewModelScope.launch {
+            val reviewed = container.liveSession.writingRoomDraftReviewRun(projectId, chapterId)
+            if (reviewed.isFailure) {
+                writingWorkspaceError(reviewed.exceptionOrNull())
+                return@launch
+            }
+            val result = reviewed.getOrThrow().result
+            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate.version,
+                planningV2Direction = result.direction,
+                draftV2 = result,
+                approvalV2 = approval.getOrNull()?.result,
+                activeChapter = result.chapter,
+                error = approval.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun savePersistentWritingRevision(projectId: String, draftText: String) {
+        val current = _writingWorkspace.value
+        val draftState = current.draftV2 ?: return
+        val chapterId = draftState.chapter_id
+        if (draftText.isBlank() || draftText == draftState.chapter.draft_text) return
+        writingWorkspaceBusy("GUARDANDO REVISIÓN INMUTABLE")
+        viewModelScope.launch {
+            val revised = container.liveSession.writingRoomDraftRevise(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = draftState.aggregate.version,
+                idempotencyKey = "android-w2-revise-" + java.util.UUID.randomUUID().toString(),
+                draftText = draftText,
+            )
+            if (revised.isFailure) {
+                writingWorkspaceError(revised.exceptionOrNull())
+                return@launch
+            }
+            val result = revised.getOrThrow().result
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate.version,
+                planningV2Direction = result.direction,
+                draftV2 = result,
+                approvalV2 = null,
+                activeChapter = result.chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                error = revisions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun restorePersistentWritingRevision(projectId: String, revisionId: String) {
+        val current = _writingWorkspace.value
+        val draftState = current.draftV2 ?: return
+        val chapterId = draftState.chapter_id
+        writingWorkspaceBusy("RESTAURANDO COMO NUEVA REVISIÓN")
+        viewModelScope.launch {
+            val restored = container.liveSession.writingRoomDraftRestore(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = draftState.aggregate.version,
+                idempotencyKey = "android-w2-restore-" + java.util.UUID.randomUUID().toString(),
+                revisionId = revisionId,
+            )
+            if (restored.isFailure) {
+                writingWorkspaceError(restored.exceptionOrNull())
+                return@launch
+            }
+            val result = restored.getOrThrow().result
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate.version,
+                planningV2Direction = result.direction,
+                draftV2 = result,
+                approvalV2 = null,
+                activeChapter = result.chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                error = revisions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun preparePersistentWritingApproval(projectId: String) {
+        val current = _writingWorkspace.value
+        val draftState = current.draftV2 ?: return
+        val chapterId = draftState.chapter_id
+        writingWorkspaceBusy("CANON KEEPER · PREPARANDO CANONDIFF")
+        viewModelScope.launch {
+            val prepared = container.liveSession.writingRoomApprovalPrepare(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = draftState.aggregate.version,
+                idempotencyKey = "android-w2-canon-diff-" + java.util.UUID.randomUUID().toString(),
+            )
+            prepared.fold(
+                onSuccess = { response ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        planningV2AggregateVersion = response.result.aggregate.version,
+                        planningV2Direction = response.result.direction,
+                        approvalV2 = response.result,
+                        activeChapter = response.result.chapter,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun approvePersistentWritingChapter(projectId: String) {
+        val current = _writingWorkspace.value
+        val approval = current.approvalV2 ?: return
+        val diff = approval.canon_diff ?: return
+        val brief = approval.direction.brief ?: return
+        val revisionId = approval.aggregate.current_draft_revision_id
+        if (
+            !approval.approval_ready ||
+            revisionId.isBlank() ||
+            diff.draft_sha256.isBlank() ||
+            approval.ready_review_ids.isEmpty()
+        ) return
+
+        writingWorkspaceBusy("APROBANDO TEXTO + CANONDIFF")
+        viewModelScope.launch {
+            val approved = container.liveSession.writingRoomApprovalFinal(
+                projectId = projectId,
+                chapterId = approval.chapter_id,
+                expectedVersion = approval.aggregate.version,
+                idempotencyKey = "android-w2-final-approve-" + java.util.UUID.randomUUID().toString(),
+                revisionId = revisionId,
+                draftSha256 = diff.draft_sha256,
+                briefRevisionId = brief.brief_revision_id,
+                reviewIds = approval.ready_review_ids,
+                canonDiffId = diff.canon_diff_id,
+                canonDiffHash = diff.diff_hash,
+            )
+            approved.fold(
+                onSuccess = { response ->
+                    val list = container.liveSession.writingRoomChapterList(projectId)
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        planningV2AggregateVersion = response.result.aggregate.version,
+                        planningV2Direction = response.result.direction,
+                        approvalV2 = response.result,
+                        activeChapter = response.result.chapter,
+                        chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                        error = list.exceptionOrNull()?.message,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
     }
 
     fun startWritingChapter(
@@ -1263,6 +1521,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 error = revisions.exceptionOrNull()?.message,
             )
             restorePersistentPlanningIfPresent(projectId, chapterId)
+            restorePersistentDraftIfPresent(projectId, chapterId)
         }
     }
 
@@ -1289,6 +1548,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun restoreWritingChapterRevision(projectId: String, chapterId: String, revisionId: String) {
+        if (_writingWorkspace.value.draftV2?.chapter_id == chapterId) {
+            restorePersistentWritingRevision(projectId, revisionId)
+            return
+        }
         writingWorkspaceBusy("RESTAURANDO VERSIÓN")
         viewModelScope.launch {
             val restored = container.liveSession.writingRoomChapterRevisionRestore(
@@ -1316,6 +1579,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun saveWritingChapterDraft(projectId: String, chapterId: String, draftText: String) {
+        if (_writingWorkspace.value.draftV2?.chapter_id == chapterId) {
+            savePersistentWritingRevision(projectId, draftText)
+            return
+        }
         writingWorkspaceBusy("GUARDANDO NUEVA VERSIÓN")
         viewModelScope.launch {
             val result = container.liveSession.writingRoomSaveDraft(projectId, chapterId, draftText)

@@ -569,6 +569,186 @@ data class WritingDirectionStateResponse(
     val result: WritingDirectionStateResult = WritingDirectionStateResult(),
 )
 
+
+@Serializable
+data class WritingV2AggregateState(
+    val version: Int = 0,
+    val chapter_stage: String = "",
+    val publication_state: String = "",
+    val current_brief_id: String = "",
+    val current_draft_revision_id: String = "",
+    val current_canon_diff_id: String = "",
+)
+
+@Serializable
+data class WritingV2JobStep(
+    val step_id: String = "",
+    val sequence: Int = 0,
+    val state: String = "",
+    val provider_request_id: String = "",
+    val error_code: String = "",
+)
+
+@Serializable
+data class WritingV2Job(
+    val job_id: String = "",
+    val chapter_id: String = "",
+    val operation: String = "",
+    val target_revision_id: String = "",
+    val status: String = "",
+    val error_code: String = "",
+    val progress_sequence: Int = 0,
+    val attempt_count: Int = 0,
+    val payload: JsonObject = JsonObject(emptyMap()),
+    val steps: List<WritingV2JobStep> = emptyList(),
+)
+
+@Serializable
+data class WritingDraftReviewEvidence(
+    val source_ref: String? = null,
+    val excerpt: String? = null,
+)
+
+@Serializable
+data class WritingDraftReviewFinding(
+    val message: String = "",
+    val category: String = "",
+    val severity: String = "",
+    val suggestions: List<String> = emptyList(),
+    val evidence: List<WritingDraftReviewEvidence> = emptyList(),
+)
+
+@Serializable
+data class WritingDraftReviewPayload(
+    val schema: String = "",
+    val review_kind: String = "",
+    val validation_status: String = "",
+    val status: String = "",
+    val summary: String = "",
+    val findings: List<WritingDraftReviewFinding> = emptyList(),
+)
+
+@Serializable
+data class WritingDraftReviewRecord(
+    val review_id: String = "",
+    val revision_id: String = "",
+    val draft_sha256: String = "",
+    val brief_revision_id: String = "",
+    val context_hash: String = "",
+    val review_version: Int = 0,
+    val review_kind: String = "",
+    val validation_status: String = "",
+    val review_hash: String = "",
+    val payload: WritingDraftReviewPayload = WritingDraftReviewPayload(),
+    val created_by: String = "",
+    val created_utc: String = "",
+)
+
+@Serializable
+data class WritingDraftExecutionResult(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val job: WritingV2Job = WritingV2Job(),
+    val direction: WritingDirectionStateResult = WritingDirectionStateResult(),
+    val aggregate: WritingV2AggregateState = WritingV2AggregateState(),
+    val review_job: WritingV2Job? = null,
+    val reviews: List<WritingDraftReviewRecord> = emptyList(),
+    val chapter: WritingChapter = WritingChapter(),
+)
+
+@Serializable
+data class WritingDraftExecutionResponse(
+    val schema: String = "",
+    val operation: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val result: WritingDraftExecutionResult = WritingDraftExecutionResult(),
+)
+
+@Serializable
+data class WritingCanonDiffChange(
+    val kind: String = "",
+    val subject: String = "",
+    val statement: String = "",
+    val draft_excerpt: String = "",
+    val source_refs: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingCanonDiffBlockingIssue(
+    val message: String = "",
+    val source_ref: String = "",
+    val source_excerpt: String = "",
+)
+
+@Serializable
+data class WritingCanonDiffPayload(
+    val schema: String = "",
+    val revision_id: String = "",
+    val summary: String = "",
+    val changes: List<WritingCanonDiffChange> = emptyList(),
+    val blocking_issues: List<WritingCanonDiffBlockingIssue> = emptyList(),
+    val warnings: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingCanonDiffRecord(
+    val canon_diff_id: String = "",
+    val revision_id: String = "",
+    val draft_sha256: String = "",
+    val brief_revision_id: String = "",
+    val context_hash: String = "",
+    val source_revision: String = "",
+    val diff_hash: String = "",
+    val payload: WritingCanonDiffPayload = WritingCanonDiffPayload(),
+    val created_by: String = "",
+    val created_utc: String = "",
+)
+
+@Serializable
+data class WritingApprovalRecord(
+    val approval_id: String = "",
+    val approval_type: String = "",
+    val target_revision_id: String = "",
+    val draft_revision_id: String = "",
+    val draft_sha256: String = "",
+    val brief_revision_id: String = "",
+    val canon_diff_id: String = "",
+    val canon_diff_hash: String = "",
+    val review_ids: List<String> = emptyList(),
+    val approved_by: String = "",
+    val expected_source_revision: String = "",
+    val idempotency_key: String = "",
+    val created_utc: String = "",
+)
+
+@Serializable
+data class WritingApprovalStateResult(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val aggregate: WritingV2AggregateState = WritingV2AggregateState(),
+    val direction: WritingDirectionStateResult = WritingDirectionStateResult(),
+    val chapter: WritingChapter = WritingChapter(),
+    val reviews: List<WritingDraftReviewRecord> = emptyList(),
+    val review_job: WritingV2Job? = null,
+    val canon_diff: WritingCanonDiffRecord? = null,
+    val ready_review_ids: List<String> = emptyList(),
+    val approvals: List<WritingApprovalRecord> = emptyList(),
+    val publish_job: WritingV2Job? = null,
+    val approval_ready: Boolean = false,
+)
+
+@Serializable
+data class WritingApprovalStateResponse(
+    val schema: String = "",
+    val operation: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val result: WritingApprovalStateResult = WritingApprovalStateResult(),
+)
+
 @Serializable
 data class WritingAuthorIntent(
     val objective: String = "",
@@ -634,6 +814,10 @@ data class WritingChapterRevision(
     val restored_from_revision_id: String = "",
     val context_pack_id: String = "",
     val created_utc: String = "",
+    val draft_sha256: String = "",
+    val brief_revision_id: String = "",
+    val parent_revision_id: String = "",
+    val schema_version: String = "",
 )
 
 @Serializable
@@ -1332,6 +1516,150 @@ suspend fun JarvisAppSession.writingRoomDirectionApprove(
                 }
             })
             put("selected_title", selectedTitle.trim())
+        },
+    )
+
+
+suspend fun JarvisAppSession.writingRoomDraftStatus(
+    projectId: String,
+    chapterId: String,
+): Result<WritingDraftExecutionResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/draft/status",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.draft-status.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomDraftRun(
+    projectId: String,
+    chapterId: String,
+): Result<WritingDraftExecutionResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/draft/run",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.draft-run.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomDraftRevise(
+    projectId: String,
+    chapterId: String,
+    expectedVersion: Int,
+    idempotencyKey: String,
+    draftText: String,
+): Result<WritingDraftExecutionResponse> {
+    if (draftText.isBlank()) return Result.failure(TransportException("Draft text is empty"))
+    return writingPost(
+        "/api/app/writing-room/v2/draft/revise",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.draft-revise.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("expected_version", expectedVersion)
+            put("idempotency_key", idempotencyKey)
+            put("draft_text", draftText)
+        },
+    )
+}
+
+suspend fun JarvisAppSession.writingRoomDraftRestore(
+    projectId: String,
+    chapterId: String,
+    expectedVersion: Int,
+    idempotencyKey: String,
+    revisionId: String,
+): Result<WritingDraftExecutionResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/draft/restore",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.draft-restore.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("expected_version", expectedVersion)
+            put("idempotency_key", idempotencyKey)
+            put("revision_id", revisionId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomDraftReviewRun(
+    projectId: String,
+    chapterId: String,
+): Result<WritingDraftExecutionResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/draft/review/run",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.draft-review-run.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomApprovalStatus(
+    projectId: String,
+    chapterId: String,
+): Result<WritingApprovalStateResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/approval/status",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.approval-status.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomApprovalPrepare(
+    projectId: String,
+    chapterId: String,
+    expectedVersion: Int,
+    idempotencyKey: String,
+): Result<WritingApprovalStateResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/approval/prepare",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.approval-prepare.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("expected_version", expectedVersion)
+            put("idempotency_key", idempotencyKey)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomApprovalFinal(
+    projectId: String,
+    chapterId: String,
+    expectedVersion: Int,
+    idempotencyKey: String,
+    revisionId: String,
+    draftSha256: String,
+    briefRevisionId: String,
+    reviewIds: List<String>,
+    canonDiffId: String,
+    canonDiffHash: String,
+): Result<WritingApprovalStateResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/approval/final",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.approval-final.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+            put("expected_version", expectedVersion)
+            put("idempotency_key", idempotencyKey)
+            put("approve", true)
+            put("revision_id", revisionId)
+            put("draft_sha256", draftSha256)
+            put("brief_revision_id", briefRevisionId)
+            put("review_ids", buildJsonArray {
+                reviewIds.filter(String::isNotBlank).forEach {
+                    add(kotlinx.serialization.json.JsonPrimitive(it))
+                }
+            })
+            put("canon_diff_id", canonDiffId)
+            put("canon_diff_hash", canonDiffHash)
         },
     )
 

@@ -456,6 +456,140 @@ class WritingRoomWorkspaceApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/v2/draft/status",
+                    "/api/app/writing-room/v2/draft/run" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.draft-run.response.v1",
+                          "operation":"run",
+                          "project_id":"prj_story",
+                          "chapter_id":"chapter_w1",
+                          "result":{
+                            "schema":"jarvis.writing-room.draft-execution.v1",
+                            "project_id":"prj_story",
+                            "chapter_id":"chapter_w1",
+                            "job":{"job_id":"job_draft","operation":"draft_chapter","status":"SUCCEEDED","steps":[{"step_id":"writer_full_chapter","sequence":3,"state":"SUCCEEDED"}]},
+                            "direction":{"project_id":"prj_story","chapter_id":"chapter_w1","chapter_stage":"DRAFT_READY","aggregate_version":9,"brief":{"brief_revision_id":"brief_1","payload":{"title":"La señal falsa"}}},
+                            "aggregate":{"version":9,"chapter_stage":"DRAFT_READY","publication_state":"NOT_REQUESTED","current_brief_id":"brief_1","current_draft_revision_id":"draft_1"},
+                            "reviews":[
+                              {"review_id":"review_writer","revision_id":"draft_1","review_kind":"reviewer","review_version":1,"validation_status":"PASS","payload":{"review_kind":"reviewer","validation_status":"PASS","summary":"Ritmo correcto.","findings":[]}},
+                              {"review_id":"review_canon","revision_id":"draft_1","review_kind":"canon_keeper","review_version":1,"validation_status":"PASS","payload":{"review_kind":"canon_keeper","validation_status":"PASS","summary":"Continuidad válida.","findings":[]}}
+                            ],
+                            "chapter":{"chapter_id":"chapter_w1","project_id":"prj_story","title":"La señal falsa","status":"REVIEW","draft_text":"La señal puede funcionar si conserva la incertidumbre.","revision_count":1}
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/draft/revise",
+                    "/api/app/writing-room/v2/draft/restore" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.draft-revise.response.v1",
+                          "operation":"revise",
+                          "project_id":"prj_story",
+                          "chapter_id":"chapter_w1",
+                          "result":{
+                            "schema":"jarvis.writing-room.draft-execution.v1",
+                            "project_id":"prj_story",
+                            "chapter_id":"chapter_w1",
+                            "job":{"job_id":"job_draft","operation":"draft_chapter","status":"SUCCEEDED"},
+                            "direction":{"project_id":"prj_story","chapter_id":"chapter_w1","chapter_stage":"DRAFT_READY","aggregate_version":10,"brief":{"brief_revision_id":"brief_1","payload":{"title":"La señal falsa"}}},
+                            "aggregate":{"version":10,"chapter_stage":"DRAFT_READY","publication_state":"NOT_REQUESTED","current_brief_id":"brief_1","current_draft_revision_id":"draft_2"},
+                            "review_job":{"job_id":"job_review","operation":"review_draft","status":"QUEUED","target_revision_id":"draft_2"},
+                            "reviews":[],
+                            "chapter":{"chapter_id":"chapter_w1","project_id":"prj_story","title":"La señal falsa","status":"DRAFT","draft_text":"Texto editado.","revision_count":2}
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/draft/review/run" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.draft-review-run.response.v1",
+                          "operation":"review_run",
+                          "project_id":"prj_story",
+                          "chapter_id":"chapter_w1",
+                          "result":{
+                            "schema":"jarvis.writing-room.draft-execution.v1",
+                            "project_id":"prj_story",
+                            "chapter_id":"chapter_w1",
+                            "job":{"job_id":"job_draft","operation":"draft_chapter","status":"SUCCEEDED"},
+                            "direction":{"project_id":"prj_story","chapter_id":"chapter_w1","chapter_stage":"DRAFT_READY","aggregate_version":12,"brief":{"brief_revision_id":"brief_1","payload":{"title":"La señal falsa"}}},
+                            "aggregate":{"version":12,"chapter_stage":"DRAFT_READY","publication_state":"NOT_REQUESTED","current_brief_id":"brief_1","current_draft_revision_id":"draft_2"},
+                            "review_job":{"job_id":"job_review","operation":"review_draft","status":"SUCCEEDED","steps":[{"step_id":"reviewer_review","sequence":1,"state":"SUCCEEDED"},{"step_id":"canon_keeper_review","sequence":2,"state":"SUCCEEDED"}]},
+                            "reviews":[
+                              {"review_id":"review_2a","revision_id":"draft_2","review_kind":"reviewer","review_version":1,"validation_status":"PASS","payload":{"review_kind":"reviewer","validation_status":"PASS","summary":"Revisión editorial completa.","findings":[]}},
+                              {"review_id":"review_2b","revision_id":"draft_2","review_kind":"canon_keeper","review_version":1,"validation_status":"PASS","payload":{"review_kind":"canon_keeper","validation_status":"PASS","summary":"Canon revisado.","findings":[]}}
+                            ],
+                            "chapter":{"chapter_id":"chapter_w1","project_id":"prj_story","title":"La señal falsa","status":"REVIEW","draft_text":"Texto editado.","revision_count":2}
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/approval/status",
+                    "/api/app/writing-room/v2/approval/prepare" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.approval-prepare.response.v1",
+                          "operation":"prepare",
+                          "project_id":"prj_story",
+                          "chapter_id":"chapter_w1",
+                          "result":{
+                            "schema":"jarvis.writing-room.approval-state.v1",
+                            "project_id":"prj_story",
+                            "chapter_id":"chapter_w1",
+                            "aggregate":{"version":14,"chapter_stage":"READY_FOR_APPROVAL","publication_state":"NOT_REQUESTED","current_brief_id":"brief_1","current_draft_revision_id":"draft_2","current_canon_diff_id":"diff_1"},
+                            "direction":{"project_id":"prj_story","chapter_id":"chapter_w1","chapter_stage":"READY_FOR_APPROVAL","aggregate_version":14,"brief":{"brief_revision_id":"brief_1","payload":{"title":"La señal falsa"}}},
+                            "chapter":{"chapter_id":"chapter_w1","project_id":"prj_story","title":"La señal falsa","status":"READY_FOR_HUMAN_APPROVAL","draft_text":"Texto editado.","revision_count":2},
+                            "reviews":[
+                              {"review_id":"review_2a","revision_id":"draft_2","review_kind":"reviewer","review_version":1,"validation_status":"PASS","payload":{"review_kind":"reviewer","validation_status":"PASS","summary":"Revisión editorial completa.","findings":[]}},
+                              {"review_id":"review_2b","revision_id":"draft_2","review_kind":"canon_keeper","review_version":1,"validation_status":"PASS","payload":{"review_kind":"canon_keeper","validation_status":"PASS","summary":"Canon revisado.","findings":[]}}
+                            ],
+                            "canon_diff":{
+                              "canon_diff_id":"diff_1",
+                              "revision_id":"draft_2",
+                              "draft_sha256":"sha-draft-2",
+                              "brief_revision_id":"brief_1",
+                              "context_hash":"ctx123",
+                              "source_revision":"context:hash",
+                              "diff_hash":"diffhash",
+                              "payload":{
+                                "schema":"jarvis.writing-room.canon-diff.payload.v1",
+                                "revision_id":"draft_2",
+                                "summary":"Una señal nueva queda abierta.",
+                                "changes":[{"kind":"event","subject":"La señal","statement":"El grupo decide investigarla.","draft_excerpt":"Texto editado.","source_refs":[]}],
+                                "blocking_issues":[],
+                                "warnings":[]
+                              }
+                            },
+                            "ready_review_ids":["review_2a","review_2b"],
+                            "approval_ready":true
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/approval/final" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.approval-final.response.v1",
+                          "operation":"final",
+                          "project_id":"prj_story",
+                          "chapter_id":"chapter_w1",
+                          "result":{
+                            "schema":"jarvis.writing-room.approval-state.v1",
+                            "project_id":"prj_story",
+                            "chapter_id":"chapter_w1",
+                            "aggregate":{"version":15,"chapter_stage":"APPROVED","publication_state":"SOURCE_PENDING","current_brief_id":"brief_1","current_draft_revision_id":"draft_2","current_canon_diff_id":"diff_1"},
+                            "direction":{"project_id":"prj_story","chapter_id":"chapter_w1","chapter_stage":"APPROVED","aggregate_version":15,"brief":{"brief_revision_id":"brief_1","payload":{"title":"La señal falsa"}}},
+                            "chapter":{"chapter_id":"chapter_w1","project_id":"prj_story","title":"La señal falsa","status":"HUMAN_APPROVED_PENDING_SOURCE","draft_text":"Texto editado.","revision_count":2},
+                            "canon_diff":{"canon_diff_id":"diff_1","revision_id":"draft_2","draft_sha256":"sha-draft-2","brief_revision_id":"brief_1","diff_hash":"diffhash","payload":{"summary":"Una señal nueva queda abierta.","changes":[],"blocking_issues":[],"warnings":[]}},
+                            "ready_review_ids":["review_2a","review_2b"],
+                            "publish_job":{"job_id":"job_publish","operation":"publish_chapter","status":"QUEUED","payload":{"automatic_execution_enabled":false}},
+                            "approval_ready":false
+                          }
+                        }
+                        """.trimIndent(),
+                    )
                     "/api/app/writing-room/chapter/start" -> MockResponse().setBody(
                         """
                         {
@@ -813,6 +947,73 @@ class WritingRoomWorkspaceApiTest {
         assertEquals("La señal falsa", approved.result.brief?.payload?.title)
         assertEquals(false, approved.result.draft_execution?.automatic_execution_enabled)
         assertEquals("QUEUED_INTENT_ONLY", approved.result.draft_execution?.state)
+    }
+
+
+    @Test
+    fun w2DraftReviewRevisionAndExactApprovalContractsDecode() = runBlocking(Dispatchers.IO) {
+        val session = session()
+
+        val drafted = session.writingRoomDraftRun(
+            projectId = "prj_story",
+            chapterId = "chapter_w1",
+        ).getOrThrow()
+        assertEquals("DRAFT_READY", drafted.result.aggregate.chapter_stage)
+        assertEquals("SUCCEEDED", drafted.result.job.status)
+        assertEquals(2, drafted.result.reviews.size)
+        assertEquals("La señal falsa", drafted.result.chapter.title)
+
+        val revised = session.writingRoomDraftRevise(
+            projectId = "prj_story",
+            chapterId = "chapter_w1",
+            expectedVersion = drafted.result.aggregate.version,
+            idempotencyKey = "revise-1",
+            draftText = "Texto editado.",
+        ).getOrThrow()
+        assertEquals("QUEUED", revised.result.review_job?.status)
+        assertTrue(revised.result.reviews.isEmpty())
+
+        val reviewed = session.writingRoomDraftReviewRun(
+            projectId = "prj_story",
+            chapterId = "chapter_w1",
+        ).getOrThrow()
+        assertEquals("SUCCEEDED", reviewed.result.review_job?.status)
+        assertEquals(
+            setOf("reviewer", "canon_keeper"),
+            reviewed.result.reviews.map { it.review_kind }.toSet(),
+        )
+
+        val prepared = session.writingRoomApprovalPrepare(
+            projectId = "prj_story",
+            chapterId = "chapter_w1",
+            expectedVersion = reviewed.result.aggregate.version,
+            idempotencyKey = "canon-diff-1",
+        ).getOrThrow()
+        assertTrue(prepared.result.approval_ready)
+        assertEquals("READY_FOR_APPROVAL", prepared.result.aggregate.chapter_stage)
+        assertEquals("diff_1", prepared.result.canon_diff?.canon_diff_id)
+        assertEquals(2, prepared.result.ready_review_ids.size)
+
+        val diff = requireNotNull(prepared.result.canon_diff)
+        val approved = session.writingRoomApprovalFinal(
+            projectId = "prj_story",
+            chapterId = "chapter_w1",
+            expectedVersion = prepared.result.aggregate.version,
+            idempotencyKey = "final-1",
+            revisionId = prepared.result.aggregate.current_draft_revision_id,
+            draftSha256 = diff.draft_sha256,
+            briefRevisionId = requireNotNull(prepared.result.direction.brief).brief_revision_id,
+            reviewIds = prepared.result.ready_review_ids,
+            canonDiffId = diff.canon_diff_id,
+            canonDiffHash = diff.diff_hash,
+        ).getOrThrow()
+        assertEquals("APPROVED", approved.result.aggregate.chapter_stage)
+        assertEquals("SOURCE_PENDING", approved.result.aggregate.publication_state)
+        assertEquals("QUEUED", approved.result.publish_job?.status)
+        assertEquals(
+            "false",
+            approved.result.publish_job?.payload?.get("automatic_execution_enabled").toString(),
+        )
     }
 
     @Test
