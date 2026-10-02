@@ -3340,6 +3340,134 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun upsertWorldMapPresence(
+        projectId: String,
+        characterId: String,
+        nodeId: String,
+        temporalKind: String,
+        temporalRef: String,
+        evidenceSourceId: String,
+        evidenceSourceType: String = "chapter",
+        evidenceLines: String = "",
+        presenceId: String? = null,
+    ) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (state.busy || current.revision.state != "DRAFT") return
+        val cleanCharacter = characterId.trim()
+        val cleanNode = nodeId.trim()
+        val cleanSource = evidenceSourceId.trim()
+        val cleanTemporal = temporalKind.trim().uppercase()
+        val cleanTemporalRef = temporalRef.trim()
+        if (
+            cleanCharacter.isBlank() ||
+            cleanNode.isBlank() ||
+            cleanSource.isBlank() ||
+            cleanTemporal !in setOf("OCCURRED", "FUTURE", "UNKNOWN") ||
+            (cleanTemporal != "UNKNOWN" && cleanTemporalRef.isBlank())
+        ) return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Guardando presencia con evidencia",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapUpsertPresence(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                presenceId = presenceId,
+                characterId = cleanCharacter,
+                nodeId = cleanNode,
+                temporalKind = cleanTemporal,
+                temporalRef = cleanTemporalRef,
+                evidence = listOf(
+                    WorldMapEvidence(
+                        source_id = cleanSource,
+                        source_type = evidenceSourceType.trim()
+                            .lowercase()
+                            .ifBlank { "chapter" },
+                        chapter_id = if (
+                            evidenceSourceType.equals(
+                                "chapter",
+                                ignoreCase = true,
+                            )
+                        ) {
+                            cleanSource
+                        } else {
+                            ""
+                        },
+                        lines = evidenceLines.trim(),
+                    ),
+                ),
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "Presencia guardada con evidencia explícita.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo guardar la presencia.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun removeWorldMapPresence(
+        projectId: String,
+        presenceId: String,
+    ) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (
+            state.busy ||
+            current.revision.state != "DRAFT" ||
+            presenceId.isBlank()
+        ) return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Eliminando presencia del World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapRemovePresence(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                presenceId = presenceId,
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "Presencia eliminada de la revisión DRAFT.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo eliminar la presencia.",
+                    )
+                },
+            )
+        }
+    }
+
     fun removeWorldMapNode(projectId: String, nodeId: String) {
         val state = _worldMap.value
         val current = state.map ?: return
