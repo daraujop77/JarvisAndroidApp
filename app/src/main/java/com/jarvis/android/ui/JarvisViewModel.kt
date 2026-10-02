@@ -1867,6 +1867,26 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _locationStudio = MutableStateFlow(LocationStudioState())
     val locationStudio: StateFlow<LocationStudioState> = _locationStudio
 
+    data class WorldMapConflictNotice(
+        val currentVersion: Int? = null,
+        val currentHash: String? = null,
+        val message: String = "",
+    )
+
+    data class WorldMapState(
+        val projectId: String = "",
+        val busy: Boolean = false,
+        val busyLabel: String = "",
+        val status: WorldMapStatusResponse? = null,
+        val map: WorldMapResponse? = null,
+        val conflict: WorldMapConflictNotice? = null,
+        val notice: String? = null,
+        val error: String? = null,
+    )
+
+    private val _worldMap = MutableStateFlow(WorldMapState())
+    val worldMap: StateFlow<WorldMapState> = _worldMap
+
     private fun resetVisualStudioProtectedMedia() {
         val ids = (
             _characterStudio.value.attachmentIds.values +
@@ -1875,6 +1895,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         ).distinct()
         _characterStudio.value = CharacterStudioState()
         _locationStudio.value = LocationStudioState()
+        _worldMap.value = WorldMapState()
         _wikiVisualAttachments.value = emptyMap()
         deleteVisualStudioAttachments(ids)
     }
@@ -3093,6 +3114,307 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                                 ?: "No se pudo aprobar el Location Pack.",
                         )
                     }
+                },
+            )
+        }
+    }
+
+    fun openWorldMap(projectId: String) {
+        val cleanProject = projectId.trim()
+        if (cleanProject.isBlank()) return
+        if (_worldMap.value.projectId != cleanProject) {
+            _worldMap.value = WorldMapState(projectId = cleanProject)
+        }
+        refreshWorldMap(cleanProject)
+    }
+
+    fun clearWorldMapMessage() {
+        _worldMap.value = _worldMap.value.copy(
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+    }
+
+    fun refreshWorldMap(projectId: String) {
+        val cleanProject = projectId.trim()
+        if (cleanProject.isBlank()) return
+        _worldMap.value = _worldMap.value.copy(
+            projectId = cleanProject,
+            busy = true,
+            busyLabel = "Actualizando World Map",
+            error = null,
+        )
+        viewModelScope.launch {
+            reloadWorldMap(cleanProject)
+        }
+    }
+
+    private suspend fun reloadWorldMap(projectId: String) {
+        val statusResult = container.liveSession.worldMapStatus(projectId)
+        if (_worldMap.value.projectId != projectId) return
+        if (statusResult.isFailure) {
+            _worldMap.value = _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                error = statusResult.exceptionOrNull()?.message
+                    ?: "No se pudo cargar el estado del World Map.",
+            )
+            return
+        }
+        val status = statusResult.getOrThrow()
+        val targetRevision = status.draft?.revision_id
+            ?.takeIf { it.isNotBlank() }
+            ?: status.active_revision_id.takeIf { it.isNotBlank() }
+        if (targetRevision == null) {
+            _worldMap.value = _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                status = status,
+                map = null,
+                error = null,
+            )
+            return
+        }
+        val mapResult = container.liveSession.worldMapGet(
+            projectId,
+            targetRevision,
+        )
+        if (_worldMap.value.projectId != projectId) return
+        _worldMap.value = if (mapResult.isSuccess) {
+            _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                status = status,
+                map = mapResult.getOrThrow(),
+                error = null,
+            )
+        } else {
+            _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                status = status,
+                error = mapResult.exceptionOrNull()?.message
+                    ?: "No se pudo cargar la revisión del World Map.",
+            )
+        }
+    }
+
+    private suspend fun handleWorldMapFailure(
+        projectId: String,
+        error: Throwable?,
+        fallbackMessage: String,
+    ) {
+        if (error is WorldMapConflictException) {
+            _worldMap.value = _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                conflict = WorldMapConflictNotice(
+                    currentVersion = error.currentVersion,
+                    currentHash = error.currentHash,
+                    message = "El mapa cambió en el servidor. Se actualizó antes de sobrescribir una revisión más nueva.",
+                ),
+                error = null,
+            )
+            reloadWorldMap(projectId)
+            return
+        }
+        _worldMap.value = _worldMap.value.copy(
+            busy = false,
+            busyLabel = "",
+            error = error?.message ?: fallbackMessage,
+        )
+    }
+
+    fun createWorldMapDraft(projectId: String) {
+        val state = _worldMap.value
+        if (state.busy) return
+        _worldMap.value = state.copy(
+            projectId = projectId,
+            busy = true,
+            busyLabel = "Creando revisión del World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapCreateRevision(
+                projectId = projectId,
+                title = "World Map",
+                parentRevisionId = state.status?.active_revision_id.orEmpty(),
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "Nueva revisión del World Map creada en DRAFT.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo crear la revisión del World Map.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun upsertWorldMapNode(
+        projectId: String,
+        nodeId: String?,
+        nodeType: String,
+        name: String,
+        parentNodeId: String,
+        locationId: String,
+        x: Double,
+        y: Double,
+        z: Double = 0.0,
+    ) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (state.busy || current.revision.state != "DRAFT") return
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Guardando posición en World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            var visualAssetId = ""
+            var visualAssetSha256 = ""
+            if (
+                nodeType in setOf("LOCATION", "SUBLOCATION") &&
+                locationId.isNotBlank()
+            ) {
+                val detail = container.liveSession.visualLocationDetail(
+                    projectId,
+                    locationId,
+                ).getOrNull()
+                val approvedPrimary = detail?.gallery?.primary
+                    ?.takeIf { it.status == "APPROVED" }
+                if (approvedPrimary != null) {
+                    visualAssetId = approvedPrimary.asset_id
+                    visualAssetSha256 = approvedPrimary.sha256
+                }
+            }
+            container.liveSession.worldMapUpsertNode(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                nodeId = nodeId,
+                nodeType = nodeType,
+                name = cleanName,
+                parentNodeId = parentNodeId,
+                locationId = locationId,
+                x = x,
+                y = y,
+                z = z,
+                placementSource = "MANUAL",
+                visualAssetId = visualAssetId,
+                visualAssetSha256 = visualAssetSha256,
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "World Map actualizado.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo actualizar el World Map.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun removeWorldMapNode(projectId: String, nodeId: String) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (state.busy || current.revision.state != "DRAFT") return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Eliminando nodo del World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapRemoveNode(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                nodeId = nodeId,
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "Nodo eliminado de la revisión DRAFT.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo eliminar el nodo.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun approveWorldMapRevision(projectId: String) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (
+            state.busy ||
+            current.revision.state != "DRAFT" ||
+            current.revision.content_hash.isBlank()
+        ) return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Aprobando revisión del World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapApproveRevision(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                expectedHash = current.revision.content_hash,
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "World Map revisión ${result.revision.revision} aprobada y activa.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo aprobar la revisión del World Map.",
+                    )
                 },
             )
         }
