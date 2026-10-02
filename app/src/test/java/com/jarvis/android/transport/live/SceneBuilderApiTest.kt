@@ -68,7 +68,7 @@ class SceneBuilderApiTest {
                                   "max_references":8,
                                   "references":[{
                                     "asset_id":"va_alex",
-                                    "asset_sha256":"DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+                                    "asset_sha256":"DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
                                     "role":"character:alexander",
                                     "authority":"CANON_LOCKED",
                                     "selection":"automatic",
