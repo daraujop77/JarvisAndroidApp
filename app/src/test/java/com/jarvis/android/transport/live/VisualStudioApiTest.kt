@@ -45,7 +45,7 @@ class VisualStudioApiTest {
                     return MockResponse().setResponseCode(401)
                 }
                 val body = runCatching {
-                    json.parseToJsonElement(request.body.readUtf8()).jsonObject
+                    json.parseToJsonElement(request.body.clone().readUtf8()).jsonObject
                 }.getOrNull()
                 return when (request.path) {
                     "/api/app/images/generations" -> {
