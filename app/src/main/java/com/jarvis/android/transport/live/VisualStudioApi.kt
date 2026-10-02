@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -252,7 +253,7 @@ suspend fun JarvisAppSession.visualAssetIngest(
             put("mime_type", mimeType)
             put("kind", kind)
             put("source", source)
-            put("character_ids", buildJsonArray { add(characterId) })
+            put("character_ids", buildJsonArray { add(JsonPrimitive(characterId)) })
             put("perspective", perspective)
             if (!assetId.isNullOrBlank()) put("asset_id", assetId)
             if (parentAssetId.isNotBlank()) put("parent_asset_id", parentAssetId)
@@ -367,12 +368,12 @@ suspend fun JarvisAppSession.generateVisualAssetImage(
                 put("surface", "character_creator")
                 put("project_id", projectId)
                 put("kind", kind)
-                put("character_ids", buildJsonArray { add(characterId) })
+                put("character_ids", buildJsonArray { add(JsonPrimitive(characterId)) })
                 put("perspective", perspective)
                 if (referencePerspectives.isNotEmpty()) {
                     put(
                         "reference_perspectives",
-                        buildJsonArray { referencePerspectives.forEach { add(it) } },
+                        buildJsonArray { referencePerspectives.forEach { add(JsonPrimitive(it)) } },
                     )
                 }
                 put("references_per_character", referencesPerCharacter.coerceIn(1, 4))
@@ -423,7 +424,7 @@ suspend fun JarvisAppSession.editVisualAssetImage(
                 put("surface", "character_creator")
                 put("project_id", projectId)
                 put("kind", kind)
-                put("character_ids", buildJsonArray { add(characterId) })
+                put("character_ids", buildJsonArray { add(JsonPrimitive(characterId)) })
                 put("perspective", perspective)
                 put("parent_asset_id", parentAssetId)
                 put("parent_sha256", parentSha256)
