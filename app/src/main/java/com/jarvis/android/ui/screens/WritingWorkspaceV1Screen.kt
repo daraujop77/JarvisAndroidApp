@@ -132,6 +132,7 @@ import com.jarvis.android.ui.theme.JarvisRed
 import com.jarvis.android.ui.theme.JarvisViolet
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.ui.writing.CharacterStudioScreen
 import com.jarvis.android.ui.writing.DraftReviewScreen
 import com.jarvis.android.ui.writing.findStructuredCharacterByReference
 import com.jarvis.android.ui.writing.mergeStructuredCharacters
@@ -140,8 +141,8 @@ import com.jarvis.android.ui.writing.searchStructuredCharacters
 /**
  * Product Writing Room v1 surface.
  *
- * The six sections mirror the server-owned workspace contract:
- * Overview / Write / Chat / Plan / Wiki / Library.
+ * Workspace sections mirror the server-owned project contract and keep
+ * narrative authoring separate from the project-scoped Visual Studio.
  * SQLite stores workflow state only. Story canon remains human-authoritative.
  */
 @Composable
@@ -359,6 +360,11 @@ fun WritingWorkspaceV1Screen(
                 vm = vm,
                 onOpenChapter = { tab = WorkspaceTab.LIBRARY },
                 onOpenWiki = { tab = WorkspaceTab.WIKI },
+            )
+            WorkspaceTab.VISUAL -> CharacterStudioScreen(
+                vm = vm,
+                projectId = projectId,
+                characters = state.wikiCharacters,
             )
             WorkspaceTab.WIKI -> WikiSection(
                 state = state,
@@ -5755,6 +5761,7 @@ private enum class WorkspaceTab(val icon: ImageVector) {
     CHAT(Icons.AutoMirrored.Filled.Chat),
     PLAN(Icons.Filled.AccountTree),
     CANON(Icons.Filled.AutoStories),
+    VISUAL(Icons.Filled.AddPhotoAlternate),
     WIKI(Icons.Filled.AutoStories),
     LIBRARY(Icons.Filled.LocalLibrary);
 
@@ -5764,6 +5771,7 @@ private enum class WorkspaceTab(val icon: ImageVector) {
         CHAT -> strings.workspaceChat
         PLAN -> strings.workspacePlan
         CANON -> "Canon"
+        VISUAL -> "Visual"
         WIKI -> strings.workspaceWiki
         LIBRARY -> strings.workspaceLibrary
     }
