@@ -141,6 +141,13 @@ class VisualStudioLocationApiTest {
                             ?.jsonPrimitive
                             ?.contentOrNull
                             .orEmpty()
+                        if (digest == "0".repeat(64)) {
+                            return MockResponse()
+                                .setResponseCode(409)
+                                .setBody(
+                                    """{"code":"visual_asset_invalid","message":"visual_asset_hash_mismatch"}""",
+                                )
+                        }
                         val isMaster = assetId == "va_location_master"
                         MockResponse().setBody(
                             """
@@ -157,6 +164,69 @@ class VisualStudioLocationApiTest {
                                 "location_ids":["location:grayhaven"],
                                 "perspective":"${if (isMaster) "establishing" else "interior"}",
                                 "visual_revision":1,
+                                "storage":{
+                                  "backend":"google_drive",
+                                  "state":"stored"
+                                }
+                              }
+                            }
+                            """.trimIndent(),
+                        )
+                    }
+
+                    "/api/app/writing-room/visual-assets/list" ->
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.assets.v1",
+                              "project_id":"prj_story",
+                              "assets":[{
+                                "asset_id":"va_location_master",
+                                "project_id":"prj_story",
+                                "kind":"LOCATION_REFERENCE",
+                                "status":"APPROVED",
+                                "source":"MANUAL_UPLOAD",
+                                "sha256":"${"C".repeat(64)}",
+                                "mime_type":"image/png",
+                                "size_bytes":5,
+                                "location_ids":["location:grayhaven"],
+                                "perspective":"establishing",
+                                "visual_revision":1,
+                                "storage":{
+                                  "backend":"google_drive",
+                                  "state":"stored"
+                                }
+                              }]
+                            }
+                            """.trimIndent(),
+                        )
+
+                    "/api/app/writing-room/visual-assets/ingest" -> {
+                        val kind = body
+                            ?.get("kind")
+                            ?.jsonPrimitive
+                            ?.contentOrNull
+                            .orEmpty()
+                        val perspective = body
+                            ?.get("perspective")
+                            ?.jsonPrimitive
+                            ?.contentOrNull
+                            .orEmpty()
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.asset.v1",
+                              "asset":{
+                                "asset_id":"va_location_upload",
+                                "project_id":"prj_story",
+                                "kind":"$kind",
+                                "status":"CANDIDATE",
+                                "source":"MANUAL_UPLOAD",
+                                "sha256":"${"E".repeat(64)}",
+                                "mime_type":"image/png",
+                                "size_bytes":5,
+                                "location_ids":["location:grayhaven"],
+                                "perspective":"$perspective",
                                 "storage":{
                                   "backend":"google_drive",
                                   "state":"stored"
@@ -437,5 +507,67 @@ class VisualStudioLocationApiTest {
                 .jsonPrimitive
                 .content,
         )
+    @Test
+    fun locationListAndManualIngestCarryLocationScope() = runBlocking {
+        val session = session()
+
+        val listed = session.visualLocationAssetList(
+            "prj_story",
+            "location:grayhaven",
+            status = "APPROVED",
+        ).orThrowStage("location asset list")
+        assertEquals(
+            "va_location_master",
+            listed.assets.single().asset_id,
+        )
+
+        val uploaded = session.visualLocationAssetIngest(
+            projectId = "prj_story",
+            imageBase64 = "aW1hZ2U=",
+            mimeType = "image/png",
+            kind = "LOCATION_REFERENCE",
+            source = "MANUAL_UPLOAD",
+            locationId = "location:grayhaven",
+            perspective = "establishing",
+        ).orThrowStage("manual location ingest")
+        assertEquals(
+            listOf("location:grayhaven"),
+            uploaded.asset.location_ids,
+        )
+
+        val listRequest = server.takeRequest()
+        val listBody = json.parseToJsonElement(
+            listRequest.body.readUtf8(),
+        ).jsonObject
+        assertEquals(
+            "location:grayhaven",
+            listBody["location_id"]!!.jsonPrimitive.content,
+        )
+
+        val ingestRequest = server.takeRequest()
+        val ingestBody = json.parseToJsonElement(
+            ingestRequest.body.readUtf8(),
+        ).jsonObject
+        assertEquals(
+            "location:grayhaven",
+            ingestBody["location_ids"]!!
+                .jsonArray
+                .single()
+                .jsonPrimitive
+                .content,
+        )
+    }
+
+    @Test
+    fun wrongLocationHashApprovalFailsClosed() = runBlocking {
+        val result = session().visualAssetApproveExact(
+            "prj_story",
+            "va_location_master",
+            "0".repeat(64),
+            visualRevision = 2,
+        )
+        assertTrue(result.isFailure)
+    }
+
     }
 }
