@@ -33,6 +33,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -191,6 +192,9 @@ private fun CharacterStudioPane(
     val newestPack = detail?.reference_packs
         ?.maxByOrNull { it.revision }
         ?: detail?.active_reference_pack
+    var masterPrompt by rememberSaveable(projectId, selectedCharacterId) {
+        mutableStateOf("")
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -261,26 +265,44 @@ private fun CharacterStudioPane(
                 }
                 Spacer(Modifier.height(10.dp))
                 if (candidate != null) {
+                    val stored = candidate.storage.state == "stored"
                     Text(
-                        "CANDIDATO · " + candidate.sha256.take(12) + "…",
+                        "CANDIDATO · " + candidate.sha256.take(12) + "… · " +
+                            if (stored) "STORED" else "STORAGE PENDIENTE",
                         style = HudTextStyle,
-                        color = JarvisAmber,
+                        color = if (stored) JarvisAmber else MaterialTheme.colorScheme.error,
                     )
                     Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            vm.approveVisualMasterCandidate(projectId, selectedCharacterId)
-                        },
-                        enabled = !state.busy,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = JarvisGreen,
-                            contentColor = Color(0xFF02101F),
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Filled.Check, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text("APROBAR ESTE HASH COMO MASTER", fontWeight = FontWeight.Bold)
+                    if (stored) {
+                        Button(
+                            onClick = {
+                                vm.approveVisualMasterCandidate(projectId, selectedCharacterId)
+                            },
+                            enabled = !state.busy,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = JarvisGreen,
+                                contentColor = Color(0xFF02101F),
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null)
+                            Spacer(Modifier.size(6.dp))
+                            Text("APROBAR ESTE HASH COMO MASTER", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = {
+                                vm.retryVisualMasterUpload(
+                                    selected.name.ifBlank { selected.canonical_name },
+                                )
+                            },
+                            enabled = !state.busy && !state.pendingAssetId.isNullOrBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null)
+                            Spacer(Modifier.size(6.dp))
+                            Text("REINTENTAR STORAGE · NO REGENERAR")
+                        }
                     }
                 } else {
                     val primary = detail?.gallery?.primary
@@ -323,6 +345,34 @@ private fun CharacterStudioPane(
                         Text("REINTENTAR STORAGE · MISMO ASSET ID")
                     }
                 }
+                Spacer(Modifier.height(12.dp))
+                Text("GENERAR MASTER CLOUD", style = HudTextStyle, color = JarvisViolet)
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = masterPrompt,
+                    onValueChange = { masterPrompt = it.take(4000) },
+                    label = { Text("Describe la apariencia canónica") },
+                    minLines = 3,
+                    enabled = !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        vm.generateVisualMasterCandidate(
+                            projectId = projectId,
+                            characterId = selectedCharacterId,
+                            characterName = selected.name.ifBlank { selected.canonical_name },
+                            prompt = masterPrompt,
+                        )
+                    },
+                    enabled = masterPrompt.isNotBlank() && !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text("GENERAR CANDIDATO CLOUD")
+                }
             }
         }
 
@@ -361,19 +411,6 @@ private fun CharacterStudioPane(
             }
         }
 
-        item {
-            VisualCard("GENERACIÓN", JarvisViolet) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = JarvisViolet)
-                    Spacer(Modifier.size(8.dp))
-                    Text(
-                        "El master cloud con cero referencias y la generación automática de turnarounds usarán el mismo registro; la UI de generación se conecta en la siguiente unidad V1.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFB7C7DC),
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -417,7 +454,9 @@ private fun TurnaroundBuilderCard(
             Spacer(Modifier.height(8.dp))
         }
 
-        val requiredBound = pack.slots.any { it.required }
+        val requiredBound = TURNAROUND_SPECS.all { spec ->
+            pack.slots.any { it.required && it.slot_key == spec.slotKey }
+        }
         when (pack.state) {
             "DRAFT" -> Button(
                 onClick = { vm.prepareVisualReferencePack(pack.pack_id) },
@@ -428,7 +467,7 @@ private fun TurnaroundBuilderCard(
                 Spacer(Modifier.size(6.dp))
                 Text(
                     if (requiredBound) "PREPARAR PACK PARA APROBACIÓN"
-                    else "SUBE Y APRUEBA AL MENOS UNA VISTA",
+                    else "COMPLETA Y APRUEBA LAS 3 VISTAS",
                 )
             }
             "READY_FOR_APPROVAL" -> Button(
@@ -541,6 +580,17 @@ private fun TurnaroundSlotRow(
                 ) {
                     Text("PROPONER REEMPLAZO")
                 }
+                candidate != null && candidate.storage.state != "stored" -> OutlinedButton(
+                    onClick = {
+                        vm.retryVisualPackSlotUpload(spec.slotKey, characterName)
+                    },
+                    enabled = pending != null && !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null)
+                    Spacer(Modifier.size(5.dp))
+                    Text("REINTENTAR STORAGE · NO REGENERAR")
+                }
                 candidate != null -> Button(
                     onClick = { vm.approveVisualPackSlot(spec.slotKey) },
                     enabled = !state.busy,
@@ -563,18 +613,36 @@ private fun TurnaroundSlotRow(
                     Spacer(Modifier.size(5.dp))
                     Text("REINTENTAR STORAGE")
                 }
-                else -> OutlinedButton(
-                    onClick = {
-                        picker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                    enabled = pack.state == "DRAFT" && !state.busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null)
-                    Spacer(Modifier.size(5.dp))
-                    Text("SUBIR VISTA")
+                else -> {
+                    Button(
+                        onClick = {
+                            vm.generateVisualPackSlotCandidate(
+                                slotKey = spec.slotKey,
+                                perspective = spec.perspective,
+                                characterName = characterName,
+                            )
+                        },
+                        enabled = pack.state == "DRAFT" && !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+                        Spacer(Modifier.size(5.dp))
+                        Text("GENERAR CON MASTER")
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = {
+                            picker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
+                        },
+                        enabled = pack.state == "DRAFT" && !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null)
+                        Spacer(Modifier.size(5.dp))
+                        Text("SUBIR VISTA")
+                    }
                 }
             }
         }
