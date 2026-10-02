@@ -349,6 +349,18 @@ private fun CharacterStudioPane(
             )
         }
 
+        if (newestPack != null && newestPack.state != "APPROVED") {
+            item {
+                TurnaroundBuilderCard(
+                    vm = vm,
+                    pack = newestPack,
+                    state = state,
+                    characterName = selected.name.ifBlank { selected.canonical_name },
+                    visualAttachments = visualAttachments,
+                )
+            }
+        }
+
         item {
             VisualCard("GENERACIÓN", JarvisViolet) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -359,6 +371,210 @@ private fun CharacterStudioPane(
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFB7C7DC),
                     )
+                }
+            }
+        }
+    }
+}
+
+private data class TurnaroundSpec(
+    val slotKey: String,
+    val label: String,
+    val perspective: String,
+)
+
+private val TURNAROUND_SPECS = listOf(
+    TurnaroundSpec("left_profile", "Perfil izquierdo", "left_profile"),
+    TurnaroundSpec("right_profile", "Perfil derecho", "right_profile"),
+    TurnaroundSpec("back", "Espalda", "back"),
+)
+
+@Composable
+private fun TurnaroundBuilderCard(
+    vm: JarvisViewModel,
+    pack: WritingVisualReferencePack,
+    state: JarvisViewModel.VisualCharacterStudioState,
+    characterName: String,
+    visualAttachments: Map<String, String>,
+) {
+    VisualCard("TURNAROUND · REV " + pack.revision, JarvisCyan) {
+        Text(
+            "Cada vista entra como CANDIDATE, se aprueba por su hash exacto y sólo entonces se enlaza al pack. El pack se aprueba aparte.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFFB7C7DC),
+        )
+        Spacer(Modifier.height(9.dp))
+
+        TURNAROUND_SPECS.forEach { spec ->
+            TurnaroundSlotRow(
+                vm = vm,
+                spec = spec,
+                pack = pack,
+                state = state,
+                characterName = characterName,
+                visualAttachments = visualAttachments,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        val requiredBound = pack.slots.any { it.required }
+        when (pack.state) {
+            "DRAFT" -> Button(
+                onClick = { vm.prepareVisualReferencePack(pack.pack_id) },
+                enabled = requiredBound && !state.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.Check, contentDescription = null)
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    if (requiredBound) "PREPARAR PACK PARA APROBACIÓN"
+                    else "SUBE Y APRUEBA AL MENOS UNA VISTA",
+                )
+            }
+            "READY_FOR_APPROVAL" -> Button(
+                onClick = { vm.approveVisualReferencePack(pack.pack_id) },
+                enabled = !state.busy,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = JarvisGreen,
+                    contentColor = Color(0xFF02101F),
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.Check, contentDescription = null)
+                Spacer(Modifier.size(6.dp))
+                Text("APROBAR Y ACTIVAR PACK", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TurnaroundSlotRow(
+    vm: JarvisViewModel,
+    spec: TurnaroundSpec,
+    pack: WritingVisualReferencePack,
+    state: JarvisViewModel.VisualCharacterStudioState,
+    characterName: String,
+    visualAttachments: Map<String, String>,
+) {
+    val bound = pack.slots.firstOrNull { it.slot_key == spec.slotKey }
+    val candidate = state.viewCandidates[spec.slotKey]
+    val pending = state.pendingViewUploads[spec.slotKey]
+    val assetId = candidate?.asset_id ?: bound?.asset_id.orEmpty()
+    val bitmap by rememberAttachmentThumb(
+        visualAttachments[assetId].orEmpty(),
+        vm.attachmentStore,
+        maxSize = 512,
+    )
+    val picker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            vm.stageVisualPackSlotFromUri(
+                uri = uri,
+                slotKey = spec.slotKey,
+                perspective = spec.perspective,
+                required = true,
+                characterName = characterName,
+            )
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0x66101B2E),
+        border = BorderStroke(
+            1.dp,
+            if (bound != null) JarvisGreen.copy(alpha = 0.45f) else JarvisCyan.copy(alpha = 0.24f),
+        ),
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.size(72.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF050B14),
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap!!.asImageBitmap(),
+                            contentDescription = spec.label,
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("VISTA", style = HudTextStyle, color = Color(0xFF64748B))
+                        }
+                    }
+                }
+                Spacer(Modifier.size(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(spec.label, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        when {
+                            bound != null -> "APROBADA · " + bound.asset_sha256.take(12) + "…"
+                            candidate != null -> "CANDIDATA · " + candidate.sha256.take(12) + "…"
+                            pending != null -> "STORAGE PENDIENTE · mismo asset_id"
+                            else -> "SIN VISTA"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when {
+                            bound != null -> JarvisGreen
+                            candidate != null -> JarvisAmber
+                            else -> Color(0xFF94A3B8)
+                        },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            when {
+                bound != null -> OutlinedButton(
+                    onClick = {
+                        picker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    enabled = pack.state == "DRAFT" && !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("PROPONER REEMPLAZO")
+                }
+                candidate != null -> Button(
+                    onClick = { vm.approveVisualPackSlot(spec.slotKey) },
+                    enabled = !state.busy,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = JarvisGreen,
+                        contentColor = Color(0xFF02101F),
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("APROBAR VISTA Y ENLAZAR")
+                }
+                pending != null && state.error != null -> OutlinedButton(
+                    onClick = {
+                        vm.retryVisualPackSlotUpload(spec.slotKey, characterName)
+                    },
+                    enabled = !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null)
+                    Spacer(Modifier.size(5.dp))
+                    Text("REINTENTAR STORAGE")
+                }
+                else -> OutlinedButton(
+                    onClick = {
+                        picker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    enabled = pack.state == "DRAFT" && !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null)
+                    Spacer(Modifier.size(5.dp))
+                    Text("SUBIR VISTA")
                 }
             }
         }
