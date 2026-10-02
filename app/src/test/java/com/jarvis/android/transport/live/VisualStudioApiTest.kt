@@ -2,11 +2,15 @@ package com.jarvis.android.transport.live
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -44,43 +48,43 @@ class VisualStudioApiTest {
                         val assetId = if (isMaster) "va_master" else "va_left"
                         val digest = if (isMaster) "A".repeat(64) else "B".repeat(64)
                         val refs = if (isMaster) 0 else 1
-                        MockResponse().setBody(
-                            """
-                            {
-                              "schema":"jarvis.image.generation.v2",
-                              "mime_type":"image/png",
-                              "data_base64":"aW1hZ2U=",
-                              "size_bytes":5,
-                              "provider":"fixture-cloud",
-                              "model":"fixture-image",
-                              "route":"cloud_image_generation:fixture-cloud",
-                              "requested_mode":"quality",
-                              "fallback_used":false,
-                              "attempt_count":1,
-                              "reference_count":$refs,
-                              "vps_persistence":"visual_asset_candidate",
-                              "storage_retry_required":false,
-                              "visual_asset":{
-                                "asset_id":"$assetId",
-                                "project_id":"prj_story",
-                                "kind":"$kind",
-                                "status":"CANDIDATE",
-                                "source":"CLOUD_GENERATOR",
-                                "sha256":"$digest",
-                                "mime_type":"image/png",
-                                "size_bytes":5,
-                                "character_ids":["character:alexander"],
-                                "perspective":"$perspective",
-                                "storage":{
-                                  "backend":"google_drive",
-                                  "state":"stored",
-                                  "drive_file_id":"drive-$assetId",
-                                  "drive_parent_id":"characters"
-                                }
-                              }
-                            }
-                            """.trimIndent(),
-                        )
+                        val response = buildJsonObject {
+                            put("schema", "jarvis.image.generation.v2")
+                            put("mime_type", "image/png")
+                            put("data_base64", "aW1hZ2U=")
+                            put("size_bytes", 5)
+                            put("provider", "fixture-cloud")
+                            put("model", "fixture-image")
+                            put("route", "cloud_image_generation:fixture-cloud")
+                            put("requested_mode", "quality")
+                            put("fallback_used", false)
+                            put("attempt_count", 1)
+                            put("reference_count", refs)
+                            put("vps_persistence", "visual_asset_candidate")
+                            put("storage_retry_required", false)
+                            put("visual_asset", buildJsonObject {
+                                put("asset_id", assetId)
+                                put("project_id", "prj_story")
+                                put("kind", kind)
+                                put("status", "CANDIDATE")
+                                put("source", "CLOUD_GENERATOR")
+                                put("sha256", digest)
+                                put("mime_type", "image/png")
+                                put("size_bytes", 5)
+                                put(
+                                    "character_ids",
+                                    buildJsonArray { add(JsonPrimitive("character:alexander")) },
+                                )
+                                put("perspective", perspective)
+                                put("storage", buildJsonObject {
+                                    put("backend", "google_drive")
+                                    put("state", "stored")
+                                    put("drive_file_id", "drive-$assetId")
+                                    put("drive_parent_id", "characters")
+                                })
+                            })
+                        }
+                        MockResponse().setBody(response.toString())
                     }
                     "/api/app/writing-room/v2/visual/assets/approve-exact" -> {
                         val assetId = body?.get("asset_id")?.jsonPrimitive?.contentOrNull.orEmpty()
