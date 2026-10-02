@@ -254,6 +254,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun refreshWritingWorkspace(projectId: String) {
         if (_writingWorkspace.value.chatProjectId != projectId) {
+            // Project changes are an authorization boundary for visual media.
+            // Drop local thumbnails/candidates so protected bytes cannot bleed
+            // into another project's UI even if asset ids happen to collide.
+            resetCharacterStudioProtectedMedia()
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 chatProjectId = projectId,
                 chat = null,
