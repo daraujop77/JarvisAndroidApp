@@ -9,7 +9,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 private val visualStudioJson = Json { ignoreUnknownKeys = true }
@@ -206,6 +211,119 @@ private suspend inline fun <reified T> JarvisAppSession.visualStudioPost(
     }
 }
 
+private suspend fun JarvisAppSession.visualStudioObjectPost(
+    path: String,
+    body: JsonObject,
+): Result<JsonObject> = withContext(Dispatchers.IO) {
+    if (expired) {
+        clear()
+        return@withContext Result.failure(TransportException("session expired"))
+    }
+    val auth = authHeader()
+        ?: return@withContext Result.failure(TransportException("no live session"))
+    runCatching {
+        val response = post(baseUrl, path, body.toString(), auth)
+        if (response.first == 401) {
+            clear()
+            throw TransportException("session expired")
+        }
+        requireOk(response)
+        visualStudioJson.parseToJsonElement(response.second).jsonObject
+    }
+}
+
+private fun JsonObject.stringValue(key: String): String =
+    this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
+
+private fun JsonObject.intValue(key: String, fallback: Int = 0): Int =
+    stringValue(key).toIntOrNull() ?: fallback
+
+private fun JsonObject.longValue(key: String, fallback: Long = 0L): Long =
+    stringValue(key).toLongOrNull() ?: fallback
+
+private fun JsonObject.booleanValue(key: String, fallback: Boolean = false): Boolean =
+    this[key]?.jsonPrimitive?.booleanOrNull ?: fallback
+
+private fun JsonObject.stringList(key: String): List<String> =
+    runCatching {
+        this[key]?.jsonArray
+            ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+            .orEmpty()
+    }.getOrDefault(emptyList())
+
+private fun parseVisualStudioStorage(value: JsonObject?): VisualStudioStorage =
+    if (value == null) {
+        VisualStudioStorage()
+    } else {
+        VisualStudioStorage(
+            backend = value.stringValue("backend"),
+            state = value.stringValue("state"),
+            drive_file_id = value.stringValue("drive_file_id"),
+            drive_parent_id = value.stringValue("drive_parent_id"),
+        )
+    }
+
+private fun parseVisualStudioStorageError(value: JsonObject?): VisualStudioStorageError? =
+    value?.let {
+        VisualStudioStorageError(
+            code = it.stringValue("code"),
+            message = it.stringValue("message"),
+            retry_required = it.booleanValue("retry_required"),
+        )
+    }
+
+private fun parseVisualStudioAsset(value: JsonObject): VisualStudioAsset =
+    VisualStudioAsset(
+        asset_id = value.stringValue("asset_id"),
+        project_id = value.stringValue("project_id"),
+        kind = value.stringValue("kind"),
+        status = value.stringValue("status"),
+        source = value.stringValue("source"),
+        sha256 = value.stringValue("sha256"),
+        mime_type = value.stringValue("mime_type").ifBlank { "image/png" },
+        size_bytes = value.longValue("size_bytes"),
+        character_ids = value.stringList("character_ids"),
+        chapter_ids = value.stringList("chapter_ids"),
+        event_ids = value.stringList("event_ids"),
+        location_ids = value.stringList("location_ids"),
+        scene_ids = value.stringList("scene_ids"),
+        perspective = value.stringValue("perspective").ifBlank { "custom" },
+        visual_revision = value.intValue("visual_revision"),
+        alt = value.stringValue("alt"),
+        provenance = value["provenance"] as? JsonObject ?: JsonObject(emptyMap()),
+        created_by = value.stringValue("created_by"),
+        approved_by = value.stringValue("approved_by"),
+        created_utc = value.stringValue("created_utc"),
+        approved_utc = value.stringValue("approved_utc"),
+        parent_asset_id = value.stringValue("parent_asset_id"),
+        parent_sha256 = value.stringValue("parent_sha256"),
+        derivation = value.stringValue("derivation"),
+        storage = parseVisualStudioStorage(value["storage"] as? JsonObject),
+        storage_error = parseVisualStudioStorageError(value["storage_error"] as? JsonObject),
+    )
+
+private fun parseVisualStudioGeneratedImage(value: JsonObject): VisualStudioGeneratedImage {
+    val assetObject = value["visual_asset"] as? JsonObject
+    return VisualStudioGeneratedImage(
+        schema = value.stringValue("schema"),
+        mime_type = value.stringValue("mime_type").ifBlank { "image/png" },
+        data_base64 = value.stringValue("data_base64"),
+        size_bytes = value.longValue("size_bytes"),
+        provider = value.stringValue("provider"),
+        model = value.stringValue("model"),
+        route = value.stringValue("route"),
+        requested_mode = value.stringValue("requested_mode"),
+        requested_model = value.stringValue("requested_model").ifBlank { null },
+        fallback_used = value.booleanValue("fallback_used"),
+        attempt_count = value.intValue("attempt_count", 1),
+        duration_ms = value.longValue("duration_ms"),
+        reference_count = value.intValue("reference_count"),
+        vps_persistence = value.stringValue("vps_persistence"),
+        storage_retry_required = value.booleanValue("storage_retry_required"),
+        visual_asset = assetObject?.let(::parseVisualStudioAsset),
+    )
+}
+
 suspend fun JarvisAppSession.visualCharacterDetail(
     projectId: String,
     characterId: String,
@@ -356,7 +474,7 @@ suspend fun JarvisAppSession.generateVisualAssetImage(
     derivation: String = "",
     assetId: String? = null,
 ): Result<VisualStudioGeneratedImage> =
-    visualStudioPost<VisualStudioGeneratedImage>(
+    visualStudioObjectPost(
         "/api/app/images/generations",
         buildJsonObject {
             put("project_id", projectId)
@@ -383,7 +501,8 @@ suspend fun JarvisAppSession.generateVisualAssetImage(
                 if (derivation.isNotBlank()) put("derivation", derivation)
             })
         },
-    ).mapCatching { reply ->
+    ).mapCatching { raw ->
+        val reply = parseVisualStudioGeneratedImage(raw)
         if (reply.data_base64.isBlank() || reply.mime_type.isBlank()) {
             throw TransportException("visual generation returned no image")
         }
@@ -409,7 +528,7 @@ suspend fun JarvisAppSession.editVisualAssetImage(
     preserveIdentity: String = "high",
     aspectRatio: String = "portrait",
 ): Result<VisualStudioGeneratedImage> =
-    visualStudioPost<VisualStudioGeneratedImage>(
+    visualStudioObjectPost(
         "/api/app/images/edits",
         buildJsonObject {
             put("project_id", projectId)
@@ -431,7 +550,8 @@ suspend fun JarvisAppSession.editVisualAssetImage(
                 put("derivation", derivation)
             })
         },
-    ).mapCatching { reply ->
+    ).mapCatching { raw ->
+        val reply = parseVisualStudioGeneratedImage(raw)
         if (reply.data_base64.isBlank() || reply.mime_type.isBlank()) {
             throw TransportException("visual edit returned no image")
         }
