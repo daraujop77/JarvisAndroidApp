@@ -29,6 +29,36 @@ class SceneBuilderApiTest {
                     return MockResponse().setResponseCode(401)
                 }
                 return when (request.path) {
+                    "/api/app/writing-room/v2/visual/scenes/capabilities" ->
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.scene-generation-capabilities.v1",
+                              "default_engine":"cloud",
+                              "no_silent_cross_engine_fallback":true,
+                              "engines":{
+                                "cloud":{
+                                  "state":"ready",
+                                  "reference_policy":"exact_frozen_approved",
+                                  "max_reference_count":8,
+                                  "modes":["speed","quality","model_select"],
+                                  "models":["grok-imagine-image-2.0"]
+                                },
+                                "local":{
+                                  "state":"unavailable",
+                                  "reason":"reference_materialization_unavailable",
+                                  "pc_configured":true,
+                                  "reference_policy":"exact_frozen_approved",
+                                  "exact_reference_count":2,
+                                  "profile":"visual_canon_flux_klein_4b_v1",
+                                  "model":"FLUX.2 Klein Base 4B FP8",
+                                  "reference_materialization":"not_configured",
+                                  "fallback_allowed":false
+                                }
+                              }
+                            }
+                            """.trimIndent(),
+                        )
                     "/api/app/writing-room/v2/visual/scenes/context/preview" ->
                         MockResponse().setBody(
                             """
@@ -250,6 +280,7 @@ class SceneBuilderApiTest {
             projectId = "prj_story",
             contextId = "svc_123",
             contextHash = "A".repeat(64),
+            engine = "cloud",
             mode = "quality",
             aspectRatio = "landscape",
         ).getOrThrow()
@@ -263,10 +294,35 @@ class SceneBuilderApiTest {
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("svc_123", body["context_id"]!!.jsonPrimitive.content)
         assertEquals("A".repeat(64), body["context_hash"]!!.jsonPrimitive.content)
+        assertEquals("cloud", body["engine"]!!.jsonPrimitive.content)
         assertEquals("quality", body["mode"]!!.jsonPrimitive.content)
         assertEquals("landscape", body["aspect_ratio"]!!.jsonPrimitive.content)
         assertFalse(body.containsKey("prompt"))
         assertFalse(body.containsKey("references"))
+    }
+
+
+    @Test
+    fun sceneCapabilitiesExposeLocalBlockerAndNoFallback() = runBlocking {
+        val result = session().visualSceneGenerationCapabilities(
+            projectId = "prj_story",
+        ).getOrThrow()
+
+        assertEquals("cloud", result.default_engine)
+        assertTrue(result.no_silent_cross_engine_fallback)
+        assertEquals("ready", result.engines["cloud"]?.state)
+        val local = result.engines["local"]!!
+        assertEquals("unavailable", local.state)
+        assertEquals(
+            "reference_materialization_unavailable",
+            local.reason,
+        )
+        assertEquals(2, local.exact_reference_count)
+        assertFalse(local.fallback_allowed)
+
+        val request = server.takeRequest()
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
     }
 
 

@@ -338,6 +338,30 @@ data class VisualSceneContextResponse(
     val context: VisualSceneContext = VisualSceneContext(),
 )
 
+@Serializable
+data class VisualSceneGenerationEngineCapability(
+    val state: String = "unavailable",
+    val reason: String = "",
+    val pc_configured: Boolean = false,
+    val reference_policy: String = "",
+    val max_reference_count: Int = 0,
+    val exact_reference_count: Int = 0,
+    val profile: String = "",
+    val model: String = "",
+    val reference_materialization: String = "",
+    val fallback_allowed: Boolean = false,
+    val modes: List<String> = emptyList(),
+    val models: List<String> = emptyList(),
+)
+
+@Serializable
+data class VisualSceneGenerationCapabilities(
+    val schema: String = "",
+    val default_engine: String = "cloud",
+    val no_silent_cross_engine_fallback: Boolean = true,
+    val engines: Map<String, VisualSceneGenerationEngineCapability> = emptyMap(),
+)
+
 private suspend inline fun <reified T> JarvisAppSession.visualStudioPost(
     path: String,
     body: JsonObject,
@@ -896,6 +920,7 @@ suspend fun JarvisAppSession.editLocationVisualAssetImage(
     parentAssetId: String,
     parentSha256: String,
     derivation: String = "EDIT",
+    engine: String = "cloud",
     mode: String = "quality",
     model: String? = null,
     aspectRatio: String = "landscape",
@@ -997,6 +1022,16 @@ suspend fun JarvisAppSession.visualSceneContextPreview(
         },
     )
 
+suspend fun JarvisAppSession.visualSceneGenerationCapabilities(
+    projectId: String,
+): Result<VisualSceneGenerationCapabilities> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/scenes/capabilities",
+        buildJsonObject {
+            put("project_id", projectId)
+        },
+    )
+
 suspend fun JarvisAppSession.visualSceneContextGet(
     projectId: String,
     contextId: String,
@@ -1024,6 +1059,7 @@ suspend fun JarvisAppSession.generateSceneVisualAssetImage(
             put("project_id", projectId)
             put("context_id", contextId)
             put("context_hash", contextHash)
+            put("engine", engine)
             put("mode", mode)
             put("aspect_ratio", aspectRatio)
             if (!model.isNullOrBlank()) put("model", model)

@@ -1892,6 +1892,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val busy: Boolean = false,
         val busyLabel: String = "",
         val context: VisualSceneContext? = null,
+        val capabilities: VisualSceneGenerationCapabilities? = null,
         val generated: VisualStudioGeneratedImage? = null,
         val generatedAttachmentId: String? = null,
         val notice: String? = null,
@@ -4298,6 +4299,33 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         )
     }
 
+    fun refreshSceneGenerationCapabilities(projectId: String) {
+        viewModelScope.launch {
+            container.liveSession.visualSceneGenerationCapabilities(
+                projectId = projectId,
+            ).fold(
+                onSuccess = { capabilities ->
+                    if (
+                        _sceneBuilder.value.projectId.isBlank() ||
+                        _sceneBuilder.value.projectId == projectId
+                    ) {
+                        _sceneBuilder.update {
+                            it.copy(
+                                projectId = projectId,
+                                capabilities = capabilities,
+                            )
+                        }
+                    }
+                },
+                onFailure = {
+                    // Backward compatibility: an older backend may not expose
+                    // the capability route yet. Existing Cloud flow remains
+                    // usable; Local stays unavailable until explicitly reported.
+                },
+            )
+        }
+    }
+
     fun clearSceneBuilderContext(projectId: String) {
         _sceneBuilder.value.generatedAttachmentId?.let { attachmentId ->
             deleteVisualStudioAttachments(listOf(attachmentId))
@@ -4396,6 +4424,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun generateSceneVisual(
         projectId: String,
+        engine: String = "cloud",
         mode: String = "quality",
         model: String? = null,
         aspectRatio: String = "landscape",
@@ -4422,6 +4451,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 projectId = projectId,
                 contextId = context.context_id,
                 contextHash = context.context_hash,
+                engine = engine,
                 mode = mode,
                 model = model,
                 aspectRatio = aspectRatio,

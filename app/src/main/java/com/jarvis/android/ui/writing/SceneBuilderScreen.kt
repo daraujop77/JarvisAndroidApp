@@ -85,6 +85,7 @@ fun SceneBuilderScreen(
     var weather by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
     var composition by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
     var instruction by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
+    var generationEngine by rememberSaveable(projectId) { mutableStateOf("cloud") }
     var generationMode by rememberSaveable(projectId) { mutableStateOf("quality") }
 
     val selectedCharacterIds = selectedCharactersCsv
@@ -96,6 +97,7 @@ fun SceneBuilderScreen(
         if (builder.projectId.isNotBlank() && builder.projectId != projectId) {
             vm.clearSceneBuilderContext(projectId)
         }
+        vm.refreshSceneGenerationCapabilities(projectId)
     }
 
     LaunchedEffect(chapterId, writing.activeChapter?.characters) {
@@ -398,15 +400,65 @@ fun SceneBuilderScreen(
                                 style = MaterialTheme.typography.labelLarge,
                             )
                             Spacer(Modifier.height(8.dp))
+                            val cloudCapability = builder.capabilities
+                                ?.engines
+                                ?.get("cloud")
+                            val localCapability = builder.capabilities
+                                ?.engines
+                                ?.get("local")
+                            val cloudReady = cloudCapability == null ||
+                                cloudCapability.state == "ready"
+                            val localReady = localCapability?.state == "ready" &&
+                                (
+                                    localCapability.exact_reference_count <= 0 ||
+                                        context.reference_manifest.references.size ==
+                                        localCapability.exact_reference_count
+                                )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = generationEngine == "cloud",
+                                    onClick = { generationEngine = "cloud" },
+                                    enabled = cloudReady,
+                                    label = { Text("Cloud") },
+                                )
+                                FilterChip(
+                                    selected = generationEngine == "local",
+                                    onClick = { generationEngine = "local" },
+                                    enabled = localReady,
+                                    label = { Text("Local") },
+                                )
+                            }
+                            localCapability?.let { local ->
+                                Spacer(Modifier.height(5.dp))
+                                Text(
+                                    when {
+                                        local.state == "ready" ->
+                                            "Local · " + local.model +
+                                                " · " + local.exact_reference_count +
+                                                " referencias exactas"
+                                        local.reason == "reference_materialization_unavailable" ->
+                                            "Local pendiente: falta materializar las referencias Drive en el PC. No habrá fallback a Cloud."
+                                        local.reason == "pc_upstream_unavailable" ->
+                                            "Local no disponible: el nodo PC no está conectado."
+                                        else ->
+                                            "Local no disponible. JARVIS no cambiará a Cloud automáticamente."
+                                    },
+                                    color = if (localReady) JarvisGreen else JarvisAmber,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilterChip(
                                     selected = generationMode == "quality",
                                     onClick = { generationMode = "quality" },
+                                    enabled = generationEngine == "cloud",
                                     label = { Text("Quality") },
                                 )
                                 FilterChip(
                                     selected = generationMode == "speed",
                                     onClick = { generationMode = "speed" },
+                                    enabled = generationEngine == "cloud",
                                     label = { Text("Speed") },
                                 )
                             }
@@ -415,6 +467,7 @@ fun SceneBuilderScreen(
                                 onClick = {
                                     vm.generateSceneVisual(
                                         projectId = projectId,
+                                        engine = generationEngine,
                                         mode = generationMode,
                                         aspectRatio = "landscape",
                                     )
@@ -422,7 +475,13 @@ fun SceneBuilderScreen(
                                 enabled = (
                                     settings.isOwner &&
                                         !builder.busy &&
-                                        context.selection.instruction.isNotBlank()
+                                        context.selection.instruction.isNotBlank() &&
+                                        (
+                                            generationEngine == "cloud" &&
+                                                cloudReady ||
+                                                generationEngine == "local" &&
+                                                localReady
+                                        )
                                     ),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
