@@ -172,6 +172,58 @@ class SceneBuilderApiTest {
                             }
                             """.trimIndent(),
                         )
+                    "/api/app/images/edits" ->
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.generated.v1",
+                              "mime_type":"image/png",
+                              "data_base64":"ZWRpdA==",
+                              "size_bytes":4,
+                              "provider":"openai",
+                              "model":"image-edit",
+                              "route":"cloud_image_edit:openai",
+                              "requested_mode":"quality",
+                              "fallback_used":false,
+                              "attempt_count":1,
+                              "duration_ms":650,
+                              "reference_count":1,
+                              "vps_persistence":"visual_asset_candidate",
+                              "storage_retry_required":false,
+                              "visual_asset":{
+                                "asset_id":"va_scene_edit_1",
+                                "project_id":"prj_story",
+                                "kind":"SCENE_ART",
+                                "status":"CANDIDATE",
+                                "source":"CLOUD_GENERATOR",
+                                "sha256":"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                                "mime_type":"image/png",
+                                "size_bytes":4,
+                                "character_ids":["character:alexander","character:guardian"],
+                                "chapter_ids":["chapter_12"],
+                                "event_ids":["event:arrival"],
+                                "location_ids":["location:grayhaven"],
+                                "scene_ids":["scene:arrival"],
+                                "perspective":"scene",
+                                "visual_revision":0,
+                                "parent_asset_id":"va_scene_parent",
+                                "parent_sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                "derivation":"EDIT",
+                                "provenance":{
+                                  "parent_asset_id":"va_scene_parent",
+                                  "parent_sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                  "derivation":"EDIT"
+                                },
+                                "storage":{
+                                  "backend":"google_drive",
+                                  "state":"stored",
+                                  "drive_file_id":"drive-scene-edit-1",
+                                  "drive_parent_id":"drive-scenes"
+                                }
+                              }
+                            }
+                            """.trimIndent(),
+                        )
                     "/api/app/writing-room/v2/visual/scenes/context/get" ->
                         MockResponse().setBody(
                             """
@@ -301,6 +353,67 @@ class SceneBuilderApiTest {
         assertFalse(body.containsKey("references"))
     }
 
+
+    @Test
+    fun sceneEditPreservesApprovedParentAndAllSceneAssociations() = runBlocking {
+        val parent = VisualStudioAsset(
+            asset_id = "va_scene_parent",
+            project_id = "prj_story",
+            kind = "SCENE_ART",
+            status = "APPROVED",
+            sha256 = "E".repeat(64),
+            mime_type = "image/png",
+            character_ids = listOf("character:alexander", "character:guardian"),
+            chapter_ids = listOf("chapter_12"),
+            event_ids = listOf("event:arrival"),
+            location_ids = listOf("location:grayhaven"),
+            scene_ids = listOf("scene:arrival"),
+            perspective = "scene",
+            visual_revision = 4,
+        )
+
+        val result = session().editSceneVisualAssetImage(
+            imageBase64 = "cGFyZW50",
+            mimeType = "image/png",
+            projectId = "prj_story",
+            instruction = "Mantén identidades y cambia solo la iluminación.",
+            parentAsset = parent,
+        ).getOrThrow()
+
+        val edited = result.visual_asset!!
+        assertEquals("CANDIDATE", edited.status)
+        assertEquals(parent.asset_id, edited.parent_asset_id)
+        assertEquals(parent.sha256, edited.parent_sha256)
+        assertEquals("EDIT", edited.derivation)
+
+        val request = server.takeRequest()
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        val meta = body["visual_asset"]!!.jsonObject
+        assertEquals("scene_builder", meta["surface"]!!.jsonPrimitive.content)
+        assertEquals("SCENE_ART", meta["kind"]!!.jsonPrimitive.content)
+        assertEquals(parent.asset_id, meta["parent_asset_id"]!!.jsonPrimitive.content)
+        assertEquals(parent.sha256, meta["parent_sha256"]!!.jsonPrimitive.content)
+        assertEquals(
+            parent.character_ids,
+            meta["character_ids"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            parent.chapter_ids,
+            meta["chapter_ids"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            parent.scene_ids,
+            meta["scene_ids"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            parent.event_ids,
+            meta["event_ids"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            parent.location_ids,
+            meta["location_ids"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+    }
 
     @Test
     fun sceneCapabilitiesExposeLocalBlockerAndNoFallback() = runBlocking {
