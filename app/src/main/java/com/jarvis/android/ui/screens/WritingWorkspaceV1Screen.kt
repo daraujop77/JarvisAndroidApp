@@ -118,6 +118,7 @@ import com.jarvis.android.transport.live.WritingTimelineOccurred
 import com.jarvis.android.transport.live.WritingPlanItem
 import com.jarvis.android.transport.live.WritingPlanningCouncilMessage
 import com.jarvis.android.transport.live.WritingRoomAutoChat
+import com.jarvis.android.transport.live.VisualStudioGalleryCard
 import com.jarvis.android.transport.live.WritingWikiCategory
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.JarvisOrb
@@ -2953,9 +2954,15 @@ private fun WikiSection(
     if (selectedCharacterId != null) {
         val character = findStructuredCharacterByReference(liveCharacters, selectedCharacterId.orEmpty())
         if (character != null) {
+            val structuredEntity = state.wikiCharacters.firstOrNull { entry ->
+                entry.id.equals(character.wikiEntryId, ignoreCase = true) ||
+                    entry.id.substringAfter("character:", entry.id)
+                        .equals(character.id, ignoreCase = true)
+            }
             CharacterDetailWiki(
                 character = character,
                 allCharacters = liveCharacters,
+                visualAssets = structuredEntity?.visual_assets.orEmpty(),
                 projectId = projectId,
                 vm = vm,
                 isOwner = settings.isOwner,
@@ -3908,6 +3915,7 @@ private fun CompactCharacterHeader(character: StoryCharacter) {
 private fun CharacterDetailWiki(
     character: StoryCharacter,
     allCharacters: List<StoryCharacter>,
+    visualAssets: List<VisualStudioGalleryCard>,
     projectId: String,
     vm: JarvisViewModel,
     isOwner: Boolean,
@@ -3917,6 +3925,12 @@ private fun CharacterDetailWiki(
     var currentSubTab by rememberSaveable(character.id) { mutableStateOf(DossierSubTab.TODOS) }
     val wikiPrimaryState by vm.wikiPrimaryState.collectAsStateWithLifecycle()
     val wikiVisualAttachments by vm.wikiVisualAttachments.collectAsStateWithLifecycle()
+    val approvedSceneVisuals = remember(visualAssets) {
+        visualAssets
+            .filter { it.kind == "SCENE_ART" && it.status == "APPROVED" }
+            .distinctBy { it.asset_id }
+            .take(12)
+    }
     val visualAttachmentId = wikiVisualAttachments[character.visualAssetId]
     val visualBitmap = remember(visualAttachmentId) {
         visualAttachmentId?.let { vm.attachmentStore.decodeThumbnail(it, 768) }
@@ -3936,6 +3950,14 @@ private fun CharacterDetailWiki(
     LaunchedEffect(character.visualAssetId) {
         if (character.visualAssetId.isNotBlank()) {
             vm.loadWikiVisual(projectId, character.visualAssetId)
+        }
+    }
+
+    LaunchedEffect(projectId, approvedSceneVisuals.map { it.asset_id }) {
+        approvedSceneVisuals.forEach { asset ->
+            if (asset.asset_id.isNotBlank()) {
+                vm.loadWikiVisual(projectId, asset.asset_id)
+            }
         }
     }
 
@@ -4178,6 +4200,16 @@ private fun CharacterDetailWiki(
                             }
                         }
                     }
+                }
+            }
+
+            if (approvedSceneVisuals.isNotEmpty()) {
+                item {
+                    ApprovedWikiSceneGallery(
+                        assets = approvedSceneVisuals,
+                        attachments = wikiVisualAttachments,
+                        vm = vm,
+                    )
                 }
             }
 
@@ -4763,6 +4795,82 @@ private fun CharacterEncyclopediaInfobox(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ApprovedWikiSceneGallery(
+    assets: List<VisualStudioGalleryCard>,
+    attachments: Map<String, String>,
+    vm: JarvisViewModel,
+) {
+    WorkspaceCard("Galería visual · escenas aprobadas", accent = JarvisCyan) {
+        Text(
+            "Estas imágenes son representaciones visuales aprobadas. No crean hechos narrativos nuevos.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF94A3B8),
+        )
+        Spacer(Modifier.height(10.dp))
+        assets.forEach { asset ->
+            val attachmentId = attachments[asset.asset_id]
+            val bitmap = remember(attachmentId) {
+                attachmentId?.let { vm.attachmentStore.decodeThumbnail(it, 1280) }
+            }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xB30A1322),
+                border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.28f)),
+            ) {
+                Column(Modifier.padding(10.dp)) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = asset.alt.ifBlank { "Escena visual aprobada" },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(10.dp)),
+                            contentScale = ContentScale.Fit,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    } else {
+                        Text(
+                            "Cargando imagen protegida…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF94A3B8),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    Text(
+                        asset.scene_ids.firstOrNull().orEmpty().ifBlank { "Escena" },
+                        color = Color(0xFFF8FAFC),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    val relations = buildList {
+                        if (asset.chapter_ids.isNotEmpty()) {
+                            add(asset.chapter_ids.joinToString())
+                        }
+                        if (asset.location_ids.isNotEmpty()) {
+                            add(asset.location_ids.joinToString())
+                        }
+                    }
+                    if (relations.isNotEmpty()) {
+                        Text(
+                            relations.joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                    Text(
+                        "APPROVED · SHA " + asset.sha256.take(12) + "…",
+                        style = HudTextStyle,
+                        color = JarvisGreen,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
