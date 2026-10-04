@@ -1895,6 +1895,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val capabilities: VisualSceneGenerationCapabilities? = null,
         val generated: VisualStudioGeneratedImage? = null,
         val generatedAttachmentId: String? = null,
+        val attachmentIds: Set<String> = emptySet(),
         val notice: String? = null,
         val error: String? = null,
     )
@@ -1906,6 +1907,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val ids = (
             _characterStudio.value.attachmentIds.values +
                 _locationStudio.value.attachmentIds.values +
+                _sceneBuilder.value.attachmentIds +
                 listOfNotNull(_sceneBuilder.value.generatedAttachmentId) +
                 _wikiVisualAttachments.value.values
         ).distinct()
@@ -4457,21 +4459,25 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 aspectRatio = aspectRatio,
             ).fold(
                 onSuccess = { reply ->
-                    val oldAttachment = _sceneBuilder.value.generatedAttachmentId
+                    val oldAttachments = _sceneBuilder.value.attachmentIds +
+                        listOfNotNull(_sceneBuilder.value.generatedAttachmentId)
                     val staged = withContext(Dispatchers.IO) {
                         container.attachmentStore.stageGeneratedBase64(
                             reply.data_base64,
                         )
                     }
-                    if (oldAttachment != null && oldAttachment != staged?.attachmentId) {
-                        deleteVisualStudioAttachments(listOf(oldAttachment))
-                    }
+                    val keep = staged?.attachmentId
+                    deleteVisualStudioAttachments(
+                        oldAttachments.filter { it != keep },
+                    )
                     _sceneBuilder.update {
                         it.copy(
                             busy = false,
                             busyLabel = "",
                             generated = reply,
                             generatedAttachmentId = staged?.attachmentId,
+                            attachmentIds = staged?.attachmentId?.let(::setOf)
+                                ?: emptySet(),
                             notice = if (reply.storage_retry_required) {
                                 "La escena se generó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
                             } else {
@@ -4490,6 +4496,116 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                                 ?: "No se pudo generar la escena.",
                         )
                     }
+                },
+            )
+        }
+    }
+
+    fun editSceneVisual(
+        parentAsset: VisualStudioAsset,
+        referenceAttachmentId: String,
+        instruction: String,
+        mode: String = "quality",
+        model: String? = null,
+        preserveIdentity: String = "high",
+        aspectRatio: String = "landscape",
+    ) {
+        val clean = instruction.trim()
+        val state = _sceneBuilder.value
+        if (
+            clean.isBlank() ||
+            _imageEditState.value is ImageEditState.Busy ||
+            state.busy ||
+            parentAsset.project_id != state.projectId ||
+            parentAsset.kind != "SCENE_ART" ||
+            parentAsset.status != "APPROVED"
+        ) {
+            if (parentAsset.status != "APPROVED") {
+                _imageEditState.value = ImageEditState.Error(
+                    "Aprueba la escena visual antes de crear una edición hija.",
+                )
+            }
+            return
+        }
+        _imageEditState.value = ImageEditState.Busy
+        _lastImageEditDetails.value = null
+        viewModelScope.launch {
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(referenceAttachmentId)
+                        ?: error("La escena base ya no está disponible en el dispositivo.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La escena base es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (source.isFailure) {
+                _imageEditState.value = ImageEditState.Error(
+                    source.exceptionOrNull()?.message
+                        ?: "No se pudo leer la escena aprobada.",
+                )
+                return@launch
+            }
+            container.liveSession.editSceneVisualAssetImage(
+                imageBase64 = source.getOrThrow(),
+                mimeType = parentAsset.mime_type,
+                projectId = parentAsset.project_id,
+                instruction = clean,
+                parentAsset = parentAsset,
+                mode = mode,
+                model = model,
+                preserveIdentity = preserveIdentity,
+                aspectRatio = aspectRatio,
+            ).fold(
+                onSuccess = { reply ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(
+                            reply.data_base64,
+                        )
+                    }
+                    if (staged == null) {
+                        _imageEditState.value = ImageEditState.Error(
+                            "JARVIS creó la edición, pero Android no pudo leerla.",
+                        )
+                        return@fold
+                    }
+                    _lastImageEditDetails.value = ImageGenerationDetails(
+                        reply.provider,
+                        reply.model,
+                        reply.requested_mode,
+                        reply.fallback_used,
+                        reply.attempt_count,
+                        reply.duration_ms,
+                    )
+                    _sceneBuilder.update { current ->
+                        if (current.projectId != parentAsset.project_id) {
+                            current
+                        } else {
+                            current.copy(
+                                generated = reply,
+                                generatedAttachmentId = staged.attachmentId,
+                                attachmentIds = current.attachmentIds +
+                                    referenceAttachmentId +
+                                    staged.attachmentId,
+                                notice = if (reply.storage_retry_required) {
+                                    "La edición quedó como CANDIDATE, pero Drive requiere reintento. El parent aprobado permanece intacto."
+                                } else {
+                                    "Edición hija guardada como CANDIDATE. El parent aprobado permanece intacto hasta otra aprobación humana."
+                                },
+                                error = null,
+                            )
+                        }
+                    }
+                    _imageEditState.value = ImageEditState.Success(
+                        staged.attachmentId,
+                    )
+                },
+                onFailure = { error ->
+                    _imageEditState.value = ImageEditState.Error(
+                        error.message ?: "No se pudo editar la escena visual.",
+                    )
                 },
             )
         }
