@@ -73,6 +73,7 @@ fun CharacterStudioScreen(
     vm: JarvisViewModel,
     projectId: String,
     characters: List<WritingWikiEntity>,
+    onEditInImageStudio: (String, VisualStudioAsset) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val state by vm.characterStudio.collectAsStateWithLifecycle()
@@ -91,7 +92,6 @@ fun CharacterStudioScreen(
     var masterPrompt by rememberSaveable(projectId) { mutableStateOf("") }
     var turnaroundPrompt by rememberSaveable(projectId) { mutableStateOf("") }
     var selectedPerspective by rememberSaveable(projectId) { mutableStateOf("left_profile") }
-    var editInstruction by rememberSaveable(projectId) { mutableStateOf("") }
 
     LaunchedEffect(characterOptions) {
         if (selectedCharacterId.isBlank() || characterOptions.none { it.id == selectedCharacterId }) {
@@ -137,6 +137,18 @@ fun CharacterStudioScreen(
     ) { uri ->
         if (uri != null && selectedCharacterId.isNotBlank()) {
             vm.uploadCharacterMaster(projectId, selectedCharacterId, uri)
+        }
+    }
+    val turnaroundUploadLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null && selectedCharacterId.isNotBlank()) {
+            vm.uploadCharacterTurnaround(
+                projectId = projectId,
+                characterId = selectedCharacterId,
+                perspective = selectedPerspective,
+                uri = uri,
+            )
         }
     }
 
@@ -262,6 +274,7 @@ fun CharacterStudioScreen(
                             vm = vm,
                             showApprove = false,
                             showRetry = false,
+                            onEditInImageStudio = if (settings.isOwner) onEditInImageStudio else null,
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -344,38 +357,6 @@ fun CharacterStudioScreen(
                 }
             }
 
-            if (settings.isOwner && master != null) {
-                item {
-                    StudioPanel("EDICIÓN NO DESTRUCTIVA", JarvisViolet) {
-                        OutlinedTextField(
-                            value = editInstruction,
-                            onValueChange = { if (it.length <= 4000) editInstruction = it },
-                            label = { Text("Qué debe cambiar") },
-                            minLines = 2,
-                            maxLines = 5,
-                            colors = jarvisTextFieldColors(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Button(
-                            onClick = {
-                                vm.editCharacterVisual(
-                                    projectId = projectId,
-                                    characterId = selectedCharacterId,
-                                    parentAsset = master,
-                                    instruction = editInstruction,
-                                )
-                            },
-                            enabled = editInstruction.isNotBlank() && !state.busy,
-                        ) {
-                            Icon(Icons.Filled.Edit, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Crear edición hija")
-                        }
-                    }
-                }
-            }
-
             item {
                 StudioPanel("TURNAROUND / IDENTITY PACK", JarvisGreen) {
                     Text(
@@ -439,6 +420,16 @@ fun CharacterStudioScreen(
                                 else "Regenerar vista como hija",
                             )
                         }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { turnaroundUploadLauncher.launch("image/*") },
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Subir vista manual")
+                        }
                     }
                 }
             }
@@ -473,6 +464,7 @@ fun CharacterStudioScreen(
                                 vm = vm,
                                 showApprove = false,
                                 showRetry = false,
+                                onEditInImageStudio = if (settings.isOwner) onEditInImageStudio else null,
                             )
                         }
                     }
@@ -586,7 +578,9 @@ private fun CharacterAssetCard(
     vm: JarvisViewModel,
     showApprove: Boolean,
     showRetry: Boolean,
+    onEditInImageStudio: ((String, VisualStudioAsset) -> Unit)? = null,
 ) {
+    val attachmentId = state.attachmentIds[asset.asset_id]
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = Color(0xB30B1528),
@@ -597,7 +591,7 @@ private fun CharacterAssetCard(
             AssetPreview(
                 projectId = projectId,
                 asset = asset,
-                attachmentId = state.attachmentIds[asset.asset_id],
+                attachmentId = attachmentId,
                 vm = vm,
             )
             Spacer(Modifier.height(8.dp))
@@ -634,7 +628,11 @@ private fun CharacterAssetCard(
                     color = JarvisViolet,
                 )
             }
-            if (showApprove || (showRetry && asset.storage.state != "stored")) {
+            if (
+                showApprove ||
+                (showRetry && asset.storage.state != "stored") ||
+                (onEditInImageStudio != null && asset.status == "APPROVED")
+            ) {
                 Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -660,6 +658,20 @@ private fun CharacterAssetCard(
                             Icon(Icons.Filled.Refresh, contentDescription = null)
                             Spacer(Modifier.width(5.dp))
                             Text("Reintentar Drive")
+                        }
+                    }
+                    if (onEditInImageStudio != null && asset.status == "APPROVED") {
+                        OutlinedButton(
+                            onClick = {
+                                val id = attachmentId
+                                if (!id.isNullOrBlank()) onEditInImageStudio(id, asset)
+                            },
+                            enabled = !state.busy && !attachmentId.isNullOrBlank(),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = null)
+                            Spacer(Modifier.width(5.dp))
+                            Text("Editar")
                         }
                     }
                 }
