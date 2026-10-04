@@ -73,7 +73,7 @@ fun CharacterStudioScreen(
     vm: JarvisViewModel,
     projectId: String,
     characters: List<WritingWikiEntity>,
-    onEditInImageStudio: (String, VisualStudioAsset) -> Unit = { _, _ -> },
+    onEditInImageStudio: (String, String, VisualStudioAsset) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val state by vm.characterStudio.collectAsStateWithLifecycle()
@@ -274,7 +274,13 @@ fun CharacterStudioScreen(
                             vm = vm,
                             showApprove = false,
                             showRetry = false,
-                            onEditInImageStudio = if (settings.isOwner) onEditInImageStudio else null,
+                            onEditInImageStudio = if (settings.isOwner) {
+                                { attachmentId, asset ->
+                                    onEditInImageStudio(attachmentId, selectedCharacterId, asset)
+                                }
+                            } else {
+                                null
+                            },
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -464,7 +470,13 @@ fun CharacterStudioScreen(
                                 vm = vm,
                                 showApprove = false,
                                 showRetry = false,
-                                onEditInImageStudio = if (settings.isOwner) onEditInImageStudio else null,
+                                onEditInImageStudio = if (settings.isOwner) {
+                                { attachmentId, asset ->
+                                    onEditInImageStudio(attachmentId, selectedCharacterId, asset)
+                                }
+                            } else {
+                                null
+                            },
                             )
                         }
                     }
