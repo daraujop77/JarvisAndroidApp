@@ -224,6 +224,7 @@ data class WritingWikiEntity(
     val chapter_activity: List<WritingWikiChapterActivity> = emptyList(),
     val jarvis_analysis: WritingWikiJarvisAnalysis? = null,
     val image: WritingWikiImage? = null,
+    val visual_assets: List<VisualStudioGalleryCard> = emptyList(),
 )
 
 @Serializable
