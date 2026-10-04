@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.android.transport.live.VisualSceneReference
+import com.jarvis.android.transport.live.VisualStudioAsset
 import com.jarvis.android.transport.live.WritingWikiEntity
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
@@ -56,6 +57,7 @@ fun SceneBuilderScreen(
     characters: List<WritingWikiEntity>,
     locations: List<WritingWikiEntity>,
     onUseInChapter: (String) -> Unit = {},
+    onEditScene: (String, VisualStudioAsset) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val writing by vm.writingWorkspace.collectAsStateWithLifecycle()
@@ -582,21 +584,33 @@ fun SceneBuilderScreen(
                                     Text("Aprobar escena visual")
                                 }
                             }
-                            if (
-                                asset.status == "APPROVED" &&
-                                asset.chapter_ids.isNotEmpty()
-                            ) {
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = {
-                                        onUseInChapter(
-                                            asset.chapter_ids.first(),
-                                        )
-                                    },
-                                    enabled = !builder.busy,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text("Usar en capítulo")
+                            if (asset.status == "APPROVED") {
+                                val attachmentId = builder.generatedAttachmentId
+                                if (!attachmentId.isNullOrBlank()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            onEditScene(attachmentId, asset)
+                                        },
+                                        enabled = !builder.busy,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text("Editar en Image Studio")
+                                    }
+                                }
+                                if (asset.chapter_ids.isNotEmpty()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            onUseInChapter(
+                                                asset.chapter_ids.first(),
+                                            )
+                                        },
+                                        enabled = !builder.busy,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text("Usar en capítulo")
+                                    }
                                 }
                             }
                         }
