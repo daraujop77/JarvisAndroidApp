@@ -958,6 +958,101 @@ suspend fun JarvisAppSession.editLocationVisualAssetImage(
     }
 
 
+suspend fun JarvisAppSession.editSceneVisualAssetImage(
+    imageBase64: String,
+    mimeType: String,
+    projectId: String,
+    instruction: String,
+    parentAsset: VisualStudioAsset,
+    mode: String = "quality",
+    model: String? = null,
+    preserveIdentity: String = "high",
+    aspectRatio: String = "landscape",
+): Result<VisualStudioGeneratedImage> {
+    if (
+        parentAsset.project_id != projectId ||
+        parentAsset.kind != "SCENE_ART" ||
+        parentAsset.status != "APPROVED" ||
+        parentAsset.asset_id.isBlank() ||
+        parentAsset.sha256.isBlank()
+    ) {
+        return Result.failure(
+            TransportException("scene edit requires an approved SCENE_ART parent from the same project"),
+        )
+    }
+    return visualStudioObjectPost(
+        "/api/app/images/edits",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("image_base64", imageBase64)
+            put("mime_type", mimeType)
+            put("instruction", instruction.trim())
+            put("mode", mode)
+            put("preserve_identity", preserveIdentity)
+            put("aspect_ratio", aspectRatio)
+            if (!model.isNullOrBlank()) put("model", model)
+            put("visual_asset", buildJsonObject {
+                put("surface", "scene_builder")
+                put("project_id", projectId)
+                put("kind", "SCENE_ART")
+                put(
+                    "character_ids",
+                    buildJsonArray {
+                        parentAsset.character_ids.forEach { add(JsonPrimitive(it)) }
+                    },
+                )
+                put(
+                    "chapter_ids",
+                    buildJsonArray {
+                        parentAsset.chapter_ids.forEach { add(JsonPrimitive(it)) }
+                    },
+                )
+                put(
+                    "scene_ids",
+                    buildJsonArray {
+                        parentAsset.scene_ids.forEach { add(JsonPrimitive(it)) }
+                    },
+                )
+                put(
+                    "event_ids",
+                    buildJsonArray {
+                        parentAsset.event_ids.forEach { add(JsonPrimitive(it)) }
+                    },
+                )
+                put(
+                    "location_ids",
+                    buildJsonArray {
+                        parentAsset.location_ids.forEach { add(JsonPrimitive(it)) }
+                    },
+                )
+                put("perspective", parentAsset.perspective.ifBlank { "scene" })
+                put("parent_asset_id", parentAsset.asset_id)
+                put("parent_sha256", parentAsset.sha256)
+                put("derivation", "EDIT")
+            })
+        },
+    ).mapCatching { raw ->
+        val reply = parseVisualStudioGeneratedImage(raw)
+        val asset = reply.visual_asset
+        if (reply.data_base64.isBlank() || reply.mime_type.isBlank()) {
+            throw TransportException("scene visual edit returned no image")
+        }
+        if (asset == null || asset.asset_id.isBlank()) {
+            throw TransportException("scene visual edit returned no durable candidate")
+        }
+        if (
+            asset.project_id != projectId ||
+            asset.kind != "SCENE_ART" ||
+            asset.parent_asset_id != parentAsset.asset_id ||
+            asset.parent_sha256.uppercase() != parentAsset.sha256.uppercase()
+        ) {
+            throw TransportException("scene visual edit lineage mismatch")
+        }
+        reply
+    }
+}
+
+
 suspend fun JarvisAppSession.visualSceneContextPreview(
     projectId: String,
     chapterId: String,
