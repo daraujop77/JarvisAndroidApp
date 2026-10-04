@@ -16,13 +16,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.jarvis.android.transport.live.VisualStudioAsset
 import com.jarvis.android.transport.live.WritingWikiEntity
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.screens.ImageStudioScreen
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 
 private enum class VisualStudioSection {
@@ -46,11 +49,50 @@ fun VisualStudioScreen(
     var section by rememberSaveable(projectId) {
         mutableStateOf(VisualStudioSection.CHARACTERS)
     }
+    var sceneEditorAttachmentId by rememberSaveable(projectId) {
+        mutableStateOf<String?>(null)
+    }
+    var sceneEditorParent by remember(projectId) {
+        mutableStateOf<VisualStudioAsset?>(null)
+    }
 
     LaunchedEffect(projectId, openScenesRequest) {
         if (openScenesRequest > 0) {
             section = VisualStudioSection.SCENES
         }
+    }
+
+    val editorAttachmentId = sceneEditorAttachmentId
+    val editorParent = sceneEditorParent
+    if (!editorAttachmentId.isNullOrBlank() && editorParent != null) {
+        ImageStudioScreen(
+            vm = vm,
+            initialAttachmentId = editorAttachmentId,
+            onBack = {
+                sceneEditorAttachmentId = null
+                sceneEditorParent = null
+            },
+            showWikiPrimaryActions = false,
+            onEditRequest = {
+                    referenceAttachmentId,
+                    instruction,
+                    mode,
+                    model,
+                    preserveIdentity,
+                    aspectRatio,
+                ->
+                vm.editSceneVisual(
+                    parentAsset = editorParent,
+                    referenceAttachmentId = referenceAttachmentId,
+                    instruction = instruction,
+                    mode = mode,
+                    model = model,
+                    preserveIdentity = preserveIdentity,
+                    aspectRatio = aspectRatio,
+                )
+            },
+        )
+        return
     }
 
     Column(
@@ -124,6 +166,10 @@ fun VisualStudioScreen(
                 characters = characters,
                 locations = locations,
                 onUseInChapter = onUseSceneInChapter,
+                onEditScene = { attachmentId, asset ->
+                    sceneEditorAttachmentId = attachmentId
+                    sceneEditorParent = asset
+                },
                 modifier = Modifier.weight(1f),
             )
 
