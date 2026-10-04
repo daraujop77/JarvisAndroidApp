@@ -55,11 +55,60 @@ fun VisualStudioScreen(
     var sceneEditorParent by remember(projectId) {
         mutableStateOf<VisualStudioAsset?>(null)
     }
+    var characterEditorAttachmentId by rememberSaveable(projectId) {
+        mutableStateOf<String?>(null)
+    }
+    var characterEditorCharacterId by rememberSaveable(projectId) {
+        mutableStateOf<String?>(null)
+    }
+    var characterEditorParent by remember(projectId) {
+        mutableStateOf<VisualStudioAsset?>(null)
+    }
 
     LaunchedEffect(projectId, openScenesRequest) {
         if (openScenesRequest > 0) {
             section = VisualStudioSection.SCENES
         }
+    }
+
+    val characterAttachmentId = characterEditorAttachmentId
+    val characterId = characterEditorCharacterId
+    val characterParent = characterEditorParent
+    if (
+        !characterAttachmentId.isNullOrBlank() &&
+        !characterId.isNullOrBlank() &&
+        characterParent != null
+    ) {
+        ImageStudioScreen(
+            vm = vm,
+            initialAttachmentId = characterAttachmentId,
+            onBack = {
+                characterEditorAttachmentId = null
+                characterEditorCharacterId = null
+                characterEditorParent = null
+            },
+            showWikiPrimaryActions = false,
+            onEditRequest = {
+                    referenceAttachmentId,
+                    instruction,
+                    mode,
+                    model,
+                    preserveIdentity,
+                    aspectRatio,
+                ->
+                vm.editCharacterVisualInStudio(
+                    parentAsset = characterParent,
+                    characterId = characterId,
+                    referenceAttachmentId = referenceAttachmentId,
+                    instruction = instruction,
+                    mode = mode,
+                    model = model,
+                    preserveIdentity = preserveIdentity,
+                    aspectRatio = aspectRatio,
+                )
+            },
+        )
+        return
     }
 
     val editorAttachmentId = sceneEditorAttachmentId
@@ -150,6 +199,11 @@ fun VisualStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 characters = characters,
+                onEditInImageStudio = { attachmentId, selectedCharacterId, asset ->
+                    characterEditorAttachmentId = attachmentId
+                    characterEditorCharacterId = selectedCharacterId
+                    characterEditorParent = asset
+                },
                 modifier = Modifier.weight(1f),
             )
 
