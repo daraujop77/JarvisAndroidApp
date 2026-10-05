@@ -1840,6 +1840,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val error: String? = null,
     )
 
+    // Invalidate late media results even when the user switches away and back.
+    private var characterStudioScopeVersion = 0L
     private val _characterStudio = MutableStateFlow(CharacterStudioState())
     val characterStudio: StateFlow<CharacterStudioState> = _characterStudio
 
@@ -1904,6 +1906,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val sceneBuilder: StateFlow<SceneBuilderState> = _sceneBuilder
 
     private fun resetVisualStudioProtectedMedia() {
+        characterStudioScopeVersion++
+        _imageEditState.value = ImageEditState.Idle
+        _lastImageEditDetails.value = null
         val ids = (
             _characterStudio.value.attachmentIds.values +
                 _locationStudio.value.attachmentIds.values +
@@ -1925,6 +1930,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
         val current = _characterStudio.value
         if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterStudioScopeVersion++
+            _imageEditState.value = ImageEditState.Idle
+            _lastImageEditDetails.value = null
             val oldIds = current.attachmentIds.values
             _characterStudio.value = CharacterStudioState(
                 projectId = cleanProject,
@@ -1944,6 +1952,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val cleanCharacter = characterId.trim()
         if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
         val current = _characterStudio.value
+        if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterStudioScopeVersion++
+            _imageEditState.value = ImageEditState.Idle
+            _lastImageEditDetails.value = null
+        }
         _characterStudio.value = current.copy(
             projectId = cleanProject,
             characterId = cleanCharacter,
@@ -2180,7 +2193,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         uri: Uri,
     ) {
         val cleanPerspective = perspective.trim()
+        val scopeVersion = characterStudioScopeVersion
+        fun scopeIsCurrent(): Boolean =
+            scopeVersion == characterStudioScopeVersion &&
+                _characterStudio.value.projectId == projectId &&
+                _characterStudio.value.characterId == characterId
         if (
+            !scopeIsCurrent() ||
             _characterStudio.value.busy ||
             cleanPerspective.isBlank()
         ) return
@@ -2194,6 +2213,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
         viewModelScope.launch {
             val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            if (!scopeIsCurrent()) {
+                staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                return@launch
+            }
             if (staged == null) {
                 _characterStudio.update {
                     it.copy(
@@ -2215,8 +2238,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     Base64.encodeToString(bytes, Base64.NO_WRAP)
                 }
             }
+            if (!scopeIsCurrent()) {
+                deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                return@launch
+            }
             if (source.isFailure) {
                 withContext(Dispatchers.IO) { container.attachmentStore.delete(staged.attachmentId) }
+                if (!scopeIsCurrent()) return@launch
                 _characterStudio.update {
                     it.copy(
                         busy = false,
@@ -2240,6 +2268,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 perspective = cleanPerspective,
             ).fold(
                 onSuccess = { response ->
+                    if (!scopeIsCurrent()) {
+                        deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                        return@fold
+                    }
                     _characterStudio.update {
                         it.copy(
                             attachmentIds = it.attachmentIds +
@@ -2253,6 +2285,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     withContext(Dispatchers.IO) {
                         container.attachmentStore.delete(staged.attachmentId)
                     }
+                    if (!scopeIsCurrent()) return@fold
                     _characterStudio.update {
                         it.copy(
                             busy = false,
@@ -2455,6 +2488,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val clean = instruction.trim()
         val state = _characterStudio.value
+        val scopeVersion = characterStudioScopeVersion
+        fun scopeIsCurrent(): Boolean =
+            scopeVersion == characterStudioScopeVersion &&
+                _characterStudio.value.projectId == parentAsset.project_id &&
+                _characterStudio.value.characterId == characterId
         if (
             clean.isBlank() ||
             referenceAttachmentId.isBlank() ||
@@ -2485,6 +2523,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     Base64.encodeToString(bytes, Base64.NO_WRAP)
                 }
             }
+            if (!scopeIsCurrent()) return@launch
             if (source.isFailure) {
                 _imageEditState.value = ImageEditState.Error(
                     source.exceptionOrNull()?.message
@@ -2509,11 +2548,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 aspectRatio = aspectRatio,
             ).fold(
                 onSuccess = { reply ->
+                    if (!scopeIsCurrent()) return@fold
                     val staged = withContext(Dispatchers.IO) {
                         container.attachmentStore.stageGeneratedBase64(reply.data_base64)
                     }
+                    if (!scopeIsCurrent()) {
+                        staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                        return@fold
+                    }
                     val child = reply.visual_asset
                     if (staged == null || child == null) {
+                        staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
                         _imageEditState.value = ImageEditState.Error(
                             "JARVIS creó la edición, pero Android no pudo conservar el candidato.",
                         )
@@ -2547,9 +2592,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         }
                     }
                     reloadCharacterStudio(parentAsset.project_id, characterId)
-                    _imageEditState.value = ImageEditState.Success(staged.attachmentId)
+                    if (scopeIsCurrent()) {
+                        _imageEditState.value = ImageEditState.Success(staged.attachmentId)
+                    }
                 },
                 onFailure = { error ->
+                    if (!scopeIsCurrent()) return@fold
                     _imageEditState.value = ImageEditState.Error(
                         error.message ?: "No se pudo editar la referencia visual.",
                     )
