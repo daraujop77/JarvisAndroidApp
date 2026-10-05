@@ -1840,6 +1840,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val error: String? = null,
     )
 
+    // Invalidate late media results even when the user switches away and back.
+    private var characterStudioScopeVersion = 0L
     private val _characterStudio = MutableStateFlow(CharacterStudioState())
     val characterStudio: StateFlow<CharacterStudioState> = _characterStudio
 
@@ -1904,6 +1906,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val sceneBuilder: StateFlow<SceneBuilderState> = _sceneBuilder
 
     private fun resetVisualStudioProtectedMedia() {
+        characterStudioScopeVersion++
+        _imageEditState.value = ImageEditState.Idle
+        _lastImageEditDetails.value = null
         val ids = (
             _characterStudio.value.attachmentIds.values +
                 _locationStudio.value.attachmentIds.values +
@@ -1925,6 +1930,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
         val current = _characterStudio.value
         if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterStudioScopeVersion++
+            _imageEditState.value = ImageEditState.Idle
+            _lastImageEditDetails.value = null
             val oldIds = current.attachmentIds.values
             _characterStudio.value = CharacterStudioState(
                 projectId = cleanProject,
@@ -1944,6 +1952,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val cleanCharacter = characterId.trim()
         if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
         val current = _characterStudio.value
+        if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterStudioScopeVersion++
+            _imageEditState.value = ImageEditState.Idle
+            _lastImageEditDetails.value = null
+        }
         _characterStudio.value = current.copy(
             projectId = cleanProject,
             characterId = cleanCharacter,
@@ -2173,6 +2186,118 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun uploadCharacterTurnaround(
+        projectId: String,
+        characterId: String,
+        perspective: String,
+        uri: Uri,
+    ) {
+        val cleanPerspective = perspective.trim()
+        val scopeVersion = characterStudioScopeVersion
+        fun scopeIsCurrent(): Boolean =
+            scopeVersion == characterStudioScopeVersion &&
+                _characterStudio.value.projectId == projectId &&
+                _characterStudio.value.characterId == characterId
+        if (
+            !scopeIsCurrent() ||
+            _characterStudio.value.busy ||
+            cleanPerspective.isBlank()
+        ) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Guardando vista manual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            if (!scopeIsCurrent()) {
+                staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                return@launch
+            }
+            if (staged == null) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = "No se pudo leer la vista seleccionada.",
+                    )
+                }
+                return@launch
+            }
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(staged.attachmentId)
+                        ?: error("La imagen temporal ya no está disponible.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (!scopeIsCurrent()) {
+                deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                return@launch
+            }
+            if (source.isFailure) {
+                withContext(Dispatchers.IO) { container.attachmentStore.delete(staged.attachmentId) }
+                if (!scopeIsCurrent()) return@launch
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message ?: "No se pudo leer la vista.",
+                    )
+                }
+                return@launch
+            }
+            val mime = app.contentResolver.getType(uri)
+                ?.lowercase()
+                ?.takeIf { it in setOf("image/png", "image/jpeg", "image/webp") }
+                ?: "image/jpeg"
+            container.liveSession.visualAssetIngest(
+                projectId = projectId,
+                imageBase64 = source.getOrThrow(),
+                mimeType = mime,
+                kind = "IDENTITY_PACK",
+                source = "MANUAL_UPLOAD",
+                characterId = characterId,
+                perspective = cleanPerspective,
+            ).fold(
+                onSuccess = { response ->
+                    if (!scopeIsCurrent()) {
+                        deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                        return@fold
+                    }
+                    _characterStudio.update {
+                        it.copy(
+                            attachmentIds = it.attachmentIds +
+                                (response.asset.asset_id to staged.attachmentId),
+                            notice = "Vista manual guardada como CANDIDATE. Revisa y aprueba su hash exacto antes de incluirla en un Reference Pack.",
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    withContext(Dispatchers.IO) {
+                        container.attachmentStore.delete(staged.attachmentId)
+                    }
+                    if (!scopeIsCurrent()) return@fold
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo guardar la vista manual.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     fun approveCharacterVisual(asset: VisualStudioAsset) {
         val state = _characterStudio.value
         if (state.busy || asset.status != "CANDIDATE" || asset.sha256.isBlank()) return
@@ -2348,6 +2473,136 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             }
             rememberCharacterStudioCandidate(projectId, characterId, result.getOrThrow())
             reloadCharacterStudio(projectId, characterId)
+        }
+    }
+
+    fun editCharacterVisualInStudio(
+        parentAsset: VisualStudioAsset,
+        characterId: String,
+        referenceAttachmentId: String,
+        instruction: String,
+        mode: String = "quality",
+        model: String? = null,
+        preserveIdentity: String = "high",
+        aspectRatio: String = "portrait",
+    ) {
+        val clean = instruction.trim()
+        val state = _characterStudio.value
+        val scopeVersion = characterStudioScopeVersion
+        fun scopeIsCurrent(): Boolean =
+            scopeVersion == characterStudioScopeVersion &&
+                _characterStudio.value.projectId == parentAsset.project_id &&
+                _characterStudio.value.characterId == characterId
+        if (
+            clean.isBlank() ||
+            referenceAttachmentId.isBlank() ||
+            _imageEditState.value is ImageEditState.Busy ||
+            state.busy ||
+            parentAsset.project_id != state.projectId ||
+            characterId != state.characterId ||
+            parentAsset.status != "APPROVED"
+        ) {
+            if (parentAsset.status != "APPROVED") {
+                _imageEditState.value = ImageEditState.Error(
+                    "Aprueba la imagen antes de crear una edición hija.",
+                )
+            }
+            return
+        }
+        _imageEditState.value = ImageEditState.Busy
+        _lastImageEditDetails.value = null
+        viewModelScope.launch {
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(referenceAttachmentId)
+                        ?: error("La imagen base ya no está disponible en el dispositivo.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen base es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (!scopeIsCurrent()) return@launch
+            if (source.isFailure) {
+                _imageEditState.value = ImageEditState.Error(
+                    source.exceptionOrNull()?.message
+                        ?: "No se pudo leer la referencia aprobada.",
+                )
+                return@launch
+            }
+            container.liveSession.editVisualAssetImage(
+                imageBase64 = source.getOrThrow(),
+                mimeType = parentAsset.mime_type,
+                projectId = parentAsset.project_id,
+                characterId = characterId,
+                instruction = clean,
+                kind = parentAsset.kind,
+                perspective = parentAsset.perspective,
+                parentAssetId = parentAsset.asset_id,
+                parentSha256 = parentAsset.sha256,
+                derivation = "EDIT",
+                mode = mode,
+                model = model,
+                preserveIdentity = preserveIdentity,
+                aspectRatio = aspectRatio,
+            ).fold(
+                onSuccess = { reply ->
+                    if (!scopeIsCurrent()) return@fold
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+                    }
+                    if (!scopeIsCurrent()) {
+                        staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                        return@fold
+                    }
+                    val child = reply.visual_asset
+                    if (staged == null || child == null) {
+                        staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                        _imageEditState.value = ImageEditState.Error(
+                            "JARVIS creó la edición, pero Android no pudo conservar el candidato.",
+                        )
+                        return@fold
+                    }
+                    _lastImageEditDetails.value = ImageGenerationDetails(
+                        reply.provider,
+                        reply.model,
+                        reply.requested_mode,
+                        reply.fallback_used,
+                        reply.attempt_count,
+                        reply.duration_ms,
+                    )
+                    _characterStudio.update { current ->
+                        if (
+                            current.projectId != parentAsset.project_id ||
+                            current.characterId != characterId
+                        ) {
+                            current
+                        } else {
+                            current.copy(
+                                attachmentIds = current.attachmentIds +
+                                    (child.asset_id to staged.attachmentId),
+                                notice = if (reply.storage_retry_required) {
+                                    "La edición hija quedó como CANDIDATE, pero Drive requiere reintento. El parent aprobado permanece intacto."
+                                } else {
+                                    "Edición hija guardada como CANDIDATE. El parent aprobado permanece intacto hasta otra aprobación humana."
+                                },
+                                error = null,
+                            )
+                        }
+                    }
+                    reloadCharacterStudio(parentAsset.project_id, characterId)
+                    if (scopeIsCurrent()) {
+                        _imageEditState.value = ImageEditState.Success(staged.attachmentId)
+                    }
+                },
+                onFailure = { error ->
+                    if (!scopeIsCurrent()) return@fold
+                    _imageEditState.value = ImageEditState.Error(
+                        error.message ?: "No se pudo editar la referencia visual.",
+                    )
+                },
+            )
         }
     }
 
