@@ -584,6 +584,8 @@ class LiveAppGatewayTransportTest {
             repo.snapshot.value.session.requests[idA]?.status?.isTerminal == true &&
                 repo.snapshot.value.session.requests[idB]?.status?.isTerminal == true
         }
+        assertEquals(RequestStatus.Completed, repo.snapshot.value.session.requests[idA]?.status)
+        assertEquals(RequestStatus.Completed, repo.snapshot.value.session.requests[idB]?.status)
         val bodyA = postedBodies.single { it.contains(idA) }
         val bodyB = postedBodies.single { it.contains(idB) }
         assertTrue(bodyA.contains("\"profile\":\"fast\""))

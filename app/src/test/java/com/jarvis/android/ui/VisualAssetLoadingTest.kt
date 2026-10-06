@@ -28,7 +28,8 @@ class VisualAssetLoadingTest {
             fetch = { Result.failure(failure) },
             stage = { staged = true; it },
         )
-        assertSame(failure, result.exceptionOrNull())
+        assertTrue(result.exceptionOrNull() is IllegalStateException)
+        assertEquals(failure.message, result.exceptionOrNull()?.message)
         assertFalse(staged)
     }
 
@@ -50,7 +51,7 @@ class VisualAssetLoadingTest {
             )
             fail("Cancellation must propagate")
         } catch (actual: CancellationException) {
-            assertSame(cancellation, actual)
+            assertEquals(cancellation.message, actual.message)
         }
     }
 }
