@@ -77,6 +77,7 @@ class LiveAppGatewayTransport(
     private val client = JarvisAppSession.defaultClient()
     private val active = ConcurrentHashMap<String, ActiveTurn>()
 
+    private val frameEmissionLock = Any()
     private var cursor = 0L
     private var eventSeq = 0L
 
@@ -522,26 +523,23 @@ class LiveAppGatewayTransport(
 
     // ---- frame production (internal EventEnvelope for the existing reducer) ---
 
-    private suspend fun emit(event: GatewayEvent) {
-        val env = EventEnvelope(
-            cursor = ++cursor,
-            eventId = "live_${eventSeq++}",
-            version = ContractVersion.SUPPORTED,
-            timestampMs = System.currentTimeMillis(),
-            event = event,
-        )
-        _frames.trySend(JarvisJson.default.encodeToString(EventEnvelope.serializer(), env))
-    }
+    private suspend fun emit(event: GatewayEvent) = emitFrame(event)
 
     /** Non-suspending variant usable from a cancelled coroutine. */
-    private fun emitQuietly(event: GatewayEvent) {
-        val env = EventEnvelope(
-            cursor = ++cursor,
-            eventId = "live_${eventSeq++}",
-            version = ContractVersion.SUPPORTED,
-            timestampMs = System.currentTimeMillis(),
-            event = event,
-        )
-        _frames.trySend(JarvisJson.default.encodeToString(EventEnvelope.serializer(), env))
+    private fun emitQuietly(event: GatewayEvent) = emitFrame(event)
+
+    // Allocate IDs and enqueue in the same critical section. Parallel streams
+    // must never reuse an event ID or deliver a lower cursor after a higher one.
+    internal fun emitFrame(event: GatewayEvent) {
+        synchronized(frameEmissionLock) {
+            val env = EventEnvelope(
+                cursor = ++cursor,
+                eventId = "live_${eventSeq++}",
+                version = ContractVersion.SUPPORTED,
+                timestampMs = System.currentTimeMillis(),
+                event = event,
+            )
+            _frames.trySend(JarvisJson.default.encodeToString(EventEnvelope.serializer(), env))
+        }
     }
 }

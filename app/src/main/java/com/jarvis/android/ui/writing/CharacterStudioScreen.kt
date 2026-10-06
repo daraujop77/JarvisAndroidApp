@@ -74,6 +74,7 @@ fun CharacterStudioScreen(
     projectId: String,
     characters: List<WritingWikiEntity>,
     onEditInImageStudio: (String, String, VisualStudioAsset) -> Unit = { _, _, _ -> },
+    headerContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by vm.characterStudio.collectAsStateWithLifecycle()
@@ -159,6 +160,7 @@ fun CharacterStudioScreen(
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item(key = "visual_studio_navigation") { headerContent() }
         item {
             StudioPanel(
                 title = "CHARACTER STUDIO",
@@ -699,59 +701,22 @@ private fun AssetPreview(
     attachmentId: String?,
     vm: JarvisViewModel,
 ) {
-    LaunchedEffect(projectId, asset.asset_id, asset.storage.state) {
+    val state by vm.characterStudio.collectAsStateWithLifecycle()
+    LaunchedEffect(projectId, state.characterId, asset.asset_id, asset.storage.state) {
         if (attachmentId.isNullOrBlank() && asset.storage.state == "stored") {
             vm.loadCharacterStudioAsset(projectId, asset.asset_id)
         }
     }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(320.dp)
-            .background(Color(0xFF050B14), RoundedCornerShape(12.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (attachmentId.isNullOrBlank()) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Filled.Image,
-                    contentDescription = null,
-                    tint = Color(0xFF475569),
-                    modifier = Modifier.size(36.dp),
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    if (asset.storage.state == "stored") "Cargando imagen…" else "Pendiente de Drive",
-                    color = Color(0xFF94A3B8),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        } else {
-            AttachmentPreview(attachmentId, vm)
-        }
-    }
-}
-
-@Composable
-private fun AttachmentPreview(
-    attachmentId: String,
-    vm: JarvisViewModel,
-) {
-    val bitmap by rememberAttachmentThumb(
-        attachmentId,
-        vm.attachmentStore,
-        maxSize = 2048,
+    VisualAssetPreview(
+        attachmentId = attachmentId,
+        store = vm.attachmentStore,
+        stored = asset.storage.state == "stored",
+        loading = asset.asset_id in state.loadingAssetIds,
+        error = state.assetErrors[asset.asset_id],
+        description = "Referencia visual del personaje",
+        height = 320.dp,
+        onRetry = { vm.loadCharacterStudioAsset(projectId, asset.asset_id, retry = true) },
     )
-    if (bitmap == null) {
-        CircularProgressIndicator(color = LocalJarvisAccents.current.orbGlow)
-    } else {
-        Image(
-            bitmap = bitmap!!.asImageBitmap(),
-            contentDescription = "Referencia visual del personaje",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit,
-        )
-    }
 }
 
 @Composable

@@ -73,6 +73,7 @@ fun LocationStudioScreen(
     vm: JarvisViewModel,
     projectId: String,
     locations: List<WritingWikiEntity>,
+    headerContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by vm.locationStudio.collectAsStateWithLifecycle()
@@ -154,6 +155,7 @@ fun LocationStudioScreen(
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item(key = "visual_studio_navigation") { headerContent() }
         item {
             LocationStudioPanel(
                 title = "LOCATION STUDIO",
@@ -741,63 +743,22 @@ private fun LocationAssetPreview(
     attachmentId: String?,
     vm: JarvisViewModel,
 ) {
-    LaunchedEffect(projectId, asset.asset_id, asset.storage.state) {
-        if (
-            attachmentId.isNullOrBlank() &&
-            asset.storage.state == "stored"
-        ) {
+    val state by vm.locationStudio.collectAsStateWithLifecycle()
+    LaunchedEffect(projectId, state.locationId, asset.asset_id, asset.storage.state) {
+        if (attachmentId.isNullOrBlank() && asset.storage.state == "stored") {
             vm.loadLocationStudioAsset(projectId, asset.asset_id)
         }
     }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(260.dp)
-            .background(
-                Color(0xFF050B14),
-                RoundedCornerShape(12.dp),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (attachmentId.isNullOrBlank()) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Filled.Image,
-                    contentDescription = null,
-                    tint = Color(0xFF475569),
-                    modifier = Modifier.size(36.dp),
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    if (asset.storage.state == "stored") {
-                        "Cargando imagen…"
-                    } else {
-                        "Pendiente de Drive"
-                    },
-                    color = Color(0xFF94A3B8),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        } else {
-            val bitmap by rememberAttachmentThumb(
-                attachmentId,
-                vm.attachmentStore,
-                maxSize = 2048,
-            )
-            if (bitmap == null) {
-                CircularProgressIndicator(
-                    color = LocalJarvisAccents.current.orbGlow,
-                )
-            } else {
-                Image(
-                    bitmap = bitmap!!.asImageBitmap(),
-                    contentDescription = "Referencia visual de locación",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-        }
-    }
+    VisualAssetPreview(
+        attachmentId = attachmentId,
+        store = vm.attachmentStore,
+        stored = asset.storage.state == "stored",
+        loading = asset.asset_id in state.loadingAssetIds,
+        error = state.assetErrors[asset.asset_id],
+        description = "Referencia visual de locación",
+        height = 260.dp,
+        onRetry = { vm.loadLocationStudioAsset(projectId, asset.asset_id, retry = true) },
+    )
 }
 
 @Composable

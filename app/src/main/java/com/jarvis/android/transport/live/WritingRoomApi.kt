@@ -1093,6 +1093,7 @@ data class WritingLibraryExport(
 private suspend inline fun <reified T> JarvisAppSession.writingPost(
     path: String,
     body: JsonObject,
+    timeoutMillis: Long? = null,
 ): Result<T> = withContext(Dispatchers.IO) {
     if (expired) {
         clear()
@@ -1101,7 +1102,7 @@ private suspend inline fun <reified T> JarvisAppSession.writingPost(
     val auth = authHeader()
         ?: return@withContext Result.failure(TransportException("no live session"))
     runCatching {
-        val response = post(baseUrl, path, body.toString(), auth)
+        val response = post(baseUrl, path, body.toString(), auth, timeoutMillis)
         if (response.first == 401) {
             clear()
             throw TransportException("session expired")
@@ -1249,6 +1250,7 @@ suspend fun JarvisAppSession.writingRoomVisualAssetFetch(
             put("project_id", projectId)
             put("asset_id", clean)
         },
+        timeoutMillis = 30_000L,
     )
 }
 

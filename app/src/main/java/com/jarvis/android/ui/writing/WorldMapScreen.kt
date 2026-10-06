@@ -78,6 +78,7 @@ fun WorldMapScreen(
     projectId: String,
     locations: List<WritingWikiEntity>,
     characters: List<WritingWikiEntity>,
+    headerContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val state by vm.worldMap.collectAsStateWithLifecycle()
@@ -123,6 +124,7 @@ fun WorldMapScreen(
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item(key = "visual_studio_navigation") { headerContent() }
         item {
             WorldMapPanel("WORLD MAP", JarvisCyan) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

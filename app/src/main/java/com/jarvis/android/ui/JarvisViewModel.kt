@@ -1836,6 +1836,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val detail: VisualStudioCharacterDetail? = null,
         val assets: List<VisualStudioAsset> = emptyList(),
         val attachmentIds: Map<String, String> = emptyMap(),
+        val loadingAssetIds: Set<String> = emptySet(),
+        val assetErrors: Map<String, String> = emptyMap(),
         val notice: String? = null,
         val error: String? = null,
     )
@@ -1862,10 +1864,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val detail: VisualStudioLocationDetail? = null,
         val assets: List<VisualStudioAsset> = emptyList(),
         val attachmentIds: Map<String, String> = emptyMap(),
+        val loadingAssetIds: Set<String> = emptySet(),
+        val assetErrors: Map<String, String> = emptyMap(),
         val notice: String? = null,
         val error: String? = null,
     )
 
+    private var locationStudioScopeVersion = 0L
     private val _locationStudio = MutableStateFlow(LocationStudioState())
     val locationStudio: StateFlow<LocationStudioState> = _locationStudio
 
@@ -1907,6 +1912,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private fun resetVisualStudioProtectedMedia() {
         characterStudioScopeVersion++
+        locationStudioScopeVersion++
         _imageEditState.value = ImageEditState.Idle
         _lastImageEditDetails.value = null
         val ids = (
@@ -1986,36 +1992,52 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         )
     }
 
-    fun loadCharacterStudioAsset(projectId: String, assetId: String) {
+    fun loadCharacterStudioAsset(projectId: String, assetId: String, retry: Boolean = false) {
         val clean = assetId.trim()
         val state = _characterStudio.value
-        if (
-            clean.isBlank() ||
-            state.projectId != projectId ||
-            state.attachmentIds.containsKey(clean)
+        if (clean.isBlank() || state.projectId != projectId ||
+            clean in state.loadingAssetIds ||
+            (!retry && (state.attachmentIds.containsKey(clean) || state.assetErrors.containsKey(clean)))
         ) return
+        val scopeVersion = characterStudioScopeVersion
+        val entityId = state.characterId
+        val oldId = if (retry) state.attachmentIds[clean] else null
+        _characterStudio.update {
+            it.copy(
+                attachmentIds = if (retry) it.attachmentIds - clean else it.attachmentIds,
+                loadingAssetIds = it.loadingAssetIds + clean,
+                assetErrors = it.assetErrors - clean,
+            )
+        }
+        oldId?.let { deleteVisualStudioAttachments(listOf(it)) }
         viewModelScope.launch {
-            container.liveSession.writingRoomVisualAssetFetch(projectId, clean).fold(
-                onSuccess = { content ->
-                    val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(content.image_base64)
+            val result = loadVisualAsset(
+                fetch = { container.liveSession.writingRoomVisualAssetFetch(projectId, clean) },
+                stage = { content ->
+                    withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageVisualAssetBase64(
+                            content.image_base64, content.sha256,
+                        )
                     }
-                    if (
-                        staged != null &&
-                        _characterStudio.value.projectId == projectId
-                    ) {
-                        _characterStudio.update {
-                            it.copy(
-                                attachmentIds = it.attachmentIds + (clean to staged.attachmentId),
-                            )
-                        }
-                    }
-                },
-                onFailure = {
-                    // Metadata remains usable. Pending Drive storage intentionally has no
-                    // fetchable server bytes, so the UI keeps the retry state instead.
                 },
             )
+            if (characterStudioScopeVersion != scopeVersion ||
+                _characterStudio.value.projectId != projectId ||
+                _characterStudio.value.characterId != entityId
+            ) {
+                result.getOrNull()?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                return@launch
+            }
+            _characterStudio.update {
+                val staged = result.getOrNull()
+                it.copy(
+                    loadingAssetIds = it.loadingAssetIds - clean,
+                    attachmentIds = if (staged != null) it.attachmentIds + (clean to staged.attachmentId) else it.attachmentIds,
+                    assetErrors = if (staged == null) it.assetErrors + (clean to
+                        (result.exceptionOrNull()?.message ?: "No se pudo cargar la imagen."))
+                        else it.assetErrors - clean,
+                )
+            }
         }
     }
 
@@ -2026,7 +2048,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val asset = reply.visual_asset ?: return
         val staged = withContext(Dispatchers.IO) {
-            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+            container.attachmentStore.stageVisualAssetBase64(reply.data_base64, asset.sha256)
         }
         if (
             staged != null &&
@@ -2765,6 +2787,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (cleanProject.isBlank() || cleanLocation.isBlank()) return
         val current = _locationStudio.value
         if (current.projectId != cleanProject || current.locationId != cleanLocation) {
+            locationStudioScopeVersion++
             val oldIds = current.attachmentIds.values
             _locationStudio.value = LocationStudioState(
                 projectId = cleanProject,
@@ -2783,6 +2806,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val cleanProject = projectId.trim()
         val cleanLocation = locationId.trim()
         if (cleanProject.isBlank() || cleanLocation.isBlank()) return
+        if (_locationStudio.value.projectId != cleanProject || _locationStudio.value.locationId != cleanLocation) {
+            locationStudioScopeVersion++
+        }
         _locationStudio.value = _locationStudio.value.copy(
             projectId = cleanProject,
             locationId = cleanLocation,
@@ -2812,37 +2838,52 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         )
     }
 
-    fun loadLocationStudioAsset(projectId: String, assetId: String) {
+    fun loadLocationStudioAsset(projectId: String, assetId: String, retry: Boolean = false) {
         val clean = assetId.trim()
         val state = _locationStudio.value
-        if (
-            clean.isBlank() ||
-            state.projectId != projectId ||
-            state.attachmentIds.containsKey(clean)
+        if (clean.isBlank() || state.projectId != projectId ||
+            clean in state.loadingAssetIds ||
+            (!retry && (state.attachmentIds.containsKey(clean) || state.assetErrors.containsKey(clean)))
         ) return
+        val scopeVersion = locationStudioScopeVersion
+        val entityId = state.locationId
+        val oldId = if (retry) state.attachmentIds[clean] else null
+        _locationStudio.update {
+            it.copy(
+                attachmentIds = if (retry) it.attachmentIds - clean else it.attachmentIds,
+                loadingAssetIds = it.loadingAssetIds + clean,
+                assetErrors = it.assetErrors - clean,
+            )
+        }
+        oldId?.let { deleteVisualStudioAttachments(listOf(it)) }
         viewModelScope.launch {
-            container.liveSession.writingRoomVisualAssetFetch(projectId, clean).fold(
-                onSuccess = { content ->
-                    val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(content.image_base64)
+            val result = loadVisualAsset(
+                fetch = { container.liveSession.writingRoomVisualAssetFetch(projectId, clean) },
+                stage = { content ->
+                    withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageVisualAssetBase64(
+                            content.image_base64, content.sha256,
+                        )
                     }
-                    if (
-                        staged != null &&
-                        _locationStudio.value.projectId == projectId
-                    ) {
-                        _locationStudio.update {
-                            it.copy(
-                                attachmentIds = it.attachmentIds +
-                                    (clean to staged.attachmentId),
-                            )
-                        }
-                    }
-                },
-                onFailure = {
-                    // A pending Drive candidate has metadata but no fetchable
-                    // server bytes. Keep the state visible without regenerating.
                 },
             )
+            if (locationStudioScopeVersion != scopeVersion ||
+                _locationStudio.value.projectId != projectId ||
+                _locationStudio.value.locationId != entityId
+            ) {
+                result.getOrNull()?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                return@launch
+            }
+            _locationStudio.update {
+                val staged = result.getOrNull()
+                it.copy(
+                    loadingAssetIds = it.loadingAssetIds - clean,
+                    attachmentIds = if (staged != null) it.attachmentIds + (clean to staged.attachmentId) else it.attachmentIds,
+                    assetErrors = if (staged == null) it.assetErrors + (clean to
+                        (result.exceptionOrNull()?.message ?: "No se pudo cargar la imagen."))
+                        else it.assetErrors - clean,
+                )
+            }
         }
     }
 
@@ -2853,7 +2894,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val asset = reply.visual_asset ?: return
         val staged = withContext(Dispatchers.IO) {
-            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+            container.attachmentStore.stageVisualAssetBase64(reply.data_base64, asset.sha256)
         }
         if (
             staged != null &&
