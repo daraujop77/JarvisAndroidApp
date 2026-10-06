@@ -58,6 +58,7 @@ fun SceneBuilderScreen(
     locations: List<WritingWikiEntity>,
     onUseInChapter: (String) -> Unit = {},
     onEditScene: (String, VisualStudioAsset) -> Unit = { _, _ -> },
+    headerContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val writing by vm.writingWorkspace.collectAsStateWithLifecycle()
@@ -122,6 +123,7 @@ fun SceneBuilderScreen(
         contentPadding = PaddingValues(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item(key = "visual_studio_navigation") { headerContent() }
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),

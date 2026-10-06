@@ -841,13 +841,14 @@ class JarvisAppSession(
     internal fun get(base: String, path: String, auth: String?): Pair<Int, String> =
         execute(Request.Builder().url(base + path).get().apply { auth?.let { header("Authorization", it) } }.build())
 
-    internal fun post(base: String, path: String, body: String, auth: String?): Pair<Int, String> =
+    internal fun post(base: String, path: String, body: String, auth: String?, timeoutMillis: Long? = null): Pair<Int, String> =
         execute(
             Request.Builder()
                 .url(base + path)
                 .post(body.toRequestBody(JSON_MEDIA))
                 .apply { auth?.let { header("Authorization", it) } }
                 .build(),
+            timeoutMillis,
         )
 
     internal fun postSse(
@@ -891,8 +892,11 @@ class JarvisAppSession(
         }
     }
 
-    private fun execute(request: Request): Pair<Int, String> =
-        client.newCall(request).execute().use { resp -> resp.code to resp.body?.string().orEmpty() }
+    private fun execute(request: Request, timeoutMillis: Long? = null): Pair<Int, String> {
+        val call = client.newCall(request)
+        if (timeoutMillis != null) call.timeout().timeout(timeoutMillis, TimeUnit.MILLISECONDS)
+        return call.execute().use { resp -> resp.code to resp.body?.string().orEmpty() }
+    }
 
     @Serializable
     private data class LoginResponse(

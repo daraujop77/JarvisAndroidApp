@@ -77,8 +77,31 @@ class AttachmentStore(context: Context) {
         )
     }.getOrNull()
 
+    /** Preserve trusted visual reference bytes so edits retain the approved SHA. */
+    fun stageVisualAssetBase64(dataBase64: String, expectedSha256: String): StagedAttachment? = runCatching {
+        val raw = Base64.decode(dataBase64, Base64.DEFAULT)
+        require(raw.isNotEmpty() && raw.size <= 12 * 1024 * 1024)
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(raw).joinToString("") { "%02x".format(it) }
+        require(expectedSha256.isBlank() || digest.equals(expectedSha256, ignoreCase = true))
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0)
+        val mime = bounds.outMimeType ?: error("Unknown visual image format")
+        val extension = when (mime) {
+            "image/jpeg" -> "jpg"
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            else -> error("Unsupported visual image format")
+        }
+        val id = "visual_" + UUID.randomUUID().toString().take(12)
+        val out = File(dir, "$id.$extension")
+        out.writeBytes(raw)
+        StagedAttachment(id, out, "visual-reference.$extension", mime, out.length())
+    }.getOrNull()
+
     fun resolve(attachmentId: String): File? =
-        dir.listFiles()?.firstOrNull { it.name.startsWith(attachmentId) && it.extension == "jpg" }
+        dir.listFiles()?.firstOrNull { it.nameWithoutExtension == attachmentId && it.extension in setOf("jpg", "png", "webp") }
 
     fun decodeThumbnail(attachmentId: String, maxSize: Int = 512): Bitmap? = runCatching {
         val f = resolve(attachmentId) ?: return@runCatching null

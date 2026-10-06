@@ -197,7 +197,18 @@ fun WritingWorkspaceV1Screen(
                         Text(strings.back, color = Color(0xFFF1F5F9), style = HudTextStyle)
                     }
                 }
-                Spacer(Modifier.weight(1f))
+                if (tab == WorkspaceTab.VISUAL) {
+                    Text(
+                        title,
+                        modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color(0xFFF8FAFC),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
                 if (onEdit != null) {
                     IconButton(onClick = onEdit) {
                         Icon(
@@ -221,66 +232,69 @@ fun WritingWorkspaceV1Screen(
             }
         }
 
-        // Hero Card de Jarvis Core con el Orbe animado y estado del proyecto
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xEE0E182A),
-            border = BorderStroke(
-                1.dp,
-                Brush.horizontalGradient(
-                    listOf(
-                        accents.orbGlow.copy(alpha = 0.38f),
-                        Color(0x228B5CF6),
-                        accents.orbGlow.copy(alpha = 0.20f),
-                    )
-                ),
-            ),
-            shadowElevation = 4.dp,
-        ) {
-            Row(
-                Modifier
+        // Visual uses the compact title in the navigation row.
+        if (tab != WorkspaceTab.VISUAL) {
+            Surface(
+                modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                JarvisOrb(
-                    size = 62.dp,
-                    activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
-                    intensity = if (state.streamingText.isNotBlank()) 0.9f else 0.2f,
-                    contentDescription = "Writing Room status",
-                )
-                Spacer(Modifier.size(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFFF8FAFC),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "WRITING ROOM · STORY-001",
-                        style = HudTextStyle,
-                        color = accents.orbGlow,
-                    )
-                    Spacer(Modifier.height(5.dp))
-                    Row(
-                        Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val chapter = overview?.latest_official_chapter?.chapter_number ?: 37
-                        MiniPill("CANON · CAP $chapter", JarvisGreen)
-                        MiniPill(
-                            if (state.busy) writingRoomActivityLabel(state, strings) else strings.statusOnline,
-                            if (state.busy) JarvisAmber else accents.online,
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xEE0E182A),
+                border = BorderStroke(
+                    1.dp,
+                    Brush.horizontalGradient(
+                        listOf(
+                            accents.orbGlow.copy(alpha = 0.38f),
+                            Color(0x228B5CF6),
+                            accents.orbGlow.copy(alpha = 0.20f),
                         )
+                    ),
+                ),
+                shadowElevation = 4.dp,
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    JarvisOrb(
+                        size = 62.dp,
+                        activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
+                        intensity = if (state.streamingText.isNotBlank()) 0.9f else 0.2f,
+                        contentDescription = "Writing Room status",
+                    )
+                    Spacer(Modifier.size(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFFF8FAFC),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            "WRITING ROOM · STORY-001",
+                            style = HudTextStyle,
+                            color = accents.orbGlow,
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val chapter = overview?.latest_official_chapter?.chapter_number ?: 37
+                            MiniPill("CANON · CAP $chapter", JarvisGreen)
+                            MiniPill(
+                                if (state.busy) writingRoomActivityLabel(state, strings) else strings.statusOnline,
+                                if (state.busy) JarvisAmber else accents.online,
+                            )
+                        }
                     }
                 }
             }
+    
         }
 
         if (state.error != null) {
