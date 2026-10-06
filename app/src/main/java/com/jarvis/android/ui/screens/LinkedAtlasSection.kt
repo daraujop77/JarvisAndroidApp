@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.jarvis.android.transport.live.KnowledgeAssertion
 import com.jarvis.android.transport.live.KnowledgeEdge
 import com.jarvis.android.transport.live.KnowledgeGraphResponse
+import com.jarvis.android.transport.live.KnowledgeNode
 import com.jarvis.android.transport.live.KnowledgeTimelineEntry
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.theme.HudTextStyle
@@ -74,6 +75,9 @@ internal fun LinkedAtlasSection(
     var query by rememberSaveable { mutableStateOf("") }
     var lane by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedNodeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedTimelineEntryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var graphCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var includeChapterNodes by rememberSaveable { mutableStateOf(false) }
     val caps = state.knowledgeCapabilities ?: return
     val selectedNode = state.knowledgeSelectedNode?.data?.node
 
@@ -91,9 +95,13 @@ internal fun LinkedAtlasSection(
             AtlasCard(JarvisGreen) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("ATLAS VINCULADO", style = HudTextStyle, color = JarvisGreen)
+                        Text("ATLAS", style = HudTextStyle, color = JarvisGreen)
                         Text(
-                            "Timeline y relaciones comparten seleccion, filtros y snapshot.",
+                            when (view) {
+                                "graph" -> "Entidades y relaciones. Toca un nodo para centrar su vecindario."
+                                "evidence" -> "Fuentes y procedencia de la selección actual."
+                                else -> "La historia en orden narrativo, sin convertir cada evento en una tarjeta."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFCBD5E1),
                         )
@@ -112,63 +120,124 @@ internal fun LinkedAtlasSection(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     listOf(
-                        "timeline" to "Linea de tiempo",
-                        "graph" to "Mapa de relaciones",
-                        "evidence" to "Evidencia",
+                        "timeline" to "Historia",
+                        "graph" to "Relaciones",
+                        "evidence" to "Fuentes",
                     ).forEach { (id, label) ->
-                        FilterChip(selected = view == id, onClick = { view = id }, label = { Text(label) })
+                        FilterChip(
+                            selected = view == id,
+                            onClick = { view = id },
+                            label = { Text(label) },
+                        )
                     }
                 }
-                Spacer(Modifier.height(7.dp))
-                Text(
-                    "Snapshot ${caps.snapshot_id.take(16)}...  |  ${caps.data.counts.nodes} nodos  |  ${caps.data.counts.edges} relaciones  |  ${caps.data.counts.assertions} afirmaciones",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8),
-                )
+                if (caps.coverage.partial || caps.coverage.incomplete) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Cobertura parcial: ${caps.coverage.reasons.joinToString().ifBlank { "hay fuentes pendientes" }}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JarvisAmber,
+                    )
+                }
                 if (state.knowledgeSnapshotChanged) {
-                    Text("Atlas actualizado a una nueva snapshot.", color = JarvisCyan, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        "La historia tiene una versión de conocimiento más reciente.",
+                        color = JarvisCyan,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
                 state.knowledgeAtlasError?.let {
+                    Spacer(Modifier.height(5.dp))
                     Text(it, color = JarvisAmber, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
 
-        item {
-            AtlasCard(JarvisCyan) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Buscar en canon") },
-                )
-                Spacer(Modifier.height(7.dp))
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    listOf(
-                        null to "Todo",
-                        "OCCURRED" to "Ocurrido",
-                        "FUTURE" to "Futuro",
-                        "UNKNOWN" to "Sin fecha",
-                    ).forEach { (id, label) ->
-                        FilterChip(selected = lane == id, onClick = { lane = id }, label = { Text(label) })
+        if (view != "evidence") {
+            item {
+                AtlasCard(JarvisCyan) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(if (view == "graph") "Buscar entidad" else "Buscar en la historia") },
+                    )
+                    Spacer(Modifier.height(7.dp))
+                    if (view == "timeline") {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            listOf(
+                                null to "Todo",
+                                "OCCURRED" to "Ocurrido",
+                                "FUTURE" to "Futuro",
+                                "UNKNOWN" to "Sin ancla",
+                            ).forEach { (id, label) ->
+                                FilterChip(
+                                    selected = lane == id,
+                                    onClick = { lane = id },
+                                    label = { Text(label) },
+                                )
+                            }
+                        }
+                    } else {
+                        val graph = state.knowledgeGraphV2
+                        val categories = graph?.data?.nodes.orEmpty()
+                            .map(::atlasNodeCategory)
+                            .filter { it != "chapter" }
+                            .distinct()
+                            .sorted()
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            FilterChip(
+                                selected = graphCategory == null,
+                                onClick = { graphCategory = null },
+                                label = { Text("Todo") },
+                            )
+                            categories.forEach { category ->
+                                FilterChip(
+                                    selected = graphCategory == category,
+                                    onClick = { graphCategory = category },
+                                    label = { Text(atlasNodeCategoryLabel(category)) },
+                                )
+                            }
+                            FilterChip(
+                                selected = includeChapterNodes,
+                                onClick = { includeChapterNodes = !includeChapterNodes },
+                                label = { Text("Capítulos") },
+                            )
+                        }
                     }
-                }
-                Spacer(Modifier.height(7.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Button(onClick = {
-                        selectedNodeId = null
-                        vm.clearKnowledgeSelection()
-                        vm.refreshKnowledgeAtlas(projectId, query, lane, refreshSnapshot = false)
-                    }) { Text("Aplicar") }
-                    OutlinedButton(onClick = {
-                        selectedNodeId = null
-                        vm.clearKnowledgeSelection()
-                        vm.refreshKnowledgeAtlas(projectId, query, lane, refreshSnapshot = true)
-                    }) { Text("Revisar version") }
+                    Spacer(Modifier.height(7.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Button(onClick = {
+                            selectedNodeId = null
+                            selectedTimelineEntryId = null
+                            vm.clearKnowledgeSelection()
+                            vm.refreshKnowledgeAtlas(
+                                projectId = projectId,
+                                query = query,
+                                lane = if (view == "timeline") lane else null,
+                                refreshSnapshot = false,
+                            )
+                        }) { Text("Aplicar") }
+                        TextButton(onClick = {
+                            selectedNodeId = null
+                            selectedTimelineEntryId = null
+                            vm.clearKnowledgeSelection()
+                            vm.refreshKnowledgeAtlas(
+                                projectId = projectId,
+                                query = query,
+                                lane = if (view == "timeline") lane else null,
+                                refreshSnapshot = true,
+                            )
+                        }) { Text("Sincronizar") }
+                    }
                 }
             }
         }
@@ -176,35 +245,60 @@ internal fun LinkedAtlasSection(
         when (view) {
             "timeline" -> {
                 val entries = state.knowledgeTimelineV2?.data?.entries.orEmpty()
-                if (entries.isEmpty() && !state.knowledgeAtlasLoading) {
+                val groups = atlasTimelineGroups(entries)
+                if (groups.isEmpty() && !state.knowledgeAtlasLoading) {
                     item { AtlasEmpty("No hay eventos visibles para estos filtros.") }
                 }
-                items(entries, key = { "kv2_t_${it.entry_id}" }) { entry ->
-                    AtlasTimelineCard(entry, selectedNodeId) {
-                        entry.entity_ids.firstOrNull()?.let(::focusNode)
+                groups.forEach { group ->
+                    item(key = "kv2_group_${group.lane}") {
+                        AtlasTimelineRail(
+                            group = group,
+                            selectedEntryId = selectedTimelineEntryId,
+                            onEntry = { entry ->
+                                selectedTimelineEntryId = entry.entry_id
+                                entry.entity_ids.firstOrNull()?.let(::focusNode)
+                            },
+                            onOpenRelations = { entry ->
+                                selectedTimelineEntryId = entry.entry_id
+                                entry.entity_ids.firstOrNull()?.let(::focusNode)
+                                view = "graph"
+                            },
+                        )
                     }
                 }
             }
+
             "graph" -> {
                 val graph = state.knowledgeGraphV2
                 if (graph != null && graph.data.nodes.isNotEmpty()) {
-                    item { AtlasGraph(graph, selectedNodeId, ::focusNode) }
-                    val edges = graph.data.edges
-                        .filter { selectedNodeId == null || it.source_id == selectedNodeId || it.target_id == selectedNodeId }
-                        .take(30)
-                    items(edges, key = { "kv2_e_${it.edge_id}" }) { edge ->
-                        AtlasEdgeRow(
-                            edge = edge,
-                            label = { id -> graph.data.nodes.firstOrNull { it.node_id == id }?.label ?: id },
-                            selected = state.knowledgeSelectedEdge?.data?.edge?.edge_id == edge.edge_id,
-                        ) {
-                            vm.focusKnowledgeEdge(projectId, edge.edge_id)
-                        }
+                    val filteredNodes = graph.data.nodes.filter { node ->
+                        graphCategory == null ||
+                            atlasNodeCategory(node) == graphCategory ||
+                            node.node_id == selectedNodeId
+                    }
+                    val filteredIds = filteredNodes.map { it.node_id }.toSet()
+                    val filteredGraph = graph.copy(
+                        data = graph.data.copy(
+                            nodes = filteredNodes,
+                            edges = graph.data.edges.filter {
+                                it.source_id in filteredIds && it.target_id in filteredIds
+                            },
+                        ),
+                    )
+                    item {
+                        AtlasFocusedGraph(
+                            graph = filteredGraph,
+                            selectedNodeId = selectedNodeId,
+                            includeChapterNodes = includeChapterNodes,
+                            onNode = ::focusNode,
+                            onEdge = { edgeId -> vm.focusKnowledgeEdge(projectId, edgeId) },
+                        )
                     }
                 } else if (!state.knowledgeAtlasLoading) {
-                    item { AtlasEmpty("No hay nodos visibles para estos filtros.") }
+                    item { AtlasEmpty("No hay entidades visibles para estos filtros.") }
                 }
             }
+
             else -> item {
                 AtlasEvidence(
                     state = state,
@@ -229,24 +323,39 @@ internal fun LinkedAtlasSection(
         if (view != "evidence" && (state.knowledgeSelectedNode != null || state.knowledgeSelectedEdge != null)) {
             item {
                 AtlasCard(JarvisGreen) {
-                    Text("SELECCION VINCULADA", style = HudTextStyle, color = JarvisGreen)
+                    Text("SELECCIÓN", style = HudTextStyle, color = JarvisGreen)
                     selectedNode?.let {
-                        Text(it.label.ifBlank { it.node_id }, color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            it.label.ifBlank { it.node_id },
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            atlasNodeCategoryLabel(atlasNodeCategory(it)),
+                            color = Color(0xFF94A3B8),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
                     }
                     state.knowledgeSelectedEdge?.data?.edge?.let {
-                        Text("Relacion: ${it.predicate_id}", color = JarvisViolet, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            atlasPredicateLabel(it.predicate_id),
+                            color = JarvisViolet,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        TextButton(onClick = { view = "evidence" }) { Text("Ver evidencia") }
-                        if (selectedNode != null) TextButton(onClick = {
-                            vm.searchWritingWiki(projectId, selectedNode.label)
-                            onOpenWiki()
-                        }) { Text("Abrir Wiki") }
+                        TextButton(onClick = { view = "evidence" }) { Text("Ver fuentes") }
+                        if (selectedNode != null) {
+                            TextButton(onClick = {
+                                vm.searchWritingWiki(projectId, selectedNode.label)
+                                onOpenWiki()
+                            }) { Text("Abrir Wiki") }
+                        }
                         TextButton(onClick = {
                             selectedNodeId = null
+                            selectedTimelineEntryId = null
                             vm.clearKnowledgeSelection()
-                            vm.refreshKnowledgeAtlas(projectId, query, lane, refreshSnapshot = false)
-                        }) { Text("Quitar seleccion") }
+                        }) { Text("Quitar selección") }
                     }
                 }
             }
@@ -255,122 +364,321 @@ internal fun LinkedAtlasSection(
 }
 
 @Composable
-private fun AtlasTimelineCard(entry: KnowledgeTimelineEntry, selectedNodeId: String?, onClick: () -> Unit) {
-    val selected = selectedNodeId != null && selectedNodeId in entry.entity_ids
-    val accent = when (entry.lane.uppercase()) {
+private fun AtlasTimelineRail(
+    group: AtlasTimelineGroup,
+    selectedEntryId: String?,
+    onEntry: (KnowledgeTimelineEntry) -> Unit,
+    onOpenRelations: (KnowledgeTimelineEntry) -> Unit,
+) {
+    val accent = when (group.lane) {
         "FUTURE" -> JarvisViolet
         "UNKNOWN" -> JarvisAmber
         else -> JarvisCyan
     }
-    Surface(
-        Modifier.fillMaxWidth().clickable(enabled = entry.entity_ids.isNotEmpty(), onClick = onClick),
-        shape = RoundedCornerShape(13.dp),
-        color = if (selected) accent.copy(alpha = 0.17f) else Color(0xC90B1322),
-    ) {
-        Column(Modifier.padding(11.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(entry.lane.ifBlank { "UNKNOWN" }, style = HudTextStyle, color = accent)
-                Spacer(Modifier.weight(1f))
-                Text("${entry.assertion_ids.size} afirm.", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
-            }
-            Text(entry.title.ifBlank { entry.entry_id }, color = Color.White, fontWeight = FontWeight.SemiBold)
-            if (entry.chapter_ids.isNotEmpty()) {
-                Text(
-                    entry.chapter_ids.joinToString(" | "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF94A3B8),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (entry.entity_ids.isNotEmpty()) {
-                Text("Toca para vincular con el mapa.", style = MaterialTheme.typography.labelSmall, color = JarvisGreen)
-            }
-        }
-    }
-}
-
-@Composable
-private fun AtlasGraph(graph: KnowledgeGraphResponse, selectedNodeId: String?, onNode: (String) -> Unit) {
-    val nodes = atlasVisibleNodes(graph.data.nodes, selectedNodeId)
-    val ids = nodes.map { it.node_id }.toSet()
-    val edges = graph.data.edges.filter { it.source_id in ids && it.target_id in ids }
-    Column {
-        Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp), color = Color(0xC90B1322)) {
-            BoxWithConstraints(Modifier.fillMaxWidth().height(420.dp).background(Color(0xAA08111F))) {
-            val cx = maxWidth / 2
-            val cy = 205.dp
-            val rx = ((maxWidth.value / 2f) - 48f).coerceAtLeast(82f)
-            val ry = 148f
-            val pos: Map<String, Pair<Dp, Dp>> = nodes.mapIndexed { index, node ->
-                val angle = 2.0 * PI * index.toDouble() / nodes.size.coerceAtLeast(1) - PI / 2.0
-                node.node_id to Pair(
-                    cx + (rx * cos(angle)).toFloat().dp,
-                    cy + (ry * sin(angle)).toFloat().dp,
-                )
-            }.toMap()
-            Canvas(Modifier.fillMaxSize()) {
-                edges.forEach { edge ->
-                    val a = pos[edge.source_id] ?: return@forEach
-                    val b = pos[edge.target_id] ?: return@forEach
-                    val hot = selectedNodeId != null && (edge.source_id == selectedNodeId || edge.target_id == selectedNodeId)
-                    drawLine(
-                        color = if (hot) JarvisCyan.copy(alpha = 0.9f) else Color(0xFF475569).copy(alpha = 0.55f),
-                        start = Offset(a.first.toPx(), a.second.toPx()),
-                        end = Offset(b.first.toPx(), b.second.toPx()),
-                        strokeWidth = if (hot) 3.dp.toPx() else 1.4.dp.toPx(),
-                    )
-                }
-            }
-            nodes.forEach { node ->
-                val p = pos[node.node_id] ?: return@forEach
-                val selected = node.node_id == selectedNodeId
-                Surface(
-                    Modifier
-                        .offset(p.first - 36.dp, p.second - 23.dp)
-                        .width(72.dp)
-                        .heightIn(min = 46.dp)
-                        .clickable { onNode(node.node_id) },
-                    shape = RoundedCornerShape(11.dp),
-                    color = if (selected) JarvisGreen else Color(0xFF142238),
-                    shadowElevation = if (selected) 7.dp else 2.dp,
-                ) {
-                    Text(
-                        node.label.ifBlank { node.node_id },
-                        modifier = Modifier.padding(5.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (selected) Color(0xFF07131B) else Color.White,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-        }
-        if (graph.data.nodes.size > nodes.size) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(group.label, style = HudTextStyle, color = accent)
+            Spacer(Modifier.weight(1f))
             Text(
-                "Mostrando ${nodes.size} de ${graph.data.nodes.size} nodos en el lienzo. Usa filtros o selecciona un nodo para reenfocar sin perderlo del mapa.",
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 7.dp),
+                "${group.entries.size} hitos",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF94A3B8),
+                color = Color(0xFF71839C),
             )
         }
+
+        group.entries.forEachIndexed { index, entry ->
+            val selected = selectedEntryId == entry.entry_id
+            val chapter = atlasTimelineChapterNumber(entry)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onEntry(entry) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(
+                    Modifier.width(48.dp).padding(top = 5.dp),
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    Text(
+                        chapter?.let { "CAP $it" } ?: "—",
+                        style = HudTextStyle,
+                        color = if (selected) accent else Color(0xFF7F93AE),
+                    )
+                }
+                Canvas(
+                    Modifier
+                        .width(34.dp)
+                        .height(if (selected) 82.dp else 62.dp),
+                ) {
+                    val x = size.width / 2f
+                    val dotY = 15.dp.toPx()
+                    if (index > 0) {
+                        drawLine(
+                            color = accent.copy(alpha = 0.32f),
+                            start = Offset(x, 0f),
+                            end = Offset(x, dotY),
+                            strokeWidth = 2.dp.toPx(),
+                        )
+                    }
+                    if (index < group.entries.lastIndex) {
+                        drawLine(
+                            color = accent.copy(alpha = 0.32f),
+                            start = Offset(x, dotY),
+                            end = Offset(x, size.height),
+                            strokeWidth = 2.dp.toPx(),
+                        )
+                    }
+                    drawCircle(
+                        color = if (selected) accent else Color(0xFF142238),
+                        radius = if (selected) 7.dp.toPx() else 5.dp.toPx(),
+                        center = Offset(x, dotY),
+                    )
+                    drawCircle(
+                        color = accent,
+                        radius = if (selected) 8.dp.toPx() else 6.dp.toPx(),
+                        center = Offset(x, dotY),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = if (selected) 2.5.dp.toPx() else 1.5.dp.toPx(),
+                        ),
+                    )
+                }
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .padding(start = 3.dp, end = 4.dp, top = 3.dp, bottom = 8.dp),
+                ) {
+                    Text(
+                        entry.title.ifBlank { entry.entry_id },
+                        color = Color.White,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = if (selected) 3 else 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        buildString {
+                            append("${entry.entity_ids.size} entidades")
+                            if (entry.assertion_ids.isNotEmpty()) {
+                                append(" · ${entry.assertion_ids.size} hechos enlazados")
+                            }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF7F93AE),
+                    )
+                    if (selected && entry.entity_ids.isNotEmpty()) {
+                        TextButton(
+                            onClick = { onOpenRelations(entry) },
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                        ) {
+                            Text("Ver relaciones", color = accent)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
+private fun atlasCategoryColor(node: KnowledgeNode): Color = when (atlasNodeCategory(node)) {
+    "character" -> JarvisCyan
+    "location" -> JarvisGreen
+    "event" -> JarvisAmber
+    "chapter" -> Color(0xFF94A3B8)
+    "arc" -> JarvisViolet
+    "lore" -> Color(0xFF67E8F9)
+    else -> Color(0xFFCBD5E1)
+}
+
 @Composable
-private fun AtlasEdgeRow(edge: KnowledgeEdge, label: (String) -> String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(11.dp),
-        color = if (selected) JarvisViolet.copy(alpha = 0.18f) else Color(0xC90B1322),
-    ) {
-        Column(Modifier.padding(10.dp)) {
-            Text("${label(edge.source_id)} -> ${label(edge.target_id)}", color = Color.White)
-            Text(edge.predicate_id, color = JarvisViolet, style = MaterialTheme.typography.bodySmall)
-            Text("${edge.assertion_ids.size} afirmacion(es)", color = Color(0xFF94A3B8), style = MaterialTheme.typography.labelSmall)
+private fun AtlasFocusedGraph(
+    graph: KnowledgeGraphResponse,
+    selectedNodeId: String?,
+    includeChapterNodes: Boolean,
+    onNode: (String) -> Unit,
+    onEdge: (String) -> Unit,
+) {
+    val neighborhood = atlasGraphNeighborhood(
+        nodes = graph.data.nodes,
+        edges = graph.data.edges,
+        selectedNodeId = selectedNodeId,
+        includeChapters = includeChapterNodes,
+    )
+    val nodes = neighborhood.nodes
+    if (nodes.isEmpty()) {
+        AtlasEmpty("No hay entidades para esta vista.")
+        return
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            if (neighborhood.overview) "RESUMEN POR CONECTIVIDAD" else "VECINDARIO DIRECTO",
+            style = HudTextStyle,
+            color = if (neighborhood.overview) JarvisCyan else JarvisGreen,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
+        )
+        Text(
+            if (neighborhood.overview) {
+                "Se muestran pocas entidades con más conexiones visibles. No implica importancia canónica."
+            } else {
+                "Solo se muestran relaciones directas del nodo seleccionado."
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF7F93AE),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+
+        Surface(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xC90B1322),
+            border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.18f)),
+        ) {
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxWidth()
+                    .height(if (neighborhood.overview) 360.dp else 390.dp)
+                    .background(Color(0xAA08111F)),
+            ) {
+                val cx = maxWidth / 2
+                val cy = if (neighborhood.overview) 178.dp else 194.dp
+                val rx = ((maxWidth.value / 2f) - 56f).coerceAtLeast(84f)
+                val ry = if (neighborhood.overview) 126f else 142f
+                val centerId = neighborhood.center?.node_id
+                val peripheral = nodes.filter { it.node_id != centerId }
+                val pos = buildMap<String, Pair<Dp, Dp>> {
+                    neighborhood.center?.let { put(it.node_id, Pair(cx, cy)) }
+                    if (neighborhood.center == null) {
+                        nodes.forEachIndexed { index, node ->
+                            val angle = 2.0 * PI * index.toDouble() / nodes.size.coerceAtLeast(1) - PI / 2.0
+                            put(
+                                node.node_id,
+                                Pair(
+                                    cx + (rx * cos(angle)).toFloat().dp,
+                                    cy + (ry * sin(angle)).toFloat().dp,
+                                ),
+                            )
+                        }
+                    } else {
+                        peripheral.forEachIndexed { index, node ->
+                            val angle = 2.0 * PI * index.toDouble() / peripheral.size.coerceAtLeast(1) - PI / 2.0
+                            put(
+                                node.node_id,
+                                Pair(
+                                    cx + (rx * cos(angle)).toFloat().dp,
+                                    cy + (ry * sin(angle)).toFloat().dp,
+                                ),
+                            )
+                        }
+                    }
+                }
+
+                Canvas(Modifier.fillMaxSize()) {
+                    neighborhood.edges.forEach { edge ->
+                        val a = pos[edge.source_id] ?: return@forEach
+                        val b = pos[edge.target_id] ?: return@forEach
+                        val hot = centerId != null &&
+                            (edge.source_id == centerId || edge.target_id == centerId)
+                        drawLine(
+                            color = if (hot) JarvisCyan.copy(alpha = 0.80f)
+                            else Color(0xFF3F536E).copy(alpha = 0.48f),
+                            start = Offset(a.first.toPx(), a.second.toPx()),
+                            end = Offset(b.first.toPx(), b.second.toPx()),
+                            strokeWidth = if (hot) 2.3.dp.toPx() else 1.2.dp.toPx(),
+                        )
+                    }
+                }
+
+                if (centerId != null) {
+                    neighborhood.edges.take(8).forEach { edge ->
+                        val a = pos[edge.source_id] ?: return@forEach
+                        val b = pos[edge.target_id] ?: return@forEach
+                        val mx = (a.first.value + b.first.value) / 2f
+                        val my = (a.second.value + b.second.value) / 2f
+                        Surface(
+                            Modifier
+                                .offset(mx.dp - 36.dp, my.dp - 9.dp)
+                                .width(72.dp)
+                                .clickable { onEdge(edge.edge_id) },
+                            shape = RoundedCornerShape(50),
+                            color = Color(0xE6111C2C),
+                            border = BorderStroke(1.dp, JarvisViolet.copy(alpha = 0.28f)),
+                        ) {
+                            Text(
+                                atlasPredicateLabel(edge.predicate_id),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFD9E5F5),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
+                nodes.forEach { node ->
+                    val p = pos[node.node_id] ?: return@forEach
+                    val selected = node.node_id == centerId
+                    val accent = atlasCategoryColor(node)
+                    val nodeWidth = if (selected) 118.dp else 82.dp
+                    val nodeHeight = if (selected) 58.dp else 48.dp
+                    Surface(
+                        Modifier
+                            .offset(p.first - nodeWidth / 2, p.second - nodeHeight / 2)
+                            .width(nodeWidth)
+                            .heightIn(min = nodeHeight)
+                            .clickable { onNode(node.node_id) },
+                        shape = RoundedCornerShape(if (selected) 15.dp else 12.dp),
+                        color = if (selected) accent.copy(alpha = 0.24f) else Color(0xFF142238),
+                        border = BorderStroke(
+                            if (selected) 2.dp else 1.dp,
+                            accent.copy(alpha = if (selected) 0.95f else 0.38f),
+                        ),
+                        shadowElevation = if (selected) 8.dp else 2.dp,
+                    ) {
+                        Column(
+                            Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                node.label.ifBlank { node.node_id },
+                                style = if (selected) MaterialTheme.typography.labelLarge
+                                else MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                textAlign = TextAlign.Center,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (selected) {
+                                Text(
+                                    atlasNodeCategoryLabel(atlasNodeCategory(node)),
+                                    style = HudTextStyle,
+                                    color = accent,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (neighborhood.overview) {
+                "Toca una entidad para convertirla en el centro del mapa."
+            } else {
+                "Toca otro nodo para reenfocar. Toca una etiqueta de relación para ver sus fuentes."
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF7F93AE),
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
     }
 }
 
@@ -382,7 +690,7 @@ private fun AtlasEvidence(
     onOpenSourceDocument: (String) -> Unit,
 ) {
     AtlasCard(JarvisAmber) {
-        Text("EVIDENCIA Y PROCEDENCIA", style = HudTextStyle, color = JarvisAmber)
+        Text("FUENTES Y PROCEDENCIA", style = HudTextStyle, color = JarvisAmber)
         val node = state.knowledgeSelectedNode
         val edge = state.knowledgeSelectedEdge
         if (node == null && edge == null) {
@@ -400,7 +708,7 @@ private fun AtlasEvidence(
         }
         edge?.let { response ->
             Spacer(Modifier.height(8.dp))
-            Text("Relacion: ${response.data.edge.predicate_id}", color = JarvisViolet)
+            Text("Relación: ${atlasPredicateLabel(response.data.edge.predicate_id)}", color = JarvisViolet)
             response.data.assertions.take(20).forEach { AtlasAssertion(it, onResolveEvidence) }
         }
         state.knowledgeResolvedSource?.let { resolved ->
@@ -456,7 +764,7 @@ private fun AtlasAssertion(assertion: KnowledgeAssertion, onResolveEvidence: (St
         color = Color(0x551E293B),
     ) {
         Column(Modifier.padding(8.dp)) {
-            Text(assertion.predicate_id.ifBlank { assertion.assertion_id }, color = Color.White)
+            Text(atlasPredicateLabel(assertion.predicate_id).ifBlank { assertion.assertion_id }, color = Color.White)
             val authority = listOf("status", "authority", "level", "kind")
                 .firstNotNullOfOrNull { key ->
                     assertion.authority[key]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)

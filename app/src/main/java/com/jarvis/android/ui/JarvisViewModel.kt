@@ -207,9 +207,16 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val knowledgeAtlasError: String? = null,
         val knowledgeSnapshotChanged: Boolean = false,
         val wikiCharacters: List<WritingWikiEntity> = emptyList(),
+        val wikiLocations: List<WritingWikiEntity> = emptyList(),
         val plans: List<WritingPlanItem> = emptyList(),
         val planningCouncil: WritingPlanningCouncil? = null,
         val planningCouncilSessions: List<WritingPlanningCouncilSession> = emptyList(),
+        val planningV2ChapterId: String? = null,
+        val planningV2AggregateVersion: Int = 0,
+        val planningV2Turns: List<WritingPlanningTurnItem> = emptyList(),
+        val planningV2Direction: WritingDirectionStateResult? = null,
+        val draftV2: WritingDraftExecutionResult? = null,
+        val approvalV2: WritingApprovalStateResult? = null,
         val chapters: List<WritingChapterSummary> = emptyList(),
         val activeChapter: WritingChapter? = null,
         val chapterRevisions: List<WritingChapterRevisionSummary> = emptyList(),
@@ -248,6 +255,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun refreshWritingWorkspace(projectId: String) {
         if (_writingWorkspace.value.chatProjectId != projectId) {
+            // Project changes are an authorization boundary for visual media.
+            // Drop local thumbnails/candidates so protected bytes cannot bleed
+            // into another project's UI even if asset ids happen to collide.
+            resetVisualStudioProtectedMedia()
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 chatProjectId = projectId,
                 chat = null,
@@ -262,6 +273,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 knowledgeAtlasLoading = false,
                 knowledgeAtlasError = null,
                 knowledgeSnapshotChanged = false,
+                planningV2ChapterId = null,
+                planningV2AggregateVersion = 0,
+                planningV2Turns = emptyList(),
+                planningV2Direction = null,
+                draftV2 = null,
+                approvalV2 = null,
             )
         }
         writingWorkspaceBusy("Loading workspace")
@@ -273,6 +290,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 entryType = "character",
                 topK = 100,
             )
+            val wikiLocations = container.liveSession.writingRoomWikiBrowse(
+                projectId = projectId,
+                entryType = "location",
+                topK = 100,
+            )
             val wikiTimeline = container.liveSession.writingRoomWikiTimeline(projectId)
             val canonExplorer = container.liveSession.writingRoomWikiExplorer(projectId)
             val plans = container.liveSession.writingRoomPlanList(projectId)
@@ -280,8 +302,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             val chapters = container.liveSession.writingRoomChapterList(projectId)
             val library = container.liveSession.writingRoomLibraryList(projectId)
             val failure = listOf(
-                overview, wikiHome, wikiCharacters, wikiTimeline, canonExplorer,
-                plans, councilSessions, chapters, library,
+                overview, wikiHome, wikiCharacters, wikiLocations, wikiTimeline,
+                canonExplorer, plans, councilSessions, chapters, library,
             ).firstOrNull { it.isFailure }
             if (failure != null) {
                 writingWorkspaceError(failure.exceptionOrNull())
@@ -295,6 +317,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 wikiTimeline = wikiTimeline.getOrNull(),
                 canonExplorer = canonExplorer.getOrNull(),
                 wikiCharacters = wikiCharacters.getOrNull()?.entries.orEmpty(),
+                wikiLocations = wikiLocations.getOrNull()?.entries.orEmpty(),
                 plans = plans.getOrNull()?.items.orEmpty(),
                 planningCouncilSessions = councilSessions.getOrNull()?.items.orEmpty(),
                 chapters = chapters.getOrNull()?.items.orEmpty(),
@@ -861,6 +884,478 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+
+    fun startPersistentWritingPlanning(projectId: String, firstMessage: String) {
+        val clean = firstMessage.trim()
+        if (clean.isEmpty()) return
+        writingWorkspaceBusy("SHOWRUNNER · ABRIENDO PLANEACIÓN")
+        viewModelScope.launch {
+            val startKey = "android-w1-start-" + java.util.UUID.randomUUID().toString()
+            val started = container.liveSession.writingRoomPlanningSessionStart(
+                projectId = projectId,
+                idempotencyKey = startKey,
+            )
+            if (started.isFailure) {
+                writingWorkspaceError(started.exceptionOrNull())
+                return@launch
+            }
+
+            val session = started.getOrThrow().result
+            val chapterResult = container.liveSession.writingRoomChapterGet(
+                projectId,
+                session.chapter_id,
+            )
+            val provisionalChapter = chapterResult.getOrNull()?.chapter
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                planningV2ChapterId = session.chapter_id,
+                planningV2AggregateVersion = session.aggregate_version,
+                planningV2Turns = emptyList(),
+                planningV2Direction = null,
+                activeChapter = provisionalChapter ?: _writingWorkspace.value.activeChapter,
+                engineReview = null,
+                busy = true,
+                busyLabel = "SHOWRUNNER · EXPLORANDO DIRECCIÓN",
+                error = chapterResult.exceptionOrNull()?.message,
+            )
+
+            val turn = container.liveSession.writingRoomPlanningTurn(
+                projectId = projectId,
+                chapterId = session.chapter_id,
+                expectedVersion = session.aggregate_version,
+                idempotencyKey = "android-w1-turn-" + java.util.UUID.randomUUID().toString(),
+                message = clean,
+            )
+            if (turn.isFailure) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    busy = false,
+                    busyLabel = "",
+                    error = turn.exceptionOrNull()?.message ?: "No se pudo iniciar la conversación con Showrunner",
+                )
+                return@launch
+            }
+
+            val history = container.liveSession.writingRoomPlanningHistory(
+                projectId,
+                session.chapter_id,
+            )
+            val direction = container.liveSession.writingRoomDirectionStatus(
+                projectId,
+                session.chapter_id,
+            )
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            val historyResult = history.getOrNull()?.result
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2ChapterId = session.chapter_id,
+                planningV2AggregateVersion = historyResult?.aggregate_version
+                    ?: turn.getOrThrow().result.aggregate_version,
+                planningV2Turns = historyResult?.items ?: listOf(turn.getOrThrow().result),
+                planningV2Direction = direction.getOrNull()?.result,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                error = history.exceptionOrNull()?.message
+                    ?: direction.exceptionOrNull()?.message
+                    ?: list.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun continuePersistentWritingPlanning(projectId: String, message: String) {
+        val clean = message.trim()
+        val current = _writingWorkspace.value
+        val chapterId = current.planningV2ChapterId ?: current.activeChapter?.chapter_id ?: return
+        val expectedVersion = current.planningV2AggregateVersion
+        if (clean.isEmpty() || expectedVersion < 1) return
+
+        writingWorkspaceBusy("SHOWRUNNER · CONTINUANDO PLANEACIÓN")
+        viewModelScope.launch {
+            val turn = container.liveSession.writingRoomPlanningTurn(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = expectedVersion,
+                idempotencyKey = "android-w1-turn-" + java.util.UUID.randomUUID().toString(),
+                message = clean,
+            )
+            if (turn.isFailure) {
+                writingWorkspaceError(turn.exceptionOrNull())
+                return@launch
+            }
+            val history = container.liveSession.writingRoomPlanningHistory(projectId, chapterId)
+            val direction = container.liveSession.writingRoomDirectionStatus(projectId, chapterId)
+            val historyResult = history.getOrNull()?.result
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2ChapterId = chapterId,
+                planningV2AggregateVersion = historyResult?.aggregate_version
+                    ?: turn.getOrThrow().result.aggregate_version,
+                planningV2Turns = historyResult?.items
+                    ?: (_writingWorkspace.value.planningV2Turns + turn.getOrThrow().result),
+                planningV2Direction = direction.getOrNull()?.result
+                    ?: _writingWorkspace.value.planningV2Direction,
+                error = history.exceptionOrNull()?.message ?: direction.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun preparePersistentWritingDirection(projectId: String) {
+        val current = _writingWorkspace.value
+        val chapterId = current.planningV2ChapterId ?: return
+        val expectedVersion = current.planningV2AggregateVersion
+        if (expectedVersion < 1 || current.planningV2Turns.none { it.assistant_message.isNotBlank() }) return
+
+        writingWorkspaceBusy("REVISANDO DIRECCIÓN · CANON KEEPER + CHALLENGER")
+        viewModelScope.launch {
+            val prepared = container.liveSession.writingRoomDirectionPrepare(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = expectedVersion,
+                idempotencyKey = "android-w1-direction-" + java.util.UUID.randomUUID().toString(),
+            )
+            prepared.fold(
+                onSuccess = { response ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        planningV2AggregateVersion = response.result.aggregate_version,
+                        planningV2Direction = response.result,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun approvePersistentWritingDirection(
+        projectId: String,
+        selectedTitle: String,
+    ) {
+        val current = _writingWorkspace.value
+        val chapterId = current.planningV2ChapterId ?: return
+        val direction = current.planningV2Direction ?: return
+        val proposal = direction.proposal ?: return
+        val title = selectedTitle.trim()
+        if (
+            !direction.approval_ready ||
+            title.isEmpty() ||
+            title !in proposal.payload.title_options
+        ) return
+
+        writingWorkspaceBusy("APROBANDO BRIEF INMUTABLE")
+        viewModelScope.launch {
+            val approved = container.liveSession.writingRoomDirectionApprove(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = current.planningV2AggregateVersion,
+                idempotencyKey = "android-w1-approve-" + java.util.UUID.randomUUID().toString(),
+                proposalRevisionId = proposal.proposal_revision_id,
+                proposalHash = proposal.proposal_hash,
+                reviewIds = direction.bound_review_ids,
+                selectedTitle = title,
+            )
+            if (approved.isFailure) {
+                writingWorkspaceError(approved.exceptionOrNull())
+                return@launch
+            }
+            val result = approved.getOrThrow().result
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = true,
+                busyLabel = "WRITER · REDACTANDO CAPÍTULO",
+                planningV2AggregateVersion = result.aggregate_version,
+                planningV2Direction = result,
+                draftV2 = null,
+                approvalV2 = null,
+                error = null,
+            )
+            val drafted = container.liveSession.writingRoomDraftRun(
+                projectId = projectId,
+                chapterId = chapterId,
+            )
+            if (drafted.isFailure) {
+                writingWorkspaceError(drafted.exceptionOrNull())
+                return@launch
+            }
+            val draftResult = drafted.getOrThrow().result
+            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            val list = container.liveSession.writingRoomChapterList(projectId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = draftResult.aggregate.version,
+                planningV2Direction = draftResult.direction,
+                draftV2 = draftResult,
+                approvalV2 = approval.getOrNull()?.result,
+                activeChapter = draftResult.chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                error = approval.exceptionOrNull()?.message
+                    ?: revisions.exceptionOrNull()?.message
+                    ?: list.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    private suspend fun restorePersistentPlanningIfPresent(
+        projectId: String,
+        chapterId: String,
+    ) {
+        val history = container.liveSession.writingRoomPlanningHistory(
+            projectId = projectId,
+            chapterId = chapterId,
+            limit = 100,
+        )
+        val historyResult = history.getOrNull()?.result
+        if (historyResult == null || historyResult.items.isEmpty()) {
+            if (_writingWorkspace.value.planningV2ChapterId == chapterId) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    planningV2ChapterId = null,
+                    planningV2AggregateVersion = 0,
+                    planningV2Turns = emptyList(),
+                    planningV2Direction = null,
+                )
+            }
+            return
+        }
+        val direction = container.liveSession.writingRoomDirectionStatus(projectId, chapterId)
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            planningV2ChapterId = chapterId,
+            planningV2AggregateVersion = historyResult.aggregate_version,
+            planningV2Turns = historyResult.items,
+            planningV2Direction = direction.getOrNull()?.result,
+            error = direction.exceptionOrNull()?.message,
+        )
+    }
+
+
+    private suspend fun restorePersistentDraftIfPresent(
+        projectId: String,
+        chapterId: String,
+    ) {
+        val draft = container.liveSession.writingRoomDraftStatus(projectId, chapterId)
+        if (draft.isFailure) {
+            if (_writingWorkspace.value.draftV2?.chapter_id == chapterId) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    draftV2 = null,
+                    approvalV2 = null,
+                )
+            }
+            return
+        }
+        val draftResult = draft.getOrThrow().result
+        val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            planningV2AggregateVersion = maxOf(
+                _writingWorkspace.value.planningV2AggregateVersion,
+                draftResult.aggregate.version,
+            ),
+            planningV2Direction = draftResult.direction,
+            draftV2 = draftResult,
+            approvalV2 = approval.getOrNull()?.result,
+            activeChapter = draftResult.chapter,
+            error = approval.exceptionOrNull()?.message,
+        )
+    }
+
+    fun runPersistentWritingDraft(projectId: String) {
+        val current = _writingWorkspace.value
+        val chapterId = current.planningV2ChapterId ?: current.activeChapter?.chapter_id ?: return
+        writingWorkspaceBusy("WRITER · REDACTANDO CAPÍTULO")
+        viewModelScope.launch {
+            val drafted = container.liveSession.writingRoomDraftRun(projectId, chapterId)
+            if (drafted.isFailure) {
+                writingWorkspaceError(drafted.exceptionOrNull())
+                return@launch
+            }
+            val result = drafted.getOrThrow().result
+            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate.version,
+                planningV2Direction = result.direction,
+                draftV2 = result,
+                approvalV2 = approval.getOrNull()?.result,
+                activeChapter = result.chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                error = approval.exceptionOrNull()?.message ?: revisions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun reviewPersistentWritingDraft(projectId: String) {
+        val current = _writingWorkspace.value
+        val chapterId = current.draftV2?.chapter_id ?: current.activeChapter?.chapter_id ?: return
+        writingWorkspaceBusy("REVIEWER + CANON KEEPER · REVISANDO")
+        viewModelScope.launch {
+            val reviewed = container.liveSession.writingRoomDraftReviewRun(projectId, chapterId)
+            if (reviewed.isFailure) {
+                writingWorkspaceError(reviewed.exceptionOrNull())
+                return@launch
+            }
+            val result = reviewed.getOrThrow().result
+            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate.version,
+                planningV2Direction = result.direction,
+                draftV2 = result,
+                approvalV2 = approval.getOrNull()?.result,
+                activeChapter = result.chapter,
+                error = approval.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun savePersistentWritingRevision(projectId: String, draftText: String) {
+        val current = _writingWorkspace.value
+        val draftState = current.draftV2 ?: return
+        val chapterId = draftState.chapter_id
+        if (draftText.isBlank() || draftText == draftState.chapter.draft_text) return
+        writingWorkspaceBusy("GUARDANDO REVISIÓN INMUTABLE")
+        viewModelScope.launch {
+            val revised = container.liveSession.writingRoomDraftRevise(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = draftState.aggregate.version,
+                idempotencyKey = "android-w2-revise-" + java.util.UUID.randomUUID().toString(),
+                draftText = draftText,
+            )
+            if (revised.isFailure) {
+                writingWorkspaceError(revised.exceptionOrNull())
+                return@launch
+            }
+            val result = revised.getOrThrow().result
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate.version,
+                planningV2Direction = result.direction,
+                draftV2 = result,
+                approvalV2 = null,
+                activeChapter = result.chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                error = revisions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun restorePersistentWritingRevision(projectId: String, revisionId: String) {
+        val current = _writingWorkspace.value
+        val draftState = current.draftV2 ?: return
+        val chapterId = draftState.chapter_id
+        writingWorkspaceBusy("RESTAURANDO COMO NUEVA REVISIÓN")
+        viewModelScope.launch {
+            val restored = container.liveSession.writingRoomDraftRestore(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = draftState.aggregate.version,
+                idempotencyKey = "android-w2-restore-" + java.util.UUID.randomUUID().toString(),
+                revisionId = revisionId,
+            )
+            if (restored.isFailure) {
+                writingWorkspaceError(restored.exceptionOrNull())
+                return@launch
+            }
+            val result = restored.getOrThrow().result
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = result.aggregate.version,
+                planningV2Direction = result.direction,
+                draftV2 = result,
+                approvalV2 = null,
+                activeChapter = result.chapter,
+                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
+                chapterRevisionChapterId = chapterId,
+                error = revisions.exceptionOrNull()?.message,
+            )
+        }
+    }
+
+    fun preparePersistentWritingApproval(projectId: String) {
+        val current = _writingWorkspace.value
+        val draftState = current.draftV2 ?: return
+        val chapterId = draftState.chapter_id
+        writingWorkspaceBusy("CANON KEEPER · PREPARANDO CANONDIFF")
+        viewModelScope.launch {
+            val prepared = container.liveSession.writingRoomApprovalPrepare(
+                projectId = projectId,
+                chapterId = chapterId,
+                expectedVersion = draftState.aggregate.version,
+                idempotencyKey = "android-w2-canon-diff-" + java.util.UUID.randomUUID().toString(),
+            )
+            prepared.fold(
+                onSuccess = { response ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        planningV2AggregateVersion = response.result.aggregate.version,
+                        planningV2Direction = response.result.direction,
+                        approvalV2 = response.result,
+                        activeChapter = response.result.chapter,
+                        error = null,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
+    fun approvePersistentWritingChapter(projectId: String) {
+        val current = _writingWorkspace.value
+        val approval = current.approvalV2 ?: return
+        val diff = approval.canon_diff ?: return
+        val brief = approval.direction.brief ?: return
+        val revisionId = approval.aggregate.current_draft_revision_id
+        if (
+            !approval.approval_ready ||
+            revisionId.isBlank() ||
+            diff.draft_sha256.isBlank() ||
+            approval.ready_review_ids.isEmpty()
+        ) return
+
+        writingWorkspaceBusy("APROBANDO TEXTO + CANONDIFF")
+        viewModelScope.launch {
+            val approved = container.liveSession.writingRoomApprovalFinal(
+                projectId = projectId,
+                chapterId = approval.chapter_id,
+                expectedVersion = approval.aggregate.version,
+                idempotencyKey = "android-w2-final-approve-" + java.util.UUID.randomUUID().toString(),
+                revisionId = revisionId,
+                draftSha256 = diff.draft_sha256,
+                briefRevisionId = brief.brief_revision_id,
+                reviewIds = approval.ready_review_ids,
+                canonDiffId = diff.canon_diff_id,
+                canonDiffHash = diff.diff_hash,
+            )
+            approved.fold(
+                onSuccess = { response ->
+                    val list = container.liveSession.writingRoomChapterList(projectId)
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        planningV2AggregateVersion = response.result.aggregate.version,
+                        planningV2Direction = response.result.direction,
+                        approvalV2 = response.result,
+                        activeChapter = response.result.chapter,
+                        chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+                        error = list.exceptionOrNull()?.message,
+                    )
+                },
+                onFailure = ::writingWorkspaceError,
+            )
+        }
+    }
+
     fun startWritingChapter(
         projectId: String,
         title: String,
@@ -1036,6 +1531,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 engineReview = null,
                 error = revisions.exceptionOrNull()?.message,
             )
+            restorePersistentPlanningIfPresent(projectId, chapterId)
+            restorePersistentDraftIfPresent(projectId, chapterId)
         }
     }
 
@@ -1062,6 +1559,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun restoreWritingChapterRevision(projectId: String, chapterId: String, revisionId: String) {
+        if (_writingWorkspace.value.draftV2?.chapter_id == chapterId) {
+            restorePersistentWritingRevision(projectId, revisionId)
+            return
+        }
         writingWorkspaceBusy("RESTAURANDO VERSIÓN")
         viewModelScope.launch {
             val restored = container.liveSession.writingRoomChapterRevisionRestore(
@@ -1089,6 +1590,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun saveWritingChapterDraft(projectId: String, chapterId: String, draftText: String) {
+        if (_writingWorkspace.value.draftV2?.chapter_id == chapterId) {
+            savePersistentWritingRevision(projectId, draftText)
+            return
+        }
         writingWorkspaceBusy("GUARDANDO NUEVA VERSIÓN")
         viewModelScope.launch {
             val result = container.liveSession.writingRoomSaveDraft(projectId, chapterId, draftText)
@@ -1322,6 +1827,2000 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private val _wikiVisualAttachments = MutableStateFlow<Map<String, String>>(emptyMap())
     val wikiVisualAttachments: StateFlow<Map<String, String>> = _wikiVisualAttachments
+
+    data class CharacterStudioState(
+        val projectId: String = "",
+        val characterId: String = "",
+        val busy: Boolean = false,
+        val busyLabel: String = "",
+        val detail: VisualStudioCharacterDetail? = null,
+        val assets: List<VisualStudioAsset> = emptyList(),
+        val attachmentIds: Map<String, String> = emptyMap(),
+        val notice: String? = null,
+        val error: String? = null,
+    )
+
+    // Invalidate late media results even when the user switches away and back.
+    private var characterStudioScopeVersion = 0L
+    private val _characterStudio = MutableStateFlow(CharacterStudioState())
+    val characterStudio: StateFlow<CharacterStudioState> = _characterStudio
+
+    private fun deleteVisualStudioAttachments(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.distinct().forEach { id ->
+                runCatching { container.attachmentStore.delete(id) }
+            }
+        }
+    }
+
+    data class LocationStudioState(
+        val projectId: String = "",
+        val locationId: String = "",
+        val busy: Boolean = false,
+        val busyLabel: String = "",
+        val detail: VisualStudioLocationDetail? = null,
+        val assets: List<VisualStudioAsset> = emptyList(),
+        val attachmentIds: Map<String, String> = emptyMap(),
+        val notice: String? = null,
+        val error: String? = null,
+    )
+
+    private val _locationStudio = MutableStateFlow(LocationStudioState())
+    val locationStudio: StateFlow<LocationStudioState> = _locationStudio
+
+    data class WorldMapConflictNotice(
+        val currentVersion: Int? = null,
+        val currentHash: String? = null,
+        val message: String = "",
+    )
+
+    data class WorldMapState(
+        val projectId: String = "",
+        val busy: Boolean = false,
+        val busyLabel: String = "",
+        val status: WorldMapStatusResponse? = null,
+        val map: WorldMapResponse? = null,
+        val conflict: WorldMapConflictNotice? = null,
+        val notice: String? = null,
+        val error: String? = null,
+    )
+
+    private val _worldMap = MutableStateFlow(WorldMapState())
+    val worldMap: StateFlow<WorldMapState> = _worldMap
+
+    data class SceneBuilderState(
+        val projectId: String = "",
+        val busy: Boolean = false,
+        val busyLabel: String = "",
+        val context: VisualSceneContext? = null,
+        val capabilities: VisualSceneGenerationCapabilities? = null,
+        val generated: VisualStudioGeneratedImage? = null,
+        val generatedAttachmentId: String? = null,
+        val attachmentIds: Set<String> = emptySet(),
+        val notice: String? = null,
+        val error: String? = null,
+    )
+
+    private val _sceneBuilder = MutableStateFlow(SceneBuilderState())
+    val sceneBuilder: StateFlow<SceneBuilderState> = _sceneBuilder
+
+    private fun resetVisualStudioProtectedMedia() {
+        characterStudioScopeVersion++
+        _imageEditState.value = ImageEditState.Idle
+        _lastImageEditDetails.value = null
+        val ids = (
+            _characterStudio.value.attachmentIds.values +
+                _locationStudio.value.attachmentIds.values +
+                _sceneBuilder.value.attachmentIds +
+                listOfNotNull(_sceneBuilder.value.generatedAttachmentId) +
+                _wikiVisualAttachments.value.values
+        ).distinct()
+        _characterStudio.value = CharacterStudioState()
+        _locationStudio.value = LocationStudioState()
+        _worldMap.value = WorldMapState()
+        _sceneBuilder.value = SceneBuilderState()
+        _wikiVisualAttachments.value = emptyMap()
+        deleteVisualStudioAttachments(ids)
+    }
+
+    fun openCharacterStudio(projectId: String, characterId: String) {
+        val cleanProject = projectId.trim()
+        val cleanCharacter = characterId.trim()
+        if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
+        val current = _characterStudio.value
+        if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterStudioScopeVersion++
+            _imageEditState.value = ImageEditState.Idle
+            _lastImageEditDetails.value = null
+            val oldIds = current.attachmentIds.values
+            _characterStudio.value = CharacterStudioState(
+                projectId = cleanProject,
+                characterId = cleanCharacter,
+            )
+            deleteVisualStudioAttachments(oldIds)
+        }
+        refreshCharacterStudio(cleanProject, cleanCharacter)
+    }
+
+    fun clearCharacterStudioMessage() {
+        _characterStudio.value = _characterStudio.value.copy(notice = null, error = null)
+    }
+
+    fun refreshCharacterStudio(projectId: String, characterId: String) {
+        val cleanProject = projectId.trim()
+        val cleanCharacter = characterId.trim()
+        if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
+        val current = _characterStudio.value
+        if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterStudioScopeVersion++
+            _imageEditState.value = ImageEditState.Idle
+            _lastImageEditDetails.value = null
+        }
+        _characterStudio.value = current.copy(
+            projectId = cleanProject,
+            characterId = cleanCharacter,
+            busy = true,
+            busyLabel = "Actualizando estudio visual",
+            error = null,
+        )
+        viewModelScope.launch {
+            reloadCharacterStudio(cleanProject, cleanCharacter)
+        }
+    }
+
+    private suspend fun reloadCharacterStudio(projectId: String, characterId: String) {
+        val detail = container.liveSession.visualCharacterDetail(projectId, characterId)
+        val assets = container.liveSession.visualAssetList(projectId, characterId)
+        if (
+            _characterStudio.value.projectId != projectId ||
+            _characterStudio.value.characterId != characterId
+        ) return
+        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull()
+        _characterStudio.value = _characterStudio.value.copy(
+            busy = false,
+            busyLabel = "",
+            detail = detail.getOrNull() ?: _characterStudio.value.detail,
+            assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
+            error = failure?.message,
+        )
+    }
+
+    fun loadCharacterStudioAsset(projectId: String, assetId: String) {
+        val clean = assetId.trim()
+        val state = _characterStudio.value
+        if (
+            clean.isBlank() ||
+            state.projectId != projectId ||
+            state.attachmentIds.containsKey(clean)
+        ) return
+        viewModelScope.launch {
+            container.liveSession.writingRoomVisualAssetFetch(projectId, clean).fold(
+                onSuccess = { content ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(content.image_base64)
+                    }
+                    if (
+                        staged != null &&
+                        _characterStudio.value.projectId == projectId
+                    ) {
+                        _characterStudio.update {
+                            it.copy(
+                                attachmentIds = it.attachmentIds + (clean to staged.attachmentId),
+                            )
+                        }
+                    }
+                },
+                onFailure = {
+                    // Metadata remains usable. Pending Drive storage intentionally has no
+                    // fetchable server bytes, so the UI keeps the retry state instead.
+                },
+            )
+        }
+    }
+
+    private suspend fun rememberCharacterStudioCandidate(
+        projectId: String,
+        characterId: String,
+        reply: VisualStudioGeneratedImage,
+    ) {
+        val asset = reply.visual_asset ?: return
+        val staged = withContext(Dispatchers.IO) {
+            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+        }
+        if (
+            staged != null &&
+            _characterStudio.value.projectId == projectId &&
+            _characterStudio.value.characterId == characterId
+        ) {
+            _characterStudio.update {
+                it.copy(
+                    attachmentIds = it.attachmentIds + (asset.asset_id to staged.attachmentId),
+                    notice = if (reply.storage_retry_required) {
+                        "La imagen se generó y quedó como candidata, pero Drive necesita reintentar el guardado. No se regenerará el modelo."
+                    } else {
+                        "Nueva imagen candidata guardada. Aún no forma parte del canon visual."
+                    },
+                )
+            }
+        }
+    }
+
+    fun generateCharacterVisual(
+        projectId: String,
+        characterId: String,
+        prompt: String,
+        kind: String,
+        perspective: String,
+        parentAsset: VisualStudioAsset? = null,
+    ) {
+        val cleanPrompt = prompt.trim()
+        if (cleanPrompt.isBlank() || _characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = if (kind == "PRIMARY_REFERENCE") {
+                    "Generando candidato de master"
+                } else {
+                    "Generando vista ${perspective.replace('_', ' ')}"
+                },
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.generateVisualAssetImage(
+                projectId = projectId,
+                characterId = characterId,
+                prompt = cleanPrompt,
+                kind = kind,
+                perspective = perspective,
+                mode = "quality",
+                aspectRatio = "portrait",
+                referencePerspectives = if (kind == "IDENTITY_PACK") listOf("front") else emptyList(),
+                referencesPerCharacter = 1,
+                parentAssetId = parentAsset?.asset_id.orEmpty(),
+                parentSha256 = parentAsset?.sha256.orEmpty(),
+                derivation = if (parentAsset == null) "" else "REGENERATION",
+            )
+            if (result.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = result.exceptionOrNull()?.message ?: "No se pudo generar la imagen.",
+                    )
+                }
+                return@launch
+            }
+            rememberCharacterStudioCandidate(projectId, characterId, result.getOrThrow())
+            reloadCharacterStudio(projectId, characterId)
+        }
+    }
+
+    fun uploadCharacterMaster(
+        projectId: String,
+        characterId: String,
+        uri: Uri,
+    ) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Guardando candidato manual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            if (staged == null) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = "No se pudo leer la imagen seleccionada.",
+                    )
+                }
+                return@launch
+            }
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(staged.attachmentId)
+                        ?: error("La imagen temporal ya no está disponible.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (source.isFailure) {
+                withContext(Dispatchers.IO) { container.attachmentStore.delete(staged.attachmentId) }
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message ?: "No se pudo leer la imagen.",
+                    )
+                }
+                return@launch
+            }
+            val mime = app.contentResolver.getType(uri)
+                ?.lowercase()
+                ?.takeIf { it in setOf("image/png", "image/jpeg", "image/webp") }
+                ?: "image/jpeg"
+            val result = container.liveSession.visualAssetIngest(
+                projectId = projectId,
+                imageBase64 = source.getOrThrow(),
+                mimeType = mime,
+                kind = "PRIMARY_REFERENCE",
+                source = "MANUAL_UPLOAD",
+                characterId = characterId,
+                perspective = "front",
+            )
+            result.fold(
+                onSuccess = { response ->
+                    _characterStudio.update {
+                        it.copy(
+                            attachmentIds = it.attachmentIds +
+                                (response.asset.asset_id to staged.attachmentId),
+                            notice = "Master manual guardado como candidato. Revisa y aprueba el hash exacto.",
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    withContext(Dispatchers.IO) {
+                        container.attachmentStore.delete(staged.attachmentId)
+                    }
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo guardar el master.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun uploadCharacterTurnaround(
+        projectId: String,
+        characterId: String,
+        perspective: String,
+        uri: Uri,
+    ) {
+        val cleanPerspective = perspective.trim()
+        val scopeVersion = characterStudioScopeVersion
+        fun scopeIsCurrent(): Boolean =
+            scopeVersion == characterStudioScopeVersion &&
+                _characterStudio.value.projectId == projectId &&
+                _characterStudio.value.characterId == characterId
+        if (
+            !scopeIsCurrent() ||
+            _characterStudio.value.busy ||
+            cleanPerspective.isBlank()
+        ) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Guardando vista manual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            if (!scopeIsCurrent()) {
+                staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                return@launch
+            }
+            if (staged == null) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = "No se pudo leer la vista seleccionada.",
+                    )
+                }
+                return@launch
+            }
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(staged.attachmentId)
+                        ?: error("La imagen temporal ya no está disponible.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (!scopeIsCurrent()) {
+                deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                return@launch
+            }
+            if (source.isFailure) {
+                withContext(Dispatchers.IO) { container.attachmentStore.delete(staged.attachmentId) }
+                if (!scopeIsCurrent()) return@launch
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message ?: "No se pudo leer la vista.",
+                    )
+                }
+                return@launch
+            }
+            val mime = app.contentResolver.getType(uri)
+                ?.lowercase()
+                ?.takeIf { it in setOf("image/png", "image/jpeg", "image/webp") }
+                ?: "image/jpeg"
+            container.liveSession.visualAssetIngest(
+                projectId = projectId,
+                imageBase64 = source.getOrThrow(),
+                mimeType = mime,
+                kind = "IDENTITY_PACK",
+                source = "MANUAL_UPLOAD",
+                characterId = characterId,
+                perspective = cleanPerspective,
+            ).fold(
+                onSuccess = { response ->
+                    if (!scopeIsCurrent()) {
+                        deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                        return@fold
+                    }
+                    _characterStudio.update {
+                        it.copy(
+                            attachmentIds = it.attachmentIds +
+                                (response.asset.asset_id to staged.attachmentId),
+                            notice = "Vista manual guardada como CANDIDATE. Revisa y aprueba su hash exacto antes de incluirla en un Reference Pack.",
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    withContext(Dispatchers.IO) {
+                        container.attachmentStore.delete(staged.attachmentId)
+                    }
+                    if (!scopeIsCurrent()) return@fold
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo guardar la vista manual.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveCharacterVisual(asset: VisualStudioAsset) {
+        val state = _characterStudio.value
+        if (state.busy || asset.status != "CANDIDATE" || asset.sha256.isBlank()) return
+        val nextRevision = state.assets
+            .filter {
+                it.status == "APPROVED" &&
+                    it.kind == asset.kind &&
+                    it.perspective == asset.perspective
+            }
+            .maxOfOrNull { it.visual_revision }
+            ?.plus(1)
+            ?: 1
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando hash exacto",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualAssetApproveExact(
+                projectId = asset.project_id,
+                assetId = asset.asset_id,
+                assetSha256 = asset.sha256,
+                visualRevision = nextRevision,
+            ).fold(
+                onSuccess = {
+                    _characterStudio.update {
+                        it.copy(notice = "Imagen aprobada. El asset quedó ligado a su SHA-256 exacto.")
+                    }
+                    reloadCharacterStudio(asset.project_id, state.characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo aprobar la imagen.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun retryCharacterVisualStorage(asset: VisualStudioAsset) {
+        val state = _characterStudio.value
+        if (state.busy || asset.storage.state == "stored") return
+        val attachmentId = state.attachmentIds[asset.asset_id]
+        if (attachmentId.isNullOrBlank()) {
+            _characterStudio.update {
+                it.copy(
+                    error = "Los bytes locales del candidato ya no están disponibles. JARVIS no regenerará la imagen automáticamente.",
+                )
+            }
+            return
+        }
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Reintentando guardado en Drive",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val encoded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(attachmentId)
+                        ?: error("Los bytes locales del candidato ya no están disponibles.")
+                    Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                }
+            }
+            if (encoded.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = encoded.exceptionOrNull()?.message,
+                    )
+                }
+                return@launch
+            }
+            container.liveSession.visualAssetIngest(
+                projectId = asset.project_id,
+                imageBase64 = encoded.getOrThrow(),
+                mimeType = asset.mime_type,
+                kind = asset.kind,
+                source = asset.source,
+                characterId = state.characterId,
+                perspective = asset.perspective,
+                assetId = asset.asset_id,
+                parentAssetId = asset.parent_asset_id,
+                parentSha256 = asset.parent_sha256,
+                derivation = asset.derivation,
+            ).fold(
+                onSuccess = {
+                    _characterStudio.update {
+                        it.copy(notice = "Guardado en Drive reanudado sin repetir la generación.")
+                    }
+                    reloadCharacterStudio(asset.project_id, state.characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "Drive sigue sin poder guardar el candidato.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun editCharacterVisual(
+        projectId: String,
+        characterId: String,
+        parentAsset: VisualStudioAsset,
+        instruction: String,
+    ) {
+        val clean = instruction.trim()
+        if (
+            clean.isBlank() ||
+            _characterStudio.value.busy ||
+            parentAsset.status != "APPROVED"
+        ) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Creando edición hija",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val source = container.liveSession.writingRoomVisualAssetFetch(
+                projectId,
+                parentAsset.asset_id,
+            )
+            if (source.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message ?: "No se pudo cargar el parent aprobado.",
+                    )
+                }
+                return@launch
+            }
+            val content = source.getOrThrow()
+            val result = container.liveSession.editVisualAssetImage(
+                imageBase64 = content.image_base64,
+                mimeType = content.mime_type,
+                projectId = projectId,
+                characterId = characterId,
+                instruction = clean,
+                kind = parentAsset.kind,
+                perspective = parentAsset.perspective,
+                parentAssetId = parentAsset.asset_id,
+                parentSha256 = parentAsset.sha256,
+            )
+            if (result.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = result.exceptionOrNull()?.message ?: "No se pudo editar la imagen.",
+                    )
+                }
+                return@launch
+            }
+            rememberCharacterStudioCandidate(projectId, characterId, result.getOrThrow())
+            reloadCharacterStudio(projectId, characterId)
+        }
+    }
+
+    fun editCharacterVisualInStudio(
+        parentAsset: VisualStudioAsset,
+        characterId: String,
+        referenceAttachmentId: String,
+        instruction: String,
+        mode: String = "quality",
+        model: String? = null,
+        preserveIdentity: String = "high",
+        aspectRatio: String = "portrait",
+    ) {
+        val clean = instruction.trim()
+        val state = _characterStudio.value
+        val scopeVersion = characterStudioScopeVersion
+        fun scopeIsCurrent(): Boolean =
+            scopeVersion == characterStudioScopeVersion &&
+                _characterStudio.value.projectId == parentAsset.project_id &&
+                _characterStudio.value.characterId == characterId
+        if (
+            clean.isBlank() ||
+            referenceAttachmentId.isBlank() ||
+            _imageEditState.value is ImageEditState.Busy ||
+            state.busy ||
+            parentAsset.project_id != state.projectId ||
+            characterId != state.characterId ||
+            parentAsset.status != "APPROVED"
+        ) {
+            if (parentAsset.status != "APPROVED") {
+                _imageEditState.value = ImageEditState.Error(
+                    "Aprueba la imagen antes de crear una edición hija.",
+                )
+            }
+            return
+        }
+        _imageEditState.value = ImageEditState.Busy
+        _lastImageEditDetails.value = null
+        viewModelScope.launch {
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(referenceAttachmentId)
+                        ?: error("La imagen base ya no está disponible en el dispositivo.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen base es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (!scopeIsCurrent()) return@launch
+            if (source.isFailure) {
+                _imageEditState.value = ImageEditState.Error(
+                    source.exceptionOrNull()?.message
+                        ?: "No se pudo leer la referencia aprobada.",
+                )
+                return@launch
+            }
+            container.liveSession.editVisualAssetImage(
+                imageBase64 = source.getOrThrow(),
+                mimeType = parentAsset.mime_type,
+                projectId = parentAsset.project_id,
+                characterId = characterId,
+                instruction = clean,
+                kind = parentAsset.kind,
+                perspective = parentAsset.perspective,
+                parentAssetId = parentAsset.asset_id,
+                parentSha256 = parentAsset.sha256,
+                derivation = "EDIT",
+                mode = mode,
+                model = model,
+                preserveIdentity = preserveIdentity,
+                aspectRatio = aspectRatio,
+            ).fold(
+                onSuccess = { reply ->
+                    if (!scopeIsCurrent()) return@fold
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+                    }
+                    if (!scopeIsCurrent()) {
+                        staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                        return@fold
+                    }
+                    val child = reply.visual_asset
+                    if (staged == null || child == null) {
+                        staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
+                        _imageEditState.value = ImageEditState.Error(
+                            "JARVIS creó la edición, pero Android no pudo conservar el candidato.",
+                        )
+                        return@fold
+                    }
+                    _lastImageEditDetails.value = ImageGenerationDetails(
+                        reply.provider,
+                        reply.model,
+                        reply.requested_mode,
+                        reply.fallback_used,
+                        reply.attempt_count,
+                        reply.duration_ms,
+                    )
+                    _characterStudio.update { current ->
+                        if (
+                            current.projectId != parentAsset.project_id ||
+                            current.characterId != characterId
+                        ) {
+                            current
+                        } else {
+                            current.copy(
+                                attachmentIds = current.attachmentIds +
+                                    (child.asset_id to staged.attachmentId),
+                                notice = if (reply.storage_retry_required) {
+                                    "La edición hija quedó como CANDIDATE, pero Drive requiere reintento. El parent aprobado permanece intacto."
+                                } else {
+                                    "Edición hija guardada como CANDIDATE. El parent aprobado permanece intacto hasta otra aprobación humana."
+                                },
+                                error = null,
+                            )
+                        }
+                    }
+                    reloadCharacterStudio(parentAsset.project_id, characterId)
+                    if (scopeIsCurrent()) {
+                        _imageEditState.value = ImageEditState.Success(staged.attachmentId)
+                    }
+                },
+                onFailure = { error ->
+                    if (!scopeIsCurrent()) return@fold
+                    _imageEditState.value = ImageEditState.Error(
+                        error.message ?: "No se pudo editar la referencia visual.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun createCharacterReferencePack(projectId: String, characterId: String) {
+        val state = _characterStudio.value
+        if (state.busy) return
+        val approved = state.assets.filter { it.status == "APPROVED" }
+        val ordering = compareBy<VisualStudioAsset>({ it.visual_revision }, { it.approved_utc })
+        val master = approved
+            .filter { it.kind == "PRIMARY_REFERENCE" }
+            .maxWithOrNull(ordering)
+        val views = approved
+            .filter { it.kind == "IDENTITY_PACK" && it.perspective.isNotBlank() }
+            .groupBy { it.perspective }
+            .values
+            .mapNotNull { items -> items.maxWithOrNull(ordering) }
+            .sortedBy { it.perspective }
+        if (master == null) {
+            _characterStudio.update {
+                it.copy(error = "Aprueba primero un master del personaje.")
+            }
+            return
+        }
+        if (views.isEmpty()) {
+            _characterStudio.update {
+                it.copy(error = "Aprueba al menos una vista de turnaround antes de crear el pack.")
+            }
+            return
+        }
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Creando revisión de Reference Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val created = container.liveSession.visualReferencePackCreate(
+                projectId = projectId,
+                characterId = characterId,
+                masterAssetId = master.asset_id,
+                masterSha256 = master.sha256,
+                parentPackId = state.detail?.active_reference_pack?.pack_id.orEmpty(),
+            )
+            if (created.isFailure) {
+                _characterStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = created.exceptionOrNull()?.message ?: "No se pudo crear el pack.",
+                    )
+                }
+                return@launch
+            }
+            var pack = created.getOrThrow().pack
+            for (view in views) {
+                val added = container.liveSession.visualReferencePackAddSlot(
+                    projectId = projectId,
+                    packId = pack.pack_id,
+                    slotKey = view.perspective,
+                    assetId = view.asset_id,
+                    assetSha256 = view.sha256,
+                    required = true,
+                )
+                if (added.isFailure) {
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = added.exceptionOrNull()?.message
+                                ?: "No se pudo agregar ${view.perspective} al pack.",
+                        )
+                    }
+                    return@launch
+                }
+                pack = added.getOrThrow().pack
+            }
+            _characterStudio.update {
+                it.copy(
+                    busy = false,
+                    busyLabel = "",
+                    notice = "Pack revisión ${pack.revision} creado en DRAFT. Todavía no está aprobado.",
+                )
+            }
+            reloadCharacterStudio(projectId, characterId)
+        }
+    }
+
+    fun prepareCharacterReferencePack(projectId: String, characterId: String, packId: String) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Validando pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualReferencePackPrepare(projectId, packId).fold(
+                onSuccess = { result ->
+                    _characterStudio.update {
+                        it.copy(
+                            notice = "Pack revisión ${result.pack.revision} listo para aprobación humana.",
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "El pack no está listo para aprobación.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveCharacterReferencePack(projectId: String, characterId: String, packId: String) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando Reference Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualReferencePackApprove(projectId, packId).fold(
+                onSuccess = { result ->
+                    _characterStudio.update {
+                        it.copy(
+                            notice = "Reference Pack revisión ${result.pack.revision} aprobado y activo.",
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                    refreshWritingWorkspace(projectId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo aprobar el Reference Pack.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun openLocationStudio(projectId: String, locationId: String) {
+        val cleanProject = projectId.trim()
+        val cleanLocation = locationId.trim()
+        if (cleanProject.isBlank() || cleanLocation.isBlank()) return
+        val current = _locationStudio.value
+        if (current.projectId != cleanProject || current.locationId != cleanLocation) {
+            val oldIds = current.attachmentIds.values
+            _locationStudio.value = LocationStudioState(
+                projectId = cleanProject,
+                locationId = cleanLocation,
+            )
+            deleteVisualStudioAttachments(oldIds)
+        }
+        refreshLocationStudio(cleanProject, cleanLocation)
+    }
+
+    fun clearLocationStudioMessage() {
+        _locationStudio.value = _locationStudio.value.copy(notice = null, error = null)
+    }
+
+    fun refreshLocationStudio(projectId: String, locationId: String) {
+        val cleanProject = projectId.trim()
+        val cleanLocation = locationId.trim()
+        if (cleanProject.isBlank() || cleanLocation.isBlank()) return
+        _locationStudio.value = _locationStudio.value.copy(
+            projectId = cleanProject,
+            locationId = cleanLocation,
+            busy = true,
+            busyLabel = "Actualizando Location Studio",
+            error = null,
+        )
+        viewModelScope.launch {
+            reloadLocationStudio(cleanProject, cleanLocation)
+        }
+    }
+
+    private suspend fun reloadLocationStudio(projectId: String, locationId: String) {
+        val detail = container.liveSession.visualLocationDetail(projectId, locationId)
+        val assets = container.liveSession.visualLocationAssetList(projectId, locationId)
+        if (
+            _locationStudio.value.projectId != projectId ||
+            _locationStudio.value.locationId != locationId
+        ) return
+        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull()
+        _locationStudio.value = _locationStudio.value.copy(
+            busy = false,
+            busyLabel = "",
+            detail = detail.getOrNull() ?: _locationStudio.value.detail,
+            assets = assets.getOrNull()?.assets ?: _locationStudio.value.assets,
+            error = failure?.message,
+        )
+    }
+
+    fun loadLocationStudioAsset(projectId: String, assetId: String) {
+        val clean = assetId.trim()
+        val state = _locationStudio.value
+        if (
+            clean.isBlank() ||
+            state.projectId != projectId ||
+            state.attachmentIds.containsKey(clean)
+        ) return
+        viewModelScope.launch {
+            container.liveSession.writingRoomVisualAssetFetch(projectId, clean).fold(
+                onSuccess = { content ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(content.image_base64)
+                    }
+                    if (
+                        staged != null &&
+                        _locationStudio.value.projectId == projectId
+                    ) {
+                        _locationStudio.update {
+                            it.copy(
+                                attachmentIds = it.attachmentIds +
+                                    (clean to staged.attachmentId),
+                            )
+                        }
+                    }
+                },
+                onFailure = {
+                    // A pending Drive candidate has metadata but no fetchable
+                    // server bytes. Keep the state visible without regenerating.
+                },
+            )
+        }
+    }
+
+    private suspend fun rememberLocationStudioCandidate(
+        projectId: String,
+        locationId: String,
+        reply: VisualStudioGeneratedImage,
+    ) {
+        val asset = reply.visual_asset ?: return
+        val staged = withContext(Dispatchers.IO) {
+            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+        }
+        if (
+            staged != null &&
+            _locationStudio.value.projectId == projectId &&
+            _locationStudio.value.locationId == locationId
+        ) {
+            _locationStudio.update {
+                it.copy(
+                    attachmentIds = it.attachmentIds +
+                        (asset.asset_id to staged.attachmentId),
+                    notice = if (reply.storage_retry_required) {
+                        "La imagen de locación quedó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
+                    } else {
+                        "Nueva imagen de locación guardada como candidata. Aún no forma parte del canon visual."
+                    },
+                )
+            }
+        }
+    }
+
+    fun generateLocationVisual(
+        projectId: String,
+        locationId: String,
+        prompt: String,
+        kind: String,
+        perspective: String,
+        parentAsset: VisualStudioAsset? = null,
+    ) {
+        val cleanPrompt = prompt.trim()
+        if (cleanPrompt.isBlank() || _locationStudio.value.busy) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = if (kind == "LOCATION_REFERENCE") {
+                    "Generando master de locación"
+                } else {
+                    "Generando variante ${perspective.replace('_', ' ')}"
+                },
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.generateLocationVisualAssetImage(
+                projectId = projectId,
+                locationId = locationId,
+                prompt = cleanPrompt,
+                kind = kind,
+                perspective = perspective,
+                mode = "quality",
+                aspectRatio = "landscape",
+                referencePerspectives = if (kind == "LOCATION_VARIANT") {
+                    listOf("establishing")
+                } else {
+                    emptyList()
+                },
+                referencesPerLocation = 2,
+                parentAssetId = parentAsset?.asset_id.orEmpty(),
+                parentSha256 = parentAsset?.sha256.orEmpty(),
+                derivation = if (parentAsset == null) "" else "REGENERATION",
+            )
+            if (result.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = result.exceptionOrNull()?.message
+                            ?: "No se pudo generar la locación.",
+                    )
+                }
+                return@launch
+            }
+            rememberLocationStudioCandidate(
+                projectId,
+                locationId,
+                result.getOrThrow(),
+            )
+            reloadLocationStudio(projectId, locationId)
+        }
+    }
+
+    fun uploadLocationMaster(
+        projectId: String,
+        locationId: String,
+        uri: Uri,
+    ) {
+        if (_locationStudio.value.busy) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Guardando master manual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) {
+                container.attachmentStore.stageFrom(uri)
+            }
+            if (staged == null) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = "No se pudo leer la imagen seleccionada.",
+                    )
+                }
+                return@launch
+            }
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(staged.attachmentId)
+                        ?: error("La imagen temporal ya no está disponible.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La imagen es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (source.isFailure) {
+                withContext(Dispatchers.IO) {
+                    container.attachmentStore.delete(staged.attachmentId)
+                }
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message
+                            ?: "No se pudo leer la imagen.",
+                    )
+                }
+                return@launch
+            }
+            val mime = app.contentResolver.getType(uri)
+                ?.lowercase()
+                ?.takeIf { it in setOf("image/png", "image/jpeg", "image/webp") }
+                ?: "image/jpeg"
+            container.liveSession.visualLocationAssetIngest(
+                projectId = projectId,
+                imageBase64 = source.getOrThrow(),
+                mimeType = mime,
+                kind = "LOCATION_REFERENCE",
+                source = "MANUAL_UPLOAD",
+                locationId = locationId,
+                perspective = "establishing",
+            ).fold(
+                onSuccess = { response ->
+                    _locationStudio.update {
+                        it.copy(
+                            attachmentIds = it.attachmentIds +
+                                (response.asset.asset_id to staged.attachmentId),
+                            notice = "Master de locación guardado como candidato. Revisa y aprueba el hash exacto.",
+                        )
+                    }
+                    reloadLocationStudio(projectId, locationId)
+                },
+                onFailure = { error ->
+                    withContext(Dispatchers.IO) {
+                        container.attachmentStore.delete(staged.attachmentId)
+                    }
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo guardar el master de locación.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveLocationVisual(asset: VisualStudioAsset) {
+        val state = _locationStudio.value
+        if (state.busy || asset.status != "CANDIDATE" || asset.sha256.isBlank()) return
+        val nextRevision = state.assets
+            .filter {
+                it.status == "APPROVED" &&
+                    it.kind == asset.kind &&
+                    it.perspective == asset.perspective
+            }
+            .maxOfOrNull { it.visual_revision }
+            ?.plus(1)
+            ?: 1
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando hash exacto",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualAssetApproveExact(
+                projectId = asset.project_id,
+                assetId = asset.asset_id,
+                assetSha256 = asset.sha256,
+                visualRevision = nextRevision,
+            ).fold(
+                onSuccess = {
+                    _locationStudio.update {
+                        it.copy(
+                            notice = "Imagen de locación aprobada y ligada a su SHA-256 exacto.",
+                        )
+                    }
+                    reloadLocationStudio(asset.project_id, state.locationId)
+                },
+                onFailure = { error ->
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo aprobar la imagen de locación.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun retryLocationVisualStorage(asset: VisualStudioAsset) {
+        val state = _locationStudio.value
+        if (state.busy || asset.storage.state == "stored") return
+        val attachmentId = state.attachmentIds[asset.asset_id]
+        if (attachmentId.isNullOrBlank()) {
+            _locationStudio.update {
+                it.copy(
+                    error = "Los bytes locales del candidato ya no están disponibles. JARVIS no regenerará la imagen automáticamente.",
+                )
+            }
+            return
+        }
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Reintentando guardado en Drive",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val encoded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(attachmentId)
+                        ?: error("Los bytes locales del candidato ya no están disponibles.")
+                    Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                }
+            }
+            if (encoded.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = encoded.exceptionOrNull()?.message,
+                    )
+                }
+                return@launch
+            }
+            container.liveSession.visualLocationAssetIngest(
+                projectId = asset.project_id,
+                imageBase64 = encoded.getOrThrow(),
+                mimeType = asset.mime_type,
+                kind = asset.kind,
+                source = asset.source,
+                locationId = state.locationId,
+                perspective = asset.perspective,
+                assetId = asset.asset_id,
+                parentAssetId = asset.parent_asset_id,
+                parentSha256 = asset.parent_sha256,
+                derivation = asset.derivation,
+            ).fold(
+                onSuccess = {
+                    _locationStudio.update {
+                        it.copy(
+                            notice = "Guardado de locación en Drive reanudado sin repetir la generación.",
+                        )
+                    }
+                    reloadLocationStudio(asset.project_id, state.locationId)
+                },
+                onFailure = { error ->
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "Drive sigue sin poder guardar el candidato.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun editLocationVisual(
+        projectId: String,
+        locationId: String,
+        parentAsset: VisualStudioAsset,
+        instruction: String,
+    ) {
+        val clean = instruction.trim()
+        if (
+            clean.isBlank() ||
+            _locationStudio.value.busy ||
+            parentAsset.status != "APPROVED"
+        ) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Creando edición hija de locación",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val source = container.liveSession.writingRoomVisualAssetFetch(
+                projectId,
+                parentAsset.asset_id,
+            )
+            if (source.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = source.exceptionOrNull()?.message
+                            ?: "No se pudo cargar la referencia aprobada.",
+                    )
+                }
+                return@launch
+            }
+            val content = source.getOrThrow()
+            val result = container.liveSession.editLocationVisualAssetImage(
+                imageBase64 = content.image_base64,
+                mimeType = content.mime_type,
+                projectId = projectId,
+                locationId = locationId,
+                instruction = clean,
+                kind = parentAsset.kind,
+                perspective = parentAsset.perspective,
+                parentAssetId = parentAsset.asset_id,
+                parentSha256 = parentAsset.sha256,
+            )
+            if (result.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = result.exceptionOrNull()?.message
+                            ?: "No se pudo editar la locación.",
+                    )
+                }
+                return@launch
+            }
+            rememberLocationStudioCandidate(
+                projectId,
+                locationId,
+                result.getOrThrow(),
+            )
+            reloadLocationStudio(projectId, locationId)
+        }
+    }
+
+    fun createLocationReferencePack(projectId: String, locationId: String) {
+        val state = _locationStudio.value
+        if (state.busy) return
+        val approved = state.assets.filter { it.status == "APPROVED" }
+        val ordering = compareBy<VisualStudioAsset>(
+            { it.visual_revision },
+            { it.approved_utc },
+        )
+        val master = approved
+            .filter { it.kind == "LOCATION_REFERENCE" }
+            .maxWithOrNull(ordering)
+        val variants = approved
+            .filter {
+                it.kind == "LOCATION_VARIANT" &&
+                    it.perspective.isNotBlank()
+            }
+            .groupBy { it.perspective }
+            .values
+            .mapNotNull { items -> items.maxWithOrNull(ordering) }
+            .sortedBy { it.perspective }
+        if (master == null) {
+            _locationStudio.update {
+                it.copy(
+                    error = "Aprueba primero un master de la locación.",
+                )
+            }
+            return
+        }
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Creando revisión del Location Reference Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val created = container.liveSession.visualLocationReferencePackCreate(
+                projectId = projectId,
+                locationId = locationId,
+                masterAssetId = master.asset_id,
+                masterSha256 = master.sha256,
+                parentPackId = state.detail
+                    ?.active_reference_pack
+                    ?.pack_id
+                    .orEmpty(),
+            )
+            if (created.isFailure) {
+                _locationStudio.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = created.exceptionOrNull()?.message
+                            ?: "No se pudo crear el pack de locación.",
+                    )
+                }
+                return@launch
+            }
+            var pack = created.getOrThrow().pack
+            for (variant in variants) {
+                val added = container.liveSession.visualLocationReferencePackAddSlot(
+                    projectId = projectId,
+                    packId = pack.pack_id,
+                    slotKey = variant.perspective,
+                    assetId = variant.asset_id,
+                    assetSha256 = variant.sha256,
+                    required = false,
+                )
+                if (added.isFailure) {
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = added.exceptionOrNull()?.message
+                                ?: "No se pudo agregar ${variant.perspective} al pack.",
+                        )
+                    }
+                    return@launch
+                }
+                pack = added.getOrThrow().pack
+            }
+            _locationStudio.update {
+                it.copy(
+                    busy = false,
+                    busyLabel = "",
+                    notice = "Location Pack revisión ${pack.revision} creado en DRAFT.",
+                )
+            }
+            reloadLocationStudio(projectId, locationId)
+        }
+    }
+
+    fun prepareLocationReferencePack(
+        projectId: String,
+        locationId: String,
+        packId: String,
+    ) {
+        if (_locationStudio.value.busy) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Validando Location Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualLocationReferencePackPrepare(
+                projectId,
+                packId,
+            ).fold(
+                onSuccess = { result ->
+                    _locationStudio.update {
+                        it.copy(
+                            notice = "Location Pack revisión ${result.pack.revision} listo para aprobación humana.",
+                        )
+                    }
+                    reloadLocationStudio(projectId, locationId)
+                },
+                onFailure = { error ->
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "El Location Pack no está listo.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveLocationReferencePack(
+        projectId: String,
+        locationId: String,
+        packId: String,
+    ) {
+        if (_locationStudio.value.busy) return
+        _locationStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando Location Pack",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualLocationReferencePackApprove(
+                projectId,
+                packId,
+            ).fold(
+                onSuccess = { result ->
+                    _locationStudio.update {
+                        it.copy(
+                            notice = "Location Pack revisión ${result.pack.revision} aprobado y activo.",
+                        )
+                    }
+                    reloadLocationStudio(projectId, locationId)
+                    refreshWritingWorkspace(projectId)
+                },
+                onFailure = { error ->
+                    _locationStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo aprobar el Location Pack.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun openWorldMap(projectId: String) {
+        val cleanProject = projectId.trim()
+        if (cleanProject.isBlank()) return
+        if (_worldMap.value.projectId != cleanProject) {
+            _worldMap.value = WorldMapState(projectId = cleanProject)
+        }
+        refreshWorldMap(cleanProject)
+    }
+
+    fun clearWorldMapMessage() {
+        _worldMap.value = _worldMap.value.copy(
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+    }
+
+    fun refreshWorldMap(projectId: String) {
+        val cleanProject = projectId.trim()
+        if (cleanProject.isBlank()) return
+        _worldMap.value = _worldMap.value.copy(
+            projectId = cleanProject,
+            busy = true,
+            busyLabel = "Actualizando World Map",
+            error = null,
+        )
+        viewModelScope.launch {
+            reloadWorldMap(cleanProject)
+        }
+    }
+
+    private suspend fun reloadWorldMap(projectId: String) {
+        val statusResult = container.liveSession.worldMapStatus(projectId)
+        if (_worldMap.value.projectId != projectId) return
+        if (statusResult.isFailure) {
+            _worldMap.value = _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                error = statusResult.exceptionOrNull()?.message
+                    ?: "No se pudo cargar el estado del World Map.",
+            )
+            return
+        }
+        val status = statusResult.getOrThrow()
+        val targetRevision = status.draft?.revision_id
+            ?.takeIf { it.isNotBlank() }
+            ?: status.active_revision_id.takeIf { it.isNotBlank() }
+        if (targetRevision == null) {
+            _worldMap.value = _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                status = status,
+                map = null,
+                error = null,
+            )
+            return
+        }
+        val mapResult = container.liveSession.worldMapGet(
+            projectId,
+            targetRevision,
+        )
+        if (_worldMap.value.projectId != projectId) return
+        _worldMap.value = if (mapResult.isSuccess) {
+            _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                status = status,
+                map = mapResult.getOrThrow(),
+                error = null,
+            )
+        } else {
+            _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                status = status,
+                error = mapResult.exceptionOrNull()?.message
+                    ?: "No se pudo cargar la revisión del World Map.",
+            )
+        }
+    }
+
+    private suspend fun handleWorldMapFailure(
+        projectId: String,
+        error: Throwable?,
+        fallbackMessage: String,
+    ) {
+        if (error is WorldMapConflictException) {
+            _worldMap.value = _worldMap.value.copy(
+                busy = false,
+                busyLabel = "",
+                conflict = WorldMapConflictNotice(
+                    currentVersion = error.currentVersion,
+                    currentHash = error.currentHash,
+                    message = "El mapa cambió en el servidor. Se actualizó antes de sobrescribir una revisión más nueva.",
+                ),
+                error = null,
+            )
+            reloadWorldMap(projectId)
+            return
+        }
+        _worldMap.value = _worldMap.value.copy(
+            busy = false,
+            busyLabel = "",
+            error = error?.message ?: fallbackMessage,
+        )
+    }
+
+    fun createWorldMapDraft(projectId: String) {
+        val state = _worldMap.value
+        if (state.busy) return
+        _worldMap.value = state.copy(
+            projectId = projectId,
+            busy = true,
+            busyLabel = "Creando revisión del World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapCreateRevision(
+                projectId = projectId,
+                title = "World Map",
+                parentRevisionId = state.status?.active_revision_id.orEmpty(),
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "Nueva revisión del World Map creada en DRAFT.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo crear la revisión del World Map.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun upsertWorldMapNode(
+        projectId: String,
+        nodeId: String?,
+        nodeType: String,
+        name: String,
+        parentNodeId: String,
+        locationId: String,
+        x: Double,
+        y: Double,
+        z: Double = 0.0,
+    ) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (state.busy || current.revision.state != "DRAFT") return
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Guardando posición en World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            var visualAssetId = ""
+            var visualAssetSha256 = ""
+            if (
+                nodeType in setOf("LOCATION", "SUBLOCATION") &&
+                locationId.isNotBlank()
+            ) {
+                val detail = container.liveSession.visualLocationDetail(
+                    projectId,
+                    locationId,
+                ).getOrNull()
+                val approvedPrimary = detail?.gallery?.primary
+                    ?.takeIf { it.status == "APPROVED" }
+                if (approvedPrimary != null) {
+                    visualAssetId = approvedPrimary.asset_id
+                    visualAssetSha256 = approvedPrimary.sha256
+                }
+            }
+            container.liveSession.worldMapUpsertNode(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                nodeId = nodeId,
+                nodeType = nodeType,
+                name = cleanName,
+                parentNodeId = parentNodeId,
+                locationId = locationId,
+                x = x,
+                y = y,
+                z = z,
+                placementSource = "MANUAL",
+                visualAssetId = visualAssetId,
+                visualAssetSha256 = visualAssetSha256,
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "World Map actualizado.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo actualizar el World Map.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun upsertWorldMapPresence(
+        projectId: String,
+        characterId: String,
+        nodeId: String,
+        temporalKind: String,
+        temporalRef: String,
+        evidenceSourceId: String,
+        evidenceSourceType: String = "chapter",
+        evidenceLines: String = "",
+        presenceId: String? = null,
+    ) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (state.busy || current.revision.state != "DRAFT") return
+        val cleanCharacter = characterId.trim()
+        val cleanNode = nodeId.trim()
+        val cleanSource = evidenceSourceId.trim()
+        val cleanTemporal = temporalKind.trim().uppercase()
+        val cleanTemporalRef = temporalRef.trim()
+        if (
+            cleanCharacter.isBlank() ||
+            cleanNode.isBlank() ||
+            cleanSource.isBlank() ||
+            cleanTemporal !in setOf("OCCURRED", "FUTURE", "UNKNOWN") ||
+            (cleanTemporal != "UNKNOWN" && cleanTemporalRef.isBlank())
+        ) return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Guardando presencia con evidencia",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapUpsertPresence(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                presenceId = presenceId,
+                characterId = cleanCharacter,
+                nodeId = cleanNode,
+                temporalKind = cleanTemporal,
+                temporalRef = cleanTemporalRef,
+                evidence = listOf(
+                    WorldMapEvidence(
+                        source_id = cleanSource,
+                        source_type = evidenceSourceType.trim()
+                            .lowercase()
+                            .ifBlank { "chapter" },
+                        chapter_id = if (
+                            evidenceSourceType.equals(
+                                "chapter",
+                                ignoreCase = true,
+                            )
+                        ) {
+                            cleanSource
+                        } else {
+                            ""
+                        },
+                        lines = evidenceLines.trim(),
+                    ),
+                ),
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "Presencia guardada con evidencia explícita.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo guardar la presencia.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun removeWorldMapPresence(
+        projectId: String,
+        presenceId: String,
+    ) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (
+            state.busy ||
+            current.revision.state != "DRAFT" ||
+            presenceId.isBlank()
+        ) return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Eliminando presencia del World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapRemovePresence(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                presenceId = presenceId,
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "Presencia eliminada de la revisión DRAFT.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo eliminar la presencia.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun removeWorldMapNode(projectId: String, nodeId: String) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (state.busy || current.revision.state != "DRAFT") return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Eliminando nodo del World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapRemoveNode(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                nodeId = nodeId,
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "Nodo eliminado de la revisión DRAFT.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo eliminar el nodo.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun approveWorldMapRevision(projectId: String) {
+        val state = _worldMap.value
+        val current = state.map ?: return
+        if (
+            state.busy ||
+            current.revision.state != "DRAFT" ||
+            current.revision.content_hash.isBlank()
+        ) return
+        _worldMap.value = state.copy(
+            busy = true,
+            busyLabel = "Aprobando revisión del World Map",
+            notice = null,
+            error = null,
+            conflict = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.worldMapApproveRevision(
+                projectId = projectId,
+                revisionId = current.revision.revision_id,
+                expectedVersion = current.revision.version,
+                expectedHash = current.revision.content_hash,
+            ).fold(
+                onSuccess = { result ->
+                    _worldMap.value = _worldMap.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        map = result,
+                        notice = "World Map revisión ${result.revision.revision} aprobada y activa.",
+                    )
+                    reloadWorldMap(projectId)
+                },
+                onFailure = { error ->
+                    handleWorldMapFailure(
+                        projectId,
+                        error,
+                        "No se pudo aprobar la revisión del World Map.",
+                    )
+                },
+            )
+        }
+    }
 
     sealed interface ImageEditState {
         data object Idle : ImageEditState
@@ -1836,6 +4335,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun liveLogout(onDone: () -> Unit = {}) {
+        resetVisualStudioProtectedMedia()
         viewModelScope.launch {
             container.liveSession.logout()
             container.settings.setPaired(false)
@@ -1875,6 +4375,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun unpair() {
+        resetVisualStudioProtectedMedia()
         viewModelScope.launch {
             // A live session must end on the server, not just locally —
             // otherwise "revoke" leaves a valid bearer token behind.
@@ -2047,6 +4548,447 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             )
         }
     }
+
+    fun clearSceneBuilderMessage() {
+        _sceneBuilder.value = _sceneBuilder.value.copy(
+            notice = null,
+            error = null,
+        )
+    }
+
+    fun refreshSceneGenerationCapabilities(projectId: String) {
+        viewModelScope.launch {
+            container.liveSession.visualSceneGenerationCapabilities(
+                projectId = projectId,
+            ).fold(
+                onSuccess = { capabilities ->
+                    if (
+                        _sceneBuilder.value.projectId.isBlank() ||
+                        _sceneBuilder.value.projectId == projectId
+                    ) {
+                        _sceneBuilder.update {
+                            it.copy(
+                                projectId = projectId,
+                                capabilities = capabilities,
+                            )
+                        }
+                    }
+                },
+                onFailure = {
+                    // Backward compatibility: an older backend may not expose
+                    // the capability route yet. Existing Cloud flow remains
+                    // usable; Local stays unavailable until explicitly reported.
+                },
+            )
+        }
+    }
+
+    fun clearSceneBuilderContext(projectId: String) {
+        _sceneBuilder.value.generatedAttachmentId?.let { attachmentId ->
+            deleteVisualStudioAttachments(listOf(attachmentId))
+        }
+        _sceneBuilder.value = SceneBuilderState(projectId = projectId)
+    }
+
+    fun previewSceneVisualContext(
+        projectId: String,
+        chapterId: String,
+        sceneId: String,
+        expectedAggregateVersion: Int,
+        briefRevisionId: String,
+        draftRevisionId: String,
+        characterIds: List<String>,
+        locationId: String,
+        era: String = "",
+        state: String = "",
+        time: String = "",
+        weather: String = "",
+        composition: String = "",
+        instruction: String = "",
+    ) {
+        if (
+            projectId.isBlank() ||
+            chapterId.isBlank() ||
+            sceneId.isBlank() ||
+            expectedAggregateVersion < 1 ||
+            (briefRevisionId.isBlank() == draftRevisionId.isBlank()) ||
+            (characterIds.isEmpty() && locationId.isBlank())
+        ) {
+            _sceneBuilder.value = _sceneBuilder.value.copy(
+                projectId = projectId,
+                busy = false,
+                error = "Selecciona un capítulo con Brief/Draft y al menos un personaje o locación.",
+            )
+            return
+        }
+        _sceneBuilder.value.generatedAttachmentId?.let { attachmentId ->
+            deleteVisualStudioAttachments(listOf(attachmentId))
+        }
+        _sceneBuilder.value = _sceneBuilder.value.copy(
+            projectId = projectId,
+            busy = true,
+            busyLabel = "Congelando contexto visual",
+            context = null,
+            generated = null,
+            generatedAttachmentId = null,
+            notice = null,
+            error = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.visualSceneContextPreview(
+                projectId = projectId,
+                chapterId = chapterId,
+                sceneId = sceneId,
+                expectedAggregateVersion = expectedAggregateVersion,
+                briefRevisionId = briefRevisionId,
+                draftRevisionId = draftRevisionId,
+                characterIds = characterIds,
+                locationId = locationId,
+                era = era,
+                state = state,
+                time = time,
+                weather = weather,
+                composition = composition,
+                instruction = instruction,
+            ).fold(
+                onSuccess = { response ->
+                    if (_sceneBuilder.value.projectId != projectId) return@fold
+                    val context = response.context
+                    _sceneBuilder.value = _sceneBuilder.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        context = context,
+                        notice = if (context.generation_ready) {
+                            "Contexto congelado. Las referencias exactas están listas para generación."
+                        } else {
+                            "Contexto congelado, pero hay referencias que requieren selección explícita."
+                        },
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    if (_sceneBuilder.value.projectId != projectId) return@fold
+                    _sceneBuilder.value = _sceneBuilder.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        context = null,
+                        error = error.message ?: "No se pudo preparar el contexto visual de la escena.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun generateSceneVisual(
+        projectId: String,
+        engine: String = "cloud",
+        mode: String = "quality",
+        model: String? = null,
+        aspectRatio: String = "landscape",
+    ) {
+        val state = _sceneBuilder.value
+        val context = state.context ?: return
+        if (
+            state.busy ||
+            context.project_id != projectId ||
+            !context.generation_ready ||
+            context.exploratory ||
+            context.selection.instruction.isBlank()
+        ) return
+        _sceneBuilder.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Generando escena con referencias congeladas",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.generateSceneVisualAssetImage(
+                projectId = projectId,
+                contextId = context.context_id,
+                contextHash = context.context_hash,
+                engine = engine,
+                mode = mode,
+                model = model,
+                aspectRatio = aspectRatio,
+            ).fold(
+                onSuccess = { reply ->
+                    val oldAttachments = _sceneBuilder.value.attachmentIds +
+                        listOfNotNull(_sceneBuilder.value.generatedAttachmentId)
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(
+                            reply.data_base64,
+                        )
+                    }
+                    val keep = staged?.attachmentId
+                    deleteVisualStudioAttachments(
+                        oldAttachments.filter { it != keep },
+                    )
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            generated = reply,
+                            generatedAttachmentId = staged?.attachmentId,
+                            attachmentIds = staged?.attachmentId?.let(::setOf)
+                                ?: emptySet(),
+                            notice = if (reply.storage_retry_required) {
+                                "La escena se generó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
+                            } else {
+                                "Escena generada y guardada como CANDIDATE. No modifica canon narrativo ni visual hasta aprobación humana."
+                            },
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo generar la escena.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun editSceneVisual(
+        parentAsset: VisualStudioAsset,
+        referenceAttachmentId: String,
+        instruction: String,
+        mode: String = "quality",
+        model: String? = null,
+        preserveIdentity: String = "high",
+        aspectRatio: String = "landscape",
+    ) {
+        val clean = instruction.trim()
+        val state = _sceneBuilder.value
+        if (
+            clean.isBlank() ||
+            _imageEditState.value is ImageEditState.Busy ||
+            state.busy ||
+            parentAsset.project_id != state.projectId ||
+            parentAsset.kind != "SCENE_ART" ||
+            parentAsset.status != "APPROVED"
+        ) {
+            if (parentAsset.status != "APPROVED") {
+                _imageEditState.value = ImageEditState.Error(
+                    "Aprueba la escena visual antes de crear una edición hija.",
+                )
+            }
+            return
+        }
+        _imageEditState.value = ImageEditState.Busy
+        _lastImageEditDetails.value = null
+        viewModelScope.launch {
+            val source = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(referenceAttachmentId)
+                        ?: error("La escena base ya no está disponible en el dispositivo.")
+                    val bytes = file.readBytes()
+                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
+                        "La escena base es demasiado grande."
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            }
+            if (source.isFailure) {
+                _imageEditState.value = ImageEditState.Error(
+                    source.exceptionOrNull()?.message
+                        ?: "No se pudo leer la escena aprobada.",
+                )
+                return@launch
+            }
+            container.liveSession.editSceneVisualAssetImage(
+                imageBase64 = source.getOrThrow(),
+                mimeType = parentAsset.mime_type,
+                projectId = parentAsset.project_id,
+                instruction = clean,
+                parentAsset = parentAsset,
+                mode = mode,
+                model = model,
+                preserveIdentity = preserveIdentity,
+                aspectRatio = aspectRatio,
+            ).fold(
+                onSuccess = { reply ->
+                    val staged = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageGeneratedBase64(
+                            reply.data_base64,
+                        )
+                    }
+                    if (staged == null) {
+                        _imageEditState.value = ImageEditState.Error(
+                            "JARVIS creó la edición, pero Android no pudo leerla.",
+                        )
+                        return@fold
+                    }
+                    _lastImageEditDetails.value = ImageGenerationDetails(
+                        reply.provider,
+                        reply.model,
+                        reply.requested_mode,
+                        reply.fallback_used,
+                        reply.attempt_count,
+                        reply.duration_ms,
+                    )
+                    _sceneBuilder.update { current ->
+                        if (current.projectId != parentAsset.project_id) {
+                            current
+                        } else {
+                            current.copy(
+                                generated = reply,
+                                generatedAttachmentId = staged.attachmentId,
+                                attachmentIds = current.attachmentIds +
+                                    referenceAttachmentId +
+                                    staged.attachmentId,
+                                notice = if (reply.storage_retry_required) {
+                                    "La edición quedó como CANDIDATE, pero Drive requiere reintento. El parent aprobado permanece intacto."
+                                } else {
+                                    "Edición hija guardada como CANDIDATE. El parent aprobado permanece intacto hasta otra aprobación humana."
+                                },
+                                error = null,
+                            )
+                        }
+                    }
+                    _imageEditState.value = ImageEditState.Success(
+                        staged.attachmentId,
+                    )
+                },
+                onFailure = { error ->
+                    _imageEditState.value = ImageEditState.Error(
+                        error.message ?: "No se pudo editar la escena visual.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun approveSceneVisual() {
+        val state = _sceneBuilder.value
+        val asset = state.generated?.visual_asset ?: return
+        if (
+            state.busy ||
+            asset.status != "CANDIDATE" ||
+            asset.storage.state != "stored"
+        ) return
+        _sceneBuilder.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Aprobando escena visual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualAssetApproveExact(
+                projectId = asset.project_id,
+                assetId = asset.asset_id,
+                assetSha256 = asset.sha256,
+                visualRevision = asset.visual_revision,
+            ).fold(
+                onSuccess = { response ->
+                    _sceneBuilder.update { current ->
+                        current.copy(
+                            busy = false,
+                            busyLabel = "",
+                            generated = current.generated?.copy(
+                                visual_asset = response.asset,
+                            ),
+                            notice = "Escena visual aprobada. La aprobación no crea hechos narrativos nuevos.",
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "No se pudo aprobar la escena visual.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun retrySceneVisualStorage() {
+        val state = _sceneBuilder.value
+        val reply = state.generated ?: return
+        val asset = reply.visual_asset ?: return
+        val attachmentId = state.generatedAttachmentId
+        if (state.busy || asset.storage.state == "stored") return
+        if (attachmentId.isNullOrBlank()) {
+            _sceneBuilder.update {
+                it.copy(
+                    error = "Los bytes locales de la escena ya no están disponibles. JARVIS no regenerará la imagen automáticamente.",
+                )
+            }
+            return
+        }
+        _sceneBuilder.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Reintentando guardado de escena en Drive",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val encoded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = container.attachmentStore.resolve(attachmentId)
+                        ?: error("Los bytes locales de la escena ya no están disponibles.")
+                    Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                }
+            }
+            if (encoded.isFailure) {
+                _sceneBuilder.update {
+                    it.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = encoded.exceptionOrNull()?.message,
+                    )
+                }
+                return@launch
+            }
+            container.liveSession.visualSceneAssetIngest(
+                projectId = asset.project_id,
+                imageBase64 = encoded.getOrThrow(),
+                asset = asset,
+            ).fold(
+                onSuccess = { response ->
+                    _sceneBuilder.update { current ->
+                        current.copy(
+                            busy = false,
+                            busyLabel = "",
+                            generated = current.generated?.copy(
+                                visual_asset = response.asset,
+                                storage_retry_required = false,
+                            ),
+                            notice = "Guardado en Drive reanudado sin repetir la generación.",
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message
+                                ?: "Drive sigue sin poder guardar la escena candidata.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
 }
 
 private const val DEFAULT_CONTROL_PLANE_URL = "https://vps-8817149e.tail6eec63.ts.net:8443"

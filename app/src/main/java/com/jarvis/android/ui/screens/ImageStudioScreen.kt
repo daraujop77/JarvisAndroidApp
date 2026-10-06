@@ -80,6 +80,15 @@ fun ImageStudioScreen(
     vm: JarvisViewModel,
     initialAttachmentId: String,
     onBack: () -> Unit,
+    showWikiPrimaryActions: Boolean = true,
+    onEditRequest: ((
+        referenceAttachmentId: String,
+        instruction: String,
+        mode: String,
+        model: String?,
+        preserveIdentity: String,
+        aspectRatio: String,
+    ) -> Unit)? = null,
 ) {
     val accents = LocalJarvisAccents.current
     val access by vm.chatAccess.collectAsStateWithLifecycle()
@@ -481,74 +490,77 @@ fun ImageStudioScreen(
                 }
             }
 
-            item {
-                StudioCard("WIKI · VISUAL CANON", JarvisGreen) {
-                    Text(
-                        "Fija la versión activa como referencia visual principal aprobada del personaje. Esta acción actualiza el Visual Asset Registry y el enlace de la Wiki; no envía ningún mensaje al chat.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF94A3B8),
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = wikiCharacter,
-                        onValueChange = { if (it.length <= 80) wikiCharacter = it },
-                        label = { Text("Personaje de la Wiki") },
-                        placeholder = { Text("Alexander") },
-                        singleLine = true,
-                        colors = jarvisTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    when (val state = wikiPrimaryState) {
-                        is JarvisViewModel.WikiPrimaryState.Success -> {
-                            Text(
-                                "REFERENCIA APROBADA · revisión " + state.revision,
-                                style = HudTextStyle,
-                                color = JarvisGreen,
-                            )
-                            Spacer(Modifier.height(8.dp))
+            if (showWikiPrimaryActions) {
+                item {
+                    StudioCard("WIKI · VISUAL CANON", JarvisGreen) {
+                        Text(
+                            "Fija la versión activa como referencia visual principal aprobada del personaje. Esta acción actualiza el Visual Asset Registry y el enlace de la Wiki; no envía ningún mensaje al chat.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF94A3B8),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = wikiCharacter,
+                            onValueChange = { if (it.length <= 80) wikiCharacter = it },
+                            label = { Text("Personaje de la Wiki") },
+                            placeholder = { Text("Alexander") },
+                            singleLine = true,
+                            colors = jarvisTextFieldColors(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        when (val state = wikiPrimaryState) {
+                            is JarvisViewModel.WikiPrimaryState.Success -> {
+                                Text(
+                                    "REFERENCIA APROBADA · revisión " + state.revision,
+                                    style = HudTextStyle,
+                                    color = JarvisGreen,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            is JarvisViewModel.WikiPrimaryState.Error -> {
+                                Text(
+                                    state.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            else -> Unit
                         }
-                        is JarvisViewModel.WikiPrimaryState.Error -> {
-                            Text(
-                                state.message,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                            Spacer(Modifier.height(8.dp))
-                        }
-                        else -> Unit
-                    }
-                    val publishing = wikiPrimaryState is JarvisViewModel.WikiPrimaryState.Busy
-                    Button(
-                        onClick = {
-                            vm.setWikiPrimaryReference(
-                                attachmentId = currentAttachmentId,
-                                character = wikiCharacter,
-                            )
-                        },
-                        enabled = wikiCharacter.isNotBlank() && !publishing,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = JarvisGreen,
-                            contentColor = Color(0xFF02101F),
-                        ),
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                    ) {
-                        if (publishing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = Color(0xFF02101F),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Actualizando Wiki…")
-                        } else {
-                            Icon(Icons.Filled.Check, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("FIJAR COMO REFERENCIA PRINCIPAL", fontWeight = FontWeight.Bold)
+                        val publishing = wikiPrimaryState is JarvisViewModel.WikiPrimaryState.Busy
+                        Button(
+                            onClick = {
+                                vm.setWikiPrimaryReference(
+                                    attachmentId = currentAttachmentId,
+                                    character = wikiCharacter,
+                                )
+                            },
+                            enabled = wikiCharacter.isNotBlank() && !publishing,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = JarvisGreen,
+                                contentColor = Color(0xFF02101F),
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                        ) {
+                            if (publishing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color(0xFF02101F),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Actualizando Wiki…")
+                            } else {
+                                Icon(Icons.Filled.Check, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("FIJAR COMO REFERENCIA PRINCIPAL", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
-            }
+    
+                }
 
             item {
                 val busy = editState is JarvisViewModel.ImageEditState.Busy
@@ -556,14 +568,29 @@ fun ImageStudioScreen(
                     editAccess?.models?.any { it.id == selectedModel && it.state == "ready" } == true
                 Button(
                     onClick = {
-                        vm.editImage(
-                            referenceAttachmentId = currentAttachmentId,
-                            instruction = instruction,
-                            mode = selectedMode,
-                            model = selectedModel.takeIf { selectedMode == "model_select" },
-                            preserveIdentity = preserveIdentity,
-                            aspectRatio = aspectRatio,
-                        )
+                        val selected = selectedModel.takeIf {
+                            selectedMode == "model_select"
+                        }
+                        val customEdit = onEditRequest
+                        if (customEdit != null) {
+                            customEdit(
+                                currentAttachmentId,
+                                instruction,
+                                selectedMode,
+                                selected,
+                                preserveIdentity,
+                                aspectRatio,
+                            )
+                        } else {
+                            vm.editImage(
+                                referenceAttachmentId = currentAttachmentId,
+                                instruction = instruction,
+                                mode = selectedMode,
+                                model = selected,
+                                preserveIdentity = preserveIdentity,
+                                aspectRatio = aspectRatio,
+                            )
+                        }
                     },
                     enabled = editReady && instruction.isNotBlank() && !busy && exactReady,
                     colors = ButtonDefaults.buttonColors(

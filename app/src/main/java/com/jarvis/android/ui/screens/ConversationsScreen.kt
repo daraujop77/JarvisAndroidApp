@@ -1,5 +1,6 @@
 package com.jarvis.android.ui.screens
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +21,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -94,8 +97,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -111,6 +116,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -710,6 +716,24 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 imageSaveStatus = null
                 saveGeneratedImage.launch("jarvis-generated-image.jpg")
             },
+            onShare = {
+                val shared = runCatching {
+                    val file = vm.attachmentStore.resolve(attachmentId)
+                        ?: error("Generated image is no longer available")
+                    val uri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file,
+                    )
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/jpeg"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Share image"))
+                }.isSuccess
+                if (!shared) imageSaveStatus = "Could not share image"
+            },
         )
     }
 }
@@ -804,8 +828,12 @@ private fun GeneratedImagePreviewDialog(
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onSave: () -> Unit,
+    onShare: () -> Unit,
 ) {
-    val bitmap by rememberAttachmentThumb(attachmentId, attachmentStore, maxSize = 2048)
+    val bitmap by rememberAttachmentThumb(attachmentId, attachmentStore, maxSize = 4096)
+    var zoom by remember(attachmentId) { mutableStateOf(1f) }
+    var panX by remember(attachmentId) { mutableStateOf(0f) }
+    var panY by remember(attachmentId) { mutableStateOf(0f) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             modifier = Modifier.fillMaxSize().padding(12.dp),
@@ -819,11 +847,66 @@ private fun GeneratedImagePreviewDialog(
                     Text("Generated image", style = MaterialTheme.typography.titleMedium)
                     IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close") }
                 }
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF050A12)),
+                    contentAlignment = Alignment.Center,
+                ) {
                     if (bitmap != null) {
-                        Image(bitmap = bitmap!!.asImageBitmap(), contentDescription = "Generated image",
-                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                    } else CircularProgressIndicator()
+                        Image(
+                            bitmap = bitmap!!.asImageBitmap(),
+                            contentDescription = "Generated image",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(attachmentId) {
+                                    detectTransformGestures { _, pan, zoomChange, _ ->
+                                        val nextZoom = (zoom * zoomChange).coerceIn(1f, 5f)
+                                        zoom = nextZoom
+                                        if (nextZoom <= 1.01f) {
+                                            panX = 0f
+                                            panY = 0f
+                                        } else {
+                                            panX += pan.x
+                                            panY += pan.y
+                                        }
+                                    }
+                                }
+                                .pointerInput(attachmentId, zoom) {
+                                    detectTapGestures(
+                                        onDoubleTap = {
+                                            if (zoom > 1.01f) {
+                                                zoom = 1f
+                                                panX = 0f
+                                                panY = 0f
+                                            } else {
+                                                zoom = 2f
+                                            }
+                                        },
+                                    )
+                                }
+                                .graphicsLayer {
+                                    scaleX = zoom
+                                    scaleY = zoom
+                                    translationX = panX
+                                    translationY = panY
+                                },
+                            contentScale = ContentScale.Fit,
+                        )
+                    } else {
+                        CircularProgressIndicator()
+                    }
+                }
+                if (bitmap != null) {
+                    Text(
+                        "Pinch to zoom · drag to pan · double tap to reset",
+                        Modifier.fillMaxWidth().padding(top = 6.dp),
+                        textAlign = TextAlign.Center,
+                        style = HudTextStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 saveStatus?.let {
                     Text(it, Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center,
@@ -838,6 +921,7 @@ private fun GeneratedImagePreviewDialog(
                         Spacer(Modifier.width(6.dp))
                         Text("Edit in Image Studio")
                     }
+                    TextButton(onClick = onShare) { Text("Share") }
                     TextButton(onClick = onSave) { Text("Save image") }
                 }
             }
