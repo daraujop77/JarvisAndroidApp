@@ -1997,7 +1997,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (
             loadedBatch != null &&
             loadedBatch.pending_count > 0 &&
-            (loadedBatch.status == "READY" || loadedBatch.status == "RUNNING")
+            loadedBatch.status == "READY"
         ) {
             completeCharacterViews(
                 projectId = projectId,
