@@ -1967,6 +1967,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val busyLabel: String = "",
         val detail: VisualStudioCharacterDetail? = null,
         val batch: VisualCharacterBatch? = null,
+        val masterRoster: VisualCharacterMasterRoster? = null,
         val assets: List<VisualStudioAsset> = emptyList(),
         val attachmentIds: Map<String, String> = emptyMap(),
         val loadingAssetIds: Set<String> = emptySet(),
@@ -1978,6 +1979,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     // Invalidate late media results even when the user switches away and back.
     private var characterStudioScopeVersion = 0L
     private var characterBatchPollJob: Job? = null
+    private var characterMasterBootstrapJob: Job? = null
     private val _characterStudio = MutableStateFlow(CharacterStudioState())
     val characterStudio: StateFlow<CharacterStudioState> = _characterStudio
 
@@ -2053,6 +2055,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private fun resetVisualStudioProtectedMedia() {
         characterBatchPollJob?.cancel()
         characterBatchPollJob = null
+        characterMasterBootstrapJob?.cancel()
+        characterMasterBootstrapJob = null
         sceneDirectorPollJob?.cancel()
         sceneDirectorPollJob = null
         characterStudioScopeVersion++
@@ -2090,6 +2094,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             _characterStudio.value = CharacterStudioState(
                 projectId = cleanProject,
                 characterId = cleanCharacter,
+                masterRoster = current.masterRoster.takeIf {
+                    current.projectId == cleanProject
+                },
             )
             deleteVisualStudioAttachments(oldIds)
         }
@@ -2128,17 +2135,22 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val detail = container.liveSession.visualCharacterDetail(projectId, characterId)
         val assets = container.liveSession.visualAssetList(projectId, characterId)
         val batchResult = container.liveSession.visualCharacterBatchStatus(projectId, characterId)
+        val rosterResult = container.liveSession.visualCharacterMasterRosterStatus(projectId)
         if (
             _characterStudio.value.projectId != projectId ||
             _characterStudio.value.characterId != characterId
         ) return
-        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull() ?: batchResult.exceptionOrNull()
+        val failure = detail.exceptionOrNull()
+            ?: assets.exceptionOrNull()
+            ?: batchResult.exceptionOrNull()
+            ?: rosterResult.exceptionOrNull()
         val loadedBatch = batchResult.getOrNull()?.batch
         _characterStudio.value = _characterStudio.value.copy(
             busy = false,
             busyLabel = "",
             detail = detail.getOrNull() ?: _characterStudio.value.detail,
             batch = if (batchResult.isSuccess) loadedBatch else _characterStudio.value.batch,
+            masterRoster = rosterResult.getOrNull() ?: _characterStudio.value.masterRoster,
             assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
             error = failure?.message,
         )
@@ -2418,6 +2430,113 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     }
                 },
             )
+        }
+    }
+
+    fun generateMissingCharacterMasters(projectId: String) {
+        val cleanProject = projectId.trim()
+        val current = _characterStudio.value
+        if (
+            cleanProject.isBlank() ||
+            current.projectId != cleanProject ||
+            current.busy ||
+            characterMasterBootstrapJob?.isActive == true
+        ) return
+        val roster = current.masterRoster
+        val ready = roster?.items.orEmpty()
+            .filter { it.state == "READY" && it.character_id.isNotBlank() }
+        if (ready.isEmpty()) {
+            _characterStudio.update {
+                it.copy(
+                    notice = if ((roster?.counts?.candidate ?: 0) > 0) {
+                        "No faltan masters por generar. Revisa los candidatos existentes."
+                    } else {
+                        "No hay masters canónicos listos para generar."
+                    },
+                    error = null,
+                )
+            }
+            return
+        }
+
+        val selectedCharacter = current.characterId
+        val scopeVersion = characterStudioScopeVersion
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Preparando ${ready.size} masters canónicos",
+                notice = null,
+                error = null,
+            )
+        }
+        characterMasterBootstrapJob = viewModelScope.launch {
+            var generated = 0
+            for ((index, item) in ready.withIndex()) {
+                if (
+                    scopeVersion != characterStudioScopeVersion ||
+                    _characterStudio.value.projectId != cleanProject
+                ) return@launch
+                val displayName = item.canonical_name.ifBlank { item.character_id }
+                _characterStudio.update {
+                    it.copy(
+                        busy = true,
+                        busyLabel = "Master ${index + 1}/${ready.size}: $displayName",
+                    )
+                }
+                val result = container.liveSession.generateVisualAssetImage(
+                    projectId = cleanProject,
+                    characterId = item.character_id,
+                    prompt = "",
+                    kind = "PRIMARY_REFERENCE",
+                    perspective = "front",
+                    mode = "quality",
+                    aspectRatio = "portrait",
+                    referencesPerCharacter = 1,
+                )
+                if (result.isFailure) {
+                    val message = result.exceptionOrNull()?.message
+                        ?: "No se pudo generar el master."
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = "Se detuvo en $displayName: $message No se reintentó automáticamente.",
+                        )
+                    }
+                    if (
+                        _characterStudio.value.projectId == cleanProject &&
+                        _characterStudio.value.characterId.isNotBlank()
+                    ) {
+                        reloadCharacterStudio(cleanProject, _characterStudio.value.characterId)
+                    }
+                    return@launch
+                }
+                generated += 1
+                if (item.character_id == selectedCharacter) {
+                    rememberCharacterStudioCandidate(
+                        cleanProject,
+                        item.character_id,
+                        result.getOrThrow(),
+                    )
+                }
+            }
+
+            if (
+                scopeVersion != characterStudioScopeVersion ||
+                _characterStudio.value.projectId != cleanProject
+            ) return@launch
+            val activeCharacter = _characterStudio.value.characterId
+            if (activeCharacter.isNotBlank()) {
+                reloadCharacterStudio(cleanProject, activeCharacter)
+            }
+            _characterStudio.update {
+                it.copy(
+                    busy = false,
+                    busyLabel = "",
+                    notice = "$generated masters canónicos generados como candidatos. Revísalos antes de aprobarlos.",
+                    error = null,
+                )
+            }
         }
     }
 

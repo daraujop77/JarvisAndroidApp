@@ -172,6 +172,76 @@ fun CharacterStudioScreen(
                     color = Color(0xFFB7C7DC),
                 )
                 Spacer(Modifier.height(10.dp))
+
+                state.masterRoster?.let { roster ->
+                    val readyNames = roster.items
+                        .filter { it.state == "READY" }
+                        .map { it.canonical_name.ifBlank { item -> item.character_id } }
+                    val blockedNames = roster.items
+                        .filter { it.state == "BLOCKED" }
+                        .map { it.canonical_name.ifBlank { item -> item.character_id } }
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0x66101B2E),
+                        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(
+                                "BASES CANÓNICAS DEL ELENCO",
+                                style = HudTextStyle,
+                                color = JarvisCyan,
+                            )
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                "Aprobados ${roster.counts.approved} · Candidatos ${roster.counts.candidate} · Por generar ${roster.counts.ready} · Bloqueados ${roster.counts.blocked}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFB7C7DC),
+                            )
+                            if (readyNames.isNotEmpty()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Listos desde canon: " + readyNames.take(6).joinToString(", ") +
+                                        if (readyNames.size > 6) "…" else "",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = JarvisGreen,
+                                )
+                            }
+                            if (blockedNames.isNotEmpty()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Sin evidencia visual suficiente: " + blockedNames.take(4).joinToString(", ") +
+                                        if (blockedNames.size > 4) "…" else "",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = JarvisAmber,
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Button(
+                                onClick = { vm.generateMissingCharacterMasters(projectId) },
+                                enabled = !state.busy && roster.counts.ready > 0,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    if (roster.counts.ready > 0) {
+                                        "Generar ${roster.counts.ready} masters faltantes"
+                                    } else {
+                                        "Masters preparados"
+                                    },
+                                )
+                            }
+                            Text(
+                                "JARVIS usa Wiki/canon y pasajes existentes. Crea candidatos; nunca los aprueba ni cambia canon automáticamente.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF8BA2BE),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+
                 if (characterOptions.isEmpty()) {
                     Text(
                         "No hay personajes disponibles en la Wiki de este proyecto.",

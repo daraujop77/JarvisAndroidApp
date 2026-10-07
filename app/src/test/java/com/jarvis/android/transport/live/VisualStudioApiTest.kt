@@ -195,6 +195,23 @@ class VisualStudioApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/v2/visual/characters/masters/status" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.visual-studio.character-master-roster.v1",
+                          "project_id":"prj_story",
+                          "items":[
+                            {"character_id":"character:alexander","canonical_name":"Alexander","authority":"OFFICIAL_CANON","state":"APPROVED","asset_id":"va_master","sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+                            {"character_id":"character:guardian","canonical_name":"Guardián","authority":"OFFICIAL_CANON","state":"READY","evidence_source_refs":["canon:guardian"]},
+                            {"character_id":"character:unknown","canonical_name":"Unknown","authority":"REFERENCE","state":"BLOCKED","error_code":"appearance_evidence_required"}
+                          ],
+                          "counts":{"APPROVED":1,"CANDIDATE":0,"READY":1,"BLOCKED":1},
+                          "generation_required":1,
+                          "human_approval_required":true,
+                          "auto_canon":false
+                        }
+                        """.trimIndent(),
+                    )
                     "/api/app/writing-room/v2/visual/characters/complete-views" -> MockResponse().setBody(
                         """
                         {
@@ -351,6 +368,33 @@ class VisualStudioApiTest {
             ),
         )
         return JarvisAppSession(store)
+    }
+
+    @Test
+    fun characterMasterRosterDecodesProjectCanonReadiness() = runBlocking {
+        val roster = session().visualCharacterMasterRosterStatus("prj_story")
+            .orThrowStage("character master roster")
+
+        assertEquals("prj_story", roster.project_id)
+        assertEquals(3, roster.items.size)
+        assertEquals(1, roster.counts.approved)
+        assertEquals(0, roster.counts.candidate)
+        assertEquals(1, roster.counts.ready)
+        assertEquals(1, roster.counts.blocked)
+        assertEquals(1, roster.generation_required)
+        assertTrue(roster.human_approval_required)
+        assertFalse(roster.auto_canon)
+        assertEquals(
+            "character:guardian",
+            roster.items.single { it.state == "READY" }.character_id,
+        )
+
+        val request = server.takeRequest()
+        assertEquals(
+            "/api/app/writing-room/v2/visual/characters/masters/status",
+            request.path,
+        )
+        assertTrue(request.body.readUtf8().contains("\"project_id\":\"prj_story\""))
     }
 
     @Test
