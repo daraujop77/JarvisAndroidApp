@@ -198,8 +198,8 @@ fun SceneBuilderScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            if (builder.busy && builder.directorStatus == "RESOLVING") {
-                                "Buscando y verificando…"
+                            if (builder.busy) {
+                                builder.busyLabel.ifBlank { "Procesando escena…" }
                             } else {
                                 "Generar desde texto y canon"
                             },
@@ -457,6 +457,57 @@ fun SceneBuilderScreen(
                     color = if (builder.context?.generation_ready == true) JarvisGreen else JarvisAmber,
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+        }
+
+        builder.directorJob?.let { job ->
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xCC111827),
+                    border = BorderStroke(
+                        1.dp,
+                        if (job.status == "READY_FOR_REVIEW") {
+                            JarvisGreen.copy(alpha = 0.42f)
+                        } else {
+                            JarvisCyan.copy(alpha = 0.32f)
+                        },
+                    ),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            "TRABAJO DURABLE · " + job.status,
+                            color = if (job.status == "READY_FOR_REVIEW") {
+                                JarvisGreen
+                            } else {
+                                JarvisCyan
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Intentos registrados: " + job.attempts.size +
+                                " · correcciones: " + job.correction_count,
+                            color = Color(0xFFCBD5E1),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (job.provider_outcome_unknown) {
+                            Text(
+                                "Resultado de proveedor ambiguo; JARVIS no volverá a despachar automáticamente.",
+                                color = JarvisAmber,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        if (job.warning.isNotBlank()) {
+                            Text(
+                                job.warning,
+                                color = Color(0xFF94A3B8),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
             }
         }
 
