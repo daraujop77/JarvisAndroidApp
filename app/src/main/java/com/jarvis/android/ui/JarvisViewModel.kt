@@ -5013,10 +5013,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         it.copy(
                             directorJob = job,
                             directorStatus = job?.status ?: "ERROR",
-                            busy = job?.status in setOf("QUEUED", "RUNNING"),
+                            busy = (
+                                job?.status == "QUEUED" ||
+                                    job?.status == "RUNNING" ||
+                                    job?.status == "READY_FOR_REVIEW"
+                            ),
                             busyLabel = when (job?.status) {
                                 "QUEUED" -> "Escena en cola"
                                 "RUNNING" -> "Generando y evaluando escena"
+                                "READY_FOR_REVIEW" -> "Recuperando candidato durable"
                                 else -> ""
                             },
                             error = null,
