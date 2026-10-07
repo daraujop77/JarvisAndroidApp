@@ -1904,6 +1904,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val busyLabel: String = "",
         val context: VisualSceneContext? = null,
         val capabilities: VisualSceneGenerationCapabilities? = null,
+        val directorStatus: String = "",
+        val directorCandidates: List<VisualSceneDirectorCandidate> = emptyList(),
+        val directorResolverModel: String = "",
         val generated: VisualStudioGeneratedImage? = null,
         val generatedAttachmentId: String? = null,
         val attachmentIds: Set<String> = emptySet(),
@@ -4845,6 +4848,105 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _sceneBuilder.value = SceneBuilderState(projectId = projectId)
     }
 
+    fun directSceneVisual(
+        projectId: String,
+        requestText: String,
+        selectedEvidenceId: String = "",
+    ) {
+        val cleanProject = projectId.trim()
+        val cleanRequest = requestText.trim()
+        if (cleanProject.isBlank() || cleanRequest.isBlank()) {
+            _sceneBuilder.update {
+                it.copy(
+                    projectId = cleanProject,
+                    error = "Describe la escena o momento que quieres ilustrar.",
+                )
+            }
+            return
+        }
+        if (_sceneBuilder.value.busy) return
+        _sceneBuilder.value.generatedAttachmentId?.let { attachmentId ->
+            deleteVisualStudioAttachments(listOf(attachmentId))
+        }
+        _sceneBuilder.update {
+            it.copy(
+                projectId = cleanProject,
+                busy = true,
+                busyLabel = "Buscando el pasaje exacto y referencias",
+                context = null,
+                directorStatus = "RESOLVING",
+                directorCandidates = emptyList(),
+                directorResolverModel = "",
+                generated = null,
+                generatedAttachmentId = null,
+                attachmentIds = emptySet(),
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualSceneDirectorResolve(
+                projectId = cleanProject,
+                requestText = cleanRequest,
+                selectedEvidenceId = selectedEvidenceId,
+            ).fold(
+                onSuccess = { response ->
+                    if (_sceneBuilder.value.projectId != cleanProject) return@fold
+                    val context = response.context
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            context = context,
+                            directorStatus = response.status,
+                            directorCandidates = response.candidates,
+                            directorResolverModel = response.resolver_model,
+                            notice = when (response.status) {
+                                "AMBIGUOUS" ->
+                                    "Encontré más de un pasaje válido. Elige cuál quieres ilustrar."
+                                "MISSING" ->
+                                    "No encontré ese evento en texto autorizado. No se generó ninguna imagen."
+                                "BLOCKED_REFERENCES" ->
+                                    "Encontré el pasaje exacto, pero faltan referencias visuales aprobadas. No se generó ninguna imagen."
+                                "READY" ->
+                                    "Pasaje y referencias congelados. JARVIS generará y evaluará la escena."
+                                else ->
+                                    "JARVIS terminó de resolver la solicitud de escena."
+                            },
+                            error = null,
+                        )
+                    }
+                    if (
+                        response.status == "READY" &&
+                        context != null &&
+                        context.generation_ready
+                    ) {
+                        generateSceneVisual(
+                            projectId = cleanProject,
+                            engine = response.recommended_engine.ifBlank { "cloud" },
+                            mode = "quality",
+                            aspectRatio = "landscape",
+                            maxCorrections = response.generation_max_corrections
+                                .coerceIn(0, 2),
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    if (_sceneBuilder.value.projectId != cleanProject) return@fold
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            directorStatus = "ERROR",
+                            error = error.message
+                                ?: "No se pudo resolver la escena contra el texto autorizado.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     fun previewSceneVisualContext(
         projectId: String,
         chapterId: String,
@@ -4940,6 +5042,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         mode: String = "quality",
         model: String? = null,
         aspectRatio: String = "landscape",
+        maxCorrections: Int = 0,
     ) {
         val state = _sceneBuilder.value
         val context = state.context ?: return
@@ -4967,6 +5070,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 mode = mode,
                 model = model,
                 aspectRatio = aspectRatio,
+                maxCorrections = maxCorrections.coerceIn(0, 2),
             ).fold(
                 onSuccess = { reply ->
                     val oldAttachments = _sceneBuilder.value.attachmentIds +
@@ -4988,10 +5092,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             generatedAttachmentId = staged?.attachmentId,
                             attachmentIds = staged?.attachmentId?.let(::setOf)
                                 ?: emptySet(),
-                            notice = if (reply.storage_retry_required) {
-                                "La escena se generó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
-                            } else {
-                                "Escena generada y guardada como CANDIDATE. No modifica canon narrativo ni visual hasta aprobación humana."
+                            notice = when {
+                                reply.storage_retry_required ->
+                                    "La escena se generó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
+                                reply.scene_evaluation.verdict == "PASS" ->
+                                    "Escena generada y evaluada contra el pasaje exacto. Lista para revisión humana."
+                                reply.scene_evaluation.verdict == "CORRECT" ->
+                                    "JARVIS agotó las correcciones permitidas; conserva el candidato final para revisión humana."
+                                reply.scene_evaluation.verdict == "UNAVAILABLE" ->
+                                    "La escena quedó guardada, pero el evaluador visual no estuvo disponible. No se gastó otra generación."
+                                else ->
+                                    "Escena generada y guardada como CANDIDATE. No modifica canon narrativo ni visual hasta aprobación humana."
                             },
                             error = null,
                         )
