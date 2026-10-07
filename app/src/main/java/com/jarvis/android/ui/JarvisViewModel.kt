@@ -1967,6 +1967,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
         val current = _characterStudio.value
         if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterBatchPollJob?.cancel()
+            characterBatchPollJob = null
             characterStudioScopeVersion++
             _imageEditState.value = ImageEditState.Idle
             _lastImageEditDetails.value = null
