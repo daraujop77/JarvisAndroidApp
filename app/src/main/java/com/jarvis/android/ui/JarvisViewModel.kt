@@ -2071,6 +2071,107 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun completeCharacterViews(
+        projectId: String,
+        characterId: String,
+        perspectives: List<String>,
+        adjustment: String = "",
+        resumeBatchId: String = "",
+    ) {
+        if (_characterStudio.value.busy || perspectives.isEmpty()) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = if (resumeBatchId.isBlank()) "Preparando vistas faltantes" else "Reanudando lote de vistas",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualCompleteCharacterViews(
+                projectId = projectId,
+                characterId = characterId,
+                perspectives = perspectives,
+                adjustment = adjustment,
+                batchId = resumeBatchId,
+            ).fold(
+                onSuccess = { response ->
+                    val batch = response.batch
+                    _characterStudio.update {
+                        it.copy(
+                            batch = batch,
+                            notice = when (batch?.status) {
+                                "READY_FOR_REVIEW" -> "Lote listo para revisión. JARVIS generó solo las vistas que faltaban."
+                                "BLOCKED" -> "El lote se detuvo de forma segura; no se repetirá una generación con resultado ambiguo."
+                                "COMPLETED" -> "Las vistas solicitadas ya están aprobadas."
+                                else -> "El lote quedó guardado y puede reanudarse sin duplicar salidas."
+                            },
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo completar el lote de vistas.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveCharacterViewBatch(projectId: String, characterId: String) {
+        val batch = _characterStudio.value.batch ?: return
+        if (_characterStudio.value.busy || batch.batch_id.isBlank()) return
+        val assetIds = batch.items
+            .filter { it.status == "CANDIDATE" || it.status == "CANDIDATE_EXISTING" }
+            .map { it.candidate_asset_id }
+            .filter { it.isNotBlank() }
+        if (assetIds.isEmpty()) {
+            _characterStudio.update { it.copy(error = "No hay vistas candidatas almacenadas para aprobar.") }
+            return
+        }
+        _characterStudio.update {
+            it.copy(busy = true, busyLabel = "Aprobando lote exacto", notice = null, error = null)
+        }
+        viewModelScope.launch {
+            container.liveSession.visualApproveCharacterViewBatch(
+                projectId = projectId,
+                characterId = characterId,
+                batchId = batch.batch_id,
+                assetIds = assetIds,
+            ).fold(
+                onSuccess = { response ->
+                    val approvedCount = response.approved.size
+                    val failedCount = response.failed.size
+                    _characterStudio.update {
+                        it.copy(
+                            batch = response.batch,
+                            notice = if (failedCount == 0) {
+                                approvedCount.toString() + " vistas aprobadas por hash exacto."
+                            } else {
+                                approvedCount.toString() + " aprobadas; " + failedCount.toString() + " pendientes."
+                            },
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo aprobar el lote de vistas.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     fun generateCharacterVisual(
         projectId: String,
         characterId: String,
