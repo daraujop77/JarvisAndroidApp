@@ -489,6 +489,29 @@ fun SceneBuilderScreen(
                             color = Color(0xFF94A3B8),
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        if (context.narrative_evidence.text.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "PASAJE CONGELADO · " +
+                                    context.narrative_evidence.kind.ifBlank {
+                                        context.narrative_evidence.canon_status
+                                    },
+                                color = JarvisCyan,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            Text(
+                                context.narrative_evidence.text,
+                                color = Color(0xFFCBD5E1),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 8,
+                            )
+                            Text(
+                                "SHA " + context.narrative_evidence.sha256.take(12) + "… · " +
+                                    context.narrative_evidence.canon_status,
+                                color = Color(0xFF94A3B8),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
                     }
                 }
             }
@@ -709,6 +732,44 @@ fun SceneBuilderScreen(
                             color = if (asset?.storage?.state == "stored") JarvisGreen else JarvisAmber,
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        if (generated.scene_evaluation.verdict.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            val evaluation = generated.scene_evaluation
+                            Text(
+                                "EVALUACIÓN · " + evaluation.verdict +
+                                    " · correcciones " + generated.scene_correction_count,
+                                color = if (evaluation.verdict == "PASS") JarvisGreen else JarvisAmber,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            if (
+                                evaluation.narrative_score != null ||
+                                evaluation.identity_score != null ||
+                                evaluation.composition_score != null
+                            ) {
+                                Text(
+                                    "Pasaje " + (evaluation.narrative_score?.toString() ?: "—") +
+                                        " · identidad " + (evaluation.identity_score?.toString() ?: "—") +
+                                        " · composición " + (evaluation.composition_score?.toString() ?: "—"),
+                                    color = Color(0xFFCBD5E1),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            evaluation.issues.take(4).forEach { issue ->
+                                Text(
+                                    "• " + issue,
+                                    color = JarvisAmber,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            if (generated.scene_attempts.size > 1) {
+                                Text(
+                                    generated.scene_attempts.size.toString() +
+                                        " candidatos conservados en el historial de generación.",
+                                    color = Color(0xFF94A3B8),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        }
                         if (asset != null && settings.isOwner) {
                             Spacer(Modifier.height(10.dp))
                             if (asset.storage.state != "stored") {
