@@ -15,6 +15,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 private val visualStudioJson = Json { ignoreUnknownKeys = true }
@@ -238,6 +239,11 @@ data class VisualStudioGeneratedImage(
     val scene_context_id: String = "",
     val scene_context_hash: String = "",
     val visual_asset: VisualStudioAsset? = null,
+    val scene_evaluation: VisualSceneEvaluationEvidence = VisualSceneEvaluationEvidence(),
+    val scene_attempts: List<VisualSceneGenerationAttempt> = emptyList(),
+    val scene_correction_count: Int = 0,
+    val scene_human_approval_required: Boolean = false,
+    val auto_canon: Boolean = false,
 )
 
 
@@ -400,6 +406,58 @@ data class VisualSceneSourcePin(
 )
 
 @Serializable
+data class VisualSceneNarrativeEvidence(
+    val evidence_id: String = "",
+    val kind: String = "",
+    val text: String = "",
+    val sha256: String = "",
+    val canon_status: String = "",
+    val authority: String = "",
+    val title: String = "",
+    val heading: String = "",
+    val chapter_number: Int? = null,
+    val chunk_id: String = "",
+    val document_id: String = "",
+    val request_text: String = "",
+)
+
+@Serializable
+data class VisualSceneDirectorCandidate(
+    val evidence_id: String = "",
+    val kind: String = "",
+    val title: String = "",
+    val heading: String = "",
+    val chapter_id: String = "",
+    val chapter_number: Int? = null,
+    val canon_status: String = "",
+    val authority: String = "",
+    val score: Int = 0,
+    val excerpt: String = "",
+)
+
+@Serializable
+data class VisualSceneEvaluationEvidence(
+    val verdict: String = "",
+    val score: Int? = null,
+    val narrative_score: Int? = null,
+    val identity_score: Int? = null,
+    val composition_score: Int? = null,
+    val issues: List<String> = emptyList(),
+    val correction_instruction: String = "",
+    val model: String = "",
+)
+
+@Serializable
+data class VisualSceneGenerationAttempt(
+    val attempt_number: Int = 0,
+    val correction_number: Int = 0,
+    val asset_id: String = "",
+    val sha256: String = "",
+    val storage_state: String = "",
+    val evaluation: VisualSceneEvaluationEvidence = VisualSceneEvaluationEvidence(),
+)
+
+@Serializable
 data class VisualSceneSelection(
     val character_ids: List<String> = emptyList(),
     val location_id: String = "",
@@ -424,6 +482,7 @@ data class VisualSceneContext(
     val aggregate_version: Int = 0,
     val narrative_boundary: VisualSceneNarrativeBoundary = VisualSceneNarrativeBoundary(),
     val source: VisualSceneSourcePin = VisualSceneSourcePin(),
+    val narrative_evidence: VisualSceneNarrativeEvidence = VisualSceneNarrativeEvidence(),
     val selection: VisualSceneSelection = VisualSceneSelection(),
     val reference_manifest: VisualSceneReferenceManifest = VisualSceneReferenceManifest(),
     val exploratory: Boolean = false,
@@ -434,6 +493,22 @@ data class VisualSceneContext(
 data class VisualSceneContextResponse(
     val schema: String = "",
     val context: VisualSceneContext = VisualSceneContext(),
+)
+
+@Serializable
+data class VisualSceneDirectorResponse(
+    val schema: String = "",
+    val project_id: String = "",
+    val request_text: String = "",
+    val status: String = "",
+    val resolver_model: String = "",
+    val candidates: List<VisualSceneDirectorCandidate> = emptyList(),
+    val context: VisualSceneContext? = null,
+    val recommended_engine: String = "cloud",
+    val generation_max_corrections: Int = 0,
+    val human_selection_required: Boolean = false,
+    val missing_story_fact: Boolean = false,
+    val selected_evidence_id: String = "",
 )
 
 @Serializable
