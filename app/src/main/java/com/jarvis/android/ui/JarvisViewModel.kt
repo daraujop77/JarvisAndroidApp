@@ -1224,31 +1224,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 autoReviewV2 = null,
                 error = null,
             )
-            val autoReviewed = container.liveSession.writingRoomChapterAutoReviewRun(
+            beginWritingAutoReview(
                 projectId = projectId,
                 chapterId = chapterId,
-            )
-            if (autoReviewed.isFailure) {
-                writingWorkspaceError(autoReviewed.exceptionOrNull())
-                return@launch
-            }
-            val autoResult = autoReviewed.getOrThrow().result
-            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
-            val list = container.liveSession.writingRoomChapterList(projectId)
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                busy = false,
-                busyLabel = "",
-                planningV2AggregateVersion = autoResult.approval.aggregate.version,
-                planningV2Direction = autoResult.approval.direction,
-                draftV2 = autoResult.draft,
-                approvalV2 = autoResult.approval,
-                autoReviewV2 = autoResult,
-                activeChapter = autoResult.approval.chapter,
-                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
-                chapterRevisionChapterId = chapterId,
-                chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
-                error = revisions.exceptionOrNull()?.message
-                    ?: list.exceptionOrNull()?.message,
+                label = "JARVIS · REDACTANDO, REVISANDO Y PREPARANDO CANONDIFF",
             )
         }
     }
@@ -1323,27 +1302,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun runPersistentWritingDraft(projectId: String) {
         val current = _writingWorkspace.value
         val chapterId = current.planningV2ChapterId ?: current.activeChapter?.chapter_id ?: return
-        writingWorkspaceBusy("JARVIS · CONTINUANDO HASTA REVISIÓN FINAL")
         viewModelScope.launch {
-            val autoReviewed = container.liveSession.writingRoomChapterAutoReviewRun(projectId, chapterId)
-            if (autoReviewed.isFailure) {
-                writingWorkspaceError(autoReviewed.exceptionOrNull())
-                return@launch
-            }
-            val result = autoReviewed.getOrThrow().result
-            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                busy = false,
-                busyLabel = "",
-                planningV2AggregateVersion = result.approval.aggregate.version,
-                planningV2Direction = result.approval.direction,
-                draftV2 = result.draft,
-                approvalV2 = result.approval,
-                autoReviewV2 = result,
-                activeChapter = result.approval.chapter,
-                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
-                chapterRevisionChapterId = chapterId,
-                error = revisions.exceptionOrNull()?.message,
+            beginWritingAutoReview(
+                projectId,
+                chapterId,
+                "JARVIS · CONTINUANDO HASTA REVISIÓN FINAL",
             )
         }
     }
@@ -1351,24 +1314,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun reviewPersistentWritingDraft(projectId: String) {
         val current = _writingWorkspace.value
         val chapterId = current.draftV2?.chapter_id ?: current.activeChapter?.chapter_id ?: return
-        writingWorkspaceBusy("JARVIS · REVISANDO, CORRIGIENDO Y PREPARANDO CANONDIFF")
         viewModelScope.launch {
-            val reviewed = container.liveSession.writingRoomChapterAutoReviewRun(projectId, chapterId)
-            if (reviewed.isFailure) {
-                writingWorkspaceError(reviewed.exceptionOrNull())
-                return@launch
-            }
-            val result = reviewed.getOrThrow().result
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                busy = false,
-                busyLabel = "",
-                planningV2AggregateVersion = result.approval.aggregate.version,
-                planningV2Direction = result.approval.direction,
-                draftV2 = result.draft,
-                approvalV2 = result.approval,
-                autoReviewV2 = result,
-                activeChapter = result.approval.chapter,
-                error = null,
+            beginWritingAutoReview(
+                projectId,
+                chapterId,
+                "JARVIS · REVISANDO, CORRIGIENDO Y PREPARANDO CANONDIFF",
             )
         }
     }
@@ -1403,29 +1353,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 activeChapter = result.chapter,
                 error = null,
             )
-            val autoReviewed = container.liveSession.writingRoomChapterAutoReviewRun(projectId, chapterId)
-            if (autoReviewed.isFailure) {
-                _writingWorkspace.value = _writingWorkspace.value.copy(
-                    busy = false,
-                    busyLabel = "",
-                    error = autoReviewed.exceptionOrNull()?.message,
-                )
-                return@launch
-            }
-            val autoResult = autoReviewed.getOrThrow().result
-            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                busy = false,
-                busyLabel = "",
-                planningV2AggregateVersion = autoResult.approval.aggregate.version,
-                planningV2Direction = autoResult.approval.direction,
-                draftV2 = autoResult.draft,
-                approvalV2 = autoResult.approval,
-                autoReviewV2 = autoResult,
-                activeChapter = autoResult.approval.chapter,
-                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
-                chapterRevisionChapterId = chapterId,
-                error = revisions.exceptionOrNull()?.message,
+            beginWritingAutoReview(
+                projectId,
+                chapterId,
+                "JARVIS · REVISANDO TU CAMBIO Y PREPARANDO CANONDIFF",
             )
         }
     }
@@ -1459,29 +1390,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 activeChapter = result.chapter,
                 error = null,
             )
-            val autoReviewed = container.liveSession.writingRoomChapterAutoReviewRun(projectId, chapterId)
-            if (autoReviewed.isFailure) {
-                _writingWorkspace.value = _writingWorkspace.value.copy(
-                    busy = false,
-                    busyLabel = "",
-                    error = autoReviewed.exceptionOrNull()?.message,
-                )
-                return@launch
-            }
-            val autoResult = autoReviewed.getOrThrow().result
-            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                busy = false,
-                busyLabel = "",
-                planningV2AggregateVersion = autoResult.approval.aggregate.version,
-                planningV2Direction = autoResult.approval.direction,
-                draftV2 = autoResult.draft,
-                approvalV2 = autoResult.approval,
-                autoReviewV2 = autoResult,
-                activeChapter = autoResult.approval.chapter,
-                chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
-                chapterRevisionChapterId = chapterId,
-                error = revisions.exceptionOrNull()?.message,
+            beginWritingAutoReview(
+                projectId,
+                chapterId,
+                "JARVIS · REVISANDO LA VERSIÓN RESTAURADA",
             )
         }
     }
