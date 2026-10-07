@@ -1149,16 +1149,21 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
         val draftResult = draft.getOrThrow().result
         val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+        val autoReview = container.liveSession.writingRoomChapterAutoReviewStatus(projectId, chapterId)
+        val autoResult = autoReview.getOrNull()?.result
+        val approvalResult = autoResult?.approval ?: approval.getOrNull()?.result
+        val restoredDraft = autoResult?.draft ?: draftResult
         _writingWorkspace.value = _writingWorkspace.value.copy(
             planningV2AggregateVersion = maxOf(
                 _writingWorkspace.value.planningV2AggregateVersion,
-                draftResult.aggregate.version,
+                approvalResult?.aggregate?.version ?: restoredDraft.aggregate.version,
             ),
-            planningV2Direction = draftResult.direction,
-            draftV2 = draftResult,
-            approvalV2 = approval.getOrNull()?.result,
-            activeChapter = draftResult.chapter,
-            error = approval.exceptionOrNull()?.message,
+            planningV2Direction = approvalResult?.direction ?: restoredDraft.direction,
+            draftV2 = restoredDraft,
+            approvalV2 = approvalResult,
+            autoReviewV2 = autoResult,
+            activeChapter = approvalResult?.chapter ?: restoredDraft.chapter,
+            error = autoReview.exceptionOrNull()?.message ?: approval.exceptionOrNull()?.message,
         )
     }
 
