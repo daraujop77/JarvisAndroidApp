@@ -1165,27 +1165,27 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun runPersistentWritingDraft(projectId: String) {
         val current = _writingWorkspace.value
         val chapterId = current.planningV2ChapterId ?: current.activeChapter?.chapter_id ?: return
-        writingWorkspaceBusy("WRITER · REDACTANDO CAPÍTULO")
+        writingWorkspaceBusy("JARVIS · CONTINUANDO HASTA REVISIÓN FINAL")
         viewModelScope.launch {
-            val drafted = container.liveSession.writingRoomDraftRun(projectId, chapterId)
-            if (drafted.isFailure) {
-                writingWorkspaceError(drafted.exceptionOrNull())
+            val autoReviewed = container.liveSession.writingRoomChapterAutoReviewRun(projectId, chapterId)
+            if (autoReviewed.isFailure) {
+                writingWorkspaceError(autoReviewed.exceptionOrNull())
                 return@launch
             }
-            val result = drafted.getOrThrow().result
-            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+            val result = autoReviewed.getOrThrow().result
             val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = false,
                 busyLabel = "",
-                planningV2AggregateVersion = result.aggregate.version,
-                planningV2Direction = result.direction,
-                draftV2 = result,
-                approvalV2 = approval.getOrNull()?.result,
-                activeChapter = result.chapter,
+                planningV2AggregateVersion = result.approval.aggregate.version,
+                planningV2Direction = result.approval.direction,
+                draftV2 = result.draft,
+                approvalV2 = result.approval,
+                autoReviewV2 = result,
+                activeChapter = result.approval.chapter,
                 chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
                 chapterRevisionChapterId = chapterId,
-                error = approval.exceptionOrNull()?.message ?: revisions.exceptionOrNull()?.message,
+                error = revisions.exceptionOrNull()?.message,
             )
         }
     }
@@ -1193,24 +1193,24 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun reviewPersistentWritingDraft(projectId: String) {
         val current = _writingWorkspace.value
         val chapterId = current.draftV2?.chapter_id ?: current.activeChapter?.chapter_id ?: return
-        writingWorkspaceBusy("REVIEWER + CANON KEEPER · REVISANDO")
+        writingWorkspaceBusy("JARVIS · REVISANDO, CORRIGIENDO Y PREPARANDO CANONDIFF")
         viewModelScope.launch {
-            val reviewed = container.liveSession.writingRoomDraftReviewRun(projectId, chapterId)
+            val reviewed = container.liveSession.writingRoomChapterAutoReviewRun(projectId, chapterId)
             if (reviewed.isFailure) {
                 writingWorkspaceError(reviewed.exceptionOrNull())
                 return@launch
             }
             val result = reviewed.getOrThrow().result
-            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = false,
                 busyLabel = "",
-                planningV2AggregateVersion = result.aggregate.version,
-                planningV2Direction = result.direction,
-                draftV2 = result,
-                approvalV2 = approval.getOrNull()?.result,
-                activeChapter = result.chapter,
-                error = approval.exceptionOrNull()?.message,
+                planningV2AggregateVersion = result.approval.aggregate.version,
+                planningV2Direction = result.approval.direction,
+                draftV2 = result.draft,
+                approvalV2 = result.approval,
+                autoReviewV2 = result,
+                activeChapter = result.approval.chapter,
+                error = null,
             )
         }
     }
