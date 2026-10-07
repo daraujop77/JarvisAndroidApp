@@ -1907,6 +1907,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val directorStatus: String = "",
         val directorCandidates: List<VisualSceneDirectorCandidate> = emptyList(),
         val directorResolverModel: String = "",
+        val directorJob: VisualSceneDirectorJob? = null,
         val generated: VisualStudioGeneratedImage? = null,
         val generatedAttachmentId: String? = null,
         val attachmentIds: Set<String> = emptySet(),
@@ -1914,14 +1915,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val error: String? = null,
     )
 
+    private var sceneBuilderScopeVersion = 0L
+    private var sceneDirectorPollJob: Job? = null
     private val _sceneBuilder = MutableStateFlow(SceneBuilderState())
     val sceneBuilder: StateFlow<SceneBuilderState> = _sceneBuilder
 
     private fun resetVisualStudioProtectedMedia() {
         characterBatchPollJob?.cancel()
         characterBatchPollJob = null
+        sceneDirectorPollJob?.cancel()
+        sceneDirectorPollJob = null
         characterStudioScopeVersion++
         locationStudioScopeVersion++
+        sceneBuilderScopeVersion++
         _imageEditState.value = ImageEditState.Idle
         _lastImageEditDetails.value = null
         val ids = (
@@ -4842,6 +4848,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun clearSceneBuilderContext(projectId: String) {
+        sceneDirectorPollJob?.cancel()
+        sceneDirectorPollJob = null
+        sceneBuilderScopeVersion++
         _sceneBuilder.value.generatedAttachmentId?.let { attachmentId ->
             deleteVisualStudioAttachments(listOf(attachmentId))
         }
