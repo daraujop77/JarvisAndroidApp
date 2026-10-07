@@ -2077,7 +2077,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         parentAsset: VisualStudioAsset? = null,
     ) {
         val cleanPrompt = prompt.trim()
-        if (cleanPrompt.isBlank() || _characterStudio.value.busy) return
+        if (_characterStudio.value.busy) return
         _characterStudio.update {
             it.copy(
                 busy = true,

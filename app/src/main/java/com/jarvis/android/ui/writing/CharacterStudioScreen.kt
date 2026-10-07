@@ -90,8 +90,8 @@ fun CharacterStudioScreen(
     var selectedCharacterId by rememberSaveable(projectId) {
         mutableStateOf(characterOptions.firstOrNull()?.id.orEmpty())
     }
-    var masterPrompt by rememberSaveable(projectId) { mutableStateOf("") }
-    var turnaroundPrompt by rememberSaveable(projectId) { mutableStateOf("") }
+    var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
+    var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var selectedPerspective by rememberSaveable(projectId) { mutableStateOf("left_profile") }
 
     LaunchedEffect(characterOptions) {
@@ -299,10 +299,11 @@ fun CharacterStudioScreen(
                             onValueChange = { if (it.length <= 4000) masterPrompt = it },
                             label = {
                                 Text(
-                                    if (master == null) "Prompt del primer master"
-                                    else "Prompt para regenerar como hijo",
+                                    if (master == null) "Ajustes opcionales del primer master"
+                                    else "Ajustes opcionales de la nueva versión",
                                 )
                             },
+                            placeholder = { Text("JARVIS usará la descripción canónica y el texto aprobado del personaje") },
                             minLines = 2,
                             maxLines = 5,
                             colors = jarvisTextFieldColors(),
@@ -324,12 +325,12 @@ fun CharacterStudioScreen(
                                         parentAsset = master,
                                     )
                                 },
-                                enabled = masterPrompt.isNotBlank() && !state.busy,
+                                enabled = !state.busy,
                                 modifier = Modifier.weight(1f),
                             ) {
                                 Icon(Icons.Filled.AutoAwesome, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text(if (master == null) "Generar" else "Regenerar hijo")
+                                Text(if (master == null) "Generar desde canon" else "Regenerar hijo")
                             }
                             OutlinedButton(
                                 onClick = { uploadLauncher.launch("image/*") },
@@ -392,9 +393,9 @@ fun CharacterStudioScreen(
                         OutlinedTextField(
                             value = turnaroundPrompt,
                             onValueChange = { if (it.length <= 4000) turnaroundPrompt = it },
-                            label = { Text("Instrucción de la vista") },
+                            label = { Text("Ajustes opcionales de esta vista") },
                             placeholder = {
-                                Text("Mantén identidad, edad, rasgos, vestuario y proporciones del master…")
+                                Text("JARVIS conservará el master aprobado; describe solo cambios opcionales")
                             },
                             minLines = 2,
                             maxLines = 5,
@@ -419,7 +420,7 @@ fun CharacterStudioScreen(
                                     parentAsset = parentView,
                                 )
                             },
-                            enabled = master != null && turnaroundPrompt.isNotBlank() && !state.busy,
+                            enabled = master != null && !state.busy,
                         ) {
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
