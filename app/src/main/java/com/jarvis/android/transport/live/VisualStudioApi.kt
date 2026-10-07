@@ -243,6 +243,8 @@ data class VisualStudioGeneratedImage(
     val scene_attempts: List<VisualSceneGenerationAttempt> = emptyList(),
     val scene_correction_count: Int = 0,
     val scene_human_approval_required: Boolean = false,
+    val scene_provider_outcome_unknown: Boolean = false,
+    val scene_generation_warning: String = "",
     val auto_canon: Boolean = false,
 )
 
@@ -711,6 +713,12 @@ private fun parseVisualStudioGeneratedImage(value: JsonObject): VisualStudioGene
         scene_correction_count = value.intValue("scene_correction_count"),
         scene_human_approval_required = value.booleanValue(
             "scene_human_approval_required",
+        ),
+        scene_provider_outcome_unknown = value.booleanValue(
+            "scene_provider_outcome_unknown",
+        ),
+        scene_generation_warning = value.stringValue(
+            "scene_generation_warning",
         ),
         auto_canon = value.booleanValue("auto_canon"),
     )
