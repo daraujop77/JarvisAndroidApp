@@ -4874,6 +4874,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             return
         }
         if (_sceneBuilder.value.busy) return
+        sceneDirectorPollJob?.cancel()
+        sceneDirectorPollJob = null
+        sceneBuilderScopeVersion++
+        val scopeVersion = sceneBuilderScopeVersion
         _sceneBuilder.value.generatedAttachmentId?.let { attachmentId ->
             deleteVisualStudioAttachments(listOf(attachmentId))
         }
@@ -4886,6 +4890,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 directorStatus = "RESOLVING",
                 directorCandidates = emptyList(),
                 directorResolverModel = "",
+                directorJob = null,
                 generated = null,
                 generatedAttachmentId = null,
                 attachmentIds = emptySet(),
@@ -4900,7 +4905,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 selectedEvidenceId = selectedEvidenceId,
             ).fold(
                 onSuccess = { response ->
-                    if (_sceneBuilder.value.projectId != cleanProject) return@fold
+                    if (
+                        scopeVersion != sceneBuilderScopeVersion ||
+                        _sceneBuilder.value.projectId != cleanProject
+                    ) return@fold
                     val context = response.context
                     _sceneBuilder.update {
                         it.copy(
@@ -4918,7 +4926,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                                 "BLOCKED_REFERENCES" ->
                                     "Encontré el pasaje exacto, pero faltan referencias visuales aprobadas. No se generó ninguna imagen."
                                 "READY" ->
-                                    "Pasaje y referencias congelados. JARVIS generará y evaluará la escena."
+                                    "Pasaje y referencias congelados. JARVIS iniciará un trabajo durable de generación y evaluación."
                                 else ->
                                     "JARVIS terminó de resolver la solicitud de escena."
                             },
@@ -4930,18 +4938,22 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         context != null &&
                         context.generation_ready
                     ) {
-                        generateSceneVisual(
+                        startSceneDirectorGeneration(
                             projectId = cleanProject,
                             engine = response.recommended_engine.ifBlank { "cloud" },
                             mode = "quality",
                             aspectRatio = "landscape",
                             maxCorrections = response.generation_max_corrections
                                 .coerceIn(0, 2),
+                            expectedScopeVersion = scopeVersion,
                         )
                     }
                 },
                 onFailure = { error ->
-                    if (_sceneBuilder.value.projectId != cleanProject) return@fold
+                    if (
+                        scopeVersion != sceneBuilderScopeVersion ||
+                        _sceneBuilder.value.projectId != cleanProject
+                    ) return@fold
                     _sceneBuilder.update {
                         it.copy(
                             busy = false,
@@ -4952,6 +4964,299 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         )
                     }
                 },
+            )
+        }
+    }
+
+    private fun startSceneDirectorGeneration(
+        projectId: String,
+        engine: String,
+        mode: String,
+        model: String? = null,
+        aspectRatio: String,
+        maxCorrections: Int,
+        expectedScopeVersion: Long,
+    ) {
+        val context = _sceneBuilder.value.context ?: return
+        if (
+            expectedScopeVersion != sceneBuilderScopeVersion ||
+            context.project_id != projectId ||
+            !context.generation_ready
+        ) return
+        _sceneBuilder.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Encolando generación durable de escena",
+                directorStatus = "QUEUED",
+                notice = "El trabajo quedará guardado en el servidor aunque Android deje de esperar la petición.",
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualSceneDirectorGenerate(
+                projectId = projectId,
+                contextId = context.context_id,
+                contextHash = context.context_hash,
+                engine = engine,
+                mode = mode,
+                model = model,
+                aspectRatio = aspectRatio,
+                maxCorrections = maxCorrections.coerceIn(0, 2),
+            ).fold(
+                onSuccess = { response ->
+                    if (
+                        expectedScopeVersion != sceneBuilderScopeVersion ||
+                        _sceneBuilder.value.projectId != projectId
+                    ) return@fold
+                    val job = response.job
+                    _sceneBuilder.update {
+                        it.copy(
+                            directorJob = job,
+                            directorStatus = job?.status ?: "ERROR",
+                            busy = job?.status in setOf("QUEUED", "RUNNING"),
+                            busyLabel = when (job?.status) {
+                                "QUEUED" -> "Escena en cola"
+                                "RUNNING" -> "Generando y evaluando escena"
+                                else -> ""
+                            },
+                            error = null,
+                        )
+                    }
+                    if (response.result != null) {
+                        applySceneDirectorResult(
+                            projectId,
+                            expectedScopeVersion,
+                            response,
+                        )
+                        return@fold
+                    }
+                    if (job == null || job.job_id.isBlank()) {
+                        _sceneBuilder.update {
+                            it.copy(
+                                busy = false,
+                                busyLabel = "",
+                                directorStatus = "ERROR",
+                                error = "El servidor no devolvió el trabajo durable de la escena.",
+                            )
+                        }
+                        return@fold
+                    }
+                    when (job.status) {
+                        "QUEUED", "RUNNING", "READY_FOR_REVIEW" ->
+                            startSceneDirectorJobPolling(
+                                projectId,
+                                job.job_id,
+                                expectedScopeVersion,
+                            )
+                        "OUTCOME_UNKNOWN" -> _sceneBuilder.update {
+                            it.copy(
+                                busy = false,
+                                busyLabel = "",
+                                notice = "El proveedor pudo haber procesado una generación cuyo resultado no puede confirmarse. JARVIS no la repetirá automáticamente.",
+                            )
+                        }
+                        "FAILED_FINAL" -> _sceneBuilder.update {
+                            it.copy(
+                                busy = false,
+                                busyLabel = "",
+                                error = job.last_error.ifBlank {
+                                    "La generación durable de la escena terminó con error."
+                                },
+                            )
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    if (
+                        expectedScopeVersion != sceneBuilderScopeVersion ||
+                        _sceneBuilder.value.projectId != projectId
+                    ) return@fold
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            directorStatus = "ERROR",
+                            error = error.message
+                                ?: "No se pudo iniciar el trabajo durable de la escena.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    private fun startSceneDirectorJobPolling(
+        projectId: String,
+        jobId: String,
+        expectedScopeVersion: Long,
+    ) {
+        if (jobId.isBlank()) return
+        sceneDirectorPollJob?.cancel()
+        sceneDirectorPollJob = viewModelScope.launch {
+            while (true) {
+                delay(1_800)
+                if (
+                    expectedScopeVersion != sceneBuilderScopeVersion ||
+                    _sceneBuilder.value.projectId != projectId
+                ) return@launch
+                val response = container.liveSession.visualSceneDirectorJobStatus(
+                    projectId = projectId,
+                    jobId = jobId,
+                ).getOrNull()
+                if (response == null) {
+                    _sceneBuilder.update {
+                        it.copy(
+                            busy = true,
+                            busyLabel = "Trabajo guardado; reintentando estado",
+                            notice = "La consulta falló temporalmente, pero el trabajo durable sigue en el servidor.",
+                        )
+                    }
+                    continue
+                }
+                val job = response.job
+                _sceneBuilder.update {
+                    it.copy(
+                        directorJob = job,
+                        directorStatus = job?.status ?: it.directorStatus,
+                        error = null,
+                    )
+                }
+                if (response.result != null) {
+                    applySceneDirectorResult(
+                        projectId,
+                        expectedScopeVersion,
+                        response,
+                    )
+                    return@launch
+                }
+                when (job?.status) {
+                    "QUEUED" -> _sceneBuilder.update {
+                        it.copy(
+                            busy = true,
+                            busyLabel = "Escena en cola",
+                            notice = "JARVIS conserva el contexto y el trabajo durable mientras espera ejecución.",
+                        )
+                    }
+                    "RUNNING" -> _sceneBuilder.update {
+                        it.copy(
+                            busy = true,
+                            busyLabel = "Generando y evaluando escena",
+                            notice = "JARVIS está generando, evaluando y corrigiendo con el pasaje y referencias congelados.",
+                        )
+                    }
+                    "READY_FOR_REVIEW" -> _sceneBuilder.update {
+                        it.copy(
+                            busy = true,
+                            busyLabel = "Recuperando candidato durable",
+                            notice = "La escena terminó; JARVIS está recuperando el candidato exacto para revisión.",
+                        )
+                    }
+                    "OUTCOME_UNKNOWN" -> {
+                        _sceneBuilder.update {
+                            it.copy(
+                                busy = false,
+                                busyLabel = "",
+                                notice = "Resultado de proveedor ambiguo. El trabajo se detuvo de forma segura y no se repetirá automáticamente.",
+                            )
+                        }
+                        return@launch
+                    }
+                    "FAILED_FINAL" -> {
+                        _sceneBuilder.update {
+                            it.copy(
+                                busy = false,
+                                busyLabel = "",
+                                error = job.last_error.ifBlank {
+                                    "La generación durable de la escena terminó con error."
+                                },
+                            )
+                        }
+                        return@launch
+                    }
+                    null -> {
+                        _sceneBuilder.update {
+                            it.copy(
+                                busy = false,
+                                busyLabel = "",
+                                error = "No se encontró el trabajo durable de la escena.",
+                            )
+                        }
+                        return@launch
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun applySceneDirectorResult(
+        projectId: String,
+        expectedScopeVersion: Long,
+        response: VisualSceneDirectorJobResponse,
+    ) {
+        val reply = response.result ?: return
+        if (
+            expectedScopeVersion != sceneBuilderScopeVersion ||
+            _sceneBuilder.value.projectId != projectId
+        ) return
+        if (reply.data_base64.isBlank()) {
+            _sceneBuilder.update {
+                it.copy(
+                    busy = false,
+                    busyLabel = "",
+                    error = "El trabajo terminó, pero el candidato visual no pudo recuperarse.",
+                )
+            }
+            return
+        }
+        val staged = withContext(Dispatchers.IO) {
+            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+        }
+        if (
+            expectedScopeVersion != sceneBuilderScopeVersion ||
+            _sceneBuilder.value.projectId != projectId
+        ) {
+            staged?.attachmentId?.let { deleteVisualStudioAttachments(listOf(it)) }
+            return
+        }
+        if (staged == null) {
+            _sceneBuilder.update {
+                it.copy(
+                    busy = false,
+                    busyLabel = "",
+                    error = "La escena quedó guardada en el servidor, pero Android no pudo preparar la vista previa.",
+                )
+            }
+            return
+        }
+        val oldAttachments = _sceneBuilder.value.attachmentIds +
+            listOfNotNull(_sceneBuilder.value.generatedAttachmentId)
+        deleteVisualStudioAttachments(
+            oldAttachments.filter { it != staged.attachmentId },
+        )
+        _sceneBuilder.update {
+            it.copy(
+                busy = false,
+                busyLabel = "",
+                directorJob = response.job,
+                directorStatus = response.job?.status ?: "READY_FOR_REVIEW",
+                generated = reply,
+                generatedAttachmentId = staged.attachmentId,
+                attachmentIds = setOf(staged.attachmentId),
+                notice = when {
+                    reply.scene_provider_outcome_unknown ->
+                        "Una corrección tuvo resultado ambiguo. JARVIS conservó el último candidato conocido y no repetirá automáticamente esa operación."
+                    reply.storage_retry_required ->
+                        "La escena se generó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
+                    reply.scene_evaluation.verdict == "PASS" ->
+                        "Escena generada y evaluada contra el pasaje exacto. Lista para revisión humana."
+                    reply.scene_evaluation.verdict == "CORRECT" ->
+                        "JARVIS agotó las correcciones permitidas; conserva el candidato final para revisión humana."
+                    reply.scene_evaluation.verdict == "UNAVAILABLE" ->
+                        "La escena quedó guardada, pero el evaluador visual no estuvo disponible. No se gastó otra generación."
+                    else ->
+                        "Escena durable guardada como CANDIDATE. No modifica canon narrativo ni visual hasta aprobación humana."
+                },
+                error = null,
             )
         }
     }
