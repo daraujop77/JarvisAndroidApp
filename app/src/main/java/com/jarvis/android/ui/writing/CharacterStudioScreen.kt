@@ -389,11 +389,90 @@ fun CharacterStudioScreen(
                         }
                     }
                     if (settings.isOwner) {
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                vm.completeCharacterViews(
+                                    projectId = projectId,
+                                    characterId = selectedCharacterId,
+                                    perspectives = TURNAROUND_PERSPECTIVES,
+                                    adjustment = turnaroundPrompt,
+                                )
+                            },
+                            enabled = master != null && !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Completar vistas faltantes")
+                        }
+                        Text(
+                            "JARVIS reutiliza vistas aprobadas o candidatas existentes y genera únicamente las que faltan.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF94A3B8),
+                        )
+
+                        state.batch?.let { batch ->
+                            Spacer(Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0x99101B2E),
+                                border = BorderStroke(1.dp, JarvisGreen.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(Modifier.padding(10.dp)) {
+                                    Text(
+                                        "LOTE · " + batch.status,
+                                        style = HudTextStyle,
+                                        color = JarvisGreen,
+                                    )
+                                    Text(
+                                        batch.approved_count.toString() + " aprobadas · " +
+                                            batch.candidate_count.toString() + " candidatas · " +
+                                            batch.pending_count.toString() + " pendientes · " +
+                                            batch.blocked_count.toString() + " bloqueadas",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFFCBD5E1),
+                                    )
+                                    batch.items.forEach { item ->
+                                        Text(
+                                            prettyPerspective(item.perspective) + " · " + item.status +
+                                                if (item.candidate_sha256.isBlank()) "" else " · " + item.candidate_sha256.take(10) + "…",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (item.status.startsWith("APPROVED")) JarvisGreen
+                                                else if (item.status.contains("CANDIDATE")) JarvisAmber
+                                                else Color(0xFF94A3B8),
+                                        )
+                                    }
+                                    val approvable = batch.items.count {
+                                        it.status == "CANDIDATE" || it.status == "CANDIDATE_EXISTING"
+                                    }
+                                    if (approvable > 0) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Button(
+                                            onClick = {
+                                                vm.approveCharacterViewBatch(
+                                                    projectId,
+                                                    selectedCharacterId,
+                                                )
+                                            },
+                                            enabled = !state.busy,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Icon(Icons.Filled.Check, contentDescription = null)
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Aprobar " + approvable.toString() + " vistas del lote")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = turnaroundPrompt,
                             onValueChange = { if (it.length <= 4000) turnaroundPrompt = it },
-                            label = { Text("Ajustes opcionales de esta vista") },
+                            label = { Text("Ajustes opcionales (vista o lote)") },
                             placeholder = {
                                 Text("JARVIS conservará el master aprobado; describe solo cambios opcionales")
                             },
