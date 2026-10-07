@@ -28,6 +28,15 @@ class LiveHostPolicyTest {
     }
 
     @Test
+    fun retiredProductionHostnameIsNotEmbeddedAsAnAllowedDefault() {
+        assertFalse(
+            JarvisAppSession.isAllowedLiveHost(
+                "https://vps-8817149e.tail6eec63.ts.net:8443",
+            ),
+        )
+    }
+
+    @Test
     fun retiredTailscaleAndMagicDnsTargetsAreRejected() {
         assertFalse(allowed("https://vps-8817149e.tail6eec63.ts.net"))
         assertFalse(allowed("https://other-host.tail6eec63.ts.net:8443"))

@@ -101,7 +101,7 @@ class JarvisAppSession(
     /**
      * Keep every live API surface on the same owner-configured Gateway URL.
      * Settings/HTTP and authenticated visual APIs used to drift apart, leaving
-     * Visual Studio pinned to an obsolete Tailscale hostname.
+     * Visual Studio pinned to an obsolete network-provider hostname.
      */
     fun updateBaseUrl(base: String): Result<String> {
         val root = normalizeBase(base)
