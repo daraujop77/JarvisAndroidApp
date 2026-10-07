@@ -1157,6 +1157,7 @@ private fun WriteSection(
                 DraftReviewScreen(
                     draft = state.draftV2,
                     approval = state.approvalV2,
+                    autoReview = state.autoReviewV2,
                     busy = state.busy,
                     onRunDraft = { vm.runPersistentWritingDraft(projectId) },
                     onRunReview = { vm.reviewPersistentWritingDraft(projectId) },
@@ -2007,7 +2008,7 @@ private fun PersistentPlanningCard(
                         }
                         Spacer(Modifier.height(7.dp))
                         Text(
-                            "El Brief quedó fijado. W2 redacta, revisa y recupera el borrador de forma durable sin volver a generar pasos ya completados.",
+                            "El Brief quedó fijado. A4 deja que JARVIS redacte, revise, corrija hasta el límite y prepare el CanonDiff de forma durable; tú vuelves a intervenir en la revisión final.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFCBD5E1),
                         )
