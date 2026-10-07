@@ -44,7 +44,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * PCB-LIVE-1 transport for PC-A's authenticated app surface (the /api/app
- * login + chat endpoints) over the private Tailscale front door.
+ * login + chat endpoints) through the currently configured JARVIS Gateway.
  *
  * Strategy B (runbook §5): this adapter converts PC-A's SSE chat protocol
  * (`event: ready|delta|complete|error`, JSON `data`) into the internal
