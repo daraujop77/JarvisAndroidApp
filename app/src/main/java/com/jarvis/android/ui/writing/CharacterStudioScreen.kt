@@ -484,6 +484,32 @@ fun CharacterStudioScreen(
                                                 else -> Color(0xFF94A3B8)
                                             },
                                         )
+                                        if (item.evaluation_status.isNotBlank()) {
+                                            val evidence = item.evaluation
+                                            if (
+                                                evidence.identity_score != null ||
+                                                evidence.canon_score != null ||
+                                                evidence.perspective_score != null
+                                            ) {
+                                                Text(
+                                                    "Identidad " +
+                                                        (evidence.identity_score?.toString() ?: "—") +
+                                                        " · canon " +
+                                                        (evidence.canon_score?.toString() ?: "—") +
+                                                        " · ángulo " +
+                                                        (evidence.perspective_score?.toString() ?: "—"),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color(0xFF94A3B8),
+                                                )
+                                            }
+                                            evidence.issues.take(3).forEach { issue ->
+                                                Text(
+                                                    "• " + issue,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = JarvisAmber,
+                                                )
+                                            }
+                                        }
                                         if (
                                             item.evaluation_status == "CORRECT" &&
                                             item.correction_instruction.isNotBlank()
