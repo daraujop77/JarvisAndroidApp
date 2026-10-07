@@ -125,11 +125,86 @@ class SceneBuilderApiTest {
                             }
                             """.trimIndent(),
                         )
+                    "/api/app/writing-room/v2/visual/scenes/director/resolve" ->
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.scene-director.v1",
+                              "project_id":"prj_story",
+                              "request_text":"Genera la batalla de Doom contra el Guardián y Soren",
+                              "status":"READY",
+                              "resolver_model":"gpt-6-sol",
+                              "recommended_engine":"cloud",
+                              "generation_max_corrections":2,
+                              "human_selection_required":false,
+                              "missing_story_fact":false,
+                              "selected_evidence_id":"draft:chapter_38:revision_9:0",
+                              "candidates":[{
+                                "evidence_id":"draft:chapter_38:revision_9:0",
+                                "kind":"DRAFT",
+                                "title":"Capítulo 38",
+                                "heading":"current draft",
+                                "chapter_id":"chapter_38",
+                                "chapter_number":38,
+                                "canon_status":"DRAFT",
+                                "authority":"WRITING_ROOM_DRAFT",
+                                "score":47,
+                                "excerpt":"Doom enfrenta al Guardián y Soren en Grayhaven."
+                              }],
+                              "context":{
+                                "schema":"jarvis.visual.scene-context.v1",
+                                "context_id":"svc_director",
+                                "context_hash":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                "project_id":"prj_story",
+                                "chapter_id":"chapter_38",
+                                "scene_id":"scene:director:test",
+                                "aggregate_version":9,
+                                "narrative_boundary":{
+                                  "kind":"DRAFT",
+                                  "revision_id":"revision_9",
+                                  "sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                                  "brief_revision_id":"brief_3"
+                                },
+                                "source":{
+                                  "revision":"source-9",
+                                  "snapshot_id":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+                                },
+                                "narrative_evidence":{
+                                  "evidence_id":"draft:chapter_38:revision_9:0",
+                                  "kind":"DRAFT",
+                                  "text":"Doom enfrenta al Guardián y Soren en Grayhaven.",
+                                  "sha256":"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                                  "canon_status":"DRAFT",
+                                  "authority":"WRITING_ROOM_DRAFT",
+                                  "title":"Capítulo 38",
+                                  "heading":"current draft",
+                                  "chapter_number":38,
+                                  "request_text":"Genera la batalla de Doom contra el Guardián y Soren"
+                                },
+                                "selection":{
+                                  "character_ids":["character:doom","character:guardian","character:soren"],
+                                  "location_id":"location:grayhaven",
+                                  "instruction":"Illustrate the exact frozen written passage."
+                                },
+                                "reference_manifest":{
+                                  "max_references":8,
+                                  "references":[],
+                                  "textual_fallback_roles":[],
+                                  "unresolved_roles":[],
+                                  "selection_explanations":[],
+                                  "approval_policy":"APPROVED_ONLY"
+                                },
+                                "exploratory":false,
+                                "generation_ready":true
+                              }
+                            }
+                            """.trimIndent(),
+                        )
                     "/api/app/writing-room/v2/visual/scenes/generate" ->
                         MockResponse().setBody(
                             """
                             {
-                              "schema":"jarvis.visual.scene-generation.v1",
+                              "schema":"jarvis.visual.scene-generation.v2",
                               "mime_type":"image/png",
                               "data_base64":"aW1hZ2U=",
                               "size_bytes":5,
@@ -145,6 +220,36 @@ class SceneBuilderApiTest {
                               "storage_retry_required":false,
                               "scene_context_id":"svc_123",
                               "scene_context_hash":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                              "scene_evaluation":{
+                                "verdict":"PASS",
+                                "score":96,
+                                "narrative_score":98,
+                                "identity_score":95,
+                                "composition_score":90,
+                                "issues":[],
+                                "correction_instruction":"",
+                                "model":"test-scene-vlm"
+                              },
+                              "scene_attempts":[{
+                                "attempt_number":1,
+                                "correction_number":0,
+                                "asset_id":"va_scene_1",
+                                "sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                "storage_state":"stored",
+                                "evaluation":{
+                                  "verdict":"PASS",
+                                  "score":96,
+                                  "narrative_score":98,
+                                  "identity_score":95,
+                                  "composition_score":90,
+                                  "issues":[],
+                                  "correction_instruction":"",
+                                  "model":"test-scene-vlm"
+                                }
+                              }],
+                              "scene_correction_count":0,
+                              "scene_human_approval_required":true,
+                              "auto_canon":false,
                               "visual_asset":{
                                 "asset_id":"va_scene_1",
                                 "project_id":"prj_story",
