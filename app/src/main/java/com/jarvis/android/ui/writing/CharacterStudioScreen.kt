@@ -176,10 +176,10 @@ fun CharacterStudioScreen(
                 state.masterRoster?.let { roster ->
                     val readyNames = roster.items
                         .filter { it.state == "READY" }
-                        .map { it.canonical_name.ifBlank { item -> item.character_id } }
+                        .map { item -> item.canonical_name.ifBlank { item.character_id } }
                     val blockedNames = roster.items
                         .filter { it.state == "BLOCKED" }
-                        .map { it.canonical_name.ifBlank { item -> item.character_id } }
+                        .map { item -> item.canonical_name.ifBlank { item.character_id } }
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = Color(0x66101B2E),
