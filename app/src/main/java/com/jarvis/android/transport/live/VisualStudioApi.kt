@@ -514,6 +514,51 @@ data class VisualSceneDirectorResponse(
 )
 
 @Serializable
+data class VisualSceneDirectorJobAttempt(
+    val attempt_number: Int = 0,
+    val status: String = "",
+    val asset_id: String = "",
+    val sha256: String = "",
+    val storage_state: String = "",
+    val provider: String = "",
+    val model: String = "",
+    val evaluation: VisualSceneEvaluationEvidence = VisualSceneEvaluationEvidence(),
+    val correction_instruction: String = "",
+)
+
+@Serializable
+data class VisualSceneDirectorJob(
+    val job_id: String = "",
+    val project_id: String = "",
+    val context_id: String = "",
+    val context_hash: String = "",
+    val status: String = "",
+    val requested_by: String = "",
+    val final_asset_id: String = "",
+    val final_asset_sha256: String = "",
+    val storage_state: String = "",
+    val evaluation: VisualSceneEvaluationEvidence = VisualSceneEvaluationEvidence(),
+    val correction_count: Int = 0,
+    val provider_outcome_unknown: Boolean = false,
+    val last_error: String = "",
+    val warning: String = "",
+    val created_utc: String = "",
+    val updated_utc: String = "",
+    val attempts: List<VisualSceneDirectorJobAttempt> = emptyList(),
+)
+
+@Serializable
+data class VisualSceneDirectorJobResponse(
+    val schema: String = "",
+    val job: VisualSceneDirectorJob? = null,
+    val result: VisualStudioGeneratedImage? = null,
+    val async_execution: Boolean = false,
+    val human_approval_required: Boolean = true,
+    val auto_canon: Boolean = false,
+    val created: Boolean = false,
+)
+
+@Serializable
 data class VisualSceneGenerationEngineCapability(
     val state: String = "unavailable",
     val reason: String = "",
@@ -1355,6 +1400,44 @@ suspend fun JarvisAppSession.visualSceneDirectorResolve(
             if (selectedEvidenceId.isNotBlank()) {
                 put("selected_evidence_id", selectedEvidenceId)
             }
+        },
+    )
+
+suspend fun JarvisAppSession.visualSceneDirectorGenerate(
+    projectId: String,
+    contextId: String,
+    contextHash: String,
+    engine: String = "cloud",
+    mode: String = "quality",
+    model: String? = null,
+    aspectRatio: String = "landscape",
+    maxCorrections: Int = 2,
+): Result<VisualSceneDirectorJobResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/scenes/director/generate",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("context_id", contextId)
+            put("context_hash", contextHash)
+            put("engine", engine)
+            put("mode", mode)
+            put("aspect_ratio", aspectRatio)
+            put("max_corrections", maxCorrections.coerceIn(0, 2))
+            if (!model.isNullOrBlank()) put("model", model)
+        },
+    )
+
+suspend fun JarvisAppSession.visualSceneDirectorJobStatus(
+    projectId: String,
+    jobId: String = "",
+    contextId: String = "",
+): Result<VisualSceneDirectorJobResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/scenes/director/job/status",
+        buildJsonObject {
+            put("project_id", projectId)
+            if (jobId.isNotBlank()) put("job_id", jobId)
+            if (contextId.isNotBlank()) put("context_id", contextId)
         },
     )
 
