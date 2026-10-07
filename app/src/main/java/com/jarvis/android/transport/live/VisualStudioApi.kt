@@ -242,6 +242,18 @@ data class VisualStudioGeneratedImage(
 
 
 @Serializable
+data class VisualCharacterEvaluationEvidence(
+    val verdict: String = "",
+    val score: Int? = null,
+    val identity_score: Int? = null,
+    val canon_score: Int? = null,
+    val perspective_score: Int? = null,
+    val issues: List<String> = emptyList(),
+    val correction_instruction: String = "",
+    val model: String = "",
+)
+
+@Serializable
 data class VisualCharacterBatchItem(
     val perspective: String = "",
     val sequence: Int = 0,
@@ -250,6 +262,15 @@ data class VisualCharacterBatchItem(
     val candidate_sha256: String = "",
     val correction_count: Int = 0,
     val error_code: String = "",
+    val job_id: String = "",
+    val job_status: String = "",
+    val job_error: String = "",
+    val generation_attempts: Int = 0,
+    val evaluation_status: String = "",
+    val evaluation_score: Int? = null,
+    val evaluation_model: String = "",
+    val evaluation: VisualCharacterEvaluationEvidence = VisualCharacterEvaluationEvidence(),
+    val correction_instruction: String = "",
     val created_utc: String = "",
     val updated_utc: String = "",
 )
@@ -267,6 +288,7 @@ data class VisualCharacterBatch(
     val mode: String = "quality",
     val max_corrections: Int = 2,
     val generation_budget: Int = 0,
+    val generation_used: Int = 0,
     val status: String = "",
     val created_utc: String = "",
     val updated_utc: String = "",
@@ -282,7 +304,12 @@ data class VisualCharacterBatch(
 data class VisualCharacterBatchResponse(
     val schema: String = "",
     val batch: VisualCharacterBatch? = null,
+    val queued_job_ids: List<String> = emptyList(),
     val generated_asset_ids: List<String> = emptyList(),
+    val async_execution: Boolean = false,
+    val semantic_evaluation: Boolean = false,
+    val max_corrections: Int = 0,
+    val generation_budget: Int = 0,
     val human_approval_required: Boolean = true,
     val auto_canon: Boolean = false,
 )

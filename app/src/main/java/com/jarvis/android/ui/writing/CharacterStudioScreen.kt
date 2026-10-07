@@ -399,15 +399,23 @@ fun CharacterStudioScreen(
                                     adjustment = turnaroundPrompt,
                                 )
                             },
-                            enabled = master != null && !state.busy,
+                            enabled = master != null &&
+                                !state.busy &&
+                                state.batch?.status != "RUNNING",
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
-                            Text("Completar vistas faltantes")
+                            Text(
+                                if (state.batch?.status == "RUNNING") {
+                                    "JARVIS trabajando en segundo plano"
+                                } else {
+                                    "Completar vistas faltantes"
+                                },
+                            )
                         }
                         Text(
-                            "JARVIS reutiliza vistas aprobadas o candidatas existentes y genera únicamente las que faltan.",
+                            "JARVIS reutiliza vistas existentes, genera solo las faltantes, las evalúa contra canon + master y aplica como máximo dos correcciones automáticas.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF94A3B8),
                         )
@@ -434,15 +442,85 @@ fun CharacterStudioScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color(0xFFCBD5E1),
                                     )
+                                    Text(
+                                        "Generaciones: " + batch.generation_used.toString() +
+                                            " / " + batch.generation_budget.toString() +
+                                            " · máximo " + batch.max_corrections.toString() +
+                                            " correcciones por vista",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFF94A3B8),
+                                    )
                                     batch.items.forEach { item ->
+                                        val evaluation = when {
+                                            item.evaluation_status == "PASS" ->
+                                                " · eval PASS " +
+                                                    (item.evaluation_score?.toString() ?: "—")
+                                            item.evaluation_status == "CORRECT" ->
+                                                " · eval REVISAR " +
+                                                    (item.evaluation_score?.toString() ?: "—")
+                                            item.evaluation_status == "UNAVAILABLE" ->
+                                                " · eval no disponible"
+                                            else -> ""
+                                        }
+                                        val attempts = if (item.generation_attempts > 0) {
+                                            " · " + item.generation_attempts.toString() + " intento(s)"
+                                        } else {
+                                            ""
+                                        }
                                         Text(
-                                            prettyPerspective(item.perspective) + " · " + item.status +
-                                                if (item.candidate_sha256.isBlank()) "" else " · " + item.candidate_sha256.take(10) + "…",
+                                            prettyPerspective(item.perspective) + " · " +
+                                                item.status + attempts + evaluation +
+                                                if (item.candidate_sha256.isBlank()) {
+                                                    ""
+                                                } else {
+                                                    " · " + item.candidate_sha256.take(10) + "…"
+                                                },
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = if (item.status.startsWith("APPROVED")) JarvisGreen
-                                                else if (item.status.contains("CANDIDATE")) JarvisAmber
-                                                else Color(0xFF94A3B8),
+                                            color = when {
+                                                item.evaluation_status == "PASS" ||
+                                                    item.status.startsWith("APPROVED") -> JarvisGreen
+                                                item.evaluation_status == "CORRECT" ||
+                                                    item.status.contains("CANDIDATE") -> JarvisAmber
+                                                else -> Color(0xFF94A3B8)
+                                            },
                                         )
+                                        if (item.evaluation_status.isNotBlank()) {
+                                            val evidence = item.evaluation
+                                            if (
+                                                evidence.identity_score != null ||
+                                                evidence.canon_score != null ||
+                                                evidence.perspective_score != null
+                                            ) {
+                                                Text(
+                                                    "Identidad " +
+                                                        (evidence.identity_score?.toString() ?: "—") +
+                                                        " · canon " +
+                                                        (evidence.canon_score?.toString() ?: "—") +
+                                                        " · ángulo " +
+                                                        (evidence.perspective_score?.toString() ?: "—"),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color(0xFF94A3B8),
+                                                )
+                                            }
+                                            evidence.issues.take(3).forEach { issue ->
+                                                Text(
+                                                    "• " + issue,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = JarvisAmber,
+                                                )
+                                            }
+                                        }
+                                        if (
+                                            item.evaluation_status == "CORRECT" &&
+                                            item.correction_instruction.isNotBlank()
+                                        ) {
+                                            Text(
+                                                "Última corrección: " +
+                                                    item.correction_instruction,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF94A3B8),
+                                            )
+                                        }
                                     }
                                     val approvable = batch.items.count {
                                         it.status == "CANDIDATE" || it.status == "CANDIDATE_EXISTING"

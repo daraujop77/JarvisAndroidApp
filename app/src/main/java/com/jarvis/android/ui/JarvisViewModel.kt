@@ -19,6 +19,8 @@ import android.net.Uri
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -1845,6 +1847,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     // Invalidate late media results even when the user switches away and back.
     private var characterStudioScopeVersion = 0L
+    private var characterBatchPollJob: Job? = null
     private val _characterStudio = MutableStateFlow(CharacterStudioState())
     val characterStudio: StateFlow<CharacterStudioState> = _characterStudio
 
@@ -1912,6 +1915,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val sceneBuilder: StateFlow<SceneBuilderState> = _sceneBuilder
 
     private fun resetVisualStudioProtectedMedia() {
+        characterBatchPollJob?.cancel()
+        characterBatchPollJob = null
         characterStudioScopeVersion++
         locationStudioScopeVersion++
         _imageEditState.value = ImageEditState.Idle
@@ -1937,6 +1942,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
         val current = _characterStudio.value
         if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterBatchPollJob?.cancel()
+            characterBatchPollJob = null
             characterStudioScopeVersion++
             _imageEditState.value = ImageEditState.Idle
             _lastImageEditDetails.value = null
@@ -1960,6 +1967,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (cleanProject.isBlank() || cleanCharacter.isBlank()) return
         val current = _characterStudio.value
         if (current.projectId != cleanProject || current.characterId != cleanCharacter) {
+            characterBatchPollJob?.cancel()
+            characterBatchPollJob = null
             characterStudioScopeVersion++
             _imageEditState.value = ImageEditState.Idle
             _lastImageEditDetails.value = null
@@ -2006,6 +2015,72 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 adjustment = loadedBatch.adjustment,
                 resumeBatchId = loadedBatch.batch_id,
             )
+        } else if (loadedBatch?.status == "RUNNING") {
+            startCharacterBatchPolling(
+                projectId,
+                characterId,
+                loadedBatch.batch_id,
+            )
+        }
+    }
+
+    private fun startCharacterBatchPolling(
+        projectId: String,
+        characterId: String,
+        batchId: String,
+    ) {
+        if (batchId.isBlank()) return
+        characterBatchPollJob?.cancel()
+        val scopeVersion = characterStudioScopeVersion
+        characterBatchPollJob = viewModelScope.launch {
+            while (true) {
+                delay(1_800)
+                if (
+                    scopeVersion != characterStudioScopeVersion ||
+                    _characterStudio.value.projectId != projectId ||
+                    _characterStudio.value.characterId != characterId
+                ) return@launch
+                val result = container.liveSession.visualCharacterBatchStatus(
+                    projectId,
+                    characterId,
+                    batchId,
+                )
+                val response = result.getOrNull()
+                val batch = response?.batch
+                if (batch != null) {
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            batch = batch,
+                            notice = when (batch.status) {
+                                "RUNNING" ->
+                                    "JARVIS está generando y evaluando las vistas en segundo plano."
+                                "READY_FOR_REVIEW" ->
+                                    "Lote evaluado y listo para revisión conjunta."
+                                "BLOCKED" ->
+                                    "El lote se detuvo de forma segura; no se repetirá una operación de pago ambigua."
+                                "COMPLETED" ->
+                                    "Las vistas del lote están aprobadas."
+                                else -> it.notice
+                            },
+                            error = null,
+                        )
+                    }
+                    if (batch.status != "RUNNING" && batch.status != "READY") {
+                        reloadCharacterStudio(projectId, characterId)
+                        return@launch
+                    }
+                } else if (result.isFailure) {
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            notice = "El lote sigue guardado en el servidor; se reintentará consultar su estado.",
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -2096,7 +2171,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _characterStudio.update {
             it.copy(
                 busy = true,
-                busyLabel = if (resumeBatchId.isBlank()) "Preparando vistas faltantes" else "Reanudando lote de vistas",
+                busyLabel = if (resumeBatchId.isBlank()) {
+                    "Preparando trabajo visual"
+                } else {
+                    "Reanudando trabajo visual"
+                },
                 notice = null,
                 error = null,
             )
@@ -2113,23 +2192,40 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     val batch = response.batch
                     _characterStudio.update {
                         it.copy(
+                            busy = false,
+                            busyLabel = "",
                             batch = batch,
                             notice = when (batch?.status) {
-                                "READY_FOR_REVIEW" -> "Lote listo para revisión. JARVIS generó solo las vistas que faltaban."
-                                "BLOCKED" -> "El lote se detuvo de forma segura; no se repetirá una generación con resultado ambiguo."
-                                "COMPLETED" -> "Las vistas solicitadas ya están aprobadas."
-                                else -> "El lote quedó guardado y puede reanudarse sin duplicar salidas."
+                                "RUNNING" ->
+                                    "Trabajo iniciado. JARVIS generará, evaluará y corregirá en segundo plano."
+                                "READY_FOR_REVIEW" ->
+                                    "Lote evaluado y listo para revisión conjunta."
+                                "BLOCKED" ->
+                                    "El lote se detuvo de forma segura; no se repetirá una generación con resultado ambiguo."
+                                "COMPLETED" ->
+                                    "Las vistas solicitadas ya están aprobadas."
+                                else ->
+                                    "El lote quedó guardado y puede recuperarse sin duplicar salidas."
                             },
                         )
                     }
-                    reloadCharacterStudio(projectId, characterId)
+                    if (batch?.status == "RUNNING") {
+                        startCharacterBatchPolling(
+                            projectId,
+                            characterId,
+                            batch.batch_id,
+                        )
+                    } else {
+                        reloadCharacterStudio(projectId, characterId)
+                    }
                 },
                 onFailure = { error ->
                     _characterStudio.update {
                         it.copy(
                             busy = false,
                             busyLabel = "",
-                            error = error.message ?: "No se pudo completar el lote de vistas.",
+                            error = error.message
+                                ?: "No se pudo preparar el lote de vistas.",
                         )
                     }
                 },
