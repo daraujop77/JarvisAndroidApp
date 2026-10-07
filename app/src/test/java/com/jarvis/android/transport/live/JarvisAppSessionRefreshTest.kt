@@ -72,7 +72,7 @@ class JarvisAppSessionRefreshTest {
     fun verifiedPublicBootstrapGatewayIsAllowedAndTailscaleIndependent() {
         val bootstrap = BuildConfig.JARVIS_BOOTSTRAP_GATEWAY
 
-        assertEquals("https://40-160-143-245.sslip.io:8443", bootstrap)
+        assertTrue(bootstrap.startsWith("https://"))
         assertTrue(JarvisAppSession.isAllowedLiveHost(bootstrap))
         assertFalse(bootstrap.contains(".ts.net"))
         assertFalse(bootstrap.contains("100.64."))

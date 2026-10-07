@@ -45,7 +45,7 @@ android {
         buildConfigField(
             "String",
             "JARVIS_BOOTSTRAP_GATEWAY",
-            "\\"${jarvisBootstrapGateway.get()}\\"",
+            "\"${jarvisBootstrapGateway.get()}\"",
         )
 
         // Checked-in schemas are what Lane C migration tests diff against.
