@@ -125,11 +125,235 @@ class SceneBuilderApiTest {
                             }
                             """.trimIndent(),
                         )
+                    "/api/app/writing-room/v2/visual/scenes/director/resolve" ->
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.scene-director.v1",
+                              "project_id":"prj_story",
+                              "request_text":"Genera la batalla de Doom contra el Guardián y Soren",
+                              "status":"READY",
+                              "resolver_model":"gpt-6-sol",
+                              "recommended_engine":"cloud",
+                              "generation_max_corrections":2,
+                              "human_selection_required":false,
+                              "missing_story_fact":false,
+                              "selected_evidence_id":"draft:chapter_38:revision_9:0",
+                              "candidates":[{
+                                "evidence_id":"draft:chapter_38:revision_9:0",
+                                "kind":"DRAFT",
+                                "title":"Capítulo 38",
+                                "heading":"current draft",
+                                "chapter_id":"chapter_38",
+                                "chapter_number":38,
+                                "canon_status":"DRAFT",
+                                "authority":"WRITING_ROOM_DRAFT",
+                                "score":47,
+                                "excerpt":"Doom enfrenta al Guardián y Soren en Grayhaven."
+                              }],
+                              "context":{
+                                "schema":"jarvis.visual.scene-context.v1",
+                                "context_id":"svc_director",
+                                "context_hash":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                "project_id":"prj_story",
+                                "chapter_id":"chapter_38",
+                                "scene_id":"scene:director:test",
+                                "aggregate_version":9,
+                                "narrative_boundary":{
+                                  "kind":"DRAFT",
+                                  "revision_id":"revision_9",
+                                  "sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                                  "brief_revision_id":"brief_3"
+                                },
+                                "source":{
+                                  "revision":"source-9",
+                                  "snapshot_id":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+                                },
+                                "narrative_evidence":{
+                                  "evidence_id":"draft:chapter_38:revision_9:0",
+                                  "kind":"DRAFT",
+                                  "text":"Doom enfrenta al Guardián y Soren en Grayhaven.",
+                                  "sha256":"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                                  "canon_status":"DRAFT",
+                                  "authority":"WRITING_ROOM_DRAFT",
+                                  "title":"Capítulo 38",
+                                  "heading":"current draft",
+                                  "chapter_number":38,
+                                  "request_text":"Genera la batalla de Doom contra el Guardián y Soren"
+                                },
+                                "selection":{
+                                  "character_ids":["character:doom","character:guardian","character:soren"],
+                                  "location_id":"location:grayhaven",
+                                  "instruction":"Illustrate the exact frozen written passage."
+                                },
+                                "reference_manifest":{
+                                  "max_references":8,
+                                  "references":[],
+                                  "textual_fallback_roles":[],
+                                  "unresolved_roles":[],
+                                  "selection_explanations":[],
+                                  "approval_policy":"APPROVED_ONLY"
+                                },
+                                "exploratory":false,
+                                "generation_ready":true
+                              }
+                            }
+                            """.trimIndent(),
+                        )
+                    "/api/app/writing-room/v2/visual/scenes/director/generate" ->
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.scene-director-job.v1",
+                              "job":{
+                                "job_id":"vsj_scene_1",
+                                "project_id":"prj_story",
+                                "context_id":"svc_123",
+                                "context_hash":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                "status":"QUEUED",
+                                "requested_by":"owner-1",
+                                "attempts":[]
+                              },
+                              "result":null,
+                              "async_execution":true,
+                              "human_approval_required":true,
+                              "auto_canon":false,
+                              "created":true
+                            }
+                            """.trimIndent(),
+                        )
+                    "/api/app/writing-room/v2/visual/scenes/director/job/status" ->
+                        MockResponse().setBody(
+                            """
+                            {
+                              "schema":"jarvis.visual.scene-director-job.v1",
+                              "job":{
+                                "job_id":"vsj_scene_1",
+                                "project_id":"prj_story",
+                                "context_id":"svc_123",
+                                "context_hash":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                "status":"READY_FOR_REVIEW",
+                                "requested_by":"owner-1",
+                                "final_asset_id":"va_scene_1",
+                                "final_asset_sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                "storage_state":"stored",
+                                "evaluation":{
+                                  "verdict":"PASS",
+                                  "score":96,
+                                  "narrative_score":98,
+                                  "identity_score":95,
+                                  "composition_score":90,
+                                  "issues":[],
+                                  "correction_instruction":"",
+                                  "model":"test-scene-vlm"
+                                },
+                                "correction_count":0,
+                                "provider_outcome_unknown":false,
+                                "last_error":"",
+                                "warning":"",
+                                "attempts":[{
+                                  "attempt_number":1,
+                                  "status":"EVALUATED_PASS",
+                                  "asset_id":"va_scene_1",
+                                  "sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                  "storage_state":"stored",
+                                  "provider":"xai-oauth",
+                                  "model":"grok-imagine-image-2.0",
+                                  "evaluation":{
+                                    "verdict":"PASS",
+                                    "score":96,
+                                    "narrative_score":98,
+                                    "identity_score":95,
+                                    "composition_score":90,
+                                    "issues":[],
+                                    "correction_instruction":"",
+                                    "model":"test-scene-vlm"
+                                  }
+                                }]
+                              },
+                              "result":{
+                                "schema":"jarvis.visual.scene-generation.v2",
+                                "mime_type":"image/png",
+                                "data_base64":"aW1hZ2U=",
+                                "size_bytes":5,
+                                "provider":"xai-oauth",
+                                "model":"grok-imagine-image-2.0",
+                                "route":"scene_director_job",
+                                "requested_mode":"quality",
+                                "fallback_used":false,
+                                "attempt_count":1,
+                                "reference_count":2,
+                                "vps_persistence":"visual_asset_candidate",
+                                "storage_retry_required":false,
+                                "scene_context_id":"svc_123",
+                                "scene_context_hash":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                "scene_evaluation":{
+                                  "verdict":"PASS",
+                                  "score":96,
+                                  "narrative_score":98,
+                                  "identity_score":95,
+                                  "composition_score":90,
+                                  "issues":[],
+                                  "correction_instruction":"",
+                                  "model":"test-scene-vlm"
+                                },
+                                "scene_attempts":[{
+                                  "attempt_number":1,
+                                  "correction_number":0,
+                                  "asset_id":"va_scene_1",
+                                  "sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                  "storage_state":"stored",
+                                  "evaluation":{
+                                    "verdict":"PASS",
+                                    "score":96,
+                                    "narrative_score":98,
+                                    "identity_score":95,
+                                    "composition_score":90,
+                                    "issues":[],
+                                    "correction_instruction":"",
+                                    "model":"test-scene-vlm"
+                                  }
+                                }],
+                                "scene_correction_count":0,
+                                "scene_human_approval_required":true,
+                                "auto_canon":false,
+                                "visual_asset":{
+                                  "asset_id":"va_scene_1",
+                                  "project_id":"prj_story",
+                                  "kind":"SCENE_ART",
+                                  "status":"CANDIDATE",
+                                  "source":"CLOUD_GENERATOR",
+                                  "sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                  "mime_type":"image/png",
+                                  "size_bytes":5,
+                                  "character_ids":["character:doom","character:guardian","character:soren"],
+                                  "chapter_ids":["chapter_38"],
+                                  "event_ids":[],
+                                  "location_ids":["location:grayhaven"],
+                                  "scene_ids":["scene:director:test"],
+                                  "perspective":"scene",
+                                  "visual_revision":0,
+                                  "provenance":{},
+                                  "storage":{
+                                    "backend":"google_drive",
+                                    "state":"stored",
+                                    "drive_file_id":"drive-scene-1",
+                                    "drive_parent_id":"drive-scenes"
+                                  }
+                                }
+                              },
+                              "async_execution":true,
+                              "human_approval_required":true,
+                              "auto_canon":false,
+                              "created":false
+                            }
+                            """.trimIndent(),
+                        )
                     "/api/app/writing-room/v2/visual/scenes/generate" ->
                         MockResponse().setBody(
                             """
                             {
-                              "schema":"jarvis.visual.scene-generation.v1",
+                              "schema":"jarvis.visual.scene-generation.v2",
                               "mime_type":"image/png",
                               "data_base64":"aW1hZ2U=",
                               "size_bytes":5,
@@ -145,6 +369,36 @@ class SceneBuilderApiTest {
                               "storage_retry_required":false,
                               "scene_context_id":"svc_123",
                               "scene_context_hash":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                              "scene_evaluation":{
+                                "verdict":"PASS",
+                                "score":96,
+                                "narrative_score":98,
+                                "identity_score":95,
+                                "composition_score":90,
+                                "issues":[],
+                                "correction_instruction":"",
+                                "model":"test-scene-vlm"
+                              },
+                              "scene_attempts":[{
+                                "attempt_number":1,
+                                "correction_number":0,
+                                "asset_id":"va_scene_1",
+                                "sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                "storage_state":"stored",
+                                "evaluation":{
+                                  "verdict":"PASS",
+                                  "score":96,
+                                  "narrative_score":98,
+                                  "identity_score":95,
+                                  "composition_score":90,
+                                  "issues":[],
+                                  "correction_instruction":"",
+                                  "model":"test-scene-vlm"
+                                }
+                              }],
+                              "scene_correction_count":0,
+                              "scene_human_approval_required":true,
+                              "auto_canon":false,
                               "visual_asset":{
                                 "asset_id":"va_scene_1",
                                 "project_id":"prj_story",
@@ -314,6 +568,40 @@ class SceneBuilderApiTest {
     }
 
     @Test
+    fun sceneDirectorResolvesFrozenPassageWithoutManualSceneFields() = runBlocking {
+        val result = session().visualSceneDirectorResolve(
+            projectId = "prj_story",
+            requestText = "Genera la batalla de Doom contra el Guardián y Soren",
+        ).getOrThrow()
+
+        assertEquals("READY", result.status)
+        assertEquals("cloud", result.recommended_engine)
+        assertEquals(2, result.generation_max_corrections)
+        assertFalse(result.human_selection_required)
+        assertFalse(result.missing_story_fact)
+        assertEquals("DRAFT", result.context?.narrative_evidence?.kind)
+        assertEquals(
+            "Doom enfrenta al Guardián y Soren en Grayhaven.",
+            result.context?.narrative_evidence?.text,
+        )
+        assertEquals(
+            listOf("character:doom", "character:guardian", "character:soren"),
+            result.context?.selection?.character_ids,
+        )
+
+        val request = server.takeRequest()
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
+        assertEquals(
+            "Genera la batalla de Doom contra el Guardián y Soren",
+            body["request_text"]!!.jsonPrimitive.content,
+        )
+        assertFalse(body.containsKey("chapter_id"))
+        assertFalse(body.containsKey("character_ids"))
+        assertFalse(body.containsKey("location_id"))
+    }
+
+    @Test
     fun frozenContextCanBeReopenedByExactId() = runBlocking {
         val result = session().visualSceneContextGet(
             projectId = "prj_story",
@@ -341,6 +629,12 @@ class SceneBuilderApiTest {
         assertEquals("SCENE_ART", result.visual_asset?.kind)
         assertEquals("CANDIDATE", result.visual_asset?.status)
         assertEquals(2, result.reference_count)
+        assertEquals("PASS", result.scene_evaluation.verdict)
+        assertEquals(98, result.scene_evaluation.narrative_score)
+        assertEquals(95, result.scene_evaluation.identity_score)
+        assertEquals(1, result.scene_attempts.size)
+        assertTrue(result.scene_human_approval_required)
+        assertFalse(result.auto_canon)
 
         val request = server.takeRequest()
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
@@ -349,8 +643,71 @@ class SceneBuilderApiTest {
         assertEquals("cloud", body["engine"]!!.jsonPrimitive.content)
         assertEquals("quality", body["mode"]!!.jsonPrimitive.content)
         assertEquals("landscape", body["aspect_ratio"]!!.jsonPrimitive.content)
+        assertEquals(0, body["max_corrections"]!!.jsonPrimitive.content.toInt())
         assertFalse(body.containsKey("prompt"))
         assertFalse(body.containsKey("references"))
+    }
+
+
+    @Test
+    fun directorGenerationQueuesDurableJobWithOnlyFrozenContext() = runBlocking {
+        val queued = session().visualSceneDirectorGenerate(
+            projectId = "prj_story",
+            contextId = "svc_123",
+            contextHash = "A".repeat(64),
+            engine = "cloud",
+            mode = "quality",
+            aspectRatio = "landscape",
+            maxCorrections = 2,
+        ).getOrThrow()
+
+        assertTrue(queued.async_execution)
+        assertTrue(queued.created)
+        assertEquals("QUEUED", queued.job?.status)
+        assertEquals("vsj_scene_1", queued.job?.job_id)
+        assertEquals(null, queued.result)
+
+        val request = server.takeRequest()
+        assertEquals(
+            "/api/app/writing-room/v2/visual/scenes/director/generate",
+            request.path,
+        )
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("svc_123", body["context_id"]!!.jsonPrimitive.content)
+        assertEquals("A".repeat(64), body["context_hash"]!!.jsonPrimitive.content)
+        assertEquals(2, body["max_corrections"]!!.jsonPrimitive.content.toInt())
+        assertFalse(body.containsKey("prompt"))
+        assertFalse(body.containsKey("references"))
+    }
+
+    @Test
+    fun directorStatusRestoresDurableCandidateAndEvaluation() = runBlocking {
+        val finished = session().visualSceneDirectorJobStatus(
+            projectId = "prj_story",
+            jobId = "vsj_scene_1",
+        ).getOrThrow()
+
+        assertEquals("READY_FOR_REVIEW", finished.job?.status)
+        assertEquals("va_scene_1", finished.job?.final_asset_id)
+        assertEquals(1, finished.job?.attempts?.size)
+        assertEquals(
+            "EVALUATED_PASS",
+            finished.job?.attempts?.firstOrNull()?.status,
+        )
+        assertEquals("PASS", finished.result?.scene_evaluation?.verdict)
+        assertEquals("CANDIDATE", finished.result?.visual_asset?.status)
+        assertEquals("svc_123", finished.result?.scene_context_id)
+        assertFalse(finished.auto_canon)
+
+        val request = server.takeRequest()
+        assertEquals(
+            "/api/app/writing-room/v2/visual/scenes/director/job/status",
+            request.path,
+        )
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
+        assertEquals("vsj_scene_1", body["job_id"]!!.jsonPrimitive.content)
+        assertFalse(body.containsKey("context_hash"))
     }
 
 

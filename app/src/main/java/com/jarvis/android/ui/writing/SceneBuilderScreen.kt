@@ -88,6 +88,8 @@ fun SceneBuilderScreen(
     var weather by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
     var composition by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
     var instruction by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
+    var directorRequest by rememberSaveable(projectId) { mutableStateOf("") }
+    var showManual by rememberSaveable(projectId) { mutableStateOf(false) }
     var generationEngine by rememberSaveable(projectId) { mutableStateOf("cloud") }
     var generationMode by rememberSaveable(projectId) { mutableStateOf("quality") }
 
@@ -136,7 +138,7 @@ fun SceneBuilderScreen(
                     Spacer(Modifier.height(4.dp))
                     Text(
                         if (chapterId.isBlank()) {
-                            "Abre un capítulo de Writing para fijar su contexto narrativo."
+                            "El Director puede buscar en la historia completa; abre un capítulo solo si quieres usar el modo manual."
                         } else {
                             "Capítulo: " + chapterId + " · " + if (useDraft) "Draft" else "Brief"
                         },
@@ -154,6 +156,144 @@ fun SceneBuilderScreen(
             }
         }
 
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xCC0B2233),
+                border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.48f)),
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        "DIRECTOR DE ESCENA",
+                        color = JarvisCyan,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        "Describe qué momento quieres ver. JARVIS busca el pasaje exacto, identifica participantes y locación, elige referencias aprobadas y evalúa la imagen antes de entregártela.",
+                        color = Color(0xFFCBD5E1),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = directorRequest,
+                        onValueChange = { directorRequest = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Ej. batalla de Doom contra el Guardián y Soren") },
+                        minLines = 2,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        enabled = settings.isOwner &&
+                            !builder.busy &&
+                            directorRequest.isNotBlank(),
+                        onClick = {
+                            vm.directSceneVisual(
+                                projectId = projectId,
+                                requestText = directorRequest,
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            if (builder.busy) {
+                                builder.busyLabel.ifBlank { "Procesando escena…" }
+                            } else {
+                                "Generar desde texto y canon"
+                            },
+                        )
+                    }
+                    if (!settings.isOwner) {
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Solo el owner puede iniciar generación visual.",
+                            color = Color(0xFF94A3B8),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (builder.directorStatus == "AMBIGUOUS" && builder.directorCandidates.isNotEmpty()) {
+            item {
+                Text(
+                    "Encontré varios pasajes posibles",
+                    color = JarvisAmber,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            items(
+                builder.directorCandidates,
+                key = { "director:" + it.evidence_id },
+            ) { candidate ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xCC171C29),
+                    border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.35f)),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            candidate.title.ifBlank {
+                                candidate.heading.ifBlank { candidate.kind }
+                            },
+                            color = Color(0xFFF8FAFC),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            listOfNotNull(
+                                candidate.chapter_number?.let { "Cap. $it" },
+                                candidate.canon_status.takeIf { it.isNotBlank() },
+                                candidate.kind.takeIf { it.isNotBlank() },
+                            ).joinToString(" · "),
+                            color = JarvisCyan,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            candidate.excerpt,
+                            color = Color(0xFFCBD5E1),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 6,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            enabled = !builder.busy,
+                            onClick = {
+                                vm.directSceneVisual(
+                                    projectId = projectId,
+                                    requestText = directorRequest,
+                                    selectedEvidenceId = candidate.evidence_id,
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Usar este pasaje")
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            OutlinedButton(
+                onClick = { showManual = !showManual },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (showManual) {
+                        "Ocultar modo manual"
+                    } else {
+                        "Modo manual / avanzado"
+                    },
+                )
+            }
+        }
+
+        if (showManual) {
         item {
             OutlinedTextField(
                 value = sceneId,
@@ -302,6 +442,8 @@ fun SceneBuilderScreen(
             }
         }
 
+        }
+
         builder.error?.let { message ->
             item {
                 Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -315,6 +457,57 @@ fun SceneBuilderScreen(
                     color = if (builder.context?.generation_ready == true) JarvisGreen else JarvisAmber,
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+        }
+
+        builder.directorJob?.let { job ->
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xCC111827),
+                    border = BorderStroke(
+                        1.dp,
+                        if (job.status == "READY_FOR_REVIEW") {
+                            JarvisGreen.copy(alpha = 0.42f)
+                        } else {
+                            JarvisCyan.copy(alpha = 0.32f)
+                        },
+                    ),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            "TRABAJO DURABLE · " + job.status,
+                            color = if (job.status == "READY_FOR_REVIEW") {
+                                JarvisGreen
+                            } else {
+                                JarvisCyan
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Intentos registrados: " + job.attempts.size +
+                                " · correcciones: " + job.correction_count,
+                            color = Color(0xFFCBD5E1),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (job.provider_outcome_unknown) {
+                            Text(
+                                "Resultado de proveedor ambiguo; JARVIS no volverá a despachar automáticamente.",
+                                color = JarvisAmber,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        if (job.warning.isNotBlank()) {
+                            Text(
+                                job.warning,
+                                color = Color(0xFF94A3B8),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -347,6 +540,29 @@ fun SceneBuilderScreen(
                             color = Color(0xFF94A3B8),
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        if (context.narrative_evidence.text.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "PASAJE CONGELADO · " +
+                                    context.narrative_evidence.kind.ifBlank {
+                                        context.narrative_evidence.canon_status
+                                    },
+                                color = JarvisCyan,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            Text(
+                                context.narrative_evidence.text,
+                                color = Color(0xFFCBD5E1),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 8,
+                            )
+                            Text(
+                                "SHA " + context.narrative_evidence.sha256.take(12) + "… · " +
+                                    context.narrative_evidence.canon_status,
+                                color = Color(0xFF94A3B8),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
                     }
                 }
             }
@@ -567,6 +783,59 @@ fun SceneBuilderScreen(
                             color = if (asset?.storage?.state == "stored") JarvisGreen else JarvisAmber,
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        if (generated.scene_provider_outcome_unknown) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "CORRECCIÓN AMBIGUA · no se reintentó automáticamente",
+                                color = JarvisAmber,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            if (generated.scene_generation_warning.isNotBlank()) {
+                                Text(
+                                    generated.scene_generation_warning,
+                                    color = Color(0xFFCBD5E1),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                        if (generated.scene_evaluation.verdict.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            val evaluation = generated.scene_evaluation
+                            Text(
+                                "EVALUACIÓN · " + evaluation.verdict +
+                                    " · correcciones " + generated.scene_correction_count,
+                                color = if (evaluation.verdict == "PASS") JarvisGreen else JarvisAmber,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            if (
+                                evaluation.narrative_score != null ||
+                                evaluation.identity_score != null ||
+                                evaluation.composition_score != null
+                            ) {
+                                Text(
+                                    "Pasaje " + (evaluation.narrative_score?.toString() ?: "—") +
+                                        " · identidad " + (evaluation.identity_score?.toString() ?: "—") +
+                                        " · composición " + (evaluation.composition_score?.toString() ?: "—"),
+                                    color = Color(0xFFCBD5E1),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            evaluation.issues.take(4).forEach { issue ->
+                                Text(
+                                    "• " + issue,
+                                    color = JarvisAmber,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            if (generated.scene_attempts.size > 1) {
+                                Text(
+                                    generated.scene_attempts.size.toString() +
+                                        " candidatos conservados en el historial de generación.",
+                                    color = Color(0xFF94A3B8),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        }
                         if (asset != null && settings.isOwner) {
                             Spacer(Modifier.height(10.dp))
                             if (asset.storage.state != "stored") {
