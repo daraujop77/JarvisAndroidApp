@@ -732,6 +732,21 @@ fun SceneBuilderScreen(
                             color = if (asset?.storage?.state == "stored") JarvisGreen else JarvisAmber,
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        if (generated.scene_provider_outcome_unknown) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "CORRECCIÓN AMBIGUA · no se reintentó automáticamente",
+                                color = JarvisAmber,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            if (generated.scene_generation_warning.isNotBlank()) {
+                                Text(
+                                    generated.scene_generation_warning,
+                                    color = Color(0xFFCBD5E1),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
                         if (generated.scene_evaluation.verdict.isNotBlank()) {
                             Spacer(Modifier.height(8.dp))
                             val evaluation = generated.scene_evaluation
