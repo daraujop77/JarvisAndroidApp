@@ -282,6 +282,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 planningV2Direction = null,
                 draftV2 = null,
                 approvalV2 = null,
+                autoReviewV2 = null,
             )
         }
         writingWorkspaceBusy("Loading workspace")
@@ -1143,6 +1144,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 _writingWorkspace.value = _writingWorkspace.value.copy(
                     draftV2 = null,
                     approvalV2 = null,
+                    autoReviewV2 = null,
                 )
             }
             return
