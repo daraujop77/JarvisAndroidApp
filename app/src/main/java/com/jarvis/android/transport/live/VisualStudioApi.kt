@@ -1334,6 +1334,22 @@ suspend fun JarvisAppSession.editSceneVisualAssetImage(
 }
 
 
+suspend fun JarvisAppSession.visualSceneDirectorResolve(
+    projectId: String,
+    requestText: String,
+    selectedEvidenceId: String = "",
+): Result<VisualSceneDirectorResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/scenes/director/resolve",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("request_text", requestText.trim())
+            if (selectedEvidenceId.isNotBlank()) {
+                put("selected_evidence_id", selectedEvidenceId)
+            }
+        },
+    )
+
 suspend fun JarvisAppSession.visualSceneContextPreview(
     projectId: String,
     chapterId: String,
@@ -1428,6 +1444,7 @@ suspend fun JarvisAppSession.generateSceneVisualAssetImage(
     mode: String = "quality",
     model: String? = null,
     aspectRatio: String = "landscape",
+    maxCorrections: Int = 0,
 ): Result<VisualStudioGeneratedImage> =
     visualStudioObjectPost(
         "/api/app/writing-room/v2/visual/scenes/generate",
@@ -1438,6 +1455,7 @@ suspend fun JarvisAppSession.generateSceneVisualAssetImage(
             put("engine", engine)
             put("mode", mode)
             put("aspect_ratio", aspectRatio)
+            put("max_corrections", maxCorrections.coerceIn(0, 2))
             if (!model.isNullOrBlank()) put("model", model)
         },
     ).mapCatching { raw ->
