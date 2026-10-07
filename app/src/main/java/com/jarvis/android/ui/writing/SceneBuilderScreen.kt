@@ -88,6 +88,8 @@ fun SceneBuilderScreen(
     var weather by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
     var composition by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
     var instruction by rememberSaveable(projectId, chapterId) { mutableStateOf("") }
+    var directorRequest by rememberSaveable(projectId) { mutableStateOf("") }
+    var showManual by rememberSaveable(projectId) { mutableStateOf(false) }
     var generationEngine by rememberSaveable(projectId) { mutableStateOf("cloud") }
     var generationMode by rememberSaveable(projectId) { mutableStateOf("quality") }
 
@@ -154,6 +156,144 @@ fun SceneBuilderScreen(
             }
         }
 
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xCC0B2233),
+                border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.48f)),
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        "DIRECTOR DE ESCENA",
+                        color = JarvisCyan,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        "Describe qué momento quieres ver. JARVIS busca el pasaje exacto, identifica participantes y locación, elige referencias aprobadas y evalúa la imagen antes de entregártela.",
+                        color = Color(0xFFCBD5E1),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = directorRequest,
+                        onValueChange = { directorRequest = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Ej. batalla de Doom contra el Guardián y Soren") },
+                        minLines = 2,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        enabled = settings.isOwner &&
+                            !builder.busy &&
+                            directorRequest.isNotBlank(),
+                        onClick = {
+                            vm.directSceneVisual(
+                                projectId = projectId,
+                                requestText = directorRequest,
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            if (builder.busy && builder.directorStatus == "RESOLVING") {
+                                "Buscando y verificando…"
+                            } else {
+                                "Generar desde texto y canon"
+                            },
+                        )
+                    }
+                    if (!settings.isOwner) {
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Solo el owner puede iniciar generación visual.",
+                            color = Color(0xFF94A3B8),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (builder.directorStatus == "AMBIGUOUS" && builder.directorCandidates.isNotEmpty()) {
+            item {
+                Text(
+                    "Encontré varios pasajes posibles",
+                    color = JarvisAmber,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            items(
+                builder.directorCandidates,
+                key = { "director:" + it.evidence_id },
+            ) { candidate ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xCC171C29),
+                    border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.35f)),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            candidate.title.ifBlank {
+                                candidate.heading.ifBlank { candidate.kind }
+                            },
+                            color = Color(0xFFF8FAFC),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            listOfNotNull(
+                                candidate.chapter_number?.let { "Cap. $it" },
+                                candidate.canon_status.takeIf { it.isNotBlank() },
+                                candidate.kind.takeIf { it.isNotBlank() },
+                            ).joinToString(" · "),
+                            color = JarvisCyan,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            candidate.excerpt,
+                            color = Color(0xFFCBD5E1),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 6,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            enabled = !builder.busy,
+                            onClick = {
+                                vm.directSceneVisual(
+                                    projectId = projectId,
+                                    requestText = directorRequest,
+                                    selectedEvidenceId = candidate.evidence_id,
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Usar este pasaje")
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            OutlinedButton(
+                onClick = { showManual = !showManual },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (showManual) {
+                        "Ocultar modo manual"
+                    } else {
+                        "Modo manual / avanzado"
+                    },
+                )
+            }
+        }
+
+        if (showManual) {
         item {
             OutlinedTextField(
                 value = sceneId,
@@ -300,6 +440,8 @@ fun SceneBuilderScreen(
             ) {
                 Text(if (builder.busy) "Preparando…" else "Preparar referencias")
             }
+        }
+
         }
 
         builder.error?.let { message ->
