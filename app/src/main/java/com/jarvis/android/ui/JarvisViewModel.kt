@@ -378,9 +378,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             scopeVersion,
             value.result,
         )
-        if (!terminal && value.polling_required) {
-            startWritingAutoReviewPolling(projectId, chapterId, scopeVersion)
-        } else if (!terminal) {
+        if (!terminal) {
             startWritingAutoReviewPolling(projectId, chapterId, scopeVersion)
         }
     }
@@ -1281,6 +1279,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
         val draftResult = draft.getOrThrow().result
         val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+        val autoScopeVersion = writingAutoReviewScopeVersion
         val autoReview = container.liveSession.writingRoomChapterAutoReviewStatus(projectId, chapterId)
         val autoResult = autoReview.getOrNull()?.result
         val approvalResult = autoResult?.approval ?: approval.getOrNull()?.result
@@ -1297,6 +1296,21 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             activeChapter = approvalResult?.chapter ?: restoredDraft.chapter,
             error = autoReview.exceptionOrNull()?.message ?: approval.exceptionOrNull()?.message,
         )
+        if (
+            autoResult != null &&
+            !writingAutoReviewTerminal(autoResult.status) &&
+            autoScopeVersion == writingAutoReviewScopeVersion
+        ) {
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = true,
+                busyLabel = writingAutoReviewLabel(autoResult.status),
+            )
+            startWritingAutoReviewPolling(
+                projectId,
+                chapterId,
+                autoScopeVersion,
+            )
+        }
     }
 
     fun runPersistentWritingDraft(projectId: String) {
