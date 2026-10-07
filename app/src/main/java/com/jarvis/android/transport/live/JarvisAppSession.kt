@@ -103,16 +103,25 @@ class JarvisAppSession(
      * Settings/HTTP and authenticated visual APIs used to drift apart, leaving
      * Visual Studio pinned to an obsolete network-provider hostname.
      */
-    fun updateBaseUrl(base: String): Result<String> {
-        val root = normalizeBase(base)
-            ?: return Result.failure(TransportException("invalid gateway URL"))
-        if (!isAllowedLiveHost(root)) {
-            return Result.failure(
+    fun updateBaseUrl(base: String): Result<String> =
+        adoptBaseUrl(listOf(base))
+
+    /**
+     * Adopt the first valid Gateway from already-known app/session candidates.
+     * This is intentionally deterministic and never discovers or invents a
+     * network endpoint. It closes the startup race where biometric refresh can
+     * happen before Settings has been mirrored into this session store.
+     */
+    fun adoptBaseUrl(candidates: Iterable<String>): Result<String> {
+        val root = candidates
+            .asSequence()
+            .mapNotNull { normalizeBase(it) }
+            .firstOrNull { isAllowedLiveHost(it) }
+            ?: return Result.failure(
                 TransportException(
-                    "gateway URL must use HTTPS outside localhost/LAN; Tailscale endpoints are retired",
+                    "JARVIS Gateway route unavailable; reconnect this device to refresh its connection.",
                 ),
             )
-        }
         store.put(mapOf(KEY_BASE to root))
         return Result.success(root)
     }
@@ -207,15 +216,13 @@ class JarvisAppSession(
      * Exchange the device-bound refresh credential for a fresh 24h bearer.
      * The refresh credential rotates on every successful exchange.
      */
-    suspend fun refresh(): Result<AppUser> = withContext(Dispatchers.IO) {
+    suspend fun refresh(candidateBases: Iterable<String> = emptyList()): Result<AppUser> =
+        withContext(Dispatchers.IO) {
         val credential = refreshStore.load()
             ?: return@withContext Result.failure(TransportException("pairing required"))
-        val root = normalizeBase(baseUrl)
-            ?: return@withContext Result.failure(TransportException("invalid gateway URL"))
-        if (!isAllowedLiveHost(root)) {
-            return@withContext Result.failure(
-                TransportException("JARVIS Gateway must use HTTPS outside localhost/LAN; Tailscale endpoints are retired"),
-            )
+        val current = normalizeBase(baseUrl)?.takeIf { isAllowedLiveHost(it) }
+        val root = current ?: adoptBaseUrl(candidateBases).getOrElse {
+            return@withContext Result.failure(it)
         }
         runCatching {
             val body = buildJsonObject {
