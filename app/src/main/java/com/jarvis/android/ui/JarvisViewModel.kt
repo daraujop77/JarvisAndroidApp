@@ -1834,6 +1834,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val busy: Boolean = false,
         val busyLabel: String = "",
         val detail: VisualStudioCharacterDetail? = null,
+        val batch: VisualCharacterBatch? = null,
         val assets: List<VisualStudioAsset> = emptyList(),
         val attachmentIds: Map<String, String> = emptyMap(),
         val loadingAssetIds: Set<String> = emptySet(),
@@ -1978,15 +1979,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private suspend fun reloadCharacterStudio(projectId: String, characterId: String) {
         val detail = container.liveSession.visualCharacterDetail(projectId, characterId)
         val assets = container.liveSession.visualAssetList(projectId, characterId)
+        val batchResult = container.liveSession.visualCharacterBatchStatus(projectId, characterId)
         if (
             _characterStudio.value.projectId != projectId ||
             _characterStudio.value.characterId != characterId
         ) return
-        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull()
+        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull() ?: batchResult.exceptionOrNull()
         _characterStudio.value = _characterStudio.value.copy(
             busy = false,
             busyLabel = "",
             detail = detail.getOrNull() ?: _characterStudio.value.detail,
+            batch = if (batchResult.isSuccess) batchResult.getOrNull()?.batch else _characterStudio.value.batch,
             assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
             error = failure?.message,
         )
