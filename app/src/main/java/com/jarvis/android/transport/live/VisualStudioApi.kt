@@ -583,6 +583,9 @@ private fun JsonObject.stringValue(key: String): String =
 private fun JsonObject.intValue(key: String, fallback: Int = 0): Int =
     stringValue(key).toIntOrNull() ?: fallback
 
+private fun JsonObject.nullableIntValue(key: String): Int? =
+    this[key]?.jsonPrimitive?.intOrNull
+
 private fun JsonObject.longValue(key: String, fallback: Long = 0L): Long =
     stringValue(key).toLongOrNull() ?: fallback
 
@@ -647,6 +650,39 @@ private fun parseVisualStudioAsset(value: JsonObject): VisualStudioAsset =
         storage_error = parseVisualStudioStorageError(value["storage_error"] as? JsonObject),
     )
 
+private fun parseVisualSceneEvaluation(value: JsonObject?): VisualSceneEvaluationEvidence =
+    if (value == null) {
+        VisualSceneEvaluationEvidence()
+    } else {
+        VisualSceneEvaluationEvidence(
+            verdict = value.stringValue("verdict"),
+            score = value.nullableIntValue("score"),
+            narrative_score = value.nullableIntValue("narrative_score"),
+            identity_score = value.nullableIntValue("identity_score"),
+            composition_score = value.nullableIntValue("composition_score"),
+            issues = value.stringList("issues"),
+            correction_instruction = value.stringValue("correction_instruction"),
+            model = value.stringValue("model"),
+        )
+    }
+
+private fun parseVisualSceneAttempts(value: JsonObject): List<VisualSceneGenerationAttempt> =
+    runCatching {
+        value["scene_attempts"]?.jsonArray?.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            VisualSceneGenerationAttempt(
+                attempt_number = item.intValue("attempt_number"),
+                correction_number = item.intValue("correction_number"),
+                asset_id = item.stringValue("asset_id"),
+                sha256 = item.stringValue("sha256"),
+                storage_state = item.stringValue("storage_state"),
+                evaluation = parseVisualSceneEvaluation(
+                    item["evaluation"] as? JsonObject,
+                ),
+            )
+        }.orEmpty()
+    }.getOrDefault(emptyList())
+
 private fun parseVisualStudioGeneratedImage(value: JsonObject): VisualStudioGeneratedImage {
     val assetObject = value["visual_asset"] as? JsonObject
     return VisualStudioGeneratedImage(
@@ -668,6 +704,15 @@ private fun parseVisualStudioGeneratedImage(value: JsonObject): VisualStudioGene
         scene_context_id = value.stringValue("scene_context_id"),
         scene_context_hash = value.stringValue("scene_context_hash"),
         visual_asset = assetObject?.let(::parseVisualStudioAsset),
+        scene_evaluation = parseVisualSceneEvaluation(
+            value["scene_evaluation"] as? JsonObject,
+        ),
+        scene_attempts = parseVisualSceneAttempts(value),
+        scene_correction_count = value.intValue("scene_correction_count"),
+        scene_human_approval_required = value.booleanValue(
+            "scene_human_approval_required",
+        ),
+        auto_canon = value.booleanValue("auto_canon"),
     )
 }
 
