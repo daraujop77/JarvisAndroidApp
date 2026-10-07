@@ -219,6 +219,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val planningV2Direction: WritingDirectionStateResult? = null,
         val draftV2: WritingDraftExecutionResult? = null,
         val approvalV2: WritingApprovalStateResult? = null,
+        val autoReviewV2: WritingChapterAutoReviewResult? = null,
         val chapters: List<WritingChapterSummary> = emptyList(),
         val activeChapter: WritingChapter? = null,
         val chapterRevisions: List<WritingChapterRevisionSummary> = emptyList(),
