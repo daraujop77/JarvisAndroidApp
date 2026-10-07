@@ -5093,6 +5093,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             attachmentIds = staged?.attachmentId?.let(::setOf)
                                 ?: emptySet(),
                             notice = when {
+                                reply.scene_provider_outcome_unknown ->
+                                    "Una corrección tuvo resultado ambiguo. JARVIS conservó el último candidato conocido y no repetirá automáticamente esa operación."
                                 reply.storage_retry_required ->
                                     "La escena se generó como candidata, pero Drive necesita reintentar el guardado. No se repetirá la generación."
                                 reply.scene_evaluation.verdict == "PASS" ->
