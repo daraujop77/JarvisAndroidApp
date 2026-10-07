@@ -419,6 +419,40 @@ class SceneBuilderApiTest {
     }
 
     @Test
+    fun sceneDirectorResolvesFrozenPassageWithoutManualSceneFields() = runBlocking {
+        val result = session().visualSceneDirectorResolve(
+            projectId = "prj_story",
+            requestText = "Genera la batalla de Doom contra el Guardián y Soren",
+        ).getOrThrow()
+
+        assertEquals("READY", result.status)
+        assertEquals("cloud", result.recommended_engine)
+        assertEquals(2, result.generation_max_corrections)
+        assertFalse(result.human_selection_required)
+        assertFalse(result.missing_story_fact)
+        assertEquals("DRAFT", result.context?.narrative_evidence?.kind)
+        assertEquals(
+            "Doom enfrenta al Guardián y Soren en Grayhaven.",
+            result.context?.narrative_evidence?.text,
+        )
+        assertEquals(
+            listOf("character:doom", "character:guardian", "character:soren"),
+            result.context?.selection?.character_ids,
+        )
+
+        val request = server.takeRequest()
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
+        assertEquals(
+            "Genera la batalla de Doom contra el Guardián y Soren",
+            body["request_text"]!!.jsonPrimitive.content,
+        )
+        assertFalse(body.containsKey("chapter_id"))
+        assertFalse(body.containsKey("character_ids"))
+        assertFalse(body.containsKey("location_id"))
+    }
+
+    @Test
     fun frozenContextCanBeReopenedByExactId() = runBlocking {
         val result = session().visualSceneContextGet(
             projectId = "prj_story",
@@ -446,6 +480,12 @@ class SceneBuilderApiTest {
         assertEquals("SCENE_ART", result.visual_asset?.kind)
         assertEquals("CANDIDATE", result.visual_asset?.status)
         assertEquals(2, result.reference_count)
+        assertEquals("PASS", result.scene_evaluation.verdict)
+        assertEquals(98, result.scene_evaluation.narrative_score)
+        assertEquals(95, result.scene_evaluation.identity_score)
+        assertEquals(1, result.scene_attempts.size)
+        assertTrue(result.scene_human_approval_required)
+        assertFalse(result.auto_canon)
 
         val request = server.takeRequest()
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
@@ -454,6 +494,27 @@ class SceneBuilderApiTest {
         assertEquals("cloud", body["engine"]!!.jsonPrimitive.content)
         assertEquals("quality", body["mode"]!!.jsonPrimitive.content)
         assertEquals("landscape", body["aspect_ratio"]!!.jsonPrimitive.content)
+        assertEquals(0, body["max_corrections"]!!.jsonPrimitive.content.toInt())
+        assertFalse(body.containsKey("prompt"))
+        assertFalse(body.containsKey("references"))
+    }
+
+
+    @Test
+    fun directorGenerationSendsOnlyFrozenContextPlusBoundedCorrectionBudget() = runBlocking {
+        session().generateSceneVisualAssetImage(
+            projectId = "prj_story",
+            contextId = "svc_123",
+            contextHash = "A".repeat(64),
+            engine = "cloud",
+            mode = "quality",
+            aspectRatio = "landscape",
+            maxCorrections = 2,
+        ).getOrThrow()
+
+        val request = server.takeRequest()
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals(2, body["max_corrections"]!!.jsonPrimitive.content.toInt())
         assertFalse(body.containsKey("prompt"))
         assertFalse(body.containsKey("references"))
     }
