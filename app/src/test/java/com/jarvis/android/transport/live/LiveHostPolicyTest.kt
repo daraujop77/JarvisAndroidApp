@@ -37,11 +37,11 @@ class LiveHostPolicyTest {
     }
 
     @Test
-    fun retiredTailscaleAndMagicDnsTargetsAreRejected() {
+    fun retiredTailscaleTargetsAreRejectedWhileConfiguredLanNamesRemainAllowed() {
         assertFalse(allowed("https://vps-8817149e.tail6eec63.ts.net"))
         assertFalse(allowed("https://other-host.tail6eec63.ts.net:8443"))
         assertFalse(allowed("http://100.95.123.102:8787"))
-        assertFalse(allowed("http://desktop-l59hjk4"))
+        assertTrue(allowed("http://jarvis-lan"))
     }
 
     @Test

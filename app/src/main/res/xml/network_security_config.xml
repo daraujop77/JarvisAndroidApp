@@ -3,7 +3,7 @@
   Cleartext remains enabled at the Android platform layer only so loopback and
   RFC1918 LAN development can keep using HTTP. Production Gateway traffic is
   enforced in JarvisAppSession.isAllowedLiveHost: public hosts require HTTPS,
-  while retired overlay-network/MagicDNS targets and clear-text public URLs are
+  while retired Tailscale targets and clear-text public URLs are
   rejected before any bearer token is sent.
 -->
 <network-security-config>

@@ -978,9 +978,9 @@ class JarvisAppSession(
          * Current URL policy after retiring Tailscale:
          * - loopback/RFC1918 may use HTTP or HTTPS for local development/LAN;
          * - production/public hosts must use HTTPS;
-         * - *.ts.net, Tailscale CGNAT (100.64.0.0/10), and single-label
-         *   MagicDNS-style names are rejected so stale installs cannot silently
-         *   fall back to the retired transport.
+         * - *.ts.net and Tailscale CGNAT (100.64.0.0/10) are rejected;
+         * - owner-configured single-label LAN hostnames remain valid because the
+         *   app must reuse the current Gateway rather than guess a new provider.
          */
         fun isAllowedLiveHost(base: String): Boolean {
             val uri = runCatching { java.net.URI(base) }.getOrNull() ?: return false
@@ -996,7 +996,7 @@ class JarvisAppSession(
                 if (a == 100 && b in 64..127) return false
                 return scheme == "https"
             }
-            if (!host.contains('.')) return false
+            if (!host.contains('.')) return true
             return scheme == "https"
         }
 
