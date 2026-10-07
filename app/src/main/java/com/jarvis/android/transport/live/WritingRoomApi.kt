@@ -789,6 +789,8 @@ data class WritingChapterAutoReviewResponse(
     val project_id: String = "",
     val chapter_id: String = "",
     val result: WritingChapterAutoReviewResult = WritingChapterAutoReviewResult(),
+    val async_execution: Boolean = false,
+    val polling_required: Boolean = false,
 )
 
 @Serializable
