@@ -1239,15 +1239,37 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 return@launch
             }
             val result = revised.getOrThrow().result
-            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
-                busy = false,
-                busyLabel = "",
+                busy = true,
+                busyLabel = "JARVIS · REVISANDO TU CAMBIO Y PREPARANDO CANONDIFF",
                 planningV2AggregateVersion = result.aggregate.version,
                 planningV2Direction = result.direction,
                 draftV2 = result,
                 approvalV2 = null,
+                autoReviewV2 = null,
                 activeChapter = result.chapter,
+                error = null,
+            )
+            val autoReviewed = container.liveSession.writingRoomChapterAutoReviewRun(projectId, chapterId)
+            if (autoReviewed.isFailure) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    busy = false,
+                    busyLabel = "",
+                    error = autoReviewed.exceptionOrNull()?.message,
+                )
+                return@launch
+            }
+            val autoResult = autoReviewed.getOrThrow().result
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = autoResult.approval.aggregate.version,
+                planningV2Direction = autoResult.approval.direction,
+                draftV2 = autoResult.draft,
+                approvalV2 = autoResult.approval,
+                autoReviewV2 = autoResult,
+                activeChapter = autoResult.approval.chapter,
                 chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
                 chapterRevisionChapterId = chapterId,
                 error = revisions.exceptionOrNull()?.message,
@@ -1273,15 +1295,37 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 return@launch
             }
             val result = restored.getOrThrow().result
-            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
-                busy = false,
-                busyLabel = "",
+                busy = true,
+                busyLabel = "JARVIS · REVISANDO LA VERSIÓN RESTAURADA",
                 planningV2AggregateVersion = result.aggregate.version,
                 planningV2Direction = result.direction,
                 draftV2 = result,
                 approvalV2 = null,
+                autoReviewV2 = null,
                 activeChapter = result.chapter,
+                error = null,
+            )
+            val autoReviewed = container.liveSession.writingRoomChapterAutoReviewRun(projectId, chapterId)
+            if (autoReviewed.isFailure) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    busy = false,
+                    busyLabel = "",
+                    error = autoReviewed.exceptionOrNull()?.message,
+                )
+                return@launch
+            }
+            val autoResult = autoReviewed.getOrThrow().result
+            val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                busy = false,
+                busyLabel = "",
+                planningV2AggregateVersion = autoResult.approval.aggregate.version,
+                planningV2Direction = autoResult.approval.direction,
+                draftV2 = autoResult.draft,
+                approvalV2 = autoResult.approval,
+                autoReviewV2 = autoResult,
+                activeChapter = autoResult.approval.chapter,
                 chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
                 chapterRevisionChapterId = chapterId,
                 error = revisions.exceptionOrNull()?.message,
