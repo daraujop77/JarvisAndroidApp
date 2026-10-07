@@ -1,6 +1,7 @@
 package com.jarvis.android.di
 
 import android.content.Context
+import com.jarvis.android.BuildConfig
 import com.jarvis.android.data.local.JarvisDao
 import com.jarvis.android.data.local.JarvisDatabase
 import com.jarvis.android.data.prefs.SettingsStore
@@ -48,7 +49,9 @@ class AppContainer(private val context: Context) {
             scope = scope,
             baseUrlProvider = {
                 val stored = kotlinx.coroutines.runBlocking { settings.settings.first().gatewayBaseUrl }
-                stored.ifBlank { liveSession.baseUrl }
+                stored.ifBlank {
+                    liveSession.baseUrl.ifBlank { BuildConfig.JARVIS_BOOTSTRAP_GATEWAY }
+                }
             },
             // Lane G: reuse the real PC-A bearer when a session exists; never a
             // fabricated token. Absent credentials stay fail-closed server-side.
@@ -137,15 +140,19 @@ class AppContainer(private val context: Context) {
                     runCatching { settings.setLastControlPlaneUrl("") }
                 }
             }
-            val currentGateway = listOfNotNull(
-                configured?.gatewayBaseUrl,
-                configured?.lastControlPlaneUrl,
-            ).firstOrNull { candidate ->
-                val normalized = JarvisAppSession.normalizeBase(candidate)
-                normalized != null && JarvisAppSession.isAllowedLiveHost(normalized)
-            }
+            // Prefer an owner-configured/authenticated route, then the verified
+            // build bootstrap. The bootstrap is only the initial front door;
+            // successful login/refresh becomes the persisted authority.
+            val currentGateway = liveSession.adoptBaseUrl(
+                listOfNotNull(
+                    configured?.gatewayBaseUrl,
+                    configured?.lastControlPlaneUrl,
+                    liveSession.baseUrl,
+                    BuildConfig.JARVIS_BOOTSTRAP_GATEWAY,
+                ),
+            ).getOrNull()
             if (!currentGateway.isNullOrBlank()) {
-                liveSession.updateBaseUrl(currentGateway)
+                runCatching { settings.setBaseUrl(currentGateway) }
             }
             runCatching { settings.setUseFake(false) }
             session.start()

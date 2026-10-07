@@ -1,5 +1,6 @@
 package com.jarvis.android.transport.live
 
+import com.jarvis.android.BuildConfig
 import com.jarvis.android.security.MemoryRefreshCredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -65,6 +66,50 @@ class JarvisAppSessionRefreshTest {
         assertEquals("access-2", session.token)
         assertEquals("refresh-2", refreshStore.load()?.token)
         assertNotEquals("refresh-1", refreshStore.load()?.token)
+    }
+
+    @Test
+    fun verifiedPublicBootstrapGatewayIsAllowedAndTailscaleIndependent() {
+        val bootstrap = BuildConfig.JARVIS_BOOTSTRAP_GATEWAY
+
+        assertTrue(bootstrap.startsWith("https://"))
+        assertTrue(JarvisAppSession.isAllowedLiveHost(bootstrap))
+        assertFalse(bootstrap.contains(".ts.net"))
+        assertFalse(bootstrap.contains("100.64."))
+    }
+
+    @Test
+    fun configuredGatewayWinsBeforeBuildBootstrap() {
+        val store = JarvisAppSession.MemoryStore()
+        val session = JarvisAppSession(store)
+        val custom = "https://jarvis-owner.example.com"
+
+        val adopted = session.adoptBaseUrl(
+            listOf(
+                custom,
+                BuildConfig.JARVIS_BOOTSTRAP_GATEWAY,
+            ),
+        )
+
+        assertTrue(adopted.isSuccess)
+        assertEquals(custom, adopted.getOrNull())
+        assertEquals(custom, session.baseUrl)
+    }
+
+    @Test
+    fun retiredTailscaleCandidateFallsThroughToBuildBootstrap() {
+        val store = JarvisAppSession.MemoryStore()
+        val session = JarvisAppSession(store)
+
+        val adopted = session.adoptBaseUrl(
+            listOf(
+                "https://vps-8817149e.tail6eec63.ts.net:8443",
+                BuildConfig.JARVIS_BOOTSTRAP_GATEWAY,
+            ),
+        )
+
+        assertTrue(adopted.isSuccess)
+        assertEquals(BuildConfig.JARVIS_BOOTSTRAP_GATEWAY, session.baseUrl)
     }
 
     @Test
