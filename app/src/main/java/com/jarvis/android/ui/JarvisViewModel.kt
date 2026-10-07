@@ -4729,6 +4729,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun liveLogout(onDone: () -> Unit = {}) {
+        resetWritingAutoReviewPolling()
         resetVisualStudioProtectedMedia()
         viewModelScope.launch {
             container.liveSession.logout()
@@ -4769,6 +4770,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun unpair() {
+        resetWritingAutoReviewPolling()
         resetVisualStudioProtectedMedia()
         viewModelScope.launch {
             // A live session must end on the server, not just locally —
