@@ -1985,14 +1985,28 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             _characterStudio.value.characterId != characterId
         ) return
         val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull() ?: batchResult.exceptionOrNull()
+        val loadedBatch = batchResult.getOrNull()?.batch
         _characterStudio.value = _characterStudio.value.copy(
             busy = false,
             busyLabel = "",
             detail = detail.getOrNull() ?: _characterStudio.value.detail,
-            batch = if (batchResult.isSuccess) batchResult.getOrNull()?.batch else _characterStudio.value.batch,
+            batch = if (batchResult.isSuccess) loadedBatch else _characterStudio.value.batch,
             assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
             error = failure?.message,
         )
+        if (
+            loadedBatch != null &&
+            loadedBatch.pending_count > 0 &&
+            (loadedBatch.status == "READY" || loadedBatch.status == "RUNNING")
+        ) {
+            completeCharacterViews(
+                projectId = projectId,
+                characterId = characterId,
+                perspectives = loadedBatch.requested_perspectives,
+                adjustment = loadedBatch.adjustment,
+                resumeBatchId = loadedBatch.batch_id,
+            )
+        }
     }
 
     fun loadCharacterStudioAsset(projectId: String, assetId: String, retry: Boolean = false) {
