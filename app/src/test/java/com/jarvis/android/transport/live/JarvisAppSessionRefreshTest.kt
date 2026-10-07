@@ -68,6 +68,56 @@ class JarvisAppSessionRefreshTest {
     }
 
     @Test
+    fun biometricRefreshAdoptsValidSettingsGatewayWhenSessionBaseIsEmpty() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"schema":"jarvis.app.refresh.v1","authenticated":true,"token":"access-new","expires_utc":"2099-01-02T00:00:00Z","refresh_token":"refresh-new","refresh_expires_utc":"2099-02-02T00:00:00Z","user":{"id":"u1","username":"owner","role":"owner"}}"""
+                )
+            )
+            val store = JarvisAppSession.MemoryStore()
+            val refreshStore = MemoryRefreshCredentialStore().apply {
+                save("refresh-old", "2099-02-01T00:00:00Z")
+            }
+            val session = JarvisAppSession(store, refreshStore = refreshStore)
+            val validGateway = server.url("/").toString().trimEnd('/')
+
+            assertEquals("", session.baseUrl)
+            val result = session.refresh(
+                listOf(
+                    "https://vps-8817149e.tail6eec63.ts.net:8443",
+                    validGateway,
+                ),
+            )
+
+            assertTrue(result.isSuccess)
+            assertEquals(validGateway, session.baseUrl)
+            assertEquals("/api/app/refresh", server.takeRequest().path)
+            assertEquals("access-new", session.token)
+            assertEquals("refresh-new", refreshStore.load()?.token)
+        }
+
+    @Test
+    fun biometricRefreshWithoutAnyValidGatewayReturnsMigrationError() =
+        runBlocking(Dispatchers.IO) {
+            val store = JarvisAppSession.MemoryStore()
+            val refreshStore = MemoryRefreshCredentialStore().apply {
+                save("refresh-old", "2099-02-01T00:00:00Z")
+            }
+            val session = JarvisAppSession(store, refreshStore = refreshStore)
+
+            val result = session.refresh(
+                listOf("https://vps-8817149e.tail6eec63.ts.net:8443"),
+            )
+
+            assertTrue(result.isFailure)
+            val message = result.exceptionOrNull()?.message.orEmpty()
+            assertTrue(message.contains("Gateway route unavailable"))
+            assertFalse(message.contains("invalid gateway URL"))
+            assertTrue(session.hasRefreshCredential)
+        }
+
+    @Test
     fun retiredTailscaleBaseIsClearedAndCurrentGatewayCanBeAdopted() {
         val store = JarvisAppSession.MemoryStore().apply {
             put(

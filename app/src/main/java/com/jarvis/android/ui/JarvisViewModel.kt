@@ -4764,7 +4764,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (_liveAuth.value is LiveAuthState.Busy) return
         _liveAuth.value = LiveAuthState.Busy
         viewModelScope.launch {
-            val result = container.liveSession.refresh()
+            // Do not rely on AppContainer.start() winning a race against the
+            // biometric prompt. Resolve the currently saved Gateway again at
+            // the exact moment the refresh credential is used.
+            val stored = container.settings.settings.first()
+            val result = container.liveSession.refresh(
+                listOf(
+                    stored.gatewayBaseUrl,
+                    stored.lastControlPlaneUrl,
+                    container.liveSession.baseUrl,
+                ),
+            )
             if (result.isSuccess) {
                 container.settings.setPaired(true, container.deviceIdentity.provision())
                 container.settings.setUseFake(false)
