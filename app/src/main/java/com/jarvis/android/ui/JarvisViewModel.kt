@@ -1834,6 +1834,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val busy: Boolean = false,
         val busyLabel: String = "",
         val detail: VisualStudioCharacterDetail? = null,
+        val batch: VisualCharacterBatch? = null,
         val assets: List<VisualStudioAsset> = emptyList(),
         val attachmentIds: Map<String, String> = emptyMap(),
         val loadingAssetIds: Set<String> = emptySet(),
@@ -1978,18 +1979,34 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private suspend fun reloadCharacterStudio(projectId: String, characterId: String) {
         val detail = container.liveSession.visualCharacterDetail(projectId, characterId)
         val assets = container.liveSession.visualAssetList(projectId, characterId)
+        val batchResult = container.liveSession.visualCharacterBatchStatus(projectId, characterId)
         if (
             _characterStudio.value.projectId != projectId ||
             _characterStudio.value.characterId != characterId
         ) return
-        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull()
+        val failure = detail.exceptionOrNull() ?: assets.exceptionOrNull() ?: batchResult.exceptionOrNull()
+        val loadedBatch = batchResult.getOrNull()?.batch
         _characterStudio.value = _characterStudio.value.copy(
             busy = false,
             busyLabel = "",
             detail = detail.getOrNull() ?: _characterStudio.value.detail,
+            batch = if (batchResult.isSuccess) loadedBatch else _characterStudio.value.batch,
             assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
             error = failure?.message,
         )
+        if (
+            loadedBatch != null &&
+            loadedBatch.pending_count > 0 &&
+            loadedBatch.status == "READY"
+        ) {
+            completeCharacterViews(
+                projectId = projectId,
+                characterId = characterId,
+                perspectives = loadedBatch.requested_perspectives,
+                adjustment = loadedBatch.adjustment,
+                resumeBatchId = loadedBatch.batch_id,
+            )
+        }
     }
 
     fun loadCharacterStudioAsset(projectId: String, assetId: String, retry: Boolean = false) {
@@ -2065,6 +2082,107 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     },
                 )
             }
+        }
+    }
+
+    fun completeCharacterViews(
+        projectId: String,
+        characterId: String,
+        perspectives: List<String>,
+        adjustment: String = "",
+        resumeBatchId: String = "",
+    ) {
+        if (_characterStudio.value.busy || perspectives.isEmpty()) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = if (resumeBatchId.isBlank()) "Preparando vistas faltantes" else "Reanudando lote de vistas",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            container.liveSession.visualCompleteCharacterViews(
+                projectId = projectId,
+                characterId = characterId,
+                perspectives = perspectives,
+                adjustment = adjustment,
+                batchId = resumeBatchId,
+            ).fold(
+                onSuccess = { response ->
+                    val batch = response.batch
+                    _characterStudio.update {
+                        it.copy(
+                            batch = batch,
+                            notice = when (batch?.status) {
+                                "READY_FOR_REVIEW" -> "Lote listo para revisión. JARVIS generó solo las vistas que faltaban."
+                                "BLOCKED" -> "El lote se detuvo de forma segura; no se repetirá una generación con resultado ambiguo."
+                                "COMPLETED" -> "Las vistas solicitadas ya están aprobadas."
+                                else -> "El lote quedó guardado y puede reanudarse sin duplicar salidas."
+                            },
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo completar el lote de vistas.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun approveCharacterViewBatch(projectId: String, characterId: String) {
+        val batch = _characterStudio.value.batch ?: return
+        if (_characterStudio.value.busy || batch.batch_id.isBlank()) return
+        val assetIds = batch.items
+            .filter { it.status == "CANDIDATE" || it.status == "CANDIDATE_EXISTING" }
+            .map { it.candidate_asset_id }
+            .filter { it.isNotBlank() }
+        if (assetIds.isEmpty()) {
+            _characterStudio.update { it.copy(error = "No hay vistas candidatas almacenadas para aprobar.") }
+            return
+        }
+        _characterStudio.update {
+            it.copy(busy = true, busyLabel = "Aprobando lote exacto", notice = null, error = null)
+        }
+        viewModelScope.launch {
+            container.liveSession.visualApproveCharacterViewBatch(
+                projectId = projectId,
+                characterId = characterId,
+                batchId = batch.batch_id,
+                assetIds = assetIds,
+            ).fold(
+                onSuccess = { response ->
+                    val approvedCount = response.approved.size
+                    val failedCount = response.failed.size
+                    _characterStudio.update {
+                        it.copy(
+                            batch = response.batch,
+                            notice = if (failedCount == 0) {
+                                approvedCount.toString() + " vistas aprobadas por hash exacto."
+                            } else {
+                                approvedCount.toString() + " aprobadas; " + failedCount.toString() + " pendientes."
+                            },
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo aprobar el lote de vistas.",
+                        )
+                    }
+                },
+            )
         }
     }
 

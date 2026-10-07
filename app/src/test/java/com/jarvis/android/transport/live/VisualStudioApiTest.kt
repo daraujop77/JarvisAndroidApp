@@ -195,6 +195,108 @@ class VisualStudioApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/v2/visual/characters/complete-views" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.visual-studio.character-batch.v1",
+                          "batch":{
+                            "project_id":"prj_story",
+                            "batch_id":"vcb_1",
+                            "character_id":"character:alexander",
+                            "master_asset_id":"va_master",
+                            "master_sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                            "requested_perspectives":["left_profile","back"],
+                            "requested_by":"owner-1",
+                            "adjustment":"",
+                            "mode":"quality",
+                            "max_corrections":2,
+                            "generation_budget":1,
+                            "status":"READY_FOR_REVIEW",
+                            "pending_count":0,
+                            "candidate_count":1,
+                            "approved_count":1,
+                            "blocked_count":0,
+                            "items":[
+                              {
+                                "perspective":"left_profile",
+                                "sequence":1,
+                                "status":"APPROVED_EXISTING",
+                                "candidate_asset_id":"va_left",
+                                "candidate_sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+                              },
+                              {
+                                "perspective":"back",
+                                "sequence":2,
+                                "status":"CANDIDATE",
+                                "candidate_asset_id":"va_batch_back",
+                                "candidate_sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+                              }
+                            ]
+                          },
+                          "generated_asset_ids":["va_batch_back"],
+                          "human_approval_required":true,
+                          "auto_canon":false
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/visual/characters/batch/status" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.visual-studio.character-batch.v1",
+                          "batch":{
+                            "project_id":"prj_story",
+                            "batch_id":"vcb_1",
+                            "character_id":"character:alexander",
+                            "master_asset_id":"va_master",
+                            "master_sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                            "requested_perspectives":["left_profile","back"],
+                            "status":"READY_FOR_REVIEW",
+                            "pending_count":0,
+                            "candidate_count":1,
+                            "approved_count":1,
+                            "blocked_count":0,
+                            "items":[
+                              {"perspective":"left_profile","sequence":1,"status":"APPROVED_EXISTING"},
+                              {"perspective":"back","sequence":2,"status":"CANDIDATE","candidate_asset_id":"va_batch_back","candidate_sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"}
+                            ]
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/app/writing-room/v2/visual/characters/batch/approve" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.visual-studio.character-batch-approval.v1",
+                          "batch":{
+                            "project_id":"prj_story",
+                            "batch_id":"vcb_1",
+                            "character_id":"character:alexander",
+                            "master_asset_id":"va_master",
+                            "master_sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                            "requested_perspectives":["left_profile","back"],
+                            "status":"COMPLETED",
+                            "pending_count":0,
+                            "candidate_count":0,
+                            "approved_count":2,
+                            "blocked_count":0,
+                            "items":[
+                              {"perspective":"left_profile","sequence":1,"status":"APPROVED_EXISTING"},
+                              {"perspective":"back","sequence":2,"status":"APPROVED","candidate_asset_id":"va_batch_back","candidate_sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"}
+                            ]
+                          },
+                          "approved":[
+                            {
+                              "perspective":"back",
+                              "asset_id":"va_batch_back",
+                              "sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                              "visual_revision":1
+                            }
+                          ],
+                          "failed":[],
+                          "partial":false
+                        }
+                        """.trimIndent(),
+                    )
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -346,6 +448,41 @@ class VisualStudioApiTest {
             "front",
             turnaroundVisual["reference_perspectives"]!!.jsonArray.single().jsonPrimitive.content,
         )
+    }
+
+    @Test
+    fun characterViewBatchUsesOneDurableRequestAndExactBatchApproval() = runBlocking {
+        val session = session()
+        val batch = session.visualCompleteCharacterViews(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            perspectives = listOf("left_profile", "back"),
+        ).orThrowStage("complete missing views")
+
+        assertEquals("READY_FOR_REVIEW", batch.batch?.status)
+        assertEquals(listOf("va_batch_back"), batch.generated_asset_ids)
+        assertTrue(batch.human_approval_required)
+        assertFalse(batch.auto_canon)
+        assertEquals(1, batch.batch?.candidate_count)
+        assertEquals("APPROVED_EXISTING", batch.batch?.items?.first()?.status)
+
+        val status = session.visualCharacterBatchStatus(
+            "prj_story",
+            "character:alexander",
+            "vcb_1",
+        ).orThrowStage("batch status")
+        assertEquals("vcb_1", status.batch?.batch_id)
+        assertEquals("CANDIDATE", status.batch?.items?.last()?.status)
+
+        val approved = session.visualApproveCharacterViewBatch(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            batchId = "vcb_1",
+            assetIds = listOf("va_batch_back"),
+        ).orThrowStage("batch approval")
+        assertFalse(approved.partial)
+        assertEquals("COMPLETED", approved.batch?.status)
+        assertEquals("va_batch_back", approved.approved.single().asset_id)
     }
 
     @Test

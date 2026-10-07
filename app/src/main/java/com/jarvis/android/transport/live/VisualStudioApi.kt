@@ -242,6 +242,77 @@ data class VisualStudioGeneratedImage(
 
 
 @Serializable
+data class VisualCharacterBatchItem(
+    val perspective: String = "",
+    val sequence: Int = 0,
+    val status: String = "",
+    val candidate_asset_id: String = "",
+    val candidate_sha256: String = "",
+    val correction_count: Int = 0,
+    val error_code: String = "",
+    val created_utc: String = "",
+    val updated_utc: String = "",
+)
+
+@Serializable
+data class VisualCharacterBatch(
+    val project_id: String = "",
+    val batch_id: String = "",
+    val character_id: String = "",
+    val master_asset_id: String = "",
+    val master_sha256: String = "",
+    val requested_perspectives: List<String> = emptyList(),
+    val requested_by: String = "",
+    val adjustment: String = "",
+    val mode: String = "quality",
+    val max_corrections: Int = 2,
+    val generation_budget: Int = 0,
+    val status: String = "",
+    val created_utc: String = "",
+    val updated_utc: String = "",
+    val completed_utc: String = "",
+    val pending_count: Int = 0,
+    val candidate_count: Int = 0,
+    val approved_count: Int = 0,
+    val blocked_count: Int = 0,
+    val items: List<VisualCharacterBatchItem> = emptyList(),
+)
+
+@Serializable
+data class VisualCharacterBatchResponse(
+    val schema: String = "",
+    val batch: VisualCharacterBatch? = null,
+    val generated_asset_ids: List<String> = emptyList(),
+    val human_approval_required: Boolean = true,
+    val auto_canon: Boolean = false,
+)
+
+@Serializable
+data class VisualCharacterBatchApprovedAsset(
+    val perspective: String = "",
+    val asset_id: String = "",
+    val sha256: String = "",
+    val visual_revision: Int = 0,
+)
+
+@Serializable
+data class VisualCharacterBatchApprovalFailure(
+    val perspective: String = "",
+    val asset_id: String = "",
+    val error: String = "",
+)
+
+@Serializable
+data class VisualCharacterBatchApprovalResponse(
+    val schema: String = "",
+    val batch: VisualCharacterBatch? = null,
+    val approved: List<VisualCharacterBatchApprovedAsset> = emptyList(),
+    val failed: List<VisualCharacterBatchApprovalFailure> = emptyList(),
+    val partial: Boolean = false,
+)
+
+
+@Serializable
 data class VisualSceneApplicability(
     val status: String = "",
     val reasons: List<String> = emptyList(),
@@ -507,6 +578,69 @@ suspend fun JarvisAppSession.visualCharacterDetail(
         buildJsonObject {
             put("project_id", projectId)
             put("character_id", characterId)
+        },
+    )
+
+
+suspend fun JarvisAppSession.visualCharacterBatchStatus(
+    projectId: String,
+    characterId: String,
+    batchId: String = "",
+): Result<VisualCharacterBatchResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/batch/status",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId)
+            if (batchId.isNotBlank()) put("batch_id", batchId)
+        },
+    )
+
+suspend fun JarvisAppSession.visualCompleteCharacterViews(
+    projectId: String,
+    characterId: String,
+    perspectives: List<String>,
+    adjustment: String = "",
+    mode: String = "quality",
+    batchId: String = "",
+): Result<VisualCharacterBatchResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/complete-views",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId)
+            put(
+                "perspectives",
+                buildJsonArray {
+                    perspectives.forEach { add(JsonPrimitive(it)) }
+                },
+            )
+            put("adjustment", adjustment.trim())
+            put("mode", mode)
+            if (batchId.isNotBlank()) put("batch_id", batchId)
+        },
+    )
+
+suspend fun JarvisAppSession.visualApproveCharacterViewBatch(
+    projectId: String,
+    characterId: String,
+    batchId: String,
+    assetIds: List<String> = emptyList(),
+): Result<VisualCharacterBatchApprovalResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/batch/approve",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId)
+            put("batch_id", batchId)
+            if (assetIds.isNotEmpty()) {
+                put(
+                    "asset_ids",
+                    buildJsonArray {
+                        assetIds.forEach { add(JsonPrimitive(it)) }
+                    },
+                )
+            }
         },
     )
 
