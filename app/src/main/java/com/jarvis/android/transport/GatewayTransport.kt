@@ -8,8 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * Transport-agnostic Gateway connection (plan §23 PrivateLinkProvider abstraction).
  *
- * The app never talks to Tailscale/LAN/WSS/fixture directly — it talks to this
- * interface, so changing transport must not change conversation/request semantics.
+ * The app talks to this interface instead of binding conversation semantics to
+ * one network provider. The production Gateway may change without changing
+ * request/replay/cancel behavior.
  */
 interface GatewayTransport {
 

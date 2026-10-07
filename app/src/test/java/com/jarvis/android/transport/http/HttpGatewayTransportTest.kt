@@ -207,19 +207,19 @@ class HttpGatewayTransportTest {
     }
 
     @Test
-    fun publicHostIsRejectedBeforeAnyRequest() {
-        // Lane D security rule: the HTTP adapter carries a real bearer when a
-        // session exists, so a public/typo'd base URL must fail closed before any
-        // socket is opened (no token downgrade). requireBase() runs first in
-        // connect(), so the default client never issues a request.
+    fun cleartextPublicHostIsRejectedBeforeAnyRequest() {
+        // The current Gateway policy permits owner-configured public HTTPS, but
+        // a clear-text public URL must still fail closed before any bearer token
+        // can leave the app. Local/LAN HTTP remains covered by the MockWebServer
+        // tests above.
         val t = HttpGatewayTransport(
             scope = scope,
-            baseUrlProvider = { "https://jarvis.example.com" },
+            baseUrlProvider = { "http://jarvis.example.com" },
             auth = AuthProvider { mapOf("Authorization" to "Bearer secret-token") },
         )
         val err = runBlockingShort { runCatching { t.connect() }.exceptionOrNull() }
         assertTrue(err is com.jarvis.android.transport.TransportException)
-        assertTrue(err!!.message!!.contains("private-network"))
+        assertTrue(err!!.message!!.contains("HTTPS"))
         assertEquals(LinkState.FAILED, t.linkState.value)
     }
 

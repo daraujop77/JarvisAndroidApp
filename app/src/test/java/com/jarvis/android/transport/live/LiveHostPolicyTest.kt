@@ -5,27 +5,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * PCB-LIVE-1 fail-closed URL policy: the bearer token may only ever be sent to
- * an approved private front door (plan §23 / runbook §9).
- */
+/** Current live URL policy: no Tailscale; HTTPS in production, HTTP allowed only locally/LAN. */
 class LiveHostPolicyTest {
 
     private fun allowed(host: String) = JarvisAppSession.isAllowedLiveHost(host)
-
-    @Test
-    fun approvedControlPlaneMagicDnsAndPrivateHostsAreAllowed() {
-        assertTrue(allowed("http://desktop-l59hjk4"))
-        assertTrue(allowed("https://vps-8817149e.tail6eec63.ts.net"))
-        assertTrue(allowed("https://vps-8817149e.tail6eec63.ts.net:8443"))
-        assertTrue(allowed("http://100.95.123.102:8787"))
-    }
-
-    @Test
-    fun unrelatedTailscaleDomainsAreRejected() {
-        assertFalse(allowed("http://desktop-l59hjk4.api-magicdns.ts.net"))
-        assertFalse(allowed("https://other-host.tail6eec63.ts.net"))
-    }
 
     @Test
     fun loopbackAndRfc1918AreAllowed() {
@@ -37,20 +20,41 @@ class LiveHostPolicyTest {
     }
 
     @Test
-    fun publicHostsAreRejected() {
-        assertFalse(allowed("https://jarvis.example.com"))
-        assertFalse(allowed("https://api.openai.com"))
-        assertFalse(allowed("http://8.8.8.8"))
-        assertFalse(allowed("http://172.32.0.1")) // just outside RFC1918
-        assertFalse(allowed("http://100.63.0.1")) // just outside CGNAT /10
+    fun productionHttpsHostsAreAllowedButCleartextPublicHostsAreRejected() {
+        assertTrue(allowed("https://jarvis.example.com"))
+        assertTrue(allowed("https://203.0.113.10:8443"))
+        assertFalse(allowed("http://jarvis.example.com"))
+        assertFalse(allowed("http://203.0.113.10:8443"))
+    }
+
+    @Test
+    fun retiredProductionHostnameIsNotEmbeddedAsAnAllowedDefault() {
+        assertFalse(
+            JarvisAppSession.isAllowedLiveHost(
+                "https://vps-8817149e.tail6eec63.ts.net:8443",
+            ),
+        )
+    }
+
+    @Test
+    fun retiredTailscaleTargetsAreRejectedWhileConfiguredLanNamesRemainAllowed() {
+        assertFalse(allowed("https://vps-8817149e.tail6eec63.ts.net"))
+        assertFalse(allowed("https://other-host.tail6eec63.ts.net:8443"))
+        assertFalse(allowed("http://100.95.123.102:8787"))
+        assertTrue(allowed("http://jarvis-lan"))
+    }
+
+    @Test
+    fun malformedTargetsAreRejected() {
         assertFalse(allowed(""))
         assertFalse(allowed("not a url"))
+        assertFalse(allowed("ftp://jarvis.example.com"))
     }
 
     @Test
     fun normalizeBaseAddsSchemeAndStripsTrailingSlash() {
-        assertEquals("http://desktop-l59hjk4", JarvisAppSession.normalizeBase("desktop-l59hjk4/"))
-        assertEquals("https://host.ts.net", JarvisAppSession.normalizeBase(" https://host.ts.net///"))
+        assertEquals("http://192.168.1.20:8788", JarvisAppSession.normalizeBase("192.168.1.20:8788/"))
+        assertEquals("https://jarvis.example.com", JarvisAppSession.normalizeBase(" https://jarvis.example.com///"))
         assertEquals(null, JarvisAppSession.normalizeBase("   "))
     }
 
@@ -64,7 +68,7 @@ class LiveHostPolicyTest {
         store.put(
             mapOf(
                 JarvisAppSession.KEY_TOKEN to "tok",
-                JarvisAppSession.KEY_BASE to "http://desktop-l59hjk4",
+                JarvisAppSession.KEY_BASE to "http://192.168.1.20:8788",
                 JarvisAppSession.KEY_USER_ID to "u1",
                 JarvisAppSession.KEY_ROLE to "owner",
             ),
@@ -72,8 +76,9 @@ class LiveHostPolicyTest {
         assertEquals("tok", session.token)
         assertEquals("Bearer tok", session.authHeader())
         assertTrue(session.isAuthenticated)
+        assertEquals("http://192.168.1.20:8788", session.baseUrl)
         assertTrue(session.deviceId.startsWith("android_"))
-        assertEquals(session.deviceId, session.deviceId) // stable across calls
+        assertEquals(session.deviceId, session.deviceId)
         session.clear()
         assertEquals(null, session.token)
     }

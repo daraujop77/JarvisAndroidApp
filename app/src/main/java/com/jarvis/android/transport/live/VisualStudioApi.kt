@@ -3,6 +3,7 @@ package com.jarvis.android.transport.live
 import com.jarvis.android.transport.TransportException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -259,6 +260,37 @@ data class VisualCharacterEvaluationEvidence(
     val issues: List<String> = emptyList(),
     val correction_instruction: String = "",
     val model: String = "",
+)
+
+@Serializable
+data class VisualCharacterMasterRosterCounts(
+    @SerialName("APPROVED") val approved: Int = 0,
+    @SerialName("CANDIDATE") val candidate: Int = 0,
+    @SerialName("READY") val ready: Int = 0,
+    @SerialName("BLOCKED") val blocked: Int = 0,
+)
+
+@Serializable
+data class VisualCharacterMasterRosterItem(
+    val character_id: String = "",
+    val canonical_name: String = "",
+    val authority: String = "",
+    val state: String = "",
+    val asset_id: String = "",
+    val sha256: String = "",
+    val evidence_source_refs: List<String> = emptyList(),
+    val error_code: String = "",
+)
+
+@Serializable
+data class VisualCharacterMasterRoster(
+    val schema: String = "",
+    val project_id: String = "",
+    val items: List<VisualCharacterMasterRosterItem> = emptyList(),
+    val counts: VisualCharacterMasterRosterCounts = VisualCharacterMasterRosterCounts(),
+    val generation_required: Int = 0,
+    val human_approval_required: Boolean = true,
+    val auto_canon: Boolean = false,
 )
 
 @Serializable
@@ -778,6 +810,17 @@ suspend fun JarvisAppSession.visualCharacterDetail(
         buildJsonObject {
             put("project_id", projectId)
             put("character_id", characterId)
+        },
+    )
+
+
+suspend fun JarvisAppSession.visualCharacterMasterRosterStatus(
+    projectId: String,
+): Result<VisualCharacterMasterRoster> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/masters/status",
+        buildJsonObject {
+            put("project_id", projectId)
         },
     )
 

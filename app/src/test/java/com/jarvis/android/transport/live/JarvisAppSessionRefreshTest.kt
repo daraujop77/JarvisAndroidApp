@@ -68,20 +68,25 @@ class JarvisAppSessionRefreshTest {
     }
 
     @Test
-    fun legacyPrivateControlPlaneMigratesToPublicFunnelPort() {
+    fun retiredTailscaleBaseIsClearedAndCurrentGatewayCanBeAdopted() {
         val store = JarvisAppSession.MemoryStore().apply {
             put(
                 mapOf(
                     JarvisAppSession.KEY_BASE to
-                        JarvisAppSession.LEGACY_PRIVATE_CONTROL_PLANE_URL,
-                )
+                        "https://vps-8817149e.tail6eec63.ts.net:8443",
+                ),
             )
         }
         val session = JarvisAppSession(store)
 
-        assertEquals(JarvisAppSession.PUBLIC_CONTROL_PLANE_URL, session.baseUrl)
+        assertEquals("", session.baseUrl)
+        assertEquals(null, store.snapshot()[JarvisAppSession.KEY_BASE])
+
+        val adopted = session.updateBaseUrl("https://jarvis.example.com/")
+        assertTrue(adopted.isSuccess)
+        assertEquals("https://jarvis.example.com", session.baseUrl)
         assertEquals(
-            JarvisAppSession.PUBLIC_CONTROL_PLANE_URL,
+            "https://jarvis.example.com",
             store.snapshot()[JarvisAppSession.KEY_BASE],
         )
     }

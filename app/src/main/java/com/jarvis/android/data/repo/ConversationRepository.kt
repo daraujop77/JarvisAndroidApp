@@ -87,8 +87,8 @@ class ConversationRepository(
     /**
      * The conversation list plus whether the first read has happened. Room
      * emits its current rows immediately, so [ConversationListState.Loading]
-     * only shows in the gap before that first emission — which on a cold start
-     * over Tailscale is exactly when the screen would otherwise look frozen.
+     * only shows in the gap before that first emission — exactly when a cold
+     * network start would otherwise make the screen look frozen.
      */
     fun observeConversationList(): Flow<ConversationListState> =
         observeConversations()

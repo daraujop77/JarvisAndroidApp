@@ -124,6 +124,29 @@ class AppContainer(private val context: Context) {
         // they are debug-signed.
         transportMode = resolveMode(useFake = false)
         scope.launch {
+            val configured = runCatching { settings.settings.first() }.getOrNull()
+            if (configured != null) {
+                val gatewayAllowed = JarvisAppSession.normalizeBase(configured.gatewayBaseUrl)
+                    ?.let { JarvisAppSession.isAllowedLiveHost(it) } == true
+                val lastAllowed = JarvisAppSession.normalizeBase(configured.lastControlPlaneUrl)
+                    ?.let { JarvisAppSession.isAllowedLiveHost(it) } == true
+                if (configured.gatewayBaseUrl.isNotBlank() && !gatewayAllowed) {
+                    runCatching { settings.setBaseUrl("") }
+                }
+                if (configured.lastControlPlaneUrl.isNotBlank() && !lastAllowed) {
+                    runCatching { settings.setLastControlPlaneUrl("") }
+                }
+            }
+            val currentGateway = listOfNotNull(
+                configured?.gatewayBaseUrl,
+                configured?.lastControlPlaneUrl,
+            ).firstOrNull { candidate ->
+                val normalized = JarvisAppSession.normalizeBase(candidate)
+                normalized != null && JarvisAppSession.isAllowedLiveHost(normalized)
+            }
+            if (!currentGateway.isNullOrBlank()) {
+                liveSession.updateBaseUrl(currentGateway)
+            }
             runCatching { settings.setUseFake(false) }
             session.start()
             runCatching { conversations.recover() }
