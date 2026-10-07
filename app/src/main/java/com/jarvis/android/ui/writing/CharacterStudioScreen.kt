@@ -90,8 +90,8 @@ fun CharacterStudioScreen(
     var selectedCharacterId by rememberSaveable(projectId) {
         mutableStateOf(characterOptions.firstOrNull()?.id.orEmpty())
     }
-    var masterPrompt by rememberSaveable(projectId) { mutableStateOf("") }
-    var turnaroundPrompt by rememberSaveable(projectId) { mutableStateOf("") }
+    var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
+    var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var selectedPerspective by rememberSaveable(projectId) { mutableStateOf("left_profile") }
 
     LaunchedEffect(characterOptions) {
