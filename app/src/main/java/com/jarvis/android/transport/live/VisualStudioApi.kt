@@ -242,6 +242,18 @@ data class VisualStudioGeneratedImage(
 
 
 @Serializable
+data class VisualCharacterEvaluationEvidence(
+    val verdict: String = "",
+    val score: Int? = null,
+    val identity_score: Int? = null,
+    val canon_score: Int? = null,
+    val perspective_score: Int? = null,
+    val issues: List<String> = emptyList(),
+    val correction_instruction: String = "",
+    val model: String = "",
+)
+
+@Serializable
 data class VisualCharacterBatchItem(
     val perspective: String = "",
     val sequence: Int = 0,
@@ -257,6 +269,7 @@ data class VisualCharacterBatchItem(
     val evaluation_status: String = "",
     val evaluation_score: Int? = null,
     val evaluation_model: String = "",
+    val evaluation: VisualCharacterEvaluationEvidence = VisualCharacterEvaluationEvidence(),
     val correction_instruction: String = "",
     val created_utc: String = "",
     val updated_utc: String = "",
