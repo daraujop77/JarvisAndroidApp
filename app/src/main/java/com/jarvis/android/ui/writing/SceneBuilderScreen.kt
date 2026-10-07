@@ -138,7 +138,7 @@ fun SceneBuilderScreen(
                     Spacer(Modifier.height(4.dp))
                     Text(
                         if (chapterId.isBlank()) {
-                            "Abre un capítulo de Writing para fijar su contexto narrativo."
+                            "El Director puede buscar en la historia completa; abre un capítulo solo si quieres usar el modo manual."
                         } else {
                             "Capítulo: " + chapterId + " · " + if (useDraft) "Draft" else "Brief"
                         },
