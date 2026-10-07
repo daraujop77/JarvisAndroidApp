@@ -66,6 +66,7 @@ fun DraftReviewScreen(
     val reviewJob = draft?.review_job
     val canonDiff = approval?.canon_diff
     val autoStatus = autoReview?.status.orEmpty()
+    val autoJob = autoReview?.job
     var advancedExpanded by remember { mutableStateOf(false) }
 
     Surface(
@@ -82,10 +83,10 @@ fun DraftReviewScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 StagePill(stage.ifBlank { "BRIEF_APPROVED" }, stageColor(stage))
-                if (autoReview?.job != null) {
+                if (autoJob != null) {
                     StagePill(
-                        "AUTO · ${autoStatus.ifBlank { autoReview.job.status.ifBlank { "DESCONOCIDO" } }}",
-                        jobColor(autoReview.job.status),
+                        "AUTO · ${autoStatus.ifBlank { autoJob.status.ifBlank { "DESCONOCIDO" } }}",
+                        jobColor(autoJob.status),
                     )
                 }
                 if (draftJob != null) StagePill("WRITER · ${draftJob.status.ifBlank { "DESCONOCIDO" }}", jobColor(draftJob.status))
