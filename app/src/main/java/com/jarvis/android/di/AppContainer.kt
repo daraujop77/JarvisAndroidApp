@@ -127,9 +127,9 @@ class AppContainer(private val context: Context) {
             val configured = runCatching { settings.settings.first() }.getOrNull()
             if (configured != null) {
                 val gatewayAllowed = JarvisAppSession.normalizeBase(configured.gatewayBaseUrl)
-                    ?.let(JarvisAppSession::isAllowedLiveHost) == true
+                    ?.let { JarvisAppSession.isAllowedLiveHost(it) } == true
                 val lastAllowed = JarvisAppSession.normalizeBase(configured.lastControlPlaneUrl)
-                    ?.let(JarvisAppSession::isAllowedLiveHost) == true
+                    ?.let { JarvisAppSession.isAllowedLiveHost(it) } == true
                 if (configured.gatewayBaseUrl.isNotBlank() && !gatewayAllowed) {
                     runCatching { settings.setBaseUrl("") }
                 }

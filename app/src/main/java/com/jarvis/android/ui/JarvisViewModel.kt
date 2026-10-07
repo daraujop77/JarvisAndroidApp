@@ -4721,7 +4721,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 container.liveSession.baseUrl,
             ).mapNotNull { candidate ->
                 JarvisAppSession.normalizeBase(candidate)
-                    ?.takeIf(JarvisAppSession::isAllowedLiveHost)
+                    ?.takeIf { JarvisAppSession.isAllowedLiveHost(it) }
             }.firstOrNull()
             if (controlPlane == null) {
                 _liveAuth.value = LiveAuthState.Error(
