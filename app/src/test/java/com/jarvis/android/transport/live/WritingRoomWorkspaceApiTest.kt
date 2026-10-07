@@ -534,6 +534,8 @@ class WritingRoomWorkspaceApiTest {
                           "operation":"run",
                           "project_id":"prj_story",
                           "chapter_id":"chapter_w1",
+                          "async_execution":true,
+                          "polling_required":false,
                           "result":{
                             "schema":"jarvis.writing-room.chapter-auto-review.v1",
                             "project_id":"prj_story",
@@ -1018,6 +1020,8 @@ class WritingRoomWorkspaceApiTest {
             chapterId = "chapter_w1",
         ).getOrThrow()
 
+        assertTrue(response.async_execution)
+        assertEquals(false, response.polling_required)
         assertEquals("READY_FOR_HUMAN_APPROVAL", response.result.status)
         assertEquals("SUCCEEDED", response.result.job?.status)
         assertEquals(1, response.result.corrections_used)
