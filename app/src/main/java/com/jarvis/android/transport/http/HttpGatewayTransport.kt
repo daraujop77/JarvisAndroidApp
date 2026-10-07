@@ -79,7 +79,7 @@ class HttpGatewayTransport(
             startPolling(base)
         } catch (t: Throwable) {
             _linkState.value = LinkState.FAILED
-            // Keep the original fail-closed reason (e.g. private-host guard);
+            // Keep the original fail-closed reason (e.g. retired/unsafe URL);
             // only wrap foreign exceptions.
             throw if (t is TransportException) t else TransportException("http connect failed: ${t.message}", t)
         }
@@ -178,12 +178,11 @@ class HttpGatewayTransport(
         val base = baseUrlProvider().trim().trimEnd('/')
         if (base.isBlank()) throw TransportException("gateway base URL not configured")
         if (base.toHttpUrlOrNull() == null) throw TransportException("invalid gateway base URL")
-        // Lane D security rule: this adapter carries the real PC-A bearer when a
-        // session exists, so it must fail closed on public hosts exactly like the
-        // LIVE transport — a stray/typo'd URL can never downgrade the token to a
-        // public endpoint.
+        // This adapter may carry the real app bearer. Public production
+        // endpoints therefore require HTTPS; retired Tailscale/MagicDNS and
+        // clear-text public URLs fail closed exactly like the LIVE transport.
         if (!JarvisAppSession.isAllowedLiveHost(base)) {
-            throw TransportException("gateway host must be a private-network address (Tailscale/LAN)")
+            throw TransportException("gateway URL must use HTTPS outside localhost/LAN; Tailscale endpoints are retired")
         }
         return base
     }

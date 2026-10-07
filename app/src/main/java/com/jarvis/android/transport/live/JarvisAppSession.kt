@@ -29,15 +29,14 @@ import java.util.concurrent.TimeUnit
 /**
  * PC-A authenticated app session (PCB-LIVE-1).
  *
- * Uses the *existing* PC-A session flow (`POST /api/app/login`,
- * `GET /api/app/session`, `POST /api/app/logout`) over the private front door.
- * This is NOT the final cryptographic pairing protocol — that stays owned by
- * PC-A and must not be invented here (runbook §12).
+ * Uses the existing authenticated app-session flow (`POST /api/app/login`,
+ * `GET /api/app/session`, `POST /api/app/logout`) through the configured
+ * JARVIS Gateway. Tailscale is no longer a supported front door.
  *
- * Only the short-lived bearer token PC-A issues is persisted, never the
- * password. [isAllowedLiveHost] fail-closes the base URL to private-network
- * hosts so the token can never be sent to a public endpoint (plan §23,
- * runbook §9 "no public temporary Gateway").
+ * Only the short-lived bearer token is persisted, never the password.
+ * [isAllowedLiveHost] accepts local/LAN development and HTTPS production
+ * endpoints, while explicitly rejecting retired Tailscale/MagicDNS targets
+ * and clear-text public URLs.
  */
 class JarvisAppSession(
     private val store: Store,
@@ -86,12 +85,37 @@ class JarvisAppSession(
     val baseUrl: String
         get() {
             val stored = store.get(KEY_BASE) ?: return ""
-            val migrated = migrateKnownControlPlaneBase(stored)
-            if (migrated != stored) {
-                store.put(mapOf(KEY_BASE to migrated))
+            val normalized = normalizeBase(stored)
+            if (normalized == null || !isAllowedLiveHost(normalized)) {
+                // Retire stale/private-link endpoints instead of repeatedly
+                // attempting DNS against infrastructure the app no longer uses.
+                store.put(mapOf(KEY_BASE to null))
+                return ""
             }
-            return migrated
+            if (normalized != stored) {
+                store.put(mapOf(KEY_BASE to normalized))
+            }
+            return normalized
         }
+
+    /**
+     * Keep every live API surface on the same owner-configured Gateway URL.
+     * Settings/HTTP and authenticated visual APIs used to drift apart, leaving
+     * Visual Studio pinned to an obsolete Tailscale hostname.
+     */
+    fun updateBaseUrl(base: String): Result<String> {
+        val root = normalizeBase(base)
+            ?: return Result.failure(TransportException("invalid gateway URL"))
+        if (!isAllowedLiveHost(root)) {
+            return Result.failure(
+                TransportException(
+                    "gateway URL must use HTTPS outside localhost/LAN; Tailscale endpoints are retired",
+                ),
+            )
+        }
+        store.put(mapOf(KEY_BASE to root))
+        return Result.success(root)
+    }
     val userId: String get() = store.get(KEY_USER_ID) ?: ""
     val username: String get() = store.get(KEY_USERNAME) ?: ""
     val role: String get() = store.get(KEY_ROLE) ?: ""
@@ -126,7 +150,7 @@ class JarvisAppSession(
                 ?: return@withContext Result.failure(TransportException("invalid gateway URL"))
             if (!isAllowedLiveHost(root)) {
                 return@withContext Result.failure(
-                    TransportException("live front door must be a private-network host (Tailscale/LAN)"),
+                    TransportException("JARVIS Gateway must use HTTPS outside localhost/LAN; Tailscale endpoints are retired"),
                 )
             }
             val body = buildJsonObject {
@@ -190,7 +214,7 @@ class JarvisAppSession(
             ?: return@withContext Result.failure(TransportException("invalid gateway URL"))
         if (!isAllowedLiveHost(root)) {
             return@withContext Result.failure(
-                TransportException("live front door must be a private-network host (Tailscale/LAN)"),
+                TransportException("JARVIS Gateway must use HTTPS outside localhost/LAN; Tailscale endpoints are retired"),
             )
         }
         runCatching {
@@ -539,7 +563,7 @@ class JarvisAppSession(
         val root = baseUrl
         if (!isAllowedLiveHost(root)) {
             return@withContext Result.failure(
-                TransportException("screen vision server is not on the private JARVIS network"),
+                TransportException("screen vision Gateway URL is missing or not allowed"),
             )
         }
         runCatching {
@@ -582,7 +606,7 @@ class JarvisAppSession(
         val root = baseUrl
         if (!isAllowedLiveHost(root)) {
             return@withContext Result.failure(
-                TransportException("image generation server is not on the private JARVIS network"),
+                TransportException("image generation Gateway URL is missing or not allowed"),
             )
         }
         val cleanPrompt = prompt.trim()
@@ -641,7 +665,7 @@ class JarvisAppSession(
         val root = baseUrl
         if (!isAllowedLiveHost(root)) {
             return@withContext Result.failure(
-                TransportException("visual canon server is not on the private JARVIS network"),
+                TransportException("visual canon Gateway URL is missing or not allowed"),
             )
         }
         if (imageBase64.isBlank()) {
@@ -699,7 +723,7 @@ class JarvisAppSession(
         val root = baseUrl
         if (!isAllowedLiveHost(root)) {
             return@withContext Result.failure(
-                TransportException("image editing server is not on the private JARVIS network"),
+                TransportException("image editing Gateway URL is missing or not allowed"),
             )
         }
         val cleanInstruction = instruction.trim()
@@ -930,27 +954,12 @@ class JarvisAppSession(
         const val KEY_PROFILE = "chat_profile"
         const val KEY_PROFILE_CONV = "chat_profile_"
 
-        private const val CONTROL_PLANE_HOST = "vps-8817149e.tail6eec63.ts.net"
-        internal const val LEGACY_PRIVATE_CONTROL_PLANE_URL =
-            "https://vps-8817149e.tail6eec63.ts.net"
-        internal const val PUBLIC_CONTROL_PLANE_URL =
-            "https://vps-8817149e.tail6eec63.ts.net:8443"
-
         internal val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
         fun forContext(context: Context): JarvisAppSession = JarvisAppSession(
             store = PrefsStore(context),
             refreshStore = SecureRefreshCredentialStore(context),
         )
-
-        internal fun migrateKnownControlPlaneBase(raw: String): String {
-            val normalized = normalizeBase(raw) ?: return raw
-            return if (normalized == LEGACY_PRIVATE_CONTROL_PLANE_URL) {
-                PUBLIC_CONTROL_PLANE_URL
-            } else {
-                normalized
-            }
-        }
 
         internal fun normalizeBase(raw: String): String? {
             val trimmed = raw.trim().trimEnd('/')
@@ -966,24 +975,29 @@ class JarvisAppSession(
         }
 
         /**
-         * Fail-closed URL policy: loopback, RFC1918, Tailscale CGNAT
-         * (100.64.0.0/10), the approved JARVIS control-plane `*.ts.net` host,
-         * or a tailnet single-label host. The approved control-plane hostname may
-         * be reached through Tailscale Funnel on port 8443; arbitrary public
-         * hosts remain rejected so a stray URL cannot receive the bearer token.
+         * Current URL policy after retiring Tailscale:
+         * - loopback/RFC1918 may use HTTP or HTTPS for local development/LAN;
+         * - production/public hosts must use HTTPS;
+         * - *.ts.net, Tailscale CGNAT (100.64.0.0/10), and single-label
+         *   MagicDNS-style names are rejected so stale installs cannot silently
+         *   fall back to the retired transport.
          */
         fun isAllowedLiveHost(base: String): Boolean {
-            val host = runCatching { java.net.URI(base).host }.getOrNull()?.lowercase() ?: return false
+            val uri = runCatching { java.net.URI(base) }.getOrNull() ?: return false
+            val scheme = uri.scheme?.lowercase() ?: return false
+            if (scheme != "http" && scheme != "https") return false
+            val host = uri.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
+            if (host.endsWith(".ts.net")) return false
             if (host == "localhost" || host == "127.0.0.1" || host == "::1") return true
-            if (host.endsWith(".ts.net")) return host == CONTROL_PLANE_HOST
             ipv4(host)?.let { (a, b, _, _) ->
                 if (a == 10 || a == 127) return true
-                if (a == 100 && b in 64..127) return true // Tailscale CGNAT
                 if (a == 172 && b in 16..31) return true
                 if (a == 192 && b == 168) return true
+                if (a == 100 && b in 64..127) return false
+                return scheme == "https"
             }
-            // MagicDNS single-label names (e.g. desktop-l59hjk4) resolve only on the tailnet.
-            return !host.contains('.')
+            if (!host.contains('.')) return false
+            return scheme == "https"
         }
 
         private fun ipv4(host: String): IntArray? {

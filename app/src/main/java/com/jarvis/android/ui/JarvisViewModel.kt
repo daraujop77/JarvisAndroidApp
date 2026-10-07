@@ -4588,14 +4588,30 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val liveAuth: StateFlow<LiveAuthState> = _liveAuth
 
     /**
-     * Daily has one owner front door. The login UI intentionally does not ask
-     * users for infrastructure addresses; provider/server details stay hidden
-     * behind the JARVIS identity.
+     * Login reuses the Gateway already configured by the owner/app. No
+     * production hostname is hard-coded here, so feature-specific APIs cannot
+     * drift back to a retired transport.
      */
     fun liveLogin(user: String, password: String, onDone: (Boolean) -> Unit = {}) {
         _liveAuth.value = LiveAuthState.Busy
         viewModelScope.launch {
-            val result = container.liveSession.login(DEFAULT_CONTROL_PLANE_URL, user, password)
+            val stored = container.settings.settings.first()
+            val controlPlane = listOf(
+                stored.gatewayBaseUrl,
+                stored.lastControlPlaneUrl,
+                container.liveSession.baseUrl,
+            ).mapNotNull { candidate ->
+                JarvisAppSession.normalizeBase(candidate)
+                    ?.takeIf(JarvisAppSession::isAllowedLiveHost)
+            }.firstOrNull()
+            if (controlPlane == null) {
+                _liveAuth.value = LiveAuthState.Error(
+                    "JARVIS Gateway no está configurado. Usa la conexión actual en Ajustes.",
+                )
+                onDone(false)
+                return@launch
+            }
+            val result = container.liveSession.login(controlPlane, user, password)
             if (result.isSuccess) {
                 container.settings.setPaired(true, container.deviceIdentity.provision())
                 container.settings.setUseFake(false)
@@ -4786,7 +4802,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun setUseFake(value: Boolean) = viewModelScope.launch { container.settings.setUseFake(value) }
 
-    fun setBaseUrl(value: String) = viewModelScope.launch { container.settings.setBaseUrl(value) }
+    fun setBaseUrl(value: String) = viewModelScope.launch {
+        container.liveSession.updateBaseUrl(value).fold(
+            onSuccess = { normalized ->
+                container.settings.setBaseUrl(normalized)
+                _healthStatus.value = null
+            },
+            onFailure = { error ->
+                _healthStatus.value = "error: " + (error.message ?: "invalid JARVIS Gateway URL")
+            },
+        )
+    }
 
     fun setAppLock(value: Boolean) = viewModelScope.launch { container.settings.setAppLock(value) }
 
@@ -5810,7 +5836,6 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
 }
 
-private const val DEFAULT_CONTROL_PLANE_URL = "https://vps-8817149e.tail6eec63.ts.net:8443"
 
 class JarvisViewModelFactory(private val app: JarvisApp) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
