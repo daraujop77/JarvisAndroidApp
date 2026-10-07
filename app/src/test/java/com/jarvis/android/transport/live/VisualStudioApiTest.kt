@@ -198,7 +198,7 @@ class VisualStudioApiTest {
                     "/api/app/writing-room/v2/visual/characters/complete-views" -> MockResponse().setBody(
                         """
                         {
-                          "schema":"jarvis.visual-studio.character-batch.v1",
+                          "schema":"jarvis.visual-studio.character-batch.v2",
                           "batch":{
                             "project_id":"prj_story",
                             "batch_id":"vcb_1",
@@ -210,10 +210,11 @@ class VisualStudioApiTest {
                             "adjustment":"",
                             "mode":"quality",
                             "max_corrections":2,
-                            "generation_budget":1,
-                            "status":"READY_FOR_REVIEW",
-                            "pending_count":0,
-                            "candidate_count":1,
+                            "generation_budget":3,
+                            "generation_used":0,
+                            "status":"RUNNING",
+                            "pending_count":1,
+                            "candidate_count":0,
                             "approved_count":1,
                             "blocked_count":0,
                             "items":[
@@ -227,13 +228,19 @@ class VisualStudioApiTest {
                               {
                                 "perspective":"back",
                                 "sequence":2,
-                                "status":"CANDIDATE",
-                                "candidate_asset_id":"va_batch_back",
-                                "candidate_sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+                                "status":"PENDING",
+                                "job_id":"vcj_back",
+                                "job_status":"QUEUED",
+                                "generation_attempts":0
                               }
                             ]
                           },
-                          "generated_asset_ids":["va_batch_back"],
+                          "queued_job_ids":["vcj_back"],
+                          "generated_asset_ids":[],
+                          "async_execution":true,
+                          "semantic_evaluation":true,
+                          "max_corrections":2,
+                          "generation_budget":3,
                           "human_approval_required":true,
                           "auto_canon":false
                         }
@@ -242,7 +249,7 @@ class VisualStudioApiTest {
                     "/api/app/writing-room/v2/visual/characters/batch/status" -> MockResponse().setBody(
                         """
                         {
-                          "schema":"jarvis.visual-studio.character-batch.v1",
+                          "schema":"jarvis.visual-studio.character-batch.v2",
                           "batch":{
                             "project_id":"prj_story",
                             "batch_id":"vcb_1",
@@ -257,7 +264,7 @@ class VisualStudioApiTest {
                             "blocked_count":0,
                             "items":[
                               {"perspective":"left_profile","sequence":1,"status":"APPROVED_EXISTING"},
-                              {"perspective":"back","sequence":2,"status":"CANDIDATE","candidate_asset_id":"va_batch_back","candidate_sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"}
+                              {"perspective":"back","sequence":2,"status":"CANDIDATE","candidate_asset_id":"va_batch_back","candidate_sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC","job_id":"vcj_back","job_status":"READY_FOR_REVIEW","generation_attempts":2,"correction_count":1,"evaluation_status":"PASS","evaluation_score":93,"evaluation_model":"test-vlm"}
                             ]
                           }
                         }
@@ -459,11 +466,15 @@ class VisualStudioApiTest {
             perspectives = listOf("left_profile", "back"),
         ).orThrowStage("complete missing views")
 
-        assertEquals("READY_FOR_REVIEW", batch.batch?.status)
-        assertEquals(listOf("va_batch_back"), batch.generated_asset_ids)
+        assertEquals("RUNNING", batch.batch?.status)
+        assertEquals(listOf("vcj_back"), batch.queued_job_ids)
+        assertTrue(batch.async_execution)
+        assertTrue(batch.semantic_evaluation)
+        assertEquals(3, batch.generation_budget)
+        assertTrue(batch.generated_asset_ids.isEmpty())
         assertTrue(batch.human_approval_required)
         assertFalse(batch.auto_canon)
-        assertEquals(1, batch.batch?.candidate_count)
+        assertEquals(1, batch.batch?.pending_count)
         assertEquals("APPROVED_EXISTING", batch.batch?.items?.first()?.status)
 
         val status = session.visualCharacterBatchStatus(
@@ -473,6 +484,9 @@ class VisualStudioApiTest {
         ).orThrowStage("batch status")
         assertEquals("vcb_1", status.batch?.batch_id)
         assertEquals("CANDIDATE", status.batch?.items?.last()?.status)
+        assertEquals("PASS", status.batch?.items?.last()?.evaluation_status)
+        assertEquals(93, status.batch?.items?.last()?.evaluation_score)
+        assertEquals(2, status.batch?.items?.last()?.generation_attempts)
 
         val approved = session.visualApproveCharacterViewBatch(
             projectId = "prj_story",
