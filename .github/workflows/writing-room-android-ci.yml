@@ -12,6 +12,7 @@ on:
       - "settings.gradle.kts"
       - "gradle/**"
       - "gradle.properties"
+      - ".github/workflows/writing-room-android-ci.yml"
 
 permissions:
   contents: write
@@ -137,13 +138,23 @@ jobs:
           PY
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" --clobber
+            # A versionCode is a permanent release identity. Never replace an
+            # earlier APK with a different build under the same tag.
+            EXISTING_DIR="$RUNNER_TEMP/existing-release"
+            mkdir -p "$EXISTING_DIR"
+            gh release download "$TAG" --pattern "JARVIS-release.json" --dir "$EXISTING_DIR"
+            EXISTING_TARGET="$(gh release view "$TAG" --json targetCommitish --jq '.targetCommitish')"
+            if [ "$EXISTING_TARGET" != "$GITHUB_SHA" ] || \
+               ! cmp -s "$EXISTING_DIR/JARVIS-release.json" "$RELEASE_MANIFEST"; then
+              echo "Release $TAG already belongs to another commit or artifact. Bump versionCode and versionName." >&2
+              exit 1
+            fi
+            echo "Release $TAG already contains this exact build; leaving it unchanged."
           else
             gh release create "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" \
               --target "$GITHUB_SHA" \
               --title "JARVIS Android $VERSION_NAME" \
-              --notes "Signed production APK for JARVIS Android $VERSION_NAME (versionCode $VERSION_CODE)." || \
-            gh release upload "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" --clobber
+              --notes "Signed production APK for JARVIS Android $VERSION_NAME (versionCode $VERSION_CODE)."
           fi
 
           echo "published_tag=$TAG"
