@@ -526,6 +526,68 @@ class WritingRoomWorkspaceApiTest {
                         }
                         """.trimIndent(),
                     )
+                    "/api/app/writing-room/v2/chapter/auto-review/status",
+                    "/api/app/writing-room/v2/chapter/auto-review/run" -> MockResponse().setBody(
+                        """
+                        {
+                          "schema":"jarvis.writing-room.chapter-auto-review-run.response.v1",
+                          "operation":"run",
+                          "project_id":"prj_story",
+                          "chapter_id":"chapter_w1",
+                          "async_execution":true,
+                          "polling_required":false,
+                          "result":{
+                            "schema":"jarvis.writing-room.chapter-auto-review.v1",
+                            "project_id":"prj_story",
+                            "chapter_id":"chapter_w1",
+                            "status":"READY_FOR_HUMAN_APPROVAL",
+                            "job":{"job_id":"job_auto","operation":"auto_review_chapter","status":"SUCCEEDED","steps":[{"step_id":"canon_diff_persist","sequence":31,"state":"SUCCEEDED"}]},
+                            "draft":{
+                              "schema":"jarvis.writing-room.draft-execution.v1",
+                              "project_id":"prj_story",
+                              "chapter_id":"chapter_w1",
+                              "job":{"job_id":"job_draft","operation":"draft_chapter","status":"SUCCEEDED"},
+                              "aggregate":{"version":14,"chapter_stage":"READY_FOR_APPROVAL","current_brief_id":"brief_1","current_draft_revision_id":"draft_2","current_canon_diff_id":"diff_1"},
+                              "reviews":[
+                                {"review_id":"review_2a","revision_id":"draft_2","review_kind":"reviewer","review_version":1,"validation_status":"PASS","payload":{"review_kind":"reviewer","validation_status":"PASS","findings":[]}},
+                                {"review_id":"review_2b","revision_id":"draft_2","review_kind":"canon_keeper","review_version":1,"validation_status":"PASS","payload":{"review_kind":"canon_keeper","validation_status":"PASS","findings":[]}}
+                              ],
+                              "chapter":{"chapter_id":"chapter_w1","project_id":"prj_story","title":"La señal falsa","status":"READY_FOR_HUMAN_APPROVAL","draft_text":"Texto corregido."}
+                            },
+                            "approval":{
+                              "schema":"jarvis.writing-room.approval-state.v1",
+                              "project_id":"prj_story",
+                              "chapter_id":"chapter_w1",
+                              "aggregate":{"version":14,"chapter_stage":"READY_FOR_APPROVAL","current_brief_id":"brief_1","current_draft_revision_id":"draft_2","current_canon_diff_id":"diff_1"},
+                              "direction":{"project_id":"prj_story","chapter_id":"chapter_w1","chapter_stage":"READY_FOR_APPROVAL","brief":{"brief_revision_id":"brief_1","payload":{"title":"La señal falsa"}}},
+                              "chapter":{"chapter_id":"chapter_w1","project_id":"prj_story","title":"La señal falsa","status":"READY_FOR_HUMAN_APPROVAL","draft_text":"Texto corregido."},
+                              "reviews":[
+                                {"review_id":"review_2a","revision_id":"draft_2","review_kind":"reviewer","review_version":1,"validation_status":"PASS","payload":{"review_kind":"reviewer","validation_status":"PASS","findings":[]}},
+                                {"review_id":"review_2b","revision_id":"draft_2","review_kind":"canon_keeper","review_version":1,"validation_status":"PASS","payload":{"review_kind":"canon_keeper","validation_status":"PASS","findings":[]}}
+                              ],
+                              "canon_diff":{"canon_diff_id":"diff_1","revision_id":"draft_2","draft_sha256":"sha2","brief_revision_id":"brief_1","diff_hash":"diffhash","payload":{"revision_id":"draft_2","summary":"Sin conflictos.","changes":[],"blocking_issues":[],"warnings":[]}},
+                              "ready_review_ids":["review_2a","review_2b"],
+                              "approval_ready":true
+                            },
+                            "corrections_used":1,
+                            "max_corrections":2,
+                            "assessment":{
+                              "schema":"jarvis.writing-room.auto-review-assessment.v1",
+                              "both_required_reviews_pass":true,
+                              "requires_correction":false,
+                              "correction_allowed":false,
+                              "corrections_used":1,
+                              "max_corrections":2,
+                              "pending_findings":[{"review_kind":"reviewer","severity":"warning","category":"pacing","message":"Pulir una transición."}],
+                              "review_ids":["review_2a","review_2b"]
+                            },
+                            "canon_diff_blocking_issues":[],
+                            "human_action_required":true,
+                            "automatic_final_approval":false
+                          }
+                        }
+                        """.trimIndent(),
+                    )
                     "/api/app/writing-room/v2/approval/status",
                     "/api/app/writing-room/v2/approval/prepare" -> MockResponse().setBody(
                         """
@@ -949,6 +1011,33 @@ class WritingRoomWorkspaceApiTest {
         assertEquals("QUEUED_INTENT_ONLY", approved.result.draft_execution?.state)
     }
 
+
+    @Test
+    fun a4AutoReviewContractReturnsOneHumanGateAndNoAutoApproval() = runBlocking(Dispatchers.IO) {
+        val session = session()
+        val response = session.writingRoomChapterAutoReviewRun(
+            projectId = "prj_story",
+            chapterId = "chapter_w1",
+        ).getOrThrow()
+
+        assertTrue(response.async_execution)
+        assertEquals(false, response.polling_required)
+        assertEquals("READY_FOR_HUMAN_APPROVAL", response.result.status)
+        assertEquals("SUCCEEDED", response.result.job?.status)
+        assertEquals(1, response.result.corrections_used)
+        assertEquals(2, response.result.max_corrections)
+        assertTrue(response.result.assessment.both_required_reviews_pass)
+        assertEquals("Pulir una transición.", response.result.assessment.pending_findings.single().message)
+        assertTrue(response.result.approval.approval_ready)
+        assertEquals("diff_1", response.result.approval.canon_diff?.canon_diff_id)
+        assertEquals(false, response.result.automatic_final_approval)
+
+        val recorded = server.takeRequest()
+        assertEquals("/api/app/writing-room/v2/chapter/auto-review/run", recorded.path)
+        val body = recorded.body.readUtf8()
+        assertTrue(body.contains("jarvis.writing-room.chapter-auto-review-run.request.v1"))
+        assertTrue(body.contains("\"chapter_id\":\"chapter_w1\""))
+    }
 
     @Test
     fun w2DraftReviewRevisionAndExactApprovalContractsDecode() = runBlocking(Dispatchers.IO) {

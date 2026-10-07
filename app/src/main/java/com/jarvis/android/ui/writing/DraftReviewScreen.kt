@@ -18,11 +18,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jarvis.android.transport.live.WritingApprovalStateResult
+import com.jarvis.android.transport.live.WritingChapterAutoReviewResult
 import com.jarvis.android.transport.live.WritingDraftExecutionResult
 import com.jarvis.android.transport.live.WritingDraftReviewRecord
 import com.jarvis.android.ui.theme.HudTextStyle
@@ -32,11 +37,12 @@ import com.jarvis.android.ui.theme.JarvisGreen
 import com.jarvis.android.ui.theme.JarvisRed
 import com.jarvis.android.ui.theme.JarvisViolet
 
-/** W2 draft/review/approval presentation. Durable authority stays server-side. */
+/** A4 chapter-to-final-review presentation. Durable authority stays server-side. */
 @Composable
 fun DraftReviewScreen(
     draft: WritingDraftExecutionResult?,
     approval: WritingApprovalStateResult?,
+    autoReview: WritingChapterAutoReviewResult?,
     busy: Boolean,
     onRunDraft: () -> Unit,
     onRunReview: () -> Unit,
@@ -59,6 +65,9 @@ fun DraftReviewScreen(
     val draftJob = draft?.job
     val reviewJob = draft?.review_job
     val canonDiff = approval?.canon_diff
+    val autoStatus = autoReview?.status.orEmpty()
+    val autoJob = autoReview?.job
+    var advancedExpanded by remember { mutableStateOf(false) }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -67,22 +76,52 @@ fun DraftReviewScreen(
         border = BorderStroke(1.dp, stageColor(stage).copy(alpha = 0.55f)),
     ) {
         Column(Modifier.padding(14.dp)) {
-            Text("BORRADOR · REVISIÓN · APROBACIÓN", style = HudTextStyle, color = JarvisCyan)
+            Text("JARVIS · CAPÍTULO HASTA REVISIÓN FINAL", style = HudTextStyle, color = JarvisCyan)
             Spacer(Modifier.height(5.dp))
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 StagePill(stage.ifBlank { "BRIEF_APPROVED" }, stageColor(stage))
+                if (autoJob != null) {
+                    StagePill(
+                        "AUTO · ${autoStatus.ifBlank { autoJob.status.ifBlank { "DESCONOCIDO" } }}",
+                        jobColor(autoJob.status),
+                    )
+                }
                 if (draftJob != null) StagePill("WRITER · ${draftJob.status.ifBlank { "DESCONOCIDO" }}", jobColor(draftJob.status))
                 if (reviewJob != null) StagePill("REVIEW · ${reviewJob.status.ifBlank { "DESCONOCIDO" }}", jobColor(reviewJob.status))
                 if (publication.isNotBlank()) StagePill("PUBLICACIÓN · $publication", if (publication == "PUBLISHED") JarvisGreen else JarvisAmber)
             }
 
-            if (draftJob?.status == "OUTCOME_UNKNOWN" || reviewJob?.status == "OUTCOME_UNKNOWN") {
+            if (autoReview != null) {
+                Spacer(Modifier.height(9.dp))
+                Text(
+                    "JARVIS coordina Writer → Reviewer → Canon Keeper → corrección acotada → CanonDiff. " +
+                        "Correcciones automáticas: ${autoReview.corrections_used}/${autoReview.max_corrections}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFCBD5E1),
+                )
+                autoReview.assessment.pending_findings.take(5).forEach { finding ->
+                    if (finding.message.isNotBlank()) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            "• ${finding.review_kind.replace('_', ' ')} · ${finding.message}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (finding.severity == "blocking") JarvisRed else JarvisAmber,
+                        )
+                    }
+                }
+            }
+
+            if (
+                autoStatus == "OUTCOME_UNKNOWN" ||
+                draftJob?.status == "OUTCOME_UNKNOWN" ||
+                reviewJob?.status == "OUTCOME_UNKNOWN"
+            ) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "El proveedor dejó un resultado ambiguo. JARVIS no repetirá automáticamente esa llamada para evitar duplicados.",
+                    "Un proveedor dejó un resultado ambiguo. JARVIS no repetirá automáticamente esa llamada para evitar duplicados.",
                     style = MaterialTheme.typography.bodySmall,
                     color = JarvisAmber,
                 )
@@ -127,38 +166,49 @@ fun DraftReviewScreen(
                     color = JarvisGreen,
                     fontWeight = FontWeight.SemiBold,
                 )
-                approval?.approval_ready == true && stage == "READY_FOR_APPROVAL" -> Button(
-                    onClick = onApprove,
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = JarvisGreen, contentColor = Color(0xFF02101F)),
-                ) { Text("Aprobar texto + CanonDiff", fontWeight = FontWeight.Bold) }
+                approval?.approval_ready == true && stage == "READY_FOR_APPROVAL" -> {
+                    Text(
+                        "JARVIS terminó el trabajo automático. Revisa el texto y el CanonDiff; esta es la única aprobación que cambia el estado del capítulo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisGreen,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = onApprove,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = JarvisGreen, contentColor = Color(0xFF02101F)),
+                    ) { Text("Aprobar texto + CanonDiff", fontWeight = FontWeight.Bold) }
+                }
+                autoStatus == "NEEDS_HUMAN_REVIEW" -> Text(
+                    "JARVIS llegó al límite de correcciones o encontró un bloqueo real. El borrador actual se conserva para que puedas editarlo; al guardar, la revisión automática continúa sola.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JarvisAmber,
+                )
                 canonDiff != null && canonDiff.payload.blocking_issues.isNotEmpty() -> Text(
                     "La aprobación está bloqueada hasta resolver los conflictos de canon mostrados arriba.",
                     style = MaterialTheme.typography.bodySmall,
                     color = JarvisRed,
                 )
-                reviewPass && stage in setOf("DRAFT_READY", "REVISING") -> Button(
-                    onClick = onPrepareApproval,
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = JarvisAmber, contentColor = Color(0xFF1B1300)),
-                ) { Text("Preparar CanonDiff", fontWeight = FontWeight.Bold) }
-                reviewJob != null && reviewJob.status in setOf("QUEUED", "FAILED_RETRYABLE") -> Button(
-                    onClick = onRunReview,
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Revisar nueva versión") }
-                draftJob != null && draftJob.status in setOf("QUEUED", "FAILED_RETRYABLE") -> Button(
+                autoStatus == "OUTCOME_UNKNOWN" -> Text(
+                    "Se requiere intervención antes de volver a usar el proveedor; no hay redispatch automático.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JarvisAmber,
+                )
+                autoStatus in setOf("WORKING", "RETRYABLE", "PENDING", "PENDING_CANON_DIFF") ||
+                    draftJob?.status in setOf("QUEUED", "FAILED_RETRYABLE") ||
+                    reviewJob?.status in setOf("QUEUED", "FAILED_RETRYABLE") -> Button(
                     onClick = onRunDraft,
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Continuar borrador") }
+                ) {
+                    Text(if (busy) "Procesando…" else "Continuar trabajo automático")
+                }
                 else -> OutlinedButton(
                     onClick = onRunDraft,
                     enabled = !busy && stage == "BRIEF_APPROVED",
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (busy) "Procesando…" else "Generar borrador") }
+                ) { Text(if (busy) "Procesando…" else "Iniciar trabajo automático") }
             }
 
             Spacer(Modifier.height(8.dp))
@@ -168,6 +218,39 @@ fun DraftReviewScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Visualizar escena")
+            }
+
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { advancedExpanded = !advancedExpanded },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (advancedExpanded) "Ocultar opciones avanzadas" else "Opciones avanzadas")
+            }
+            if (advancedExpanded) {
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    "Respaldo manual. El flujo normal no necesita estos pasos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF94A3B8),
+                )
+                if (reviewJob != null && reviewJob.status in setOf("QUEUED", "FAILED_RETRYABLE")) {
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = onRunReview,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Ejecutar revisión manual") }
+                }
+                if (reviewPass && stage in setOf("DRAFT_READY", "REVISING")) {
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = onPrepareApproval,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Preparar CanonDiff manualmente") }
+                }
             }
         }
     }

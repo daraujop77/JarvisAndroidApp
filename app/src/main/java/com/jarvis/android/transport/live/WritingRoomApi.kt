@@ -742,6 +742,58 @@ data class WritingApprovalStateResult(
 )
 
 @Serializable
+data class WritingAutoReviewFinding(
+    val review_kind: String = "",
+    val severity: String = "",
+    val category: String = "",
+    val message: String = "",
+    val suggestions: List<String> = emptyList(),
+    val evidence: List<WritingDraftReviewEvidence> = emptyList(),
+)
+
+@Serializable
+data class WritingAutoReviewAssessment(
+    val schema: String = "",
+    val both_required_reviews_pass: Boolean = false,
+    val missing_review_kinds: List<String> = emptyList(),
+    val requires_correction: Boolean = false,
+    val correction_allowed: Boolean = false,
+    val corrections_used: Int = 0,
+    val max_corrections: Int = 2,
+    val blocking_findings: List<WritingAutoReviewFinding> = emptyList(),
+    val pending_findings: List<WritingAutoReviewFinding> = emptyList(),
+    val review_ids: List<String> = emptyList(),
+)
+
+@Serializable
+data class WritingChapterAutoReviewResult(
+    val schema: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val status: String = "",
+    val job: WritingV2Job? = null,
+    val draft: WritingDraftExecutionResult = WritingDraftExecutionResult(),
+    val approval: WritingApprovalStateResult = WritingApprovalStateResult(),
+    val corrections_used: Int = 0,
+    val max_corrections: Int = 2,
+    val assessment: WritingAutoReviewAssessment = WritingAutoReviewAssessment(),
+    val canon_diff_blocking_issues: List<WritingCanonDiffBlockingIssue> = emptyList(),
+    val human_action_required: Boolean = false,
+    val automatic_final_approval: Boolean = false,
+)
+
+@Serializable
+data class WritingChapterAutoReviewResponse(
+    val schema: String = "",
+    val operation: String = "",
+    val project_id: String = "",
+    val chapter_id: String = "",
+    val result: WritingChapterAutoReviewResult = WritingChapterAutoReviewResult(),
+    val async_execution: Boolean = false,
+    val polling_required: Boolean = false,
+)
+
+@Serializable
 data class WritingApprovalStateResponse(
     val schema: String = "",
     val operation: String = "",
@@ -1597,6 +1649,32 @@ suspend fun JarvisAppSession.writingRoomDraftReviewRun(
         "/api/app/writing-room/v2/draft/review/run",
         buildJsonObject {
             put("schema", "jarvis.writing-room.draft-review-run.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomChapterAutoReviewStatus(
+    projectId: String,
+    chapterId: String,
+): Result<WritingChapterAutoReviewResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/chapter/auto-review/status",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.chapter-auto-review-status.request.v1")
+            put("project_id", projectId)
+            put("chapter_id", chapterId)
+        },
+    )
+
+suspend fun JarvisAppSession.writingRoomChapterAutoReviewRun(
+    projectId: String,
+    chapterId: String,
+): Result<WritingChapterAutoReviewResponse> =
+    writingPost(
+        "/api/app/writing-room/v2/chapter/auto-review/run",
+        buildJsonObject {
+            put("schema", "jarvis.writing-room.chapter-auto-review-run.request.v1")
             put("project_id", projectId)
             put("chapter_id", chapterId)
         },
