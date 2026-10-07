@@ -264,7 +264,7 @@ class VisualStudioApiTest {
                             "blocked_count":0,
                             "items":[
                               {"perspective":"left_profile","sequence":1,"status":"APPROVED_EXISTING"},
-                              {"perspective":"back","sequence":2,"status":"CANDIDATE","candidate_asset_id":"va_batch_back","candidate_sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC","job_id":"vcj_back","job_status":"READY_FOR_REVIEW","generation_attempts":2,"correction_count":1,"evaluation_status":"PASS","evaluation_score":93,"evaluation_model":"test-vlm"}
+                              {"perspective":"back","sequence":2,"status":"CANDIDATE","candidate_asset_id":"va_batch_back","candidate_sha256":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC","job_id":"vcj_back","job_status":"READY_FOR_REVIEW","generation_attempts":2,"correction_count":1,"evaluation_status":"PASS","evaluation_score":93,"evaluation_model":"test-vlm","evaluation":{"verdict":"PASS","score":93,"identity_score":95,"canon_score":94,"perspective_score":91,"issues":[],"correction_instruction":"","model":"test-vlm"}}
                             ]
                           }
                         }
@@ -486,6 +486,10 @@ class VisualStudioApiTest {
         assertEquals("CANDIDATE", status.batch?.items?.last()?.status)
         assertEquals("PASS", status.batch?.items?.last()?.evaluation_status)
         assertEquals(93, status.batch?.items?.last()?.evaluation_score)
+        assertEquals(95, status.batch?.items?.last()?.evaluation?.identity_score)
+        assertEquals(94, status.batch?.items?.last()?.evaluation?.canon_score)
+        assertEquals(91, status.batch?.items?.last()?.evaluation?.perspective_score)
+        assertTrue(status.batch?.items?.last()?.evaluation?.issues.orEmpty().isEmpty())
         assertEquals(2, status.batch?.items?.last()?.generation_attempts)
 
         val approved = session.visualApproveCharacterViewBatch(
