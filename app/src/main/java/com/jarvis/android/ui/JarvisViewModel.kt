@@ -1064,38 +1064,38 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             val result = approved.getOrThrow().result
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = true,
-                busyLabel = "WRITER · REDACTANDO CAPÍTULO",
+                busyLabel = "JARVIS · REDACTANDO, REVISANDO Y PREPARANDO CANONDIFF",
                 planningV2AggregateVersion = result.aggregate_version,
                 planningV2Direction = result,
                 draftV2 = null,
                 approvalV2 = null,
+                autoReviewV2 = null,
                 error = null,
             )
-            val drafted = container.liveSession.writingRoomDraftRun(
+            val autoReviewed = container.liveSession.writingRoomChapterAutoReviewRun(
                 projectId = projectId,
                 chapterId = chapterId,
             )
-            if (drafted.isFailure) {
-                writingWorkspaceError(drafted.exceptionOrNull())
+            if (autoReviewed.isFailure) {
+                writingWorkspaceError(autoReviewed.exceptionOrNull())
                 return@launch
             }
-            val draftResult = drafted.getOrThrow().result
-            val approval = container.liveSession.writingRoomApprovalStatus(projectId, chapterId)
+            val autoResult = autoReviewed.getOrThrow().result
             val revisions = container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
             val list = container.liveSession.writingRoomChapterList(projectId)
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = false,
                 busyLabel = "",
-                planningV2AggregateVersion = draftResult.aggregate.version,
-                planningV2Direction = draftResult.direction,
-                draftV2 = draftResult,
-                approvalV2 = approval.getOrNull()?.result,
-                activeChapter = draftResult.chapter,
+                planningV2AggregateVersion = autoResult.approval.aggregate.version,
+                planningV2Direction = autoResult.approval.direction,
+                draftV2 = autoResult.draft,
+                approvalV2 = autoResult.approval,
+                autoReviewV2 = autoResult,
+                activeChapter = autoResult.approval.chapter,
                 chapterRevisions = revisions.getOrNull()?.items.orEmpty(),
                 chapterRevisionChapterId = chapterId,
                 chapters = list.getOrNull()?.items ?: _writingWorkspace.value.chapters,
-                error = approval.exceptionOrNull()?.message
-                    ?: revisions.exceptionOrNull()?.message
+                error = revisions.exceptionOrNull()?.message
                     ?: list.exceptionOrNull()?.message,
             )
         }
