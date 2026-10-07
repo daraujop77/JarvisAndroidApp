@@ -236,6 +236,155 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _writingWorkspace = MutableStateFlow(WritingWorkspaceState())
     val writingWorkspace: StateFlow<WritingWorkspaceState> = _writingWorkspace
 
+    private var writingAutoReviewScopeVersion = 0L
+    private var writingAutoReviewPollJob: Job? = null
+
+    private fun resetWritingAutoReviewPolling() {
+        writingAutoReviewPollJob?.cancel()
+        writingAutoReviewPollJob = null
+        writingAutoReviewScopeVersion++
+    }
+
+    private fun writingAutoReviewTerminal(status: String): Boolean =
+        status in setOf(
+            "READY_FOR_HUMAN_APPROVAL",
+            "NEEDS_HUMAN_REVIEW",
+            "OUTCOME_UNKNOWN",
+            "FAILED_FINAL",
+            "CANCELED",
+            "APPROVED",
+        )
+
+    private fun writingAutoReviewLabel(status: String): String = when (status) {
+        "PENDING_CANON_DIFF" -> "JARVIS · PREPARANDO CANONDIFF"
+        "RETRYABLE" -> "JARVIS · RECUPERANDO TRABAJO DURABLE"
+        "READY_FOR_HUMAN_APPROVAL" -> "LISTO PARA TU REVISIÓN FINAL"
+        "NEEDS_HUMAN_REVIEW" -> "REQUIERE TU REVISIÓN"
+        "OUTCOME_UNKNOWN" -> "RESULTADO DE PROVEEDOR AMBIGUO"
+        else -> "JARVIS · REDACTANDO, REVISANDO Y CORRIGIENDO"
+    }
+
+    private suspend fun applyWritingAutoReviewResult(
+        projectId: String,
+        chapterId: String,
+        expectedScopeVersion: Long,
+        result: WritingChapterAutoReviewResult,
+    ): Boolean {
+        if (
+            expectedScopeVersion != writingAutoReviewScopeVersion ||
+            _writingWorkspace.value.chatProjectId != projectId ||
+            (_writingWorkspace.value.planningV2ChapterId != null &&
+                _writingWorkspace.value.planningV2ChapterId != chapterId)
+        ) return true
+
+        val terminal = writingAutoReviewTerminal(result.status)
+        val revisions = if (terminal) {
+            container.liveSession.writingRoomChapterRevisions(projectId, chapterId)
+        } else null
+        val list = if (terminal) {
+            container.liveSession.writingRoomChapterList(projectId)
+        } else null
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            busy = !terminal,
+            busyLabel = if (terminal) "" else writingAutoReviewLabel(result.status),
+            planningV2AggregateVersion = maxOf(
+                _writingWorkspace.value.planningV2AggregateVersion,
+                result.approval.aggregate.version,
+            ),
+            planningV2Direction = result.approval.direction,
+            draftV2 = result.draft,
+            approvalV2 = result.approval,
+            autoReviewV2 = result,
+            activeChapter = result.approval.chapter,
+            chapterRevisions = revisions?.getOrNull()?.items
+                ?: _writingWorkspace.value.chapterRevisions,
+            chapterRevisionChapterId = if (revisions?.isSuccess == true) {
+                chapterId
+            } else {
+                _writingWorkspace.value.chapterRevisionChapterId
+            },
+            chapters = list?.getOrNull()?.items ?: _writingWorkspace.value.chapters,
+            error = revisions?.exceptionOrNull()?.message
+                ?: list?.exceptionOrNull()?.message,
+        )
+        return terminal
+    }
+
+    private fun startWritingAutoReviewPolling(
+        projectId: String,
+        chapterId: String,
+        expectedScopeVersion: Long,
+    ) {
+        writingAutoReviewPollJob?.cancel()
+        writingAutoReviewPollJob = viewModelScope.launch {
+            while (true) {
+                delay(1_500)
+                if (
+                    expectedScopeVersion != writingAutoReviewScopeVersion ||
+                    _writingWorkspace.value.chatProjectId != projectId ||
+                    (_writingWorkspace.value.planningV2ChapterId != null &&
+                        _writingWorkspace.value.planningV2ChapterId != chapterId)
+                ) return@launch
+
+                val response = container.liveSession.writingRoomChapterAutoReviewStatus(
+                    projectId = projectId,
+                    chapterId = chapterId,
+                ).getOrNull()
+                if (response == null) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = true,
+                        busyLabel = "TRABAJO GUARDADO · RECUPERANDO ESTADO",
+                    )
+                    continue
+                }
+                if (
+                    applyWritingAutoReviewResult(
+                        projectId,
+                        chapterId,
+                        expectedScopeVersion,
+                        response.result,
+                    )
+                ) return@launch
+            }
+        }
+    }
+
+    private suspend fun beginWritingAutoReview(
+        projectId: String,
+        chapterId: String,
+        label: String = "JARVIS · REDACTANDO, REVISANDO Y PREPARANDO CANONDIFF",
+    ) {
+        resetWritingAutoReviewPolling()
+        val scopeVersion = writingAutoReviewScopeVersion
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            busy = true,
+            busyLabel = label,
+            error = null,
+        )
+        val response = container.liveSession.writingRoomChapterAutoReviewRun(
+            projectId = projectId,
+            chapterId = chapterId,
+        )
+        if (response.isFailure) {
+            if (scopeVersion == writingAutoReviewScopeVersion) {
+                writingWorkspaceError(response.exceptionOrNull())
+            }
+            return
+        }
+        val value = response.getOrThrow()
+        val terminal = applyWritingAutoReviewResult(
+            projectId,
+            chapterId,
+            scopeVersion,
+            value.result,
+        )
+        if (!terminal && value.polling_required) {
+            startWritingAutoReviewPolling(projectId, chapterId, scopeVersion)
+        } else if (!terminal) {
+            startWritingAutoReviewPolling(projectId, chapterId, scopeVersion)
+        }
+    }
+
     private fun writingWorkspaceBusy(label: String) {
         _writingWorkspace.value = _writingWorkspace.value.copy(
             busy = true,
@@ -258,6 +407,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun refreshWritingWorkspace(projectId: String) {
         if (_writingWorkspace.value.chatProjectId != projectId) {
+            resetWritingAutoReviewPolling()
             // Project changes are an authorization boundary for visual media.
             // Drop local thumbnails/candidates so protected bytes cannot bleed
             // into another project's UI even if asset ids happen to collide.
@@ -905,6 +1055,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             }
 
             val session = started.getOrThrow().result
+            resetWritingAutoReviewPolling()
             val chapterResult = container.liveSession.writingRoomChapterGet(
                 projectId,
                 session.chapter_id,
@@ -1568,6 +1719,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun openWritingChapter(projectId: String, chapterId: String) {
+        resetWritingAutoReviewPolling()
         writingWorkspaceBusy("ABRIENDO CAPÍTULO")
         viewModelScope.launch {
             val chapterResult = container.liveSession.writingRoomChapterGet(projectId, chapterId)
