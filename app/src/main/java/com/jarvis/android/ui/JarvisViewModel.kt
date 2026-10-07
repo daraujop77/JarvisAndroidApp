@@ -3,6 +3,7 @@ package com.jarvis.android.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jarvis.android.BuildConfig
 import com.jarvis.android.JarvisApp
 import com.jarvis.android.contract.ApprovalOutcome
 import com.jarvis.android.data.local.ConversationEntity
@@ -4707,25 +4708,24 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val liveAuth: StateFlow<LiveAuthState> = _liveAuth
 
     /**
-     * Login reuses the Gateway already configured by the owner/app. No
-     * production hostname is hard-coded here, so feature-specific APIs cannot
-     * drift back to a retired transport.
+     * Login prefers the owner-configured/authenticated Gateway and falls back
+     * to the build-provisioned HTTPS front door. The bootstrap is configurable
+     * at build time so changing domains does not require feature-specific edits.
      */
     fun liveLogin(user: String, password: String, onDone: (Boolean) -> Unit = {}) {
         _liveAuth.value = LiveAuthState.Busy
         viewModelScope.launch {
             val stored = container.settings.settings.first()
-            val controlPlane = listOf(
-                stored.gatewayBaseUrl,
-                stored.lastControlPlaneUrl,
-                container.liveSession.baseUrl,
-            ).mapNotNull { candidate ->
-                JarvisAppSession.normalizeBase(candidate)
-                    ?.takeIf { JarvisAppSession.isAllowedLiveHost(it) }
-            }.firstOrNull()
-            if (controlPlane == null) {
+            val controlPlane = container.liveSession.adoptBaseUrl(
+                listOf(
+                    stored.gatewayBaseUrl,
+                    stored.lastControlPlaneUrl,
+                    container.liveSession.baseUrl,
+                    BuildConfig.JARVIS_BOOTSTRAP_GATEWAY,
+                ),
+            ).getOrElse { error ->
                 _liveAuth.value = LiveAuthState.Error(
-                    "JARVIS Gateway no está configurado. Usa la conexión actual en Ajustes.",
+                    error.message ?: "JARVIS Gateway route unavailable.",
                 )
                 onDone(false)
                 return@launch
@@ -4773,6 +4773,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     stored.gatewayBaseUrl,
                     stored.lastControlPlaneUrl,
                     container.liveSession.baseUrl,
+                    BuildConfig.JARVIS_BOOTSTRAP_GATEWAY,
                 ),
             )
             if (result.isSuccess) {

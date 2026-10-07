@@ -24,6 +24,8 @@ val jarvisApplicationId = providers.gradleProperty("jarvisApplicationId")
 val jarvisVersionCode = providers.gradleProperty("jarvisVersionCode")
     .orNull
     ?.toIntOrNull()
+val jarvisBootstrapGateway = providers.gradleProperty("jarvisBootstrapGateway")
+    .orElse("https://40-160-143-245.sslip.io:8443")
 
 android {
     namespace = "com.jarvis.android"
@@ -37,9 +39,14 @@ android {
         targetSdk = 36
         // Google Play can override versionCode independently so direct APK
         // updates keep their existing version sequence.
-        versionCode = jarvisVersionCode ?: 57
-        versionName = "0.1.57-biometric-gateway-reauth"
+        versionCode = jarvisVersionCode ?: 58
+        versionName = "0.1.58-public-gateway-bootstrap"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "JARVIS_BOOTSTRAP_GATEWAY",
+            "\\"${jarvisBootstrapGateway.get()}\\"",
+        )
 
         // Checked-in schemas are what Lane C migration tests diff against.
         ksp { arg("room.schemaLocation", "$projectDir/schemas") }
