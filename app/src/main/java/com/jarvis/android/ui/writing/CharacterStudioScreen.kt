@@ -140,10 +140,10 @@ fun CharacterStudioScreen(
         "NEEDS_OWNER_INPUT" -> "Requiere diseño"
         else -> characterDirectionDraft.source.ifBlank { "Sin definir" }
     }
-    val projectStyleLabel = when (projectStyleDraft.source) {
-        "PROJECT_SEEDED" -> "Base Alexander"
-        "SAVED" -> "Personalizado"
-        "DEFAULT" -> "Predeterminado"
+    val projectStyleLabel = when {
+        projectStyleDraft.seed_equivalent -> "Base Alexander"
+        projectStyleDraft.source == "SAVED" -> "Personalizado"
+        projectStyleDraft.source == "DEFAULT" -> "Predeterminado"
         else -> projectStyleDraft.source.ifBlank { "Sin guardar" }
     }
     val master = latestAsset(
