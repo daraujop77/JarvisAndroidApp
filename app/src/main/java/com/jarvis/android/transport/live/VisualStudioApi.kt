@@ -894,6 +894,7 @@ suspend fun JarvisAppSession.visualUpdateProjectStyle(
         "/api/app/writing-room/v2/visual/style/update",
         buildJsonObject {
             put("project_id", projectId)
+            put("expected_revision", profile.revision)
             put(
                 "profile",
                 buildJsonObject {
@@ -934,6 +935,7 @@ suspend fun JarvisAppSession.visualUpdateCharacterDirection(
         buildJsonObject {
             put("project_id", projectId)
             put("character_id", characterId)
+            put("expected_revision", profile.revision)
             put(
                 "profile",
                 buildJsonObject {
