@@ -95,6 +95,10 @@ fun CharacterStudioScreen(
     var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var selectedPerspective by rememberSaveable(projectId) { mutableStateOf("left_profile") }
+    var showProjectStyleEditor by rememberSaveable(projectId) { mutableStateOf(false) }
+    var showCharacterAppearanceEditor by rememberSaveable(projectId, selectedCharacterId) {
+        mutableStateOf(false)
+    }
     var projectStyleDraft by remember(projectId) {
         mutableStateOf(VisualProjectStyleProfile())
     }
@@ -363,7 +367,23 @@ fun CharacterStudioScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFB7C7DC),
                     )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        projectStyleDraft.style_name.ifBlank { "Estilo predeterminado" },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color(0xFFF1F5F9),
+                    )
                     Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showProjectStyleEditor = !showProjectStyleEditor },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (showProjectStyleEditor) "Cerrar editor" else "Editar estilo")
+                    }
+                    if (showProjectStyleEditor) {
+                        Spacer(Modifier.height(8.dp))
                     DirectionTextField("Nombre del estilo", projectStyleDraft.style_name) {
                         projectStyleDraft = projectStyleDraft.copy(style_name = it)
                     }
@@ -418,6 +438,7 @@ fun CharacterStudioScreen(
                             Text("Guardar estilo del proyecto")
                         }
                     }
+                    }
                 }
             }
 
@@ -443,6 +464,21 @@ fun CharacterStudioScreen(
                         )
                     }
                     Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            showCharacterAppearanceEditor = !showCharacterAppearanceEditor
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (showCharacterAppearanceEditor) "Cerrar editor"
+                            else "Editar apariencia",
+                        )
+                    }
+                    if (showCharacterAppearanceEditor) {
+                        Spacer(Modifier.height(8.dp))
                     DirectionTextField("Edad aparente", characterDirectionDraft.apparent_age) {
                         characterDirectionDraft = characterDirectionDraft.copy(apparent_age = it)
                     }
@@ -526,6 +562,7 @@ fun CharacterStudioScreen(
                             Spacer(Modifier.width(6.dp))
                             Text("Guardar apariencia")
                         }
+                    }
                     }
                 }
             }
