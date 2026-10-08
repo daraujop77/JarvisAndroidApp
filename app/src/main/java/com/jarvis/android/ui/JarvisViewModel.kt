@@ -2709,7 +2709,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             busy = false,
                             busyLabel = "",
                             characterDirection = response.profile,
-                            notice = "Apariencia restaurada desde el visual canon bloqueado.",
+                            notice = if (response.profile.external_seed_available) {
+                                "Apariencia restaurada desde la referencia externa."
+                            } else {
+                                "Apariencia restaurada desde el visual canon bloqueado."
+                            },
                             error = null,
                         )
                     }
@@ -2719,7 +2723,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         it.copy(
                             busy = false,
                             busyLabel = "",
-                            error = error.message ?: "No existe una base canónica restaurable para este personaje.",
+                            error = error.message ?: "No existe una base visual restaurable para este personaje.",
                         )
                     }
                 },
