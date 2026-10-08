@@ -528,6 +528,56 @@ fun CharacterStudioScreen(
                             color = JarvisAmber,
                         )
                     }
+                    if (state.characterVariants.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "VARIANTE CANÓNICA EXTERNA",
+                            style = HudTextStyle,
+                            color = JarvisViolet,
+                        )
+                        if (characterDirectionDraft.franchise.isNotBlank()) {
+                            Text(
+                                characterDirectionDraft.franchise +
+                                    if (characterDirectionDraft.seed_era.isNotBlank()) {
+                                        " · " + characterDirectionDraft.seed_era
+                                    } else {
+                                        ""
+                                    },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF94A3B8),
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            state.characterVariants.forEach { variant ->
+                                val selected = characterDirectionDraft.seed_variant == variant.variant_id
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        if (!selected && settings.isOwner) {
+                                            vm.applyExternalCharacterVariant(
+                                                projectId,
+                                                selectedCharacterId,
+                                                variant.variant_id,
+                                                characterDirectionDraft.revision,
+                                            )
+                                        }
+                                    },
+                                    label = { Text(variant.display_name) },
+                                )
+                            }
+                        }
+                        Text(
+                            "Estas variantes sólo controlan la referencia visual; no añaden ni cambian hechos de la historia.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF8BA2BE),
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = {
