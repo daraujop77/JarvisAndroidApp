@@ -436,7 +436,7 @@ fun CharacterStudioScreen(
                         "Estado: " + projectStyleLabel + " · revisión " +
                             projectStyleDraft.revision,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (projectStyleDraft.source == "PROJECT_SEEDED") {
+                        color = if (projectStyleDraft.seed_equivalent) {
                             JarvisGreen
                         } else {
                             Color(0xFF94A3B8)
