@@ -25,6 +25,7 @@ class VisualDirectionEditorWiringTest {
         assertTrue(api.contains("/api/app/writing-room/v2/visual/style/update"))
         assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile"))
         assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile/update"))
+        assertTrue(api.contains("put(\"expected_revision\", profile.revision)"))
 
         assertTrue(viewModel.contains("saveProjectVisualStyle"))
         assertTrue(viewModel.contains("saveCharacterVisualDirection"))
