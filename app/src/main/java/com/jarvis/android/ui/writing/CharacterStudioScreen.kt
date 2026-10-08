@@ -429,6 +429,19 @@ fun CharacterStudioScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFB7C7DC),
                     )
+                    if (!selectedCharacter?.appearance.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "CANON BASE",
+                            style = HudTextStyle,
+                            color = JarvisGreen,
+                        )
+                        Text(
+                            selectedCharacter?.appearance.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     DirectionTextField("Edad aparente", characterDirectionDraft.apparent_age) {
                         characterDirectionDraft = characterDirectionDraft.copy(apparent_age = it)
