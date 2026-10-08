@@ -182,6 +182,7 @@ data class VisualStudioCharacterDetail(
 data class VisualProjectStyleProfile(
     val schema: String = "",
     val source: String = "",
+    val seed_equivalent: Boolean = false,
     val project_id: String = "",
     val revision: Int = 0,
     val style_name: String = "",
