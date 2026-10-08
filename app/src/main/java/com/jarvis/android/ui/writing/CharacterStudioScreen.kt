@@ -136,6 +136,7 @@ fun CharacterStudioScreen(
         characterDirectionDraft.design_status == "NEEDS_OWNER_INPUT"
     val characterDirectionLabel = when (characterDirectionDraft.design_status) {
         "READY_FROM_CANON" -> "Base canónica"
+        "READY_FROM_EXTERNAL_CANON" -> "Base externa"
         "USER_CUSTOMIZED" -> "Personalizado"
         "NEEDS_OWNER_INPUT" -> "Requiere diseño"
         else -> characterDirectionDraft.source.ifBlank { "Sin definir" }
@@ -479,6 +480,18 @@ fun CharacterStudioScreen(
 
             item {
                 StudioPanel("APARIENCIA DEL PERSONAJE", JarvisCyan) {
+                    if (characterDirectionDraft.external_seed_available) {
+                        Text(
+                            "Referencia externa: " +
+                                characterDirectionDraft.seed_label.ifBlank {
+                                    characterDirectionDraft.seed_franchise.ifBlank { "canon externo" }
+                                } +
+                                ". Sirve como base visual y no modifica el canon narrativo de Alexander.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = JarvisAmber,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
                     Text(
                         "Dirección visual editable para " + selectedCharacterName +
                             ". El canon escrito conserva prioridad ante cualquier contradicción.",
@@ -616,7 +629,8 @@ fun CharacterStudioScreen(
                             Text("Guardar apariencia")
                         }
                         if (
-                            characterDirectionDraft.canon_seed_available &&
+                            (characterDirectionDraft.canon_seed_available ||
+                                characterDirectionDraft.external_seed_available) &&
                             characterDirectionDraft.revision > 0
                         ) {
                             Spacer(Modifier.height(7.dp))
@@ -633,7 +647,13 @@ fun CharacterStudioScreen(
                             ) {
                                 Icon(Icons.Filled.Refresh, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text("Restaurar apariencia desde canon")
+                                Text(
+                                    if (characterDirectionDraft.external_seed_available) {
+                                        "Restaurar apariencia externa"
+                                    } else {
+                                        "Restaurar apariencia desde canon"
+                                    },
+                                )
                             }
                         }
                     }
