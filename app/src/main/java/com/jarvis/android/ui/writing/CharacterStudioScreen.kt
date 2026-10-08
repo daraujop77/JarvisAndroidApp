@@ -83,11 +83,26 @@ fun CharacterStudioScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val accents = LocalJarvisAccents.current
 
-    val characterOptions = remember(characters) {
-        characters
+    val characterOptions = remember(characters, state.externalCharacters) {
+        val wikiCharacters = characters
             .filter { it.id.isNotBlank() && it.type.equals("character", ignoreCase = true) }
+        val existingIds = wikiCharacters.map { it.id }.toSet()
+        val externalOnly = state.externalCharacters
+            .filter { it.character_id.isNotBlank() && it.character_id !in existingIds }
+            .map { external ->
+                WritingWikiEntity(
+                    id = external.character_id,
+                    type = "character",
+                    name = external.display_name,
+                    canonical_name = external.display_name,
+                    authority = "REFERENCE",
+                    role = "Referencia visual externa · " + external.franchise,
+                    summary = "Disponible para Visual Studio sin modificar el canon narrativo.",
+                )
+            }
+        (wikiCharacters + externalOnly)
             .distinctBy { it.id }
-            .sortedBy { it.name.lowercase() }
+            .sortedBy { (it.canonical_name.ifBlank { it.name }).lowercase() }
     }
     var selectedCharacterId by rememberSaveable(projectId) {
         mutableStateOf(characterOptions.firstOrNull()?.id.orEmpty())
@@ -136,6 +151,7 @@ fun CharacterStudioScreen(
         characterDirectionDraft.design_status == "NEEDS_OWNER_INPUT"
     val characterDirectionLabel = when (characterDirectionDraft.design_status) {
         "READY_FROM_CANON" -> "Base canónica"
+        "READY_FROM_EXTERNAL_CANON" -> "Base canónica externa"
         "USER_CUSTOMIZED" -> "Personalizado"
         "NEEDS_OWNER_INPUT" -> "Requiere diseño"
         else -> characterDirectionDraft.source.ifBlank { "Sin definir" }
