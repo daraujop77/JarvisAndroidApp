@@ -208,6 +208,7 @@ data class VisualCharacterDirectionProfile(
     val schema: String = "",
     val source: String = "",
     val design_status: String = "",
+    val canon_seed_available: Boolean = false,
     val project_id: String = "",
     val character_id: String = "",
     val revision: Int = 0,
