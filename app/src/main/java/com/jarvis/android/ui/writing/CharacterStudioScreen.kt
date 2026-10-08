@@ -54,6 +54,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.transport.live.VisualCharacterDirectionProfile
+import com.jarvis.android.transport.live.VisualProjectStyleProfile
 import com.jarvis.android.transport.live.VisualStudioAsset
 import com.jarvis.android.transport.live.VisualStudioReferencePack
 import com.jarvis.android.transport.live.WritingWikiEntity
@@ -93,6 +95,27 @@ fun CharacterStudioScreen(
     var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var selectedPerspective by rememberSaveable(projectId) { mutableStateOf("left_profile") }
+    var showProjectStyleEditor by rememberSaveable(projectId) { mutableStateOf(false) }
+    var showCharacterAppearanceEditor by rememberSaveable(projectId, selectedCharacterId) {
+        mutableStateOf(false)
+    }
+    var projectStyleDraft by remember(projectId) {
+        mutableStateOf(VisualProjectStyleProfile())
+    }
+    var characterDirectionDraft by remember(projectId, selectedCharacterId) {
+        mutableStateOf(VisualCharacterDirectionProfile(character_id = selectedCharacterId))
+    }
+
+    LaunchedEffect(state.projectStyle?.revision, state.projectStyle?.source, projectId) {
+        state.projectStyle?.let { projectStyleDraft = it }
+    }
+    LaunchedEffect(
+        state.characterDirection?.revision,
+        state.characterDirection?.source,
+        selectedCharacterId,
+    ) {
+        state.characterDirection?.let { characterDirectionDraft = it }
+    }
 
     LaunchedEffect(characterOptions) {
         if (selectedCharacterId.isBlank() || characterOptions.none { it.id == selectedCharacterId }) {
@@ -106,6 +129,9 @@ fun CharacterStudioScreen(
     }
 
     val selectedCharacter = characterOptions.firstOrNull { it.id == selectedCharacterId }
+    val selectedCharacterName = selectedCharacter?.let { character ->
+        character.canonical_name.ifBlank { character.name.ifBlank { character.id } }
+    }.orEmpty()
     val master = latestAsset(
         state.assets,
         kind = "PRIMARY_REFERENCE",
@@ -334,6 +360,213 @@ fun CharacterStudioScreen(
         }
 
         if (selectedCharacterId.isNotBlank()) {
+            item {
+                StudioPanel("ESTILO VISUAL DEL PROYECTO", JarvisViolet) {
+                    Text(
+                        "Se aplica automáticamente a nuevos masters, vistas y escenas. No cambia el canon ni reemplaza imágenes aprobadas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFB7C7DC),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        projectStyleDraft.style_name.ifBlank { "Estilo predeterminado" },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color(0xFFF1F5F9),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showProjectStyleEditor = !showProjectStyleEditor },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (showProjectStyleEditor) "Cerrar editor" else "Editar estilo")
+                    }
+                    if (showProjectStyleEditor) {
+                        Spacer(Modifier.height(8.dp))
+                    DirectionTextField("Nombre del estilo", projectStyleDraft.style_name) {
+                        projectStyleDraft = projectStyleDraft.copy(style_name = it)
+                    }
+                    DirectionTextField("Medio / acabado", projectStyleDraft.medium) {
+                        projectStyleDraft = projectStyleDraft.copy(medium = it)
+                    }
+                    DirectionTextField("Nivel de realismo", projectStyleDraft.realism) {
+                        projectStyleDraft = projectStyleDraft.copy(realism = it)
+                    }
+                    DirectionTextField("Paleta", projectStyleDraft.palette) {
+                        projectStyleDraft = projectStyleDraft.copy(palette = it)
+                    }
+                    DirectionTextField("Iluminación", projectStyleDraft.lighting) {
+                        projectStyleDraft = projectStyleDraft.copy(lighting = it)
+                    }
+                    DirectionTextField("Render / detalle", projectStyleDraft.rendering) {
+                        projectStyleDraft = projectStyleDraft.copy(rendering = it)
+                    }
+                    DirectionTextField(
+                        "Reglas obligatorias (separadas por coma)",
+                        projectStyleDraft.positive_rules.joinToString(", "),
+                    ) { value ->
+                        projectStyleDraft = projectStyleDraft.copy(
+                            positive_rules = splitVisualRules(value),
+                        )
+                    }
+                    DirectionTextField(
+                        "Evitar (separado por coma)",
+                        projectStyleDraft.negative_rules.joinToString(", "),
+                    ) { value ->
+                        projectStyleDraft = projectStyleDraft.copy(
+                            negative_rules = splitVisualRules(value),
+                        )
+                    }
+                    Text(
+                        "Revisión " + projectStyleDraft.revision + " · " +
+                            projectStyleDraft.source.ifBlank { "sin guardar" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF94A3B8),
+                    )
+                    if (settings.isOwner) {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                vm.saveProjectVisualStyle(projectId, projectStyleDraft)
+                            },
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Guardar estilo del proyecto")
+                        }
+                    }
+                    }
+                }
+            }
+
+            item {
+                StudioPanel("APARIENCIA DEL PERSONAJE", JarvisCyan) {
+                    Text(
+                        "Dirección visual editable para " + selectedCharacterName +
+                            ". El canon escrito conserva prioridad ante cualquier contradicción.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFB7C7DC),
+                    )
+                    if (!selectedCharacter?.appearance.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "CANON BASE",
+                            style = HudTextStyle,
+                            color = JarvisGreen,
+                        )
+                        Text(
+                            selectedCharacter?.appearance.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            showCharacterAppearanceEditor = !showCharacterAppearanceEditor
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (showCharacterAppearanceEditor) "Cerrar editor"
+                            else "Editar apariencia",
+                        )
+                    }
+                    if (showCharacterAppearanceEditor) {
+                        Spacer(Modifier.height(8.dp))
+                    DirectionTextField("Edad aparente", characterDirectionDraft.apparent_age) {
+                        characterDirectionDraft = characterDirectionDraft.copy(apparent_age = it)
+                    }
+                    DirectionTextField("Complexión", characterDirectionDraft.build) {
+                        characterDirectionDraft = characterDirectionDraft.copy(build = it)
+                    }
+                    DirectionTextField("Altura / proporciones", characterDirectionDraft.height) {
+                        characterDirectionDraft = characterDirectionDraft.copy(height = it)
+                    }
+                    DirectionTextField("Piel", characterDirectionDraft.skin) {
+                        characterDirectionDraft = characterDirectionDraft.copy(skin = it)
+                    }
+                    DirectionTextField("Rostro", characterDirectionDraft.face) {
+                        characterDirectionDraft = characterDirectionDraft.copy(face = it)
+                    }
+                    DirectionTextField("Ojos", characterDirectionDraft.eyes) {
+                        characterDirectionDraft = characterDirectionDraft.copy(eyes = it)
+                    }
+                    DirectionTextField("Cabello", characterDirectionDraft.hair) {
+                        characterDirectionDraft = characterDirectionDraft.copy(hair = it)
+                    }
+                    DirectionTextField("Ropa base", characterDirectionDraft.base_outfit) {
+                        characterDirectionDraft = characterDirectionDraft.copy(base_outfit = it)
+                    }
+                    DirectionTextField("Armadura", characterDirectionDraft.armor) {
+                        characterDirectionDraft = characterDirectionDraft.copy(armor = it)
+                    }
+                    DirectionTextField("Accesorios", characterDirectionDraft.accessories) {
+                        characterDirectionDraft = characterDirectionDraft.copy(accessories = it)
+                    }
+                    DirectionTextField("Armas", characterDirectionDraft.weapons) {
+                        characterDirectionDraft = characterDirectionDraft.copy(weapons = it)
+                    }
+                    DirectionTextField("Colores dominantes", characterDirectionDraft.dominant_colors) {
+                        characterDirectionDraft = characterDirectionDraft.copy(dominant_colors = it)
+                    }
+                    DirectionTextField("Aura / energía visual", characterDirectionDraft.aura) {
+                        characterDirectionDraft = characterDirectionDraft.copy(aura = it)
+                    }
+                    DirectionTextField(
+                        "Rasgos obligatorios (separados por coma)",
+                        characterDirectionDraft.required_traits.joinToString(", "),
+                    ) { value ->
+                        characterDirectionDraft = characterDirectionDraft.copy(
+                            required_traits = splitVisualRules(value),
+                        )
+                    }
+                    DirectionTextField(
+                        "Rasgos prohibidos (separados por coma)",
+                        characterDirectionDraft.forbidden_traits.joinToString(", "),
+                    ) { value ->
+                        characterDirectionDraft = characterDirectionDraft.copy(
+                            forbidden_traits = splitVisualRules(value),
+                        )
+                    }
+                    DirectionTextField("Notas visuales", characterDirectionDraft.notes, minLines = 2) {
+                        characterDirectionDraft = characterDirectionDraft.copy(notes = it)
+                    }
+                    Text(
+                        "Revisión " + characterDirectionDraft.revision + " · " +
+                            characterDirectionDraft.source.ifBlank { "sin guardar" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF94A3B8),
+                    )
+                    if (settings.isOwner) {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                vm.saveCharacterVisualDirection(
+                                    projectId,
+                                    selectedCharacterId,
+                                    characterDirectionDraft.copy(
+                                        character_id = selectedCharacterId,
+                                    ),
+                                )
+                            },
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Guardar apariencia")
+                        }
+                    }
+                    }
+                }
+            }
+
             item {
                 StudioPanel("MASTER APROBADO", JarvisCyan) {
                     if (master == null) {
@@ -810,6 +1043,32 @@ fun CharacterStudioScreen(
             }
         }
     }
+}
+
+private fun splitVisualRules(value: String): List<String> =
+    value.split(",")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .take(20)
+
+@Composable
+private fun DirectionTextField(
+    label: String,
+    value: String,
+    minLines: Int = 1,
+    onValueChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { if (it.length <= 1200) onValueChange(it) },
+        label = { Text(label) },
+        minLines = minLines,
+        maxLines = if (minLines > 1) 5 else 3,
+        colors = jarvisTextFieldColors(),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(7.dp))
 }
 
 @Composable

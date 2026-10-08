@@ -179,6 +179,65 @@ data class VisualStudioCharacterDetail(
 )
 
 @Serializable
+data class VisualProjectStyleProfile(
+    val schema: String = "",
+    val source: String = "",
+    val project_id: String = "",
+    val revision: Int = 0,
+    val style_name: String = "",
+    val medium: String = "",
+    val realism: String = "",
+    val palette: String = "",
+    val lighting: String = "",
+    val rendering: String = "",
+    val positive_rules: List<String> = emptyList(),
+    val negative_rules: List<String> = emptyList(),
+    val updated_by: String = "",
+    val updated_utc: String = "",
+)
+
+@Serializable
+data class VisualProjectStyleResponse(
+    val schema: String = "",
+    val profile: VisualProjectStyleProfile = VisualProjectStyleProfile(),
+    val auto_canon: Boolean = false,
+)
+
+@Serializable
+data class VisualCharacterDirectionProfile(
+    val schema: String = "",
+    val source: String = "",
+    val project_id: String = "",
+    val character_id: String = "",
+    val revision: Int = 0,
+    val apparent_age: String = "",
+    val build: String = "",
+    val height: String = "",
+    val skin: String = "",
+    val face: String = "",
+    val eyes: String = "",
+    val hair: String = "",
+    val base_outfit: String = "",
+    val armor: String = "",
+    val accessories: String = "",
+    val weapons: String = "",
+    val dominant_colors: String = "",
+    val aura: String = "",
+    val notes: String = "",
+    val required_traits: List<String> = emptyList(),
+    val forbidden_traits: List<String> = emptyList(),
+    val updated_by: String = "",
+    val updated_utc: String = "",
+)
+
+@Serializable
+data class VisualCharacterDirectionResponse(
+    val schema: String = "",
+    val profile: VisualCharacterDirectionProfile = VisualCharacterDirectionProfile(),
+    val auto_canon: Boolean = false,
+)
+
+@Serializable
 data class VisualStudioLocationReferencePack(
     val schema: String = "",
     val pack_id: String = "",
@@ -810,6 +869,94 @@ suspend fun JarvisAppSession.visualCharacterDetail(
         buildJsonObject {
             put("project_id", projectId)
             put("character_id", characterId)
+        },
+    )
+
+
+private fun visualStringArray(values: List<String>) =
+    buildJsonArray { values.filter { it.isNotBlank() }.forEach { add(JsonPrimitive(it.trim())) } }
+
+
+suspend fun JarvisAppSession.visualProjectStyle(
+    projectId: String,
+): Result<VisualProjectStyleResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/style/profile",
+        buildJsonObject { put("project_id", projectId) },
+    )
+
+
+suspend fun JarvisAppSession.visualUpdateProjectStyle(
+    projectId: String,
+    profile: VisualProjectStyleProfile,
+): Result<VisualProjectStyleResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/style/update",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("expected_revision", profile.revision)
+            put(
+                "profile",
+                buildJsonObject {
+                    put("style_name", profile.style_name.trim())
+                    put("medium", profile.medium.trim())
+                    put("realism", profile.realism.trim())
+                    put("palette", profile.palette.trim())
+                    put("lighting", profile.lighting.trim())
+                    put("rendering", profile.rendering.trim())
+                    put("positive_rules", visualStringArray(profile.positive_rules))
+                    put("negative_rules", visualStringArray(profile.negative_rules))
+                },
+            )
+        },
+    )
+
+
+suspend fun JarvisAppSession.visualCharacterDirection(
+    projectId: String,
+    characterId: String,
+): Result<VisualCharacterDirectionResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/design-profile",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId)
+        },
+    )
+
+
+suspend fun JarvisAppSession.visualUpdateCharacterDirection(
+    projectId: String,
+    characterId: String,
+    profile: VisualCharacterDirectionProfile,
+): Result<VisualCharacterDirectionResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/design-profile/update",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId)
+            put("expected_revision", profile.revision)
+            put(
+                "profile",
+                buildJsonObject {
+                    put("apparent_age", profile.apparent_age.trim())
+                    put("build", profile.build.trim())
+                    put("height", profile.height.trim())
+                    put("skin", profile.skin.trim())
+                    put("face", profile.face.trim())
+                    put("eyes", profile.eyes.trim())
+                    put("hair", profile.hair.trim())
+                    put("base_outfit", profile.base_outfit.trim())
+                    put("armor", profile.armor.trim())
+                    put("accessories", profile.accessories.trim())
+                    put("weapons", profile.weapons.trim())
+                    put("dominant_colors", profile.dominant_colors.trim())
+                    put("aura", profile.aura.trim())
+                    put("notes", profile.notes.trim())
+                    put("required_traits", visualStringArray(profile.required_traits))
+                    put("forbidden_traits", visualStringArray(profile.forbidden_traits))
+                },
+            )
         },
     )
 

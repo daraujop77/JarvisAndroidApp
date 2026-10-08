@@ -1967,6 +1967,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val busy: Boolean = false,
         val busyLabel: String = "",
         val detail: VisualStudioCharacterDetail? = null,
+        val projectStyle: VisualProjectStyleProfile? = null,
+        val characterDirection: VisualCharacterDirectionProfile? = null,
         val batch: VisualCharacterBatch? = null,
         val masterRoster: VisualCharacterMasterRoster? = null,
         val assets: List<VisualStudioAsset> = emptyList(),
@@ -2134,6 +2136,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private suspend fun reloadCharacterStudio(projectId: String, characterId: String) {
         val detail = container.liveSession.visualCharacterDetail(projectId, characterId)
+        val projectStyleResult = container.liveSession.visualProjectStyle(projectId)
+        val characterDirectionResult = container.liveSession.visualCharacterDirection(
+            projectId,
+            characterId,
+        )
         val assets = container.liveSession.visualAssetList(projectId, characterId)
         val batchResult = container.liveSession.visualCharacterBatchStatus(projectId, characterId)
         val rosterResult = container.liveSession.visualCharacterMasterRosterStatus(projectId)
@@ -2142,6 +2149,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             _characterStudio.value.characterId != characterId
         ) return
         val failure = detail.exceptionOrNull()
+            ?: projectStyleResult.exceptionOrNull()
+            ?: characterDirectionResult.exceptionOrNull()
             ?: assets.exceptionOrNull()
             ?: batchResult.exceptionOrNull()
             ?: rosterResult.exceptionOrNull()
@@ -2150,6 +2159,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             busy = false,
             busyLabel = "",
             detail = detail.getOrNull() ?: _characterStudio.value.detail,
+            projectStyle = projectStyleResult.getOrNull()?.profile
+                ?: _characterStudio.value.projectStyle,
+            characterDirection = characterDirectionResult.getOrNull()?.profile
+                ?: _characterStudio.value.characterDirection,
             batch = if (batchResult.isSuccess) loadedBatch else _characterStudio.value.batch,
             masterRoster = rosterResult.getOrNull() ?: _characterStudio.value.masterRoster,
             assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
@@ -2538,6 +2551,91 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     error = null,
                 )
             }
+        }
+    }
+
+    fun saveProjectVisualStyle(
+        projectId: String,
+        profile: VisualProjectStyleProfile,
+    ) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Guardando estilo visual del proyecto",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.visualUpdateProjectStyle(projectId, profile)
+            result.fold(
+                onSuccess = { response ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            projectStyle = response.profile,
+                            notice = "Estilo visual guardado. Las nuevas imágenes usarán esta dirección.",
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo guardar el estilo visual.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun saveCharacterVisualDirection(
+        projectId: String,
+        characterId: String,
+        profile: VisualCharacterDirectionProfile,
+    ) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Guardando apariencia visual",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.visualUpdateCharacterDirection(
+                projectId,
+                characterId,
+                profile,
+            )
+            result.fold(
+                onSuccess = { response ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            characterDirection = response.profile,
+                            notice = "Apariencia visual guardada. No cambia el canon narrativo automáticamente.",
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo guardar la apariencia visual.",
+                        )
+                    }
+                },
+            )
         }
     }
 
