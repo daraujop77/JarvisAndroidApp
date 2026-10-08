@@ -54,6 +54,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.android.transport.live.VisualCharacterDirectionProfile
+import com.jarvis.android.transport.live.VisualProjectStyleProfile
 import com.jarvis.android.transport.live.VisualStudioAsset
 import com.jarvis.android.transport.live.VisualStudioReferencePack
 import com.jarvis.android.transport.live.WritingWikiEntity
@@ -93,6 +95,23 @@ fun CharacterStudioScreen(
     var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var selectedPerspective by rememberSaveable(projectId) { mutableStateOf("left_profile") }
+    var projectStyleDraft by remember(projectId) {
+        mutableStateOf(VisualProjectStyleProfile())
+    }
+    var characterDirectionDraft by remember(projectId, selectedCharacterId) {
+        mutableStateOf(VisualCharacterDirectionProfile(character_id = selectedCharacterId))
+    }
+
+    LaunchedEffect(state.projectStyle?.revision, state.projectStyle?.source, projectId) {
+        state.projectStyle?.let { projectStyleDraft = it }
+    }
+    LaunchedEffect(
+        state.characterDirection?.revision,
+        state.characterDirection?.source,
+        selectedCharacterId,
+    ) {
+        state.characterDirection?.let { characterDirectionDraft = it }
+    }
 
     LaunchedEffect(characterOptions) {
         if (selectedCharacterId.isBlank() || characterOptions.none { it.id == selectedCharacterId }) {
