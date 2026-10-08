@@ -132,6 +132,20 @@ fun CharacterStudioScreen(
     val selectedCharacterName = selectedCharacter?.let { character ->
         character.canonical_name.ifBlank { character.name.ifBlank { character.id } }
     }.orEmpty()
+    val needsOwnerVisualDesign =
+        characterDirectionDraft.design_status == "NEEDS_OWNER_INPUT"
+    val characterDirectionLabel = when (characterDirectionDraft.design_status) {
+        "READY_FROM_CANON" -> "Base canónica"
+        "USER_CUSTOMIZED" -> "Personalizado"
+        "NEEDS_OWNER_INPUT" -> "Requiere diseño"
+        else -> characterDirectionDraft.source.ifBlank { "Sin definir" }
+    }
+    val projectStyleLabel = when (projectStyleDraft.source) {
+        "PROJECT_SEEDED" -> "Base Alexander"
+        "SAVED" -> "Personalizado"
+        "DEFAULT" -> "Predeterminado"
+        else -> projectStyleDraft.source.ifBlank { "Sin guardar" }
+    }
     val master = latestAsset(
         state.assets,
         kind = "PRIMARY_REFERENCE",
