@@ -2102,6 +2102,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 masterRoster = current.masterRoster.takeIf {
                     current.projectId == cleanProject
                 },
+                externalCharacters = current.externalCharacters.takeIf {
+                    current.projectId == cleanProject
+                }.orEmpty(),
             )
             deleteVisualStudioAttachments(oldIds)
         }
