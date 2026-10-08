@@ -210,6 +210,10 @@ data class VisualCharacterDirectionProfile(
     val source: String = "",
     val design_status: String = "",
     val canon_seed_available: Boolean = false,
+    val seed_variant: String = "",
+    val seed_variant_name: String = "",
+    val seed_era: String = "",
+    val franchise: String = "",
     val project_id: String = "",
     val character_id: String = "",
     val revision: Int = 0,
@@ -237,6 +241,39 @@ data class VisualCharacterDirectionProfile(
 data class VisualCharacterDirectionResponse(
     val schema: String = "",
     val profile: VisualCharacterDirectionProfile = VisualCharacterDirectionProfile(),
+    val auto_canon: Boolean = false,
+)
+
+
+@Serializable
+data class VisualExternalCharacterVariant(
+    val variant_id: String = "",
+    val display_name: String = "",
+    val era: String = "",
+    val is_default: Boolean = false,
+)
+
+@Serializable
+data class VisualExternalCharacter(
+    val character_id: String = "",
+    val display_name: String = "",
+    val franchise: String = "",
+    val default_variant: String = "",
+    val variants: List<VisualExternalCharacterVariant> = emptyList(),
+)
+
+@Serializable
+data class VisualExternalCharacterCatalogResponse(
+    val schema: String = "",
+    val characters: List<VisualExternalCharacter> = emptyList(),
+    val auto_canon: Boolean = false,
+)
+
+@Serializable
+data class VisualCharacterVariantsResponse(
+    val schema: String = "",
+    val character_id: String = "",
+    val variants: List<VisualExternalCharacterVariant> = emptyList(),
     val auto_canon: Boolean = false,
 )
 
@@ -987,6 +1024,45 @@ suspend fun JarvisAppSession.visualRestoreCharacterDirection(
         buildJsonObject {
             put("project_id", projectId)
             put("character_id", characterId)
+            put("expected_revision", expectedRevision)
+        },
+    )
+
+
+suspend fun JarvisAppSession.visualExternalCharacterCatalog(
+    projectId: String,
+): Result<VisualExternalCharacterCatalogResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/external-catalog",
+        buildJsonObject { put("project_id", projectId) },
+    )
+
+
+suspend fun JarvisAppSession.visualCharacterVariants(
+    projectId: String,
+    characterId: String,
+): Result<VisualCharacterVariantsResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/design-profile/variants",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId)
+        },
+    )
+
+
+suspend fun JarvisAppSession.visualApplyCharacterVariant(
+    projectId: String,
+    characterId: String,
+    variantId: String,
+    expectedRevision: Int,
+): Result<VisualCharacterDirectionResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/design-profile/apply-variant",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId)
+            put("variant_id", variantId)
             put("expected_revision", expectedRevision)
         },
     )
