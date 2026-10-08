@@ -132,6 +132,20 @@ fun CharacterStudioScreen(
     val selectedCharacterName = selectedCharacter?.let { character ->
         character.canonical_name.ifBlank { character.name.ifBlank { character.id } }
     }.orEmpty()
+    val needsOwnerVisualDesign =
+        characterDirectionDraft.design_status == "NEEDS_OWNER_INPUT"
+    val characterDirectionLabel = when (characterDirectionDraft.design_status) {
+        "READY_FROM_CANON" -> "Base canónica"
+        "USER_CUSTOMIZED" -> "Personalizado"
+        "NEEDS_OWNER_INPUT" -> "Requiere diseño"
+        else -> characterDirectionDraft.source.ifBlank { "Sin definir" }
+    }
+    val projectStyleLabel = when {
+        projectStyleDraft.seed_equivalent -> "Base Alexander"
+        projectStyleDraft.source == "SAVED" -> "Personalizado"
+        projectStyleDraft.source == "DEFAULT" -> "Predeterminado"
+        else -> projectStyleDraft.source.ifBlank { "Sin guardar" }
+    }
     val master = latestAsset(
         state.assets,
         kind = "PRIMARY_REFERENCE",
@@ -419,10 +433,14 @@ fun CharacterStudioScreen(
                         )
                     }
                     Text(
-                        "Revisión " + projectStyleDraft.revision + " · " +
-                            projectStyleDraft.source.ifBlank { "sin guardar" },
+                        "Estado: " + projectStyleLabel + " · revisión " +
+                            projectStyleDraft.revision,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF94A3B8),
+                        color = if (projectStyleDraft.seed_equivalent) {
+                            JarvisGreen
+                        } else {
+                            Color(0xFF94A3B8)
+                        },
                     )
                     if (settings.isOwner) {
                         Spacer(Modifier.height(8.dp))
@@ -436,6 +454,23 @@ fun CharacterStudioScreen(
                             Icon(Icons.Filled.Check, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Guardar estilo del proyecto")
+                        }
+                        if (projectStyleDraft.revision > 0) {
+                            Spacer(Modifier.height(7.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    vm.restoreProjectVisualStyle(
+                                        projectId,
+                                        projectStyleDraft.revision,
+                                    )
+                                },
+                                enabled = !state.busy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Restaurar estilo Alexander")
+                            }
                         }
                     }
                     }
@@ -461,6 +496,20 @@ fun CharacterStudioScreen(
                             selectedCharacter?.appearance.orEmpty(),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFCBD5E1),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Estado visual: " + characterDirectionLabel,
+                        style = HudTextStyle,
+                        color = if (needsOwnerVisualDesign) JarvisAmber else JarvisGreen,
+                    )
+                    if (needsOwnerVisualDesign) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "No existe un visual canon bloqueado suficiente para este personaje. Define y guarda su apariencia antes de generar un master.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisAmber,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -538,10 +587,14 @@ fun CharacterStudioScreen(
                         characterDirectionDraft = characterDirectionDraft.copy(notes = it)
                     }
                     Text(
-                        "Revisión " + characterDirectionDraft.revision + " · " +
-                            characterDirectionDraft.source.ifBlank { "sin guardar" },
+                        "Estado: " + characterDirectionLabel + " · revisión " +
+                            characterDirectionDraft.revision,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF94A3B8),
+                        color = if (needsOwnerVisualDesign) {
+                            JarvisAmber
+                        } else {
+                            Color(0xFF94A3B8)
+                        },
                     )
                     if (settings.isOwner) {
                         Spacer(Modifier.height(8.dp))
@@ -561,6 +614,27 @@ fun CharacterStudioScreen(
                             Icon(Icons.Filled.Check, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Guardar apariencia")
+                        }
+                        if (
+                            characterDirectionDraft.canon_seed_available &&
+                            characterDirectionDraft.revision > 0
+                        ) {
+                            Spacer(Modifier.height(7.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    vm.restoreCharacterVisualDirection(
+                                        projectId,
+                                        selectedCharacterId,
+                                        characterDirectionDraft.revision,
+                                    )
+                                },
+                                enabled = !state.busy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Restaurar apariencia desde canon")
+                            }
                         }
                     }
                     }
@@ -628,7 +702,7 @@ fun CharacterStudioScreen(
                                         parentAsset = master,
                                     )
                                 },
-                                enabled = !state.busy,
+                                enabled = !state.busy && !needsOwnerVisualDesign,
                                 modifier = Modifier.weight(1f),
                             ) {
                                 Icon(Icons.Filled.AutoAwesome, contentDescription = null)

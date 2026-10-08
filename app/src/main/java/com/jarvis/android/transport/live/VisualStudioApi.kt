@@ -182,6 +182,7 @@ data class VisualStudioCharacterDetail(
 data class VisualProjectStyleProfile(
     val schema: String = "",
     val source: String = "",
+    val seed_equivalent: Boolean = false,
     val project_id: String = "",
     val revision: Int = 0,
     val style_name: String = "",
@@ -207,6 +208,8 @@ data class VisualProjectStyleResponse(
 data class VisualCharacterDirectionProfile(
     val schema: String = "",
     val source: String = "",
+    val design_status: String = "",
+    val canon_seed_available: Boolean = false,
     val project_id: String = "",
     val character_id: String = "",
     val revision: Int = 0,
@@ -912,6 +915,19 @@ suspend fun JarvisAppSession.visualUpdateProjectStyle(
     )
 
 
+suspend fun JarvisAppSession.visualRestoreProjectStyle(
+    projectId: String,
+    expectedRevision: Int,
+): Result<VisualProjectStyleResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/style/restore",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("expected_revision", expectedRevision)
+        },
+    )
+
+
 suspend fun JarvisAppSession.visualCharacterDirection(
     projectId: String,
     characterId: String,
@@ -957,6 +973,21 @@ suspend fun JarvisAppSession.visualUpdateCharacterDirection(
                     put("forbidden_traits", visualStringArray(profile.forbidden_traits))
                 },
             )
+        },
+    )
+
+
+suspend fun JarvisAppSession.visualRestoreCharacterDirection(
+    projectId: String,
+    characterId: String,
+    expectedRevision: Int,
+): Result<VisualCharacterDirectionResponse> =
+    visualStudioPost(
+        "/api/app/writing-room/v2/visual/characters/design-profile/restore",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("character_id", characterId)
+            put("expected_revision", expectedRevision)
         },
     )
 

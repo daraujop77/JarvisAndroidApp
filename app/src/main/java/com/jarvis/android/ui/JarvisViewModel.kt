@@ -2639,6 +2639,94 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun restoreProjectVisualStyle(
+        projectId: String,
+        expectedRevision: Int,
+    ) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Restaurando estilo visual base",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.visualRestoreProjectStyle(
+                projectId,
+                expectedRevision,
+            )
+            result.fold(
+                onSuccess = { response ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            projectStyle = response.profile,
+                            notice = "Estilo visual restaurado a la base del proyecto.",
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No se pudo restaurar el estilo visual.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    fun restoreCharacterVisualDirection(
+        projectId: String,
+        characterId: String,
+        expectedRevision: Int,
+    ) {
+        if (_characterStudio.value.busy) return
+        _characterStudio.update {
+            it.copy(
+                busy = true,
+                busyLabel = "Restaurando apariencia desde canon",
+                notice = null,
+                error = null,
+            )
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.visualRestoreCharacterDirection(
+                projectId,
+                characterId,
+                expectedRevision,
+            )
+            result.fold(
+                onSuccess = { response ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            characterDirection = response.profile,
+                            notice = "Apariencia restaurada desde el visual canon bloqueado.",
+                            error = null,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = error.message ?: "No existe una base canónica restaurable para este personaje.",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     fun generateCharacterVisual(
         projectId: String,
         characterId: String,

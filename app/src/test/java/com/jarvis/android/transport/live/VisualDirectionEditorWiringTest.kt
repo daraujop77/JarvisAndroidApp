@@ -25,17 +25,24 @@ class VisualDirectionEditorWiringTest {
         assertTrue(api.contains("/api/app/writing-room/v2/visual/style/update"))
         assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile"))
         assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile/update"))
+        assertTrue(api.contains("/api/app/writing-room/v2/visual/style/restore"))
+        assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile/restore"))
         assertTrue(api.contains("put(\"expected_revision\", profile.revision)"))
 
         assertTrue(viewModel.contains("saveProjectVisualStyle"))
         assertTrue(viewModel.contains("saveCharacterVisualDirection"))
+        assertTrue(viewModel.contains("restoreProjectVisualStyle"))
+        assertTrue(viewModel.contains("restoreCharacterVisualDirection"))
         assertTrue(viewModel.contains("visualProjectStyle"))
         assertTrue(viewModel.contains("visualCharacterDirection"))
 
         assertTrue(screen.contains("ESTILO VISUAL DEL PROYECTO"))
         assertTrue(screen.contains("APARIENCIA DEL PERSONAJE"))
         assertTrue(screen.contains("Guardar estilo del proyecto"))
+        assertTrue(screen.contains("Restaurar estilo Alexander"))
         assertTrue(screen.contains("Guardar apariencia"))
+        assertTrue(screen.contains("Restaurar apariencia desde canon"))
+        assertTrue(screen.contains("Requiere diseño"))
         assertTrue(screen.contains("canon escrito conserva prioridad"))
     }
 }
