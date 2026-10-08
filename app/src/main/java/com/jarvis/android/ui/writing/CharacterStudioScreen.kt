@@ -433,10 +433,14 @@ fun CharacterStudioScreen(
                         )
                     }
                     Text(
-                        "Revisión " + projectStyleDraft.revision + " · " +
-                            projectStyleDraft.source.ifBlank { "sin guardar" },
+                        "Estado: " + projectStyleLabel + " · revisión " +
+                            projectStyleDraft.revision,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF94A3B8),
+                        color = if (projectStyleDraft.source == "PROJECT_SEEDED") {
+                            JarvisGreen
+                        } else {
+                            Color(0xFF94A3B8)
+                        },
                     )
                     if (settings.isOwner) {
                         Spacer(Modifier.height(8.dp))
@@ -450,6 +454,23 @@ fun CharacterStudioScreen(
                             Icon(Icons.Filled.Check, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Guardar estilo del proyecto")
+                        }
+                        if (projectStyleDraft.revision > 0) {
+                            Spacer(Modifier.height(7.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    vm.restoreProjectVisualStyle(
+                                        projectId,
+                                        projectStyleDraft.revision,
+                                    )
+                                },
+                                enabled = !state.busy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Restaurar estilo Alexander")
+                            }
                         }
                     }
                     }
