@@ -39,8 +39,8 @@ android {
         targetSdk = 36
         // Google Play can override versionCode independently so direct APK
         // updates keep their existing version sequence.
-        versionCode = jarvisVersionCode ?: 59
-        versionName = "0.1.59-visual-direction-editor"
+        versionCode = jarvisVersionCode ?: 60
+        versionName = "0.1.60-canon-visual-seeds"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
