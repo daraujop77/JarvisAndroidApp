@@ -995,6 +995,32 @@ fun CharacterStudioScreen(
     }
 }
 
+private fun splitVisualRules(value: String): List<String> =
+    value.split(",")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .take(20)
+
+@Composable
+private fun DirectionTextField(
+    label: String,
+    value: String,
+    minLines: Int = 1,
+    onValueChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { if (it.length <= 1200) onValueChange(it) },
+        label = { Text(label) },
+        minLines = minLines,
+        maxLines = if (minLines > 1) 5 else 3,
+        colors = jarvisTextFieldColors(),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(7.dp))
+}
+
 @Composable
 private fun CharacterAssetCard(
     asset: VisualStudioAsset,
