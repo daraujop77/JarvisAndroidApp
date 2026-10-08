@@ -43,6 +43,10 @@ class VisualDirectionEditorWiringTest {
         assertTrue(screen.contains("Guardar apariencia"))
         assertTrue(screen.contains("Restaurar apariencia desde canon"))
         assertTrue(screen.contains("Requiere diseño"))
+        assertTrue(screen.contains("Base externa"))
+        assertTrue(screen.contains("Restaurar apariencia externa"))
+        assertTrue(api.contains("external_seed_available"))
+        assertTrue(api.contains("seed_variant"))
         assertTrue(screen.contains("canon escrito conserva prioridad"))
     }
 }
