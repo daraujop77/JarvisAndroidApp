@@ -27,12 +27,17 @@ class VisualDirectionEditorWiringTest {
         assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile/update"))
         assertTrue(api.contains("/api/app/writing-room/v2/visual/style/restore"))
         assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile/restore"))
+        assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/external-catalog"))
+        assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile/variants"))
+        assertTrue(api.contains("/api/app/writing-room/v2/visual/characters/design-profile/apply-variant"))
         assertTrue(api.contains("put(\"expected_revision\", profile.revision)"))
 
         assertTrue(viewModel.contains("saveProjectVisualStyle"))
         assertTrue(viewModel.contains("saveCharacterVisualDirection"))
         assertTrue(viewModel.contains("restoreProjectVisualStyle"))
         assertTrue(viewModel.contains("restoreCharacterVisualDirection"))
+        assertTrue(viewModel.contains("applyExternalCharacterVariant"))
+        assertTrue(viewModel.contains("visualExternalCharacterCatalog"))
         assertTrue(viewModel.contains("visualProjectStyle"))
         assertTrue(viewModel.contains("visualCharacterDirection"))
 
@@ -43,6 +48,8 @@ class VisualDirectionEditorWiringTest {
         assertTrue(screen.contains("Guardar apariencia"))
         assertTrue(screen.contains("Restaurar apariencia desde canon"))
         assertTrue(screen.contains("Requiere diseño"))
+        assertTrue(screen.contains("Base canónica externa"))
+        assertTrue(screen.contains("VARIANTE CANÓNICA EXTERNA"))
         assertTrue(screen.contains("canon escrito conserva prioridad"))
     }
 }
