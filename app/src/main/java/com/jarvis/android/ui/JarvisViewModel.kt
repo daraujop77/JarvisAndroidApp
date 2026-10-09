@@ -1430,10 +1430,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 if (profile.project_id != projectId || profile.character_id != intent.characterId) {
                     throw IllegalStateException("Ficha visual fuera del proyecto o personaje activo.")
                 }
-                val proposed = if (intent.isChange) {
+                val candidate = if (intent.isChange) {
                     applyCopilotAppearanceChange(profile, intent)
                         ?: throw IllegalArgumentException("No reconozco ese cambio visual.")
                 } else null
+                val proposed = candidate?.takeIf {
+                    intent.field != null && copilotAppearanceFieldValue(profile, intent.field) !=
+                        copilotAppearanceFieldValue(it, intent.field)
+                }
                 if (copilotAppearanceScopeMatches(projectId, epoch)) {
                     _writingWorkspace.value = _writingWorkspace.value.copy(
                         copilotAppearance = CopilotAppearanceCard(
@@ -1445,6 +1449,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         ),
                         copilotAppearanceNotice = if (proposed != null) {
                             "Cambio visual preparado; revisa y guarda para futuras imágenes. No se ha modificado el canon."
+                        } else if (intent.isChange) {
+                            "La característica ya tiene ese valor. No es necesario guardar ni generar imágenes."
                         } else {
                             "Ficha visual recuperada de Character Studio, sin generar ni modificar imágenes."
                         },
