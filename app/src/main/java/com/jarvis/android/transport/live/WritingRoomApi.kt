@@ -65,11 +65,18 @@ data class WritingClassification(
 )
 
 @Serializable
+data class CopilotVisualStorage(
+    val backend: String = "",
+    val state: String = "",
+)
+
+@Serializable
 data class CopilotVisualCandidate(
     val asset_id: String = "",
     val sha256: String = "",
     val status: String = "",
     val kind: String = "",
+    val storage: CopilotVisualStorage = CopilotVisualStorage(),
 )
 
 @Serializable
