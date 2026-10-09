@@ -1155,7 +1155,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 ).getOrThrow()
                 val primary = detail.gallery?.primary
                 if (detail.project_id != projectId || detail.character_id != characterId ||
-                    primary?.asset_id != masterAssetId ||
+                    primary == null || primary.asset_id != masterAssetId ||
                     !primary.sha256.equals(masterSha256, ignoreCase = true) ||
                     primary.status != "APPROVED"
                 ) throw IllegalStateException(
