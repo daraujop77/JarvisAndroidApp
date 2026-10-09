@@ -1149,13 +1149,27 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         )
         viewModelScope.launch {
             try {
+                // Never charge for views against a different or superseded front master.
+                val detail = container.liveSession.visualCharacterDetail(
+                    projectId, characterId,
+                ).getOrThrow()
+                val primary = detail.gallery?.primary
+                if (detail.project_id != projectId || detail.character_id != characterId ||
+                    primary?.asset_id != masterAssetId ||
+                    !primary.sha256.equals(masterSha256, ignoreCase = true) ||
+                    primary.status != "APPROVED"
+                ) throw IllegalStateException(
+                    "El master frontal aprobado ya no coincide con el Wiki/Character Studio.",
+                )
                 // A failed lookup is NOT permission to call a potentially paid endpoint.
                 val previous = container.liveSession.visualCharacterBatchStatus(
                     projectId, characterId,
                 ).getOrThrow().batch
                 if (previous != null && (previous.project_id != projectId ||
-                        previous.character_id != characterId)) {
-                    throw IllegalStateException("Lote visual fuera del personaje o proyecto.")
+                        previous.character_id != characterId ||
+                        previous.master_asset_id != masterAssetId ||
+                        !previous.master_sha256.equals(masterSha256, ignoreCase = true))) {
+                    throw IllegalStateException("Ya hay un lote asociado a otro master; revísalo en Character Studio.")
                 }
                 val batch = if (copilotBatchCanStartNew(previous)) {
                     container.liveSession.visualCompleteCharacterViews(
@@ -1164,6 +1178,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         perspectives = COPILOT_TURNAROUND_PERSPECTIVES,
                     ).getOrThrow().batch ?: throw IllegalStateException(
                         "El servidor no confirmó un lote. Consulta Character Studio antes de reintentar.",
+                    )
+                } else if (previous?.status == "READY" && previous.pending_count > 0 &&
+                    previous.batch_id.isNotBlank()) {
+                    // Resume the server's exact durable batch, never create a new one.
+                    container.liveSession.visualCompleteCharacterViews(
+                        projectId = projectId,
+                        characterId = characterId,
+                        perspectives = previous.requested_perspectives,
+                        adjustment = previous.adjustment,
+                        batchId = previous.batch_id,
+                    ).getOrThrow().batch ?: throw IllegalStateException(
+                        "El servidor no confirmó la reanudación. Consulta el lote antes de reintentar.",
                     )
                 } else {
                     previous ?: throw IllegalStateException("No se pudo recuperar el lote.")
@@ -1241,7 +1267,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val previews = previous.toMutableMap()
         for (item in batch.items) {
             if (!copilotViewScopeMatches(projectId, epoch)) return
-            if (item.status !in setOf("CANDIDATE", "CANDIDATE_EXISTING") ||
+            if (item.status !in setOf("CANDIDATE", "CANDIDATE_EXISTING", "APPROVED") ||
                 !item.candidate_asset_id.startsWith("va_") ||
                 !Regex("^[0-9A-Fa-f]{64}$").matches(item.candidate_sha256) ||
                 previews.containsKey(item.candidate_asset_id)
