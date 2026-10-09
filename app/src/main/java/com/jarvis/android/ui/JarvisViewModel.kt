@@ -16,6 +16,8 @@ import com.jarvis.android.transport.fake.FakeScenario
 import com.jarvis.android.update.AppUpdateManager
 import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.transport.live.*
+import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
+import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import android.net.Uri
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -188,6 +190,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val response: WritingRoomAutoChat? = null,
         val referenceAttachmentId: String? = null,
         val referenceAssetId: String? = null,
+        val generatedPreviewAttachmentId: String? = null,
+        val candidateAssetId: String? = null,
+        val candidateSha256: String? = null,
+        val candidateCharacterId: String? = null,
+        val candidateStatus: String? = null,
+        val candidateStorageState: String? = null,
     )
 
     data class WritingWorkspaceState(
@@ -420,6 +428,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 chat = null,
                 chatHistory = emptyList(),
                 streamingText = "",
+                copilotPendingReferenceId = null,
+                copilotReferenceError = null,
+                wikiCharacters = emptyList(),
+                wikiLocations = emptyList(),
                 knowledgeCapabilities = null,
                 knowledgeTimelineV2 = null,
                 knowledgeGraphV2 = null,
@@ -788,6 +800,181 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /** One requested character portrait, never a hidden tool call or automatic retry. */
+    private fun generateCopilotPortrait(
+        projectId: String,
+        projectTitle: String,
+        prompt: String,
+        characterId: String,
+        characterName: String,
+        adjustment: String,
+    ) {
+        val existing = _writingWorkspace.value
+        if (existing.busy) return
+        val history = if (existing.chatProjectId == projectId) existing.chatHistory else emptyList()
+        _writingWorkspace.value = existing.copy(
+            busy = true,
+            busyLabel = "Generando retrato con GPT Image 2 Medium",
+            chatProjectId = projectId,
+            chatHistory = history + WritingWorkspaceChatTurn(prompt = prompt),
+            chat = null,
+            streamingText = "",
+            error = null,
+        )
+        viewModelScope.launch {
+            val result = container.liveSession.writingRoomCopilotGeneratePortrait(
+                projectId = projectId,
+                characterId = characterId,
+                characterName = characterName,
+                adjustment = adjustment,
+            )
+            result.fold(
+                onSuccess = { generated ->
+                    val asset = generated.visual_asset
+                    val safe = generated.model == "gpt-image-2-medium" &&
+                        !generated.fallback_used && asset != null &&
+                        asset.status == "CANDIDATE" && asset.asset_id.isNotBlank() &&
+                        Regex("^[A-Fa-f0-9]{64}$").matches(asset.sha256)
+                    if (!safe) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            busy = false,
+                            busyLabel = "",
+                            error = "El proveedor respondió, pero no se pudo verificar el modelo y la referencia candidata. " +
+                                "Revisa Visual Studio antes de generar otra imagen.",
+                        )
+                        return@fold
+                    }
+                    val image = withContext(Dispatchers.IO) {
+                        container.attachmentStore.stageVisualAssetBase64(
+                            generated.data_base64, asset!!.sha256,
+                        )
+                    }
+                    val stored = asset!!.storage.state == "stored"
+                    val bodyText = if (stored) {
+                        "Retrato candidato de ${characterName} generado con GPT Image 2 Medium. " +
+                            "ID: ${asset.asset_id}. Revisa la imagen y pulsa Aprobar retrato solamente " +
+                            "si corresponde al personaje. No se ha cambiado el canon narrativo."
+                    } else {
+                        "Se creó el candidato ${asset.asset_id}, pero su almacenamiento sigue pendiente. " +
+                            "Consulta Visual Studio antes de intentar otra generación. No se puede aprobar todavía."
+                    }
+                    val response = WritingRoomAutoChat(
+                        schema = "jarvis.writing-room.chat.v1",
+                        classification = WritingClassification(
+                            task_class = "COPILOT_TOOL",
+                            source = "verified_image_generation",
+                        ),
+                        selected_participant = "copilot",
+                        turn = JarvisAppSession.WritingRoomTurn(
+                            schema = "jarvis.writing-room.turn.v1",
+                            project_id = projectId,
+                            project_title = projectTitle,
+                            participant = JarvisAppSession.WritingRoomParticipant(
+                                id = "copilot", label = "Writing Room Copilot",
+                            ),
+                            routing = JarvisAppSession.WritingRoomRouting(
+                                destination = "image_generation",
+                                provider = "openai-codex",
+                                model = generated.model,
+                            ),
+                            response = JarvisAppSession.WritingRoomText(bodyText),
+                        ),
+                    )
+                    val current = _writingWorkspace.value
+                    if (current.chatProjectId != projectId) return@fold
+                    val updatedHistory = current.chatHistory.toMutableList()
+                    val index = updatedHistory.indexOfLast { it.response == null && it.prompt == prompt }
+                    if (index >= 0) {
+                        updatedHistory[index] = updatedHistory[index].copy(
+                            response = response,
+                            generatedPreviewAttachmentId = image?.attachmentId,
+                            candidateAssetId = asset.asset_id,
+                            candidateSha256 = asset.sha256,
+                            candidateCharacterId = characterId,
+                            candidateStatus = asset.status,
+                            candidateStorageState = asset.storage.state,
+                        )
+                    }
+                    _writingWorkspace.value = current.copy(
+                        busy = false,
+                        busyLabel = "",
+                        chat = response,
+                        chatHistory = updatedHistory,
+                        streamingText = "",
+                        error = if (image == null) {
+                            "La miniatura no se pudo guardar; consulta el candidato en Visual Studio."
+                        } else null,
+                    )
+                },
+                onFailure = { error ->
+                    val current = _writingWorkspace.value
+                    _writingWorkspace.value = current.copy(
+                        busy = false,
+                        busyLabel = "",
+                        chatHistory = current.chatHistory.filterNot {
+                            it.prompt == prompt && it.response == null
+                        },
+                        error = (error.message ?: "No se pudo confirmar la imagen") +
+                            ". Comprueba Visual Studio antes de reintentar: el proveedor podría haber completado el trabajo.",
+                    )
+                },
+            )
+        }
+    }
+
+    /** Exact owner action: approve one stored candidate by server-verified SHA. */
+    fun approveCopilotPortrait(projectId: String, assetId: String, expectedSha256: String) {
+        val current = _writingWorkspace.value
+        if (current.busy || current.chatProjectId != projectId) return
+        val selected = current.chatHistory.firstOrNull {
+            it.candidateAssetId == assetId && it.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
+                it.candidateStatus == "CANDIDATE" && it.candidateStorageState == "stored"
+        } ?: return
+        val characterId = selected.candidateCharacterId?.takeIf { it.isNotBlank() } ?: return
+        _writingWorkspace.value = current.copy(
+            busy = true,
+            busyLabel = "Aprobando la referencia visual elegida",
+            error = null,
+        )
+        viewModelScope.launch {
+            container.liveSession.writingRoomCopilotApprovePortrait(
+                projectId, characterId, assetId, expectedSha256,
+            ).fold(
+                onSuccess = { confirmed ->
+                    val asset = confirmed.asset
+                    if (asset.asset_id != assetId || !asset.sha256.equals(expectedSha256, ignoreCase = true) ||
+                        asset.status != "APPROVED" ||
+                        confirmed.character_id != characterId ||
+                        confirmed.wiki_link?.entry_id != characterId
+                    ) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            busy = false, busyLabel = "",
+                            error = "La aprobación no coincidió con el candidato original.",
+                        )
+                        return@fold
+                    }
+                    val refreshed = _writingWorkspace.value
+                    _writingWorkspace.value = refreshed.copy(
+                        busy = false,
+                        busyLabel = "",
+                        chatHistory = refreshed.chatHistory.map { turn ->
+                            if (turn.candidateAssetId == assetId) turn.copy(candidateStatus = "APPROVED")
+                            else turn
+                        },
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        error = error.message ?: "No se pudo aprobar esta referencia",
+                    )
+                },
+            )
+        }
+    }
+
     fun runWritingRoomAutoChat(
         projectId: String,
         projectTitle: String,
@@ -796,6 +983,22 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val clean = prompt.trim()
         if (clean.isEmpty()) return
+        if (looksLikeCopilotPortraitCommand(clean)) {
+            val characters = _writingWorkspace.value.wikiCharacters
+            val portrait = resolveCopilotPortrait(clean, characters)
+            if (portrait == null) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    error = "No pude identificar un único personaje del Wiki. " +
+                        "Usa el nombre canónico exacto; por ejemplo: Genera retrato de Naruto.",
+                )
+                return
+            }
+            generateCopilotPortrait(
+                projectId, projectTitle, clean, portrait.characterId,
+                portrait.canonicalName, portrait.adjustment,
+            )
+            return
+        }
 
         val current = _writingWorkspace.value
         val existingHistory = if (current.chatProjectId == projectId) current.chatHistory else emptyList()

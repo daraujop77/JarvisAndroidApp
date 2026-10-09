@@ -795,7 +795,7 @@ private fun ChatSection(
                 }
                 turn.response?.let { response ->
                     item {
-                        CopilotAssistantMessage(response)
+                        CopilotAssistantMessage(response, turn, projectId, vm, state.busy)
                     }
                 }
             }
@@ -988,7 +988,13 @@ private fun CopilotUserMessage(text: String, referenceAttachmentId: String?, vm:
 }
 
 @Composable
-private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
+private fun CopilotAssistantMessage(
+    chat: WritingRoomAutoChat,
+    turn: JarvisViewModel.WritingWorkspaceChatTurn,
+    projectId: String,
+    vm: JarvisViewModel,
+    busy: Boolean,
+) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
 
@@ -1059,6 +1065,62 @@ private fun CopilotAssistantMessage(chat: WritingRoomAutoChat) {
                 }
                 Spacer(Modifier.height(5.dp))
                 RichModelText(chat.turn.response.text)
+
+                turn.generatedPreviewAttachmentId?.let { attachmentId ->
+                    val image = remember(attachmentId) {
+                        vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
+                    }
+                    if (image != null) {
+                        Spacer(Modifier.height(9.dp))
+                        Image(
+                            bitmap = image.asImageBitmap(),
+                            contentDescription = "Retrato candidato generado por GPT Image 2 Medium",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().height(290.dp)
+                                .clip(RoundedCornerShape(16.dp)),
+                        )
+                    }
+                }
+                turn.candidateAssetId?.let { assetId ->
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        "Referencia ${turn.candidateStatus ?: "CANDIDATE"} · ID ${assetId}",
+                        style = HudTextStyle.copy(fontSize = 10.sp),
+                        color = if (turn.candidateStatus == "APPROVED") JarvisGreen else JarvisAmber,
+                    )
+                    if (turn.candidateStatus == "CANDIDATE" &&
+                        turn.candidateStorageState == "stored" &&
+                        !turn.candidateSha256.isNullOrBlank()
+                    ) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                vm.approveCopilotPortrait(
+                                    projectId, assetId, turn.candidateSha256,
+                                )
+                            },
+                            enabled = !busy,
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Aprobar retrato como referencia visual")
+                        }
+                    } else if (turn.candidateStorageState != "stored" &&
+                        turn.candidateStatus == "CANDIDATE"
+                    ) {
+                        Text(
+                            "Pendiente de almacenamiento. Revisa Visual Studio antes de aprobar.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisAmber,
+                        )
+                    } else if (turn.candidateStatus == "APPROVED") {
+                        Text(
+                            "Aprobado como referencia visual. El canon escrito no cambió.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisGreen,
+                        )
+                    }
+                }
 
                 val grouped = chat.turn.canon.sources.groupBy { it.canon_status.ifBlank { "REFERENCE" } }
                 if (grouped.values.any { it.isNotEmpty() }) {
