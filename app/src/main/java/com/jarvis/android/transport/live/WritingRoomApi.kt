@@ -122,11 +122,42 @@ data class CopilotVisualImport(
 )
 
 @Serializable
+data class CopilotTaskStep(
+    val tool: String = "",
+    val arguments: JsonObject = JsonObject(emptyMap()),
+    val access: String = "",
+)
+
+@Serializable
+data class CopilotTaskResult(
+    val tool: String = "",
+    val text: String = "",
+    val effect: String = "",
+    val result: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class CopilotTaskState(
+    val schema: String = "",
+    val task_id: String = "",
+    val project_id: String = "",
+    val state: String = "",
+    val summary: String = "",
+    val requires_confirmation: Boolean = false,
+    val steps: List<CopilotTaskStep> = emptyList(),
+    val results: List<CopilotTaskResult> = emptyList(),
+    val error_code: String = "",
+    val created_utc: String = "",
+    val updated_utc: String = "",
+)
+
+@Serializable
 data class WritingRoomAutoChat(
     val schema: String = "",
     val classification: WritingClassification = WritingClassification(),
     val selected_participant: String = "",
     val turn: JarvisAppSession.WritingRoomTurn = JarvisAppSession.WritingRoomTurn(),
+    val copilot_task: CopilotTaskState? = null,
 )
 
 @Serializable
@@ -1362,6 +1393,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     projectTitle: String,
     prompt: String,
     room: String = "chat",
+    toolMode: Boolean = false,
     onDelta: (String) -> Unit,
 ): Result<WritingRoomAutoChat> = withContext(Dispatchers.IO) {
     val clean = prompt.trim()
@@ -1378,6 +1410,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         put("project_title", projectTitle)
         put("room", room)
         put("prompt", clean)
+        if (toolMode) put("tool_mode", "plan")
         put("request_id", java.util.UUID.randomUUID().toString())
     }.toString()
 
@@ -1415,6 +1448,43 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         completed ?: throw TransportException("Writing Room stream ended without completion")
     }
 }
+
+/** Read-only task recovery is scoped by VPS to the authenticated project principal. */
+suspend fun JarvisAppSession.writingRoomCopilotTaskLatest(
+    projectId: String,
+): Result<CopilotTaskState> =
+    writingPost(
+        "/api/app/writing-room/copilot/tasks/latest",
+        buildJsonObject { put("project_id", projectId) },
+    )
+
+suspend fun JarvisAppSession.writingRoomCopilotTaskStatus(
+    projectId: String,
+    taskId: String,
+): Result<CopilotTaskState> =
+    writingPost(
+        "/api/app/writing-room/copilot/tasks/status",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("task_id", taskId)
+        },
+    )
+
+/** Runs only a stored allowlisted plan; proposal writes require explicit confirmation. */
+suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
+    projectId: String,
+    taskId: String,
+    confirmed: Boolean,
+): Result<CopilotTaskState> =
+    writingPost(
+        "/api/app/writing-room/copilot/tasks/run",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("task_id", taskId)
+            put("confirmed", confirmed)
+        },
+        timeoutMillis = 120_000L,
+    )
 
 suspend fun JarvisAppSession.writingRoomWikiHome(
     projectId: String,
