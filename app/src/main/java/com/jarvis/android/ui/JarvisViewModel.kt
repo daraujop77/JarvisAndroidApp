@@ -930,7 +930,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             it.candidateAssetId == assetId && it.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
                 it.candidateStatus == "CANDIDATE" && it.candidateStorageState == "stored"
         } ?: return
-        if (selected.candidateCharacterId.isNullOrBlank()) return
+        val characterId = selected.candidateCharacterId?.takeIf { it.isNotBlank() } ?: return
         _writingWorkspace.value = current.copy(
             busy = true,
             busyLabel = "Aprobando la referencia visual elegida",
@@ -938,14 +938,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         )
         viewModelScope.launch {
             container.liveSession.writingRoomCopilotApprovePortrait(
-                projectId, selected.candidateCharacterId, assetId, expectedSha256,
+                projectId, characterId, assetId, expectedSha256,
             ).fold(
                 onSuccess = { confirmed ->
                     val asset = confirmed.asset
                     if (asset.asset_id != assetId || !asset.sha256.equals(expectedSha256, ignoreCase = true) ||
                         asset.status != "APPROVED" ||
-                        confirmed.character_id != selected.candidateCharacterId ||
-                        confirmed.wiki_link?.entry_id != selected.candidateCharacterId
+                        confirmed.character_id != characterId ||
+                        confirmed.wiki_link?.entry_id != characterId
                     ) {
                         _writingWorkspace.value = _writingWorkspace.value.copy(
                             busy = false, busyLabel = "",
