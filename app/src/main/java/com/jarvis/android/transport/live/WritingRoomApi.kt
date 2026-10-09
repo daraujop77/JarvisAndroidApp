@@ -77,6 +77,18 @@ data class CopilotVisualCandidate(
     val status: String = "",
     val kind: String = "",
     val storage: CopilotVisualStorage = CopilotVisualStorage(),
+    val perspective: String = "",
+    val character_ids: List<String> = emptyList(),
+    val mime_type: String = "",
+    val alt: String = "",
+    val provenance: JsonObject = JsonObject(emptyMap()),
+)
+
+@Serializable
+data class CopilotVisualAssets(
+    val schema: String = "",
+    val project_id: String = "",
+    val assets: List<CopilotVisualCandidate> = emptyList(),
 )
 
 @Serializable
@@ -1309,6 +1321,21 @@ suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
 }
 
 /** Explicit human approval of the exact candidate image; separate from text canon. */
+/**
+ * Read-only recovery of existing registry candidates. Never generates, retries,
+ * promotes an asset or returns data from another project.
+ */
+suspend fun JarvisAppSession.writingRoomCopilotListPortraits(
+    projectId: String,
+): Result<CopilotVisualAssets> {
+    if (projectId.isBlank()) return Result.failure(TransportException("Project is required"))
+    return writingPost(
+        "/api/app/writing-room/visual-assets/list",
+        buildJsonObject { put("project_id", projectId) },
+        timeoutMillis = 30_000L,
+    )
+}
+
 suspend fun JarvisAppSession.writingRoomCopilotApprovePortrait(
     projectId: String,
     characterId: String,
