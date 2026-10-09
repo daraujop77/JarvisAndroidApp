@@ -65,6 +65,20 @@ data class WritingClassification(
 )
 
 @Serializable
+data class CopilotVisualCandidate(
+    val asset_id: String = "",
+    val sha256: String = "",
+    val status: String = "",
+    val kind: String = "",
+)
+
+@Serializable
+data class CopilotVisualImport(
+    val schema: String = "",
+    val asset: CopilotVisualCandidate = CopilotVisualCandidate(),
+)
+
+@Serializable
 data class WritingRoomAutoChat(
     val schema: String = "",
     val classification: WritingClassification = WritingClassification(),
@@ -1187,6 +1201,39 @@ suspend fun JarvisAppSession.writingRoomAutoChat(
             put("room", room)
             put("prompt", clean)
         },
+    )
+}
+
+/**
+ * Owner-only reference import, persisted as CANDIDATE in the existing Visual Asset Registry.
+ * This does not generate any image, promote canon, or associate the upload with a character.
+ */
+suspend fun JarvisAppSession.writingRoomCopilotImportReference(
+    projectId: String,
+    imageBase64: String,
+    note: String,
+): Result<CopilotVisualImport> {
+    if (projectId.isBlank() || imageBase64.isBlank() || imageBase64.length > 8 * 1024 * 1024) {
+        return Result.failure(TransportException("Invalid or oversized visual reference"))
+    }
+    return writingPost(
+        "/api/app/writing-room/visual-assets/ingest",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("image_base64", imageBase64)
+            put("mime_type", "image/jpeg")
+            put("kind", "REFERENCE")
+            put("source", "MANUAL_UPLOAD")
+            put("perspective", "custom")
+            put("alt", note.trim().take(500).ifBlank { "Referencia visual aportada en Copilot" })
+            put("provenance", buildJsonObject {
+                put("surface", "copilot")
+                put("operation", "import_external_reference")
+                put("note", note.trim().take(1000))
+                put("authority", "CANDIDATE")
+            })
+        },
+        timeoutMillis = 120_000L,
     )
 }
 
