@@ -428,6 +428,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 chat = null,
                 chatHistory = emptyList(),
                 streamingText = "",
+                copilotPendingReferenceId = null,
+                copilotReferenceError = null,
+                wikiCharacters = emptyList(),
+                wikiLocations = emptyList(),
                 knowledgeCapabilities = null,
                 knowledgeTimelineV2 = null,
                 knowledgeGraphV2 = null,
@@ -934,12 +938,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         )
         viewModelScope.launch {
             container.liveSession.writingRoomCopilotApprovePortrait(
-                projectId, assetId, expectedSha256,
+                projectId, selected.candidateCharacterId, assetId, expectedSha256,
             ).fold(
                 onSuccess = { confirmed ->
                     val asset = confirmed.asset
                     if (asset.asset_id != assetId || !asset.sha256.equals(expectedSha256, ignoreCase = true) ||
-                        asset.status != "APPROVED"
+                        asset.status != "APPROVED" ||
+                        confirmed.character_id != selected.candidateCharacterId ||
+                        confirmed.wiki_link?.entry_id != selected.candidateCharacterId
                     ) {
                         _writingWorkspace.value = _writingWorkspace.value.copy(
                             busy = false, busyLabel = "",
