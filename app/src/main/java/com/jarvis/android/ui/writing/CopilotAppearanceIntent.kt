@@ -70,6 +70,19 @@ fun resolveCopilotAppearance(
                 RegexOption.IGNORE_CASE).containsMatchIn(value)
         )
     ) return null
+    // Do not silently merge two Wiki character identities into one visual direction.
+    if (value != null && wikiCharacters.asSequence()
+            .filter { it.type.equals("character", ignoreCase = true) && it.id != found.id }
+            .flatMap { sequenceOf(it.canonical_name, it.name) }
+            .filter(String::isNotBlank)
+            .any { alias ->
+                Regex(
+                    "(?<![\\p{L}\\p{N}])" + Regex.escape(alias.trim()) +
+                        "(?![\\p{L}\\p{N}])",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(value)
+            }
+    ) return null
     return CopilotAppearanceIntent(
         characterId = found.id,
         canonicalName = found.canonical_name.ifBlank { found.name },
