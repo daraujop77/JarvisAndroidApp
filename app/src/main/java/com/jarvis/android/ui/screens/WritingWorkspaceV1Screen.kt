@@ -667,15 +667,22 @@ private fun ChatSection(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     var prompt by rememberSaveable { mutableStateOf("") }
+    val referencePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> if (uri != null) vm.stageWritingCopilotReference(uri) }
     val listState = rememberLazyListState()
     val completedTurns = state.chatHistory.count { it.response != null }
 
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
-        if (clean.isNotEmpty() && !state.busy) {
+        if ((clean.isNotEmpty() || state.copilotPendingReferenceId != null) && !state.busy) {
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
-            vm.runWritingRoomAutoChat(projectId, title, clean)
+            if (state.copilotPendingReferenceId != null) {
+                vm.importWritingCopilotReference(projectId, title, clean)
+            } else {
+                vm.runWritingRoomAutoChat(projectId, title, clean)
+            }
             prompt = ""
         }
     }
@@ -784,7 +791,7 @@ private fun ChatSection(
 
             state.chatHistory.forEach { turn ->
                 item {
-                    CopilotUserMessage(turn.prompt)
+                    CopilotUserMessage(turn.prompt, turn.referenceAttachmentId, vm)
                 }
                 turn.response?.let { response ->
                     item {
@@ -841,13 +848,60 @@ private fun ChatSection(
             border = BorderStroke(1.dp, LocalJarvisAccents.current.orbGlow.copy(alpha = 0.40f)),
             shadowElevation = 6.dp,
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedTextField(
+                state.copilotPendingReferenceId?.let { attachmentId ->
+                    val thumbnail = remember(attachmentId) {
+                        vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 160)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (thumbnail != null) {
+                            Image(
+                                bitmap = thumbnail.asImageBitmap(),
+                                contentDescription = "Referencia visual pendiente",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Referencia pendiente · se guardará como candidata, sin generar imagen",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { vm.removeWritingCopilotReference() }, enabled = !state.busy) {
+                            Icon(Icons.Filled.Close, contentDescription = "Quitar referencia")
+                        }
+                    }
+                }
+                state.copilotReferenceError?.let { message ->
+                    Text(message, color = JarvisRed, style = MaterialTheme.typography.bodySmall)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = {
+                            referencePicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
+                        },
+                        enabled = !state.busy,
+                    ) {
+                        Icon(
+                            Icons.Filled.AddPhotoAlternate,
+                            contentDescription = "Adjuntar imagen de referencia a Copilot",
+                            tint = JarvisCyan,
+                        )
+                    }
+                    OutlinedTextField(
                     value = prompt,
                     onValueChange = { if (it.length <= 6000) prompt = it },
                     placeholder = {
@@ -866,20 +920,21 @@ private fun ChatSection(
                 Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = sendPrompt,
-                    enabled = prompt.isNotBlank() && !state.busy,
+                    enabled = (prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy,
                     modifier = Modifier
                         .size(42.dp)
                         .background(
-                            if (prompt.isNotBlank() && !state.busy) JarvisCyan else Color(0x3310233D),
+                            if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy) JarvisCyan else Color(0x3310233D),
                             CircleShape,
                         ),
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
                         contentDescription = "Enviar mensaje",
-                        tint = if (prompt.isNotBlank() && !state.busy) Color(0xFF02101F) else Color(0xFF64748B),
+                        tint = if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy) Color(0xFF02101F) else Color(0xFF64748B),
                         modifier = Modifier.size(18.dp),
                     )
+                }
                 }
             }
         }
@@ -887,7 +942,7 @@ private fun ChatSection(
 }
 
 @Composable
-private fun CopilotUserMessage(text: String) {
+private fun CopilotUserMessage(text: String, referenceAttachmentId: String?, vm: JarvisViewModel) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
@@ -912,6 +967,20 @@ private fun CopilotUserMessage(text: String) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                     )
+                }
+                referenceAttachmentId?.let { attachmentId ->
+                    val thumbnail = remember(attachmentId) {
+                        vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 360)
+                    }
+                    if (thumbnail != null) {
+                        Spacer(Modifier.height(7.dp))
+                        Image(
+                            bitmap = thumbnail.asImageBitmap(),
+                            contentDescription = "Imagen adjunta por el usuario",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(10.dp)),
+                        )
+                    }
                 }
             }
         }
