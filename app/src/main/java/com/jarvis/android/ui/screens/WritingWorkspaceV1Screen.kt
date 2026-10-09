@@ -950,7 +950,7 @@ private fun ChatSection(
                                 }
                             }
                             Spacer(Modifier.height(10.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column {
                                 TextButton(
                                     onClick = {
                                         vm.refreshCopilotCharacterViews(projectId, batch.character_id)
