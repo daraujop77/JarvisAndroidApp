@@ -90,9 +90,17 @@ data class CopilotPortraitGeneration(
 )
 
 @Serializable
+data class CopilotPortraitWikiLink(
+    val entry_id: String = "",
+    val event_id: String = "",
+)
+
+@Serializable
 data class CopilotVisualApproval(
     val schema: String = "",
     val asset: CopilotVisualCandidate = CopilotVisualCandidate(),
+    val character_id: String = "",
+    val wiki_link: CopilotPortraitWikiLink? = null,
 )
 
 @Serializable
@@ -1303,16 +1311,19 @@ suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
 /** Explicit human approval of the exact candidate image; separate from text canon. */
 suspend fun JarvisAppSession.writingRoomCopilotApprovePortrait(
     projectId: String,
+    characterId: String,
     candidateAssetId: String,
     candidateSha256: String,
 ): Result<CopilotVisualApproval> {
-    if (projectId.isBlank() || !candidateAssetId.startsWith("va_") ||
+    if (!characterId.startsWith("character:") ||
+        projectId.isBlank() || !candidateAssetId.startsWith("va_") ||
         !Regex("^[A-Fa-f0-9]{64}$").matches(candidateSha256)
     ) return Result.failure(TransportException("Unverified portrait candidate"))
     return writingPost(
-        "/api/app/writing-room/v2/visual/assets/approve-exact",
+        "/api/app/writing-room/v2/visual/characters/approve-primary-exact",
         buildJsonObject {
             put("project_id", projectId)
+            put("character_id", characterId)
             put("asset_id", candidateAssetId)
             put("asset_sha256", candidateSha256)
         },
