@@ -10,7 +10,7 @@ data class CopilotPortraitIntent(
 )
 
 private val portraitCommand = Regex(
-    """^\\s*(?:genera|crea|haz|dibuja)\\s+(?:(?:un|una)\\s+)?(?:retrato|imagen)\\s+(?:de|del)\\s+(.+?)\\s*$""",
+    """^\s*(?:genera|crea|haz|dibuja)\s+(?:(?:un|una)\s+)?(?:retrato|imagen)\s+(?:de|del)\s+(.+?)\s*$""",
     RegexOption.IGNORE_CASE,
 )
 
@@ -45,7 +45,7 @@ fun resolveCopilotPortrait(
     if (tied.isNotEmpty()) return null
     val rest = text.drop(best.second.length).trim().trimStart(',', ';', '.').trim()
     if (rest.isNotEmpty() && !Regex(
-        """^(?:con|en|vistiendo|usando|desde|mirando|de\\s+perfil|de\\s+frente)\\b""",
+        """^(?:con|en|vistiendo|usando|desde|mirando|de\s+perfil|de\s+frente)\b""",
         RegexOption.IGNORE_CASE,
     ).containsMatchIn(rest)) {
         // Reject requests potentially mixing subjects, e.g. "Naruto y Sasuke".
