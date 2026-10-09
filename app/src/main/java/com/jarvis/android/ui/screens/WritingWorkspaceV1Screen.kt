@@ -877,8 +877,115 @@ private fun ChatSection(
                                     color = JarvisAmber,
                                     style = MaterialTheme.typography.bodySmall,
                                 )
+                            } else if (portrait.status == "APPROVED" &&
+                                portrait.storageState == "stored" &&
+                                !portrait.previewAttachmentId.isNullOrBlank()
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        vm.beginCopilotCharacterViews(
+                                            projectId, portrait.characterId, portrait.assetId, portrait.sha256,
+                                        )
+                                    },
+                                    enabled = !state.busy && !state.copilotViewLoading,
+                                ) {
+                                    Text("Completar vistas desde el master aprobado")
+                                }
                             }
                         }
+                    }
+                }
+            }
+
+            state.copilotViewBatch?.let { batch ->
+                item(key = "copilot-turnaround-" + batch.batch_id) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color(0xEE0E182A),
+                        border = BorderStroke(1.dp, JarvisGreen.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("VISTAS DEL PERSONAJE · " + batch.status,
+                                style = HudTextStyle.copy(fontSize = 11.sp), color = JarvisGreen)
+                            Text(batch.character_id + " · " + batch.batch_id,
+                                style = HudTextStyle.copy(fontSize = 10.sp))
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "${batch.approved_count} aprobadas · ${batch.candidate_count} candidatas · " +
+                                    "${batch.pending_count} pendientes · ${batch.blocked_count} bloqueadas",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "Generaciones: ${batch.generation_used}/${batch.generation_budget}. " +
+                                    "Cada vista es una imagen independiente del master frontal.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF94A3B8),
+                            )
+                            batch.items.forEach { view ->
+                                Spacer(Modifier.height(8.dp))
+                                Text(view.perspective.replace('_', ' ') + " · " + view.status,
+                                    style = MaterialTheme.typography.bodySmall, color = JarvisCyan)
+                                val attachmentId = state.copilotViewPreviews[view.candidate_asset_id]
+                                if (!attachmentId.isNullOrBlank()) {
+                                    val preview = remember(attachmentId) {
+                                        vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
+                                    }
+                                    if (preview != null) {
+                                        Image(
+                                            bitmap = preview.asImageBitmap(),
+                                            contentDescription = "Vista " + view.perspective,
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier.fillMaxWidth().height(230.dp)
+                                                .clip(RoundedCornerShape(12.dp)),
+                                        )
+                                    }
+                                } else if (view.status == "CANDIDATE" ||
+                                    view.status == "CANDIDATE_EXISTING"
+                                ) {
+                                    Text(
+                                        "Vista pendiente de descarga o verificación. No se puede aprobar todavía.",
+                                        style = MaterialTheme.typography.bodySmall, color = JarvisAmber,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Column {
+                                TextButton(
+                                    onClick = {
+                                        vm.refreshCopilotCharacterViews(projectId, batch.character_id)
+                                    },
+                                    enabled = !state.copilotViewLoading && !state.busy,
+                                ) { Text("Actualizar lote") }
+                                val ready = com.jarvis.android.ui.writing.copilotApprovableViewIds(
+                                    batch, state.copilotViewPreviews,
+                                )
+                                if (ready.isNotEmpty()) {
+                                    OutlinedButton(
+                                        onClick = { vm.approveCopilotCharacterViews(projectId) },
+                                        enabled = !state.copilotViewLoading && !state.busy,
+                                    ) { Text("Aprobar ${ready.size} vistas verificadas") }
+                                }
+                            }
+                            state.copilotViewNotice?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = JarvisGreen)
+                            }
+                            state.copilotViewError?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = JarvisAmber)
+                            }
+                        }
+                    }
+                }
+            }
+            if (state.copilotViewBatch == null &&
+                (state.copilotViewLoading || state.copilotViewError != null)
+            ) {
+                item {
+                    if (state.copilotViewLoading) {
+                        Text("Consultando vistas del personaje…", color = JarvisCyan)
+                    }
+                    state.copilotViewError?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = JarvisAmber)
                     }
                 }
             }
@@ -1214,6 +1321,21 @@ private fun CopilotAssistantMessage(
                             style = MaterialTheme.typography.bodySmall,
                             color = JarvisGreen,
                         )
+                        val characterId = turn.candidateCharacterId
+                        val candidateSha256 = turn.candidateSha256
+                        if (!characterId.isNullOrBlank() && !candidateSha256.isNullOrBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    vm.beginCopilotCharacterViews(
+                                        projectId, characterId, assetId, candidateSha256,
+                                    )
+                                },
+                                enabled = !busy,
+                            ) {
+                                Text("Completar vistas desde el master aprobado")
+                            }
+                        }
                     }
                 }
 
