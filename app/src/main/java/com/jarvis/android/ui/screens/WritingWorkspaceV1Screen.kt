@@ -1184,7 +1184,8 @@ private fun CopilotAssistantMessage(
                     )
                     if (turn.candidateStatus == "CANDIDATE" &&
                         turn.candidateStorageState == "stored" &&
-                        !turn.candidateSha256.isNullOrBlank()
+                        !turn.candidateSha256.isNullOrBlank() &&
+                        !turn.generatedPreviewAttachmentId.isNullOrBlank()
                     ) {
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(
