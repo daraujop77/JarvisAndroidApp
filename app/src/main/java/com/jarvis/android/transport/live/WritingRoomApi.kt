@@ -1287,7 +1287,7 @@ suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
                 put("surface", "character_creator")
                 put("kind", "PRIMARY_REFERENCE")
                 put("perspective", "front")
-                put("character_ids", kotlinx.serialization.json.buildJsonArray { add(characterId) })
+                put("character_ids", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive(characterId)) })
                 put("alt", "Retrato candidato de " + characterName.take(120))
                 put("provenance", buildJsonObject {
                     put("requested_from", "copilot")

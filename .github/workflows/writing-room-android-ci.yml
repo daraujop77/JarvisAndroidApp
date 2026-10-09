@@ -2,6 +2,15 @@ name: Writing Room Android CI
 
 on:
   workflow_dispatch:
+    inputs:
+      build_apk:
+        description: 'Generar APK debug manualmente (no se hace en CI normal)'
+        type: boolean
+        default: false
+      publish_release:
+        description: 'Generar y publicar APK/AAB firmadas manualmente'
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -39,8 +48,11 @@ jobs:
             exit 1
           fi
 
-      - name: Unit tests and debug APK
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Unit tests and Kotlin compilation (no APK)
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+      - name: Build debug APK (manual only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_apk }}
+        run: ./gradlew :app:assembleDebug --stacktrace
       - name: Upload unit-test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -51,7 +63,8 @@ jobs:
             app/build/reports/tests/testDebugUnitTest/**
           if-no-files-found: ignore
           retention-days: 7
-      - name: Upload debug APK
+      - name: Upload debug APK (manual only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_apk }}
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-debug
@@ -59,7 +72,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Build signed release artifacts
+      - name: Build signed release artifacts (manual only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
@@ -73,10 +87,12 @@ jobs:
             export RELEASE_STORE_FILE="/home/runner/.jarvis/jarvis-release.jks"
             ./gradlew :app:bundleRelease :app:assembleRelease --stacktrace
           else
-            echo "No RELEASE_KEYSTORE_BASE64 secret provided; skipping release build."
+            echo "Missing release signing keystore; cannot publish a signed release." >&2
+            exit 1
           fi
 
       - name: Upload Release Bundle (AAB for Google Play)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-release-aab
@@ -85,6 +101,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Release APK
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-release-apk
@@ -93,7 +110,7 @@ jobs:
           retention-days: 14
 
       - name: Publish signed APK as GitHub Release asset
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
