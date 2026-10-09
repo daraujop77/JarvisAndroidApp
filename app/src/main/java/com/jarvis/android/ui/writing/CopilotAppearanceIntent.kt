@@ -10,7 +10,8 @@ data class CopilotAppearanceIntent(
     val field: String? = null,
     val value: String? = null,
 ) {
-    val isChange: Boolean get() = field != null && value != null
+    // `field` unqualified inside a Kotlin getter means this property's backing field.
+    val isChange: Boolean get() = this.field != null && this.value != null
 }
 
 private val appearanceRead = Regex(
