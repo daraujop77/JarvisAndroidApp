@@ -518,6 +518,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 autoReviewV2 = null,
             )
         }
+        // Task restoration must work even when an unrelated Wiki/Drive refresh fails.
+        recoverWritingCopilotTask(projectId)
         writingWorkspaceBusy("Loading workspace")
         viewModelScope.launch {
             val overview = container.liveSession.writingRoomOverview(projectId)
@@ -563,7 +565,6 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             )
             refreshKnowledgeAtlas(projectId = projectId, refreshSnapshot = true)
             recoverWritingCopilotPortraits(projectId)
-            recoverWritingCopilotTask(projectId)
         }
     }
 
