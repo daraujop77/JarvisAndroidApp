@@ -58,6 +58,15 @@ class CopilotPortraitRecoveryPolicyTest {
         assertEquals(listOf("va_wanted"), selected.map { it.asset_id })
     }
 
+    @Test fun approvedMasterIsRestoredForViewBatchWithoutRegenerating() {
+        val portraits = recoverableCopilotPortraitAssets(
+            parse(candidate("va_approved", status = "APPROVED"),
+                candidate("va_candidate"),
+                candidate("va_external", status = "APPROVED", origin = "image_studio")),
+        )
+        assertEquals(listOf("va_approved", "va_candidate"), portraits.map { it.asset_id })
+    }
+
     @Test fun pendingDriveStorageIsVisibleButNotAutomaticallyApproved() {
         val selected = recoverableCopilotPortraitCandidates(
             parse(candidate("va_pending", storage = "pending_upload")),
