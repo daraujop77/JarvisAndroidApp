@@ -10,7 +10,7 @@ data class CopilotPortraitIntent(
 )
 
 private val portraitCommand = Regex(
-    """^\s*(?:genera|crea|haz|dibuja)\s+(?:(?:un|una)\s+)?(?:retrato|imagen)\s+(?:de|del)\s+(.+?)\s*$""",
+    """^\s*¿?\s*(?:(?:(?:me\s+)?(?:puedes|podrías|podrias)\s+)?(?:generar|crear|hacer|dibujar)(?:me)?|genera|crea|haz|hazme|dibuja|genérame|generame|créame|creame|quiero|necesito)\s+(?:(?:un|una|el|la)\s+)?(?:retrato|imagen)\s+(?:de|del)\s+(.+?)\s*\??\s*$""",
     RegexOption.IGNORE_CASE,
 )
 
