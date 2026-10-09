@@ -59,8 +59,8 @@ class WritingRoomWorkspaceApiTest {
                     "/api/app/images/generations" -> MockResponse().setBody(
                         """{"schema":"jarvis.image.generation.v2","model":"gpt-image-2-medium","provider":"openai-codex","fallback_used":false,"mime_type":"image/jpeg","data_base64":"aW1hZ2U=","visual_asset":{"asset_id":"va_portrait_1","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"CANDIDATE","storage":{"state":"stored"}}}""",
                     )
-                    "/api/app/writing-room/v2/visual/assets/approve-exact" -> MockResponse().setBody(
-                        """{"schema":"jarvis.visual-studio.asset-approval.v1","asset":{"asset_id":"va_portrait_1","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"APPROVED","storage":{"state":"stored"}}}""",
+                    "/api/app/writing-room/v2/visual/characters/approve-primary-exact" -> MockResponse().setBody(
+                        """{"schema":"jarvis.visual-studio.character-primary-approval.v1","character_id":"character:naruto","wiki_link":{"entry_id":"character:naruto"},"asset":{"asset_id":"va_portrait_1","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"APPROVED","storage":{"state":"stored"}}}""",
                     )
                     "/api/app/writing-room/visual-assets/ingest" -> MockResponse().setBody(
                         """{"schema":"jarvis.visual.asset.v1","asset":{"asset_id":"va_copilot_1","sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","kind":"REFERENCE","status":"CANDIDATE"}}""",
@@ -1146,15 +1146,17 @@ class WritingRoomWorkspaceApiTest {
     fun copilotPortraitApprovalUsesExactHashAndNeverGeneratesAgain() = runBlocking(Dispatchers.IO) {
         val sha = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
         val approved = session().writingRoomCopilotApprovePortrait(
-            "prj_story", "va_portrait_1", sha,
+            "prj_story", "character:naruto", "va_portrait_1", sha,
         ).getOrThrow()
         assertEquals("APPROVED", approved.asset.status)
+        assertEquals("character:naruto", approved.wiki_link?.entry_id)
         assertEquals(1, server.requestCount)
         val request = server.takeRequest()
-        assertEquals("/api/app/writing-room/v2/visual/assets/approve-exact", request.path)
+        assertEquals("/api/app/writing-room/v2/visual/characters/approve-primary-exact", request.path)
         assertEquals("Bearer test-token", request.getHeader("Authorization"))
         val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("va_portrait_1", body["asset_id"]?.jsonPrimitive?.content)
+        assertEquals("character:naruto", body["character_id"]?.jsonPrimitive?.content)
         assertEquals(sha, body["asset_sha256"]?.jsonPrimitive?.content)
         assertEquals("prj_story", body["project_id"]?.jsonPrimitive?.content)
     }
@@ -1162,7 +1164,7 @@ class WritingRoomWorkspaceApiTest {
     @Test
     fun copilotPortraitRejectsUnverifiedApprovalBeforeNetwork() = runBlocking(Dispatchers.IO) {
         val denied = session().writingRoomCopilotApprovePortrait(
-            "prj_story", "va_portrait_1", "bad-hash",
+            "prj_story", "character:naruto", "va_portrait_1", "bad-hash",
         )
         assertTrue(denied.isFailure)
         assertEquals(0, server.requestCount)
