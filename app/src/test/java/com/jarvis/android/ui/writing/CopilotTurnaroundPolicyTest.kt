@@ -63,6 +63,8 @@ class CopilotTurnaroundPolicyTest {
 
     @Test fun runningAndAmbiguousBatchesMustNotLaunchNewPaidWork() {
         assertTrue(copilotBatchCanStartNew(null))
+        assertFalse(copilotBatchCanStartNew(batch(status = "FAILED")))
+        assertFalse(copilotBatchCanStartNew(batch(status = "CANCELLED")))
         for (status in listOf("RUNNING", "READY", "READY_FOR_REVIEW", "BLOCKED", "COMPLETED")) {
             assertFalse(copilotBatchCanStartNew(batch(status = status)))
         }
