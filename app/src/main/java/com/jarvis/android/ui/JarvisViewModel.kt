@@ -649,7 +649,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (_writingWorkspace.value.busy) return
         viewModelScope.launch {
             val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
-            val valid = staged != null && staged.sizeBytes in 1..(5L * 1024 * 1024)
+            val valid = staged != null && staged.sizeBytes in 1L..(5L * 1024 * 1024)
             if (!valid) {
                 staged?.let { withContext(Dispatchers.IO) { container.attachmentStore.delete(it.attachmentId) } }
                 _writingWorkspace.value = _writingWorkspace.value.copy(
@@ -724,9 +724,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         )
                         return@fold
                     }
-                    val text = "Referencia guardada como candidata en el proyecto (ID: ${candidate.asset_id}). " +
-                        "No es una imagen oficial del personaje, no modificó el canon y no generé ninguna imagen. " +
-                        "Puedes revisarla en Visual Studio antes de aprobarla."
+                    val stored = candidate.storage.state == "stored"
+                    val text = if (stored) {
+                        "Referencia candidata guardada en el proyecto (ID: ${candidate.asset_id}). " +
+                            "No modificó el canon ni generé otra imagen. Puedes revisarla en Visual Studio antes de aprobarla."
+                    } else {
+                        "Referencia candidata registrada (ID: ${candidate.asset_id}), pero su almacenamiento en Drive sigue pendiente. " +
+                            "No está aprobada; espera la sincronización de almacenamiento antes de usarla."
+                    }
                     val response = WritingRoomAutoChat(
                         schema = "jarvis.writing-room.chat.v1",
                         classification = WritingClassification(
@@ -768,9 +773,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     )
                 },
                 onFailure = { error ->
-                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                    val current = _writingWorkspace.value
+                    _writingWorkspace.value = current.copy(
                         busy = false,
                         busyLabel = "",
+                        chatHistory = current.chatHistory.filterNot {
+                            it.response == null && it.referenceAttachmentId == id
+                        },
                         copilotReferenceError = error.message ?: "No se pudo guardar la referencia",
                         error = error.message ?: "No se pudo guardar la referencia",
                     )
