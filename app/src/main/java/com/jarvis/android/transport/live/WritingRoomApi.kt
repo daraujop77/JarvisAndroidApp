@@ -80,6 +80,22 @@ data class CopilotVisualCandidate(
 )
 
 @Serializable
+data class CopilotPortraitGeneration(
+    val schema: String = "",
+    val mime_type: String = "",
+    val data_base64: String = "",
+    val model: String = "",
+    val fallback_used: Boolean = false,
+    val visual_asset: CopilotVisualCandidate? = null,
+)
+
+@Serializable
+data class CopilotVisualApproval(
+    val schema: String = "",
+    val asset: CopilotVisualCandidate = CopilotVisualCandidate(),
+)
+
+@Serializable
 data class CopilotVisualImport(
     val schema: String = "",
     val asset: CopilotVisualCandidate = CopilotVisualCandidate(),
@@ -1241,6 +1257,65 @@ suspend fun JarvisAppSession.writingRoomCopilotImportReference(
             })
         },
         timeoutMillis = 120_000L,
+    )
+}
+
+/**
+ * One owner-directed image request. Backend binds physical traits to Wiki/RAG and
+ * persists a CANDIDATE. Model is explicitly pinned to the existing Codex model.
+ * Do not retry on timeout: an image may already have been generated and billed.
+ */
+suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
+    projectId: String,
+    characterId: String,
+    characterName: String,
+    adjustment: String,
+): Result<CopilotPortraitGeneration> {
+    if (!characterId.startsWith("character:") || characterName.isBlank() ||
+        projectId.isBlank() || adjustment.length > 850
+    ) return Result.failure(TransportException("Invalid character portrait request"))
+    return writingPost(
+        "/api/app/images/generations",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("prompt", adjustment.ifBlank { "One faithful frontal portrait of the canonical character." })
+            put("mode", "model_select")
+            put("model", "gpt-image-2-medium")
+            put("aspect_ratio", "square")
+            put("visual_asset", buildJsonObject {
+                put("project_id", projectId)
+                put("surface", "character_creator")
+                put("kind", "PRIMARY_REFERENCE")
+                put("perspective", "front")
+                put("character_ids", kotlinx.serialization.json.buildJsonArray { add(characterId) })
+                put("alt", "Retrato candidato de " + characterName.take(120))
+                put("provenance", buildJsonObject {
+                    put("requested_from", "copilot")
+                    put("requested_model", "gpt-image-2-medium")
+                    put("authority", "CANDIDATE")
+                })
+            })
+        },
+        timeoutMillis = 180_000L,
+    )
+}
+
+/** Explicit human approval of the exact candidate image; separate from text canon. */
+suspend fun JarvisAppSession.writingRoomCopilotApprovePortrait(
+    projectId: String,
+    candidateAssetId: String,
+    candidateSha256: String,
+): Result<CopilotVisualApproval> {
+    if (projectId.isBlank() || !candidateAssetId.startsWith("va_") ||
+        !Regex("^[A-Fa-f0-9]{64}$").matches(candidateSha256)
+    ) return Result.failure(TransportException("Unverified portrait candidate"))
+    return writingPost(
+        "/api/app/writing-room/v2/visual/assets/approve-exact",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("asset_id", candidateAssetId)
+            put("asset_sha256", candidateSha256)
+        },
     )
 }
 
