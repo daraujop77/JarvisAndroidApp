@@ -18,7 +18,7 @@ import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.transport.live.*
 import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
-import com.jarvis.android.ui.writing.recoverableCopilotPortraitCandidates
+import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
 import com.jarvis.android.ui.writing.copilotApprovableViewIds
 import com.jarvis.android.ui.writing.copilotBatchCanStartNew
@@ -557,7 +557,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 if (response.project_id != projectId) {
                     throw IllegalStateException("Visual registry belongs to a different project")
                 }
-                val selected = recoverableCopilotPortraitCandidates(response.assets)
+                val selected = recoverableCopilotPortraitAssets(response.assets)
                 val recovered = mutableListOf<CopilotRecoveredPortrait>()
                 for (asset in selected) {
                     if (copilotRecoveryEpoch != epoch ||
