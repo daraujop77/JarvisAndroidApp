@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -52,6 +54,9 @@ class WritingRoomWorkspaceApiTest {
                           ]
                         }
                         """.trimIndent(),
+                    )
+                    "/api/app/writing-room/visual-assets/ingest" -> MockResponse().setBody(
+                        """{"schema":"jarvis.visual.asset.v1","asset":{"asset_id":"va_copilot_1","sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","kind":"REFERENCE","status":"CANDIDATE"}}""",
                     )
                     "/api/app/writing-room/chat/stream" -> MockResponse()
                         .setHeader("Content-Type", "text/event-stream")
@@ -1103,6 +1108,43 @@ class WritingRoomWorkspaceApiTest {
             "false",
             approved.result.publish_job?.payload?.get("automatic_execution_enabled").toString(),
         )
+    }
+
+    @Test
+    fun copilotPhotoUploadsAsCandidateWithoutInvokingGenerationOrCanon() = runBlocking(Dispatchers.IO) {
+        val encoded = "aGVsbG8="
+        val imported = session().writingRoomCopilotImportReference(
+            projectId = "prj_story",
+            imageBase64 = encoded,
+            note = "Inspiración de estilo para Doom",
+        ).getOrThrow()
+        assertEquals("CANDIDATE", imported.asset.status)
+        assertEquals("REFERENCE", imported.asset.kind)
+        assertEquals("va_copilot_1", imported.asset.asset_id)
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("/api/app/writing-room/visual-assets/ingest", request.path)
+        assertEquals("Bearer test-token", request.getHeader("Authorization"))
+        val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("prj_story", body["project_id"]?.jsonPrimitive?.content)
+        assertEquals(encoded, body["image_base64"]?.jsonPrimitive?.content)
+        assertEquals("REFERENCE", body["kind"]?.jsonPrimitive?.content)
+        assertEquals("MANUAL_UPLOAD", body["source"]?.jsonPrimitive?.content)
+        assertEquals("copilot", body["provenance"]?.jsonObject?.get("surface")?.jsonPrimitive?.content)
+        assertEquals("CANDIDATE", body["provenance"]?.jsonObject?.get("authority")?.jsonPrimitive?.content)
+        assertTrue(body["character_ids"] == null)
+        assertTrue(body["status"] == null)
+    }
+
+    @Test
+    fun copilotPhotoRejectsOversizedInputBeforeNetwork() = runBlocking(Dispatchers.IO) {
+        val result = session().writingRoomCopilotImportReference(
+            projectId = "prj_story",
+            imageBase64 = "A".repeat(8 * 1024 * 1024 + 1),
+            note = "",
+        )
+        assertTrue(result.isFailure)
+        assertEquals(0, server.requestCount)
     }
 
     @Test
