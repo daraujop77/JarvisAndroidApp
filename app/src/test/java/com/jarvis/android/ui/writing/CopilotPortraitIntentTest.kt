@@ -33,6 +33,13 @@ class CopilotPortraitIntentTest {
         assertNull(resolveCopilotPortrait("Genera retrato de Konoha", wiki))
     }
 
+    @Test fun additionalWikiCharacterInPromptRequiresClarification() {
+        assertNull(resolveCopilotPortrait("Genera retrato de Naruto con Sasuke", wiki))
+        assertNull(resolveCopilotPortrait("Haz un retrato de Naruto, con Sasuke al lado", wiki))
+        val valid = resolveCopilotPortrait("Genera retrato de Naruto con su chaqueta naranja", wiki)
+        assertEquals("character:naruto", valid?.characterId)
+    }
+
     @Test fun normalChatAndRequestsWithoutExplicitPortraitDoNotTrigger() {
         assertFalse(looksLikeCopilotPortraitCommand("¿Cómo creamos retratos de Naruto?"))
         assertFalse(looksLikeCopilotPortraitCommand("Dibuja una batalla de Naruto y Sasuke"))
