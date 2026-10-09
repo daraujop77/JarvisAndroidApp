@@ -675,7 +675,8 @@ private fun ChatSection(
 
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
-        if ((clean.isNotEmpty() || state.copilotPendingReferenceId != null) && !state.busy) {
+        if ((clean.isNotEmpty() || state.copilotPendingReferenceId != null) &&
+            !state.busy && !state.copilotAppearanceBusy) {
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
             if (state.copilotPendingReferenceId != null) {
@@ -750,10 +751,18 @@ private fun ChatSection(
                                 color = Color(0xFF94A3B8),
                             )
                             Spacer(Modifier.height(6.dp))
+                            val firstCharacter = state.wikiCharacters.firstOrNull {
+                                it.type.equals("character", ignoreCase = true) &&
+                                    it.id.startsWith("character:")
+                            }?.let { it.canonical_name.ifBlank { it.name } }
+                                ?.takeIf(String::isNotBlank)
                             val suggestions = listOf(
                                 "¿Cuál es el estado de Alexander tras el Cap. 37?",
                                 "¿Qué facciones y generales tienen tensiones activas?",
                                 "Sugiere un punto de partida para el siguiente capítulo",
+                            ) + listOfNotNull(
+                                firstCharacter?.let { "Muéstrame la apariencia de " + it },
+                                firstCharacter?.let { "Cambia el cabello de " + it + " a rubio" },
                             )
                             suggestions.forEach { suggestion ->
                                 Surface(
@@ -990,6 +999,113 @@ private fun ChatSection(
                 }
             }
 
+            state.copilotAppearance?.let { card ->
+                item(key = "copilot-appearance-" + card.characterId) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color(0xEE0E182A),
+                        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                "APARIENCIA VISUAL · " + card.canonicalName,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = JarvisCyan,
+                            )
+                            Text(
+                                "Datos de Character Studio · revisión " + card.original.revision,
+                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                color = Color(0xFF94A3B8),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            if (card.proposed != null && card.field != null) {
+                                val name = com.jarvis.android.ui.writing.copilotAppearanceFieldLabel(card.field)
+                                val before = com.jarvis.android.ui.writing.copilotAppearanceFieldValue(
+                                    card.original, card.field,
+                                )
+                                val after = com.jarvis.android.ui.writing.copilotAppearanceFieldValue(
+                                    card.proposed, card.field,
+                                )
+                                Text(name, color = JarvisCyan, style = MaterialTheme.typography.bodyMedium)
+                                Text("Actual: " + before.ifBlank { "Sin definir" },
+                                    style = MaterialTheme.typography.bodySmall)
+                                Text("Propuesto: " + after,
+                                    style = MaterialTheme.typography.bodyMedium, color = JarvisGreen)
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Solo cambiará esta característica de la ficha visual. No se " +
+                                        "reescribe el Wiki narrativo ni se regeneran imágenes.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF94A3B8),
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Button(
+                                    onClick = { vm.confirmCopilotAppearance(projectId) },
+                                    enabled = !state.busy && !state.copilotAppearanceBusy,
+                                ) {
+                                    Icon(Icons.Filled.Check, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Guardar apariencia")
+                                }
+                            } else {
+                                val visibleFields = listOf(
+                                    "apparent_age", "build", "height", "skin", "face", "eyes",
+                                    "hair", "base_outfit", "armor", "accessories", "weapons",
+                                    "dominant_colors", "aura",
+                                )
+                                visibleFields.forEach { field ->
+                                    val value = com.jarvis.android.ui.writing.copilotAppearanceFieldValue(
+                                        card.original, field,
+                                    )
+                                    if (value.isNotBlank()) {
+                                        Text(
+                                            com.jarvis.android.ui.writing.copilotAppearanceFieldLabel(field)
+                                                + ": " + value,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFFE2E8F0),
+                                        )
+                                        Spacer(Modifier.height(3.dp))
+                                    }
+                                }
+                                if (card.original.notes.isNotBlank()) {
+                                    Spacer(Modifier.height(5.dp))
+                                    Text("Notas: " + card.original.notes,
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            state.copilotAppearanceNotice?.let { notice ->
+                                Spacer(Modifier.height(7.dp))
+                                Text(notice, style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisGreen)
+                            }
+                            state.copilotAppearanceError?.let { error ->
+                                Spacer(Modifier.height(7.dp))
+                                Text(error, style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisAmber)
+                            }
+                            TextButton(
+                                onClick = { vm.dismissCopilotAppearance(projectId) },
+                                enabled = !state.copilotAppearanceBusy,
+                            ) { Text("Cerrar ficha") }
+                        }
+                    }
+                }
+            }
+            if (state.copilotAppearance == null &&
+                (state.copilotAppearanceBusy || state.copilotAppearanceError != null)
+            ) {
+                item(key = "copilot-appearance-status") {
+                    if (state.copilotAppearanceBusy) {
+                        Text("Copilot está consultando la apariencia…",
+                            style = MaterialTheme.typography.bodySmall, color = JarvisCyan)
+                    }
+                    state.copilotAppearanceError?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = JarvisAmber)
+                    }
+                }
+            }
+
             state.chatHistory.forEach { turn ->
                 item {
                     CopilotUserMessage(turn.prompt, turn.referenceAttachmentId, vm)
@@ -1121,18 +1237,21 @@ private fun ChatSection(
                 Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = sendPrompt,
-                    enabled = (prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy,
+                    enabled = (prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
+                        !state.busy && !state.copilotAppearanceBusy,
                     modifier = Modifier
                         .size(42.dp)
                         .background(
-                            if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy) JarvisCyan else Color(0x3310233D),
+                            if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
+                                !state.busy && !state.copilotAppearanceBusy) JarvisCyan else Color(0x3310233D),
                             CircleShape,
                         ),
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
                         contentDescription = "Enviar mensaje",
-                        tint = if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy) Color(0xFF02101F) else Color(0xFF64748B),
+                        tint = if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
+                            !state.busy && !state.copilotAppearanceBusy) Color(0xFF02101F) else Color(0xFF64748B),
                         modifier = Modifier.size(18.dp),
                     )
                 }
