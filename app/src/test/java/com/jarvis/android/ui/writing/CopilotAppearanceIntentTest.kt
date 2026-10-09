@@ -46,6 +46,7 @@ class CopilotAppearanceIntentTest {
 
     @Test fun differentCharacterAndAmbiguousNamesFailClosed() {
         assertNull(resolveCopilotAppearance("Cambia pelo de Naruto y Sasuke a rojo", characters))
+        assertNull(resolveCopilotAppearance("Cambia el cabello de Naruto a como el de Sasuke", characters))
         assertNull(resolveCopilotAppearance("Cambia pelo de Naruto a rojo y cambia ojos", characters))
         val duplicate = characters + WritingWikiEntity(
             id = "character:other_naruto", type = "character", canonical_name = "Naruto",
