@@ -51,6 +51,18 @@ fun resolveCopilotPortrait(
         // Reject requests potentially mixing subjects, e.g. "Naruto y Sasuke".
         return null
     }
+    // A single-character portrait must never silently include a second Wiki character.
+    val additionalNamedCharacter = wikiCharacters.asSequence()
+        .filter { it.type.equals("character", ignoreCase = true) && it.id != best.first.id }
+        .flatMap { sequenceOf(it.canonical_name, it.name).filter(String::isNotBlank) }
+        .any { other ->
+            val name = other.trim()
+            name.isNotBlank() && Regex(
+                "(?<![\\p{L}\\p{N}])" + Regex.escape(name) + "(?![\\p{L}\\p{N}])",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(rest)
+        }
+    if (additionalNamedCharacter) return null
     return CopilotPortraitIntent(
         characterId = best.first.id,
         canonicalName = best.first.canonical_name.ifBlank { best.second },
