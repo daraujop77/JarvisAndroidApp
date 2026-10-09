@@ -36,6 +36,7 @@ class CopilotAgentWiringTest {
         assertTrue(screen.contains("task.requires_confirmation"))
         assertTrue(screen.contains("get_chapter_workflow"))
         assertTrue(screen.contains("prepare_visual_scene"))
+        assertTrue(screen.contains("get_scene_context"))
         assertTrue(screen.contains("step.effect == \"PROPOSED_ONLY\""))
         assertTrue(screen.contains("Preparar escena"))
         assertTrue(screen.contains("No generará imágenes ni cambiará el canon"))
