@@ -1135,6 +1135,7 @@ private fun ChatSection(
                                         "get_character_visual_direction" -> "Apariencia del personaje"
                                         "get_project_visual_style" -> "Estilo visual del proyecto"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
+                                        "get_scene_context" -> "Consultar contexto visual congelado"
                                         "prepare_visual_scene" -> "Preparar escena a partir del canon"
                                         else -> step.tool
                                     },
