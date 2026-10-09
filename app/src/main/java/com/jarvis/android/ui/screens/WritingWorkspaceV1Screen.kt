@@ -751,10 +751,18 @@ private fun ChatSection(
                                 color = Color(0xFF94A3B8),
                             )
                             Spacer(Modifier.height(6.dp))
+                            val firstCharacter = state.wikiCharacters.firstOrNull {
+                                it.type.equals("character", ignoreCase = true) &&
+                                    it.id.startsWith("character:")
+                            }?.let { it.canonical_name.ifBlank { it.name } }
+                                ?.takeIf(String::isNotBlank)
                             val suggestions = listOf(
                                 "¿Cuál es el estado de Alexander tras el Cap. 37?",
                                 "¿Qué facciones y generales tienen tensiones activas?",
                                 "Sugiere un punto de partida para el siguiente capítulo",
+                            ) + listOfNotNull(
+                                firstCharacter?.let { "Muéstrame la apariencia de " + it },
+                                firstCharacter?.let { "Cambia el cabello de " + it + " a rubio" },
                             )
                             suggestions.forEach { suggestion ->
                                 Surface(
