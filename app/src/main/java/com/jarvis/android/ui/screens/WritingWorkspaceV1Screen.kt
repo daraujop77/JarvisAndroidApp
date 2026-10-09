@@ -990,6 +990,113 @@ private fun ChatSection(
                 }
             }
 
+            state.copilotAppearance?.let { card ->
+                item(key = "copilot-appearance-" + card.characterId) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color(0xEE0E182A),
+                        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                "APARIENCIA VISUAL · " + card.canonicalName,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = JarvisCyan,
+                            )
+                            Text(
+                                "Datos de Character Studio · revisión " + card.original.revision,
+                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                color = Color(0xFF94A3B8),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            if (card.proposed != null && card.field != null) {
+                                val name = com.jarvis.android.ui.writing.copilotAppearanceFieldLabel(card.field)
+                                val before = com.jarvis.android.ui.writing.copilotAppearanceFieldValue(
+                                    card.original, card.field,
+                                )
+                                val after = com.jarvis.android.ui.writing.copilotAppearanceFieldValue(
+                                    card.proposed, card.field,
+                                )
+                                Text(name, color = JarvisCyan, style = MaterialTheme.typography.bodyMedium)
+                                Text("Actual: " + before.ifBlank { "Sin definir" },
+                                    style = MaterialTheme.typography.bodySmall)
+                                Text("Propuesto: " + after,
+                                    style = MaterialTheme.typography.bodyMedium, color = JarvisGreen)
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Solo cambiará esta característica de la ficha visual. No se " +
+                                        "reescribe el Wiki narrativo ni se regeneran imágenes.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF94A3B8),
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Button(
+                                    onClick = { vm.confirmCopilotAppearance(projectId) },
+                                    enabled = !state.busy && !state.copilotAppearanceBusy,
+                                ) {
+                                    Icon(Icons.Filled.Check, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Guardar apariencia")
+                                }
+                            } else {
+                                val visibleFields = listOf(
+                                    "apparent_age", "build", "height", "skin", "face", "eyes",
+                                    "hair", "base_outfit", "armor", "accessories", "weapons",
+                                    "dominant_colors", "aura",
+                                )
+                                visibleFields.forEach { field ->
+                                    val value = com.jarvis.android.ui.writing.copilotAppearanceFieldValue(
+                                        card.original, field,
+                                    )
+                                    if (value.isNotBlank()) {
+                                        Text(
+                                            com.jarvis.android.ui.writing.copilotAppearanceFieldLabel(field)
+                                                + ": " + value,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFFE2E8F0),
+                                        )
+                                        Spacer(Modifier.height(3.dp))
+                                    }
+                                }
+                                if (card.original.notes.isNotBlank()) {
+                                    Spacer(Modifier.height(5.dp))
+                                    Text("Notas: " + card.original.notes,
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            state.copilotAppearanceNotice?.let { notice ->
+                                Spacer(Modifier.height(7.dp))
+                                Text(notice, style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisGreen)
+                            }
+                            state.copilotAppearanceError?.let { error ->
+                                Spacer(Modifier.height(7.dp))
+                                Text(error, style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisAmber)
+                            }
+                            TextButton(
+                                onClick = { vm.dismissCopilotAppearance(projectId) },
+                                enabled = !state.copilotAppearanceBusy,
+                            ) { Text("Cerrar ficha") }
+                        }
+                    }
+                }
+            }
+            if (state.copilotAppearance == null &&
+                (state.copilotAppearanceBusy || state.copilotAppearanceError != null)
+            ) {
+                item(key = "copilot-appearance-status") {
+                    if (state.copilotAppearanceBusy) {
+                        Text("Copilot está consultando la apariencia…",
+                            style = MaterialTheme.typography.bodySmall, color = JarvisCyan)
+                    }
+                    state.copilotAppearanceError?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = JarvisAmber)
+                    }
+                }
+            }
+
             state.chatHistory.forEach { turn ->
                 item {
                     CopilotUserMessage(turn.prompt, turn.referenceAttachmentId, vm)
