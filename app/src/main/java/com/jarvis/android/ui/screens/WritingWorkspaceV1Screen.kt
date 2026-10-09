@@ -789,6 +789,100 @@ private fun ChatSection(
                 }
             }
 
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        onClick = { vm.recoverWritingCopilotPortraits(projectId) },
+                        enabled = !state.copilotRecovering && !state.busy,
+                    ) {
+                        Text(
+                            if (state.copilotRecovering) "Recuperando retratos…"
+                            else "Recuperar retratos guardados",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                state.copilotRecoveryError?.let { message ->
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisAmber,
+                    )
+                }
+            }
+
+            state.copilotRecoveredPortraits.forEach { portrait ->
+                item(key = "recovered-" + portrait.assetId) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color(0xEE0E182A),
+                        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.40f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(
+                                "RETRATO RECUPERADO · COPILOT",
+                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                color = JarvisCyan,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                portrait.alt,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFFE2E8F0),
+                            )
+                            portrait.previewAttachmentId?.let { attachmentId ->
+                                val image = remember(attachmentId) {
+                                    vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
+                                }
+                                if (image != null) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Image(
+                                        bitmap = image.asImageBitmap(),
+                                        contentDescription = "Retrato candidato recuperado del VPS",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxWidth().height(260.dp)
+                                            .clip(RoundedCornerShape(14.dp)),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Estado: " + portrait.status + " · " + portrait.assetId,
+                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                color = if (portrait.status == "APPROVED") JarvisGreen else JarvisAmber,
+                            )
+                            if (portrait.status == "CANDIDATE" &&
+                                portrait.storageState == "stored" &&
+                                !portrait.previewAttachmentId.isNullOrBlank()
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        vm.approveCopilotPortrait(
+                                            projectId, portrait.assetId, portrait.sha256,
+                                        )
+                                    },
+                                    enabled = !state.busy && !state.copilotRecovering,
+                                ) {
+                                    Text("Aprobar imagen y vincular al Wiki")
+                                }
+                            } else if (portrait.status == "CANDIDATE") {
+                                Text(
+                                    "Imagen no verificada localmente o pendiente de almacenamiento. " +
+                                        "Recupera de nuevo antes de aprobar.",
+                                    color = JarvisAmber,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             state.chatHistory.forEach { turn ->
                 item {
                     CopilotUserMessage(turn.prompt, turn.referenceAttachmentId, vm)
