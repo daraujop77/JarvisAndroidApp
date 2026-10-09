@@ -46,6 +46,26 @@ class CopilotPortraitIntentTest {
         assertTrue(looksLikeCopilotPortraitCommand("Genera retrato de Naruto"))
     }
 
+    @Test fun naturalSpanishImageRequestsResolveWithoutRigidCommands() {
+        val phrases = listOf(
+            "¿Me puedes generar una imagen de Naruto?",
+            "Puedes hacerme un retrato de Naruto",
+            "Quiero una imagen de Naruto",
+            "Necesito un retrato de Naruto",
+            "Genera la imagen de Naruto",
+            "Hazme un retrato de Naruto",
+        )
+        phrases.forEach { text ->
+            assertEquals(text, "character:naruto", resolveCopilotPortrait(text, wiki)?.characterId)
+        }
+    }
+
+    @Test fun openEndedOrMultiCharacterRequestsDoNotPayForPortrait() {
+        assertNull(resolveCopilotPortrait("Crea una imagen de Naruto y Sasuke peleando", wiki))
+        assertNull(resolveCopilotPortrait("¿Puedes crear una escena de Naruto contra Sasuke?", wiki))
+        assertFalse(looksLikeCopilotPortraitCommand("¿Cómo puedo crear imágenes de Naruto?"))
+    }
+
     @Test fun collisionRequiresClarification() {
         val duplicates = wiki + WritingWikiEntity(
             id = "character:naruto-alt", type = "character",
