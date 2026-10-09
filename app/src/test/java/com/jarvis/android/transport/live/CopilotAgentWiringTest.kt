@@ -17,6 +17,7 @@ class CopilotAgentWiringTest {
         val screen = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
 
         assertTrue(api.contains("val copilot_task: CopilotTaskState? = null"))
+        assertTrue(api.contains("val effect: String = \"READ_ONLY\""))
         assertTrue(api.contains("toolMode: Boolean = false"))
         assertTrue(api.contains("if (toolMode) put(\"tool_mode\", \"plan\")"))
         assertTrue(api.contains("/api/app/writing-room/copilot/tasks/latest"))
@@ -33,5 +34,10 @@ class CopilotAgentWiringTest {
         assertTrue(screen.contains("Confirmar y guardar propuesta"))
         assertTrue(screen.contains("Actualizar estado desde el VPS"))
         assertTrue(screen.contains("task.requires_confirmation"))
+        assertTrue(screen.contains("get_chapter_workflow"))
+        assertTrue(screen.contains("prepare_visual_scene"))
+        assertTrue(screen.contains("step.effect == \"PROPOSED_ONLY\""))
+        assertTrue(screen.contains("Preparar escena"))
+        assertTrue(screen.contains("No generará imágenes ni cambiará el canon"))
     }
 }
