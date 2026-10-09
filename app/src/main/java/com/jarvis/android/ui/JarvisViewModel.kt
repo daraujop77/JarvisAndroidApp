@@ -247,6 +247,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val copilotAppearanceBusy: Boolean = false,
         val copilotAppearanceError: String? = null,
         val copilotAppearanceNotice: String? = null,
+        val copilotAgentTask: CopilotTaskState? = null,
+        val copilotAgentBusy: Boolean = false,
+        val copilotAgentError: String? = null,
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
         val wikiTimeline: WritingWikiTimeline? = null,
@@ -492,6 +495,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 copilotAppearanceBusy = false,
                 copilotAppearanceError = null,
                 copilotAppearanceNotice = null,
+                copilotAgentTask = null,
+                copilotAgentBusy = false,
+                copilotAgentError = null,
                 wikiCharacters = emptyList(),
                 wikiLocations = emptyList(),
                 knowledgeCapabilities = null,
@@ -557,6 +563,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             )
             refreshKnowledgeAtlas(projectId = projectId, refreshSnapshot = true)
             recoverWritingCopilotPortraits(projectId)
+            recoverWritingCopilotTask(projectId)
         }
     }
 
@@ -1539,15 +1546,80 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /** Backend owns orchestration and authorization; this only retrieves visible state. */
+    fun recoverWritingCopilotTask(projectId: String) {
+        if (_writingWorkspace.value.chatProjectId != projectId) return
+        val epoch = copilotRecoveryEpoch
+        viewModelScope.launch {
+            val response = container.liveSession.writingRoomCopilotTaskLatest(projectId).getOrNull()
+            if (response != null && response.project_id == projectId &&
+                response.task_id.isNotBlank() && copilotRecoveryEpoch == epoch &&
+                _writingWorkspace.value.chatProjectId == projectId
+            ) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = response)
+            }
+        }
+    }
+
+    /** Refresh is read-only; confirming submits the already persisted task exactly once. */
+    fun updateWritingCopilotTask(projectId: String, confirm: Boolean = false) {
+        val now = _writingWorkspace.value
+        val task = now.copilotAgentTask ?: return
+        if (now.chatProjectId != projectId || task.project_id != projectId ||
+            task.task_id.isBlank() || now.busy || now.copilotAgentBusy ||
+            (confirm && (task.state != "READY" || !task.requires_confirmation))
+        ) return
+        val epoch = copilotRecoveryEpoch
+        _writingWorkspace.value = now.copy(copilotAgentBusy = true, copilotAgentError = null)
+        viewModelScope.launch {
+            try {
+                val updated = if (confirm) {
+                    container.liveSession.writingRoomCopilotTaskRun(
+                        projectId, task.task_id, confirmed = true,
+                    ).getOrThrow()
+                } else {
+                    container.liveSession.writingRoomCopilotTaskStatus(
+                        projectId, task.task_id,
+                    ).getOrThrow()
+                }
+                if (updated.project_id != projectId || updated.task_id != task.task_id) {
+                    throw IllegalStateException("El servidor devolvió otro trabajo.")
+                }
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
+                ) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = updated)
+                }
+            } catch (error: Exception) {
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
+                ) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAgentError = "Resultado sin confirmar: " +
+                            (error.message ?: "consulta estado") +
+                            ". Actualiza el estado antes de intentar otra acción.",
+                    )
+                }
+            } finally {
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
+                ) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentBusy = false)
+                }
+            }
+        }
+    }
+
     fun runWritingRoomAutoChat(
         projectId: String,
         projectTitle: String,
         prompt: String,
         room: String = "chat",
+        toolMode: Boolean = false,
     ) {
         val clean = prompt.trim()
         if (clean.isEmpty()) return
-        if (looksLikeCopilotAppearanceCommand(clean)) {
+        if (!toolMode && looksLikeCopilotAppearanceCommand(clean)) {
             if (_writingWorkspace.value.chatProjectId != projectId) return
             val intent = resolveCopilotAppearance(clean, _writingWorkspace.value.wikiCharacters)
             if (intent == null) {
@@ -1560,7 +1632,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             }
             return
         }
-        if (looksLikeCopilotPortraitCommand(clean)) {
+        if (!toolMode && looksLikeCopilotPortraitCommand(clean)) {
             val characters = _writingWorkspace.value.wikiCharacters
             val portrait = resolveCopilotPortrait(clean, characters)
             if (portrait == null) {
@@ -1595,6 +1667,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 projectTitle = projectTitle,
                 prompt = clean,
                 room = room,
+                toolMode = toolMode,
                 onDelta = { delta ->
                     val state = _writingWorkspace.value
                     if (state.chatProjectId == projectId) {
@@ -1621,6 +1694,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             busyLabel = "",
                             chat = response,
                             chatHistory = updatedHistory,
+                            copilotAgentTask = response.copilot_task ?: state.copilotAgentTask,
                             streamingText = "",
                             error = null,
                         )
