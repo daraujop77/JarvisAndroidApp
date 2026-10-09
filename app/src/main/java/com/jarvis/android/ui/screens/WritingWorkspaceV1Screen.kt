@@ -1131,14 +1131,23 @@ private fun ChatSection(
                                         "search_story_wiki" -> "Consultar el Wiki"
                                         "list_story_ideas" -> "Ideas"
                                         "save_story_idea" -> "Guardar una idea como propuesta"
+                                        "get_character_wiki_profile" -> "Ficha del personaje (Wiki)"
+                                        "get_character_visual_direction" -> "Apariencia del personaje"
+                                        "get_project_visual_style" -> "Estilo visual del proyecto"
+                                        "get_chapter_workflow" -> "Estado y revisiones del capítulo"
+                                        "get_scene_context" -> "Consultar contexto visual congelado"
+                                        "prepare_visual_scene" -> "Preparar escena a partir del canon"
                                         else -> step.tool
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = if (step.access == "write") JarvisAmber else JarvisGreen,
+                                    color = if (step.effect == "PROPOSED_ONLY") JarvisAmber else JarvisGreen,
                                 )
-                                if (step.access == "write") {
+                                if (step.effect == "PROPOSED_ONLY") {
                                     Text(
-                                        "Contenido exacto propuesto: " + step.arguments.toString().take(1200),
+                                        (if (step.tool == "prepare_visual_scene")
+                                            "Solicitud exacta de Scene Director: "
+                                         else "Contenido exacto propuesto: ") +
+                                            step.arguments.toString().take(1600),
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 }
@@ -1150,16 +1159,28 @@ private fun ChatSection(
                             }
                             if (task.state == "READY" && task.requires_confirmation) {
                                 Spacer(Modifier.height(9.dp))
+                                val preparesScene = task.steps.any {
+                                    it.tool == "prepare_visual_scene"
+                                }
                                 Text(
-                                    "Revisa los datos anteriores. El guardado será solo PROPOSED; " +
-                                        "no aprobará canon ni imágenes.",
+                                    if (preparesScene) {
+                                        "Scene Director buscará evidencia del canon y preparará " +
+                                            "un contexto con referencias aprobadas. " +
+                                            "No generará imágenes ni cambiará el canon."
+                                    } else {
+                                        "La idea quedará guardada como propuesta no canónica. " +
+                                            "No aprobará capítulos ni imágenes."
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = JarvisAmber,
                                 )
                                 Button(
                                     onClick = { vm.updateWritingCopilotTask(projectId, confirm = true) },
                                     enabled = !state.copilotAgentBusy && !state.busy,
-                                ) { Text("Confirmar y guardar propuesta") }
+                                ) {
+                                    Text(if (preparesScene) "Preparar escena"
+                                         else "Confirmar y guardar propuesta")
+                                }
                             } else if (task.state == "OUTCOME_UNKNOWN" || task.state == "RUNNING") {
                                 Text(
                                     "El resultado no es seguro. No se repetirá una operación de escritura.",

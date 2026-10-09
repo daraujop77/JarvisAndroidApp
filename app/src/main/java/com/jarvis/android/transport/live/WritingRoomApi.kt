@@ -126,6 +126,7 @@ data class CopilotTaskStep(
     val tool: String = "",
     val arguments: JsonObject = JsonObject(emptyMap()),
     val access: String = "",
+    val effect: String = "READ_ONLY",
 )
 
 @Serializable
