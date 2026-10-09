@@ -675,7 +675,8 @@ private fun ChatSection(
 
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
-        if ((clean.isNotEmpty() || state.copilotPendingReferenceId != null) && !state.busy) {
+        if ((clean.isNotEmpty() || state.copilotPendingReferenceId != null) &&
+            !state.busy && !state.copilotAppearanceBusy) {
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
             if (state.copilotPendingReferenceId != null) {
@@ -1228,18 +1229,21 @@ private fun ChatSection(
                 Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = sendPrompt,
-                    enabled = (prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy,
+                    enabled = (prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
+                        !state.busy && !state.copilotAppearanceBusy,
                     modifier = Modifier
                         .size(42.dp)
                         .background(
-                            if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy) JarvisCyan else Color(0x3310233D),
+                            if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
+                                !state.busy && !state.copilotAppearanceBusy) JarvisCyan else Color(0x3310233D),
                             CircleShape,
                         ),
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
                         contentDescription = "Enviar mensaje",
-                        tint = if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) && !state.busy) Color(0xFF02101F) else Color(0xFF64748B),
+                        tint = if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
+                            !state.busy && !state.copilotAppearanceBusy) Color(0xFF02101F) else Color(0xFF64748B),
                         modifier = Modifier.size(18.dp),
                     )
                 }
