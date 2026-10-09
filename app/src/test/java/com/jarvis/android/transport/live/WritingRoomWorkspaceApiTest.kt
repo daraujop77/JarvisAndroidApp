@@ -62,6 +62,9 @@ class WritingRoomWorkspaceApiTest {
                     "/api/app/writing-room/v2/visual/characters/approve-primary-exact" -> MockResponse().setBody(
                         """{"schema":"jarvis.visual-studio.character-primary-approval.v1","character_id":"character:naruto","wiki_link":{"entry_id":"character:naruto"},"asset":{"asset_id":"va_portrait_1","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"APPROVED","storage":{"state":"stored"}}}""",
                     )
+                    "/api/app/writing-room/visual-assets/list" -> MockResponse().setBody(
+                        """{"schema":"jarvis.visual.assets.v1","project_id":"prj_story","assets":[{"asset_id":"va_1","sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","status":"CANDIDATE","kind":"PRIMARY_REFERENCE","perspective":"front","character_ids":["character:naruto"],"alt":"Naruto canonical portrait","storage":{"state":"stored"},"provenance":{"requested_from":"copilot","operation":"generation","model":"gpt-image-2-medium","fallback_used":false}}]}""",
+                    )
                     "/api/app/writing-room/visual-assets/ingest" -> MockResponse().setBody(
                         """{"schema":"jarvis.visual.asset.v1","asset":{"asset_id":"va_copilot_1","sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","kind":"REFERENCE","status":"CANDIDATE"}}""",
                     )
@@ -1115,6 +1118,22 @@ class WritingRoomWorkspaceApiTest {
             "false",
             approved.result.publish_job?.payload?.get("automatic_execution_enabled").toString(),
         )
+    }
+
+    @Test
+    fun copilotPortraitRecoveryListsSavedCandidatesWithoutGenerating() = runBlocking(Dispatchers.IO) {
+        val response = session().writingRoomCopilotListPortraits("prj_story").getOrThrow()
+        assertEquals("prj_story", response.project_id)
+        assertEquals(1, response.assets.size)
+        assertEquals("character:naruto", response.assets.single().character_ids.single())
+        assertEquals("copilot", response.assets.single().provenance["requested_from"]?.jsonPrimitive?.content)
+        assertEquals(false, response.assets.single().provenance["fallback_used"]?.jsonPrimitive?.content?.toBoolean())
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("/api/app/writing-room/visual-assets/list", request.path)
+        assertEquals("Bearer test-token", request.getHeader("Authorization"))
+        val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("prj_story", body["project_id"]?.jsonPrimitive?.content)
     }
 
     @Test
