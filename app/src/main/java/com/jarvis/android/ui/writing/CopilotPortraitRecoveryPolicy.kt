@@ -5,17 +5,24 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Narrow, side-effect-free recovery selector. Only candidates originally
+ * Narrow, side-effect-free recovery selector. Only portraits originally
  * generated from Copilot with the explicitly requested model are displayed.
  * The registry is project-scoped by the authenticated API, not by this filter.
  */
 fun recoverableCopilotPortraitCandidates(
     assets: List<CopilotVisualCandidate>,
     limit: Int = 6,
+): List<CopilotVisualCandidate> =
+    recoverableCopilotPortraitAssets(assets.filter { it.status == "CANDIDATE" }, limit)
+
+/** Approved front masters are also recoverable; Copilot can complete views after restart. */
+fun recoverableCopilotPortraitAssets(
+    assets: List<CopilotVisualCandidate>,
+    limit: Int = 6,
 ): List<CopilotVisualCandidate> = assets.asSequence()
     .filter { asset ->
         val provenance = asset.provenance
-        asset.status == "CANDIDATE" &&
+        asset.status in setOf("CANDIDATE", "APPROVED") &&
             asset.kind == "PRIMARY_REFERENCE" &&
             asset.perspective == "front" &&
             asset.character_ids.size == 1 &&
