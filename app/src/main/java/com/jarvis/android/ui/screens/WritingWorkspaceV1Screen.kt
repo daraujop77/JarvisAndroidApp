@@ -1137,6 +1137,11 @@ private fun ChatSection(
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
                                         "get_scene_context" -> "Consultar contexto visual congelado"
                                         "prepare_visual_scene" -> "Preparar escena a partir del canon"
+                                        "start_scene_generation" -> "Generar imagen desde contexto aprobado"
+                                        "get_scene_generation_status" -> "Consultar estado de imagen"
+                                        "get_chapter_draft_status" -> "Estado del borrador y la revisión"
+                                        "get_chapter_auto_review_status" -> "Estado de la revisión automática"
+                                        "start_chapter_auto_review" -> "Iniciar revisión especializada del capítulo"
                                         else -> step.tool
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
@@ -1157,13 +1162,53 @@ private fun ChatSection(
                                 Text(output.text, style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFFE2E8F0))
                             }
+                            task.live_progress.forEach { progress ->
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "PROGRESO DEL TRABAJO · " + progress.status,
+                                    style = HudTextStyle.copy(fontSize = 11.sp),
+                                    color = JarvisCyan,
+                                )
+                                if (progress.job_id.isNotBlank()) {
+                                    Text("Trabajo: " + progress.job_id,
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (progress.final_asset_id.isNotBlank()) {
+                                    Text(
+                                        "Candidato visual: " + progress.final_asset_id +
+                                            ". Abre Visual Studio para revisar y aprobar; " +
+                                            "todavía no es canon.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = JarvisGreen,
+                                    )
+                                }
+                            }
                             if (task.state == "READY" && task.requires_confirmation) {
                                 Spacer(Modifier.height(9.dp))
                                 val preparesScene = task.steps.any {
                                     it.tool == "prepare_visual_scene"
                                 }
+                                val generatesScene = task.steps.any {
+                                    it.tool == "start_scene_generation"
+                                }
+                                val startsReview = task.steps.any {
+                                    it.tool == "start_chapter_auto_review"
+                                }
+                                val engine = task.steps.firstOrNull {
+                                    it.tool == "start_scene_generation"
+                                }?.arguments?.get("engine")?.toString()?.trim('"') ?: ""
                                 Text(
-                                    if (preparesScene) {
+                                    if (generatesScene) {
+                                        "Se iniciará UNA generación en " +
+                                            (if (engine == "cloud") "nube (puede generar costos)"
+                                             else "tu PC local") +
+                                            ". Sin correcciones automáticas. El candidato " +
+                                            "requiere aprobación humana y NO cambia el canon."
+                                    } else if (startsReview) {
+                                        "Se iniciará la revisión automática existente. Puede " +
+                                            "consumir tokens de modelos cloud. El capítulo " +
+                                            "NO será aprobado automáticamente."
+                                    } else if (preparesScene) {
                                         "Scene Director buscará evidencia del canon y preparará " +
                                             "un contexto con referencias aprobadas. " +
                                             "No generará imágenes ni cambiará el canon."
@@ -1178,8 +1223,14 @@ private fun ChatSection(
                                     onClick = { vm.updateWritingCopilotTask(projectId, confirm = true) },
                                     enabled = !state.copilotAgentBusy && !state.busy,
                                 ) {
-                                    Text(if (preparesScene) "Preparar escena"
-                                         else "Confirmar y guardar propuesta")
+                                    Text(
+                                        when {
+                                            generatesScene -> "Confirmar generación de imagen"
+                                            startsReview -> "Iniciar revisión del capítulo"
+                                            preparesScene -> "Preparar escena"
+                                            else -> "Confirmar y guardar propuesta"
+                                        }
+                                    )
                                 }
                             } else if (task.state == "OUTCOME_UNKNOWN" || task.state == "RUNNING") {
                                 Text(
