@@ -667,6 +667,7 @@ private fun ChatSection(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     var prompt by rememberSaveable { mutableStateOf("") }
+    var toolMode by rememberSaveable(projectId) { mutableStateOf(false) }
     val referencePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri -> if (uri != null) vm.stageWritingCopilotReference(uri) }
@@ -676,13 +677,13 @@ private fun ChatSection(
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
         if ((clean.isNotEmpty() || state.copilotPendingReferenceId != null) &&
-            !state.busy && !state.copilotAppearanceBusy) {
+            !state.busy && !state.copilotAppearanceBusy && !state.copilotAgentBusy) {
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
             if (state.copilotPendingReferenceId != null) {
                 vm.importWritingCopilotReference(projectId, title, clean)
             } else {
-                vm.runWritingRoomAutoChat(projectId, title, clean)
+                vm.runWritingRoomAutoChat(projectId, title, clean, toolMode = toolMode)
             }
             prompt = ""
         }
@@ -1106,6 +1107,82 @@ private fun ChatSection(
                 }
             }
 
+            state.copilotAgentTask?.let { task ->
+                item(key = "copilot-agent-task-" + task.task_id) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color(0xEE0E182A),
+                        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.48f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text("HERRAMIENTAS DE COPILOT · " + task.state,
+                                style = HudTextStyle.copy(fontSize = 11.sp), color = JarvisCyan)
+                            Spacer(Modifier.height(5.dp))
+                            Text(task.summary, style = MaterialTheme.typography.titleSmall)
+                            Spacer(Modifier.height(7.dp))
+                            task.steps.forEachIndexed { index, step ->
+                                Text(
+                                    "${index + 1} · " + when (step.tool) {
+                                        "get_story_overview" -> "Resumen del proyecto"
+                                        "list_story_chapters" -> "Capítulos"
+                                        "list_story_library" -> "Biblioteca"
+                                        "list_story_characters" -> "Personajes"
+                                        "search_story_wiki" -> "Consultar el Wiki"
+                                        "list_story_ideas" -> "Ideas"
+                                        "save_story_idea" -> "Guardar una idea como propuesta"
+                                        else -> step.tool
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (step.access == "write") JarvisAmber else JarvisGreen,
+                                )
+                                if (step.access == "write") {
+                                    Text(
+                                        "Contenido exacto propuesto: " + step.arguments.toString().take(1200),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                            task.results.forEach { output ->
+                                Spacer(Modifier.height(7.dp))
+                                Text(output.text, style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFE2E8F0))
+                            }
+                            if (task.state == "READY" && task.requires_confirmation) {
+                                Spacer(Modifier.height(9.dp))
+                                Text(
+                                    "Revisa los datos anteriores. El guardado será solo PROPOSED; " +
+                                        "no aprobará canon ni imágenes.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisAmber,
+                                )
+                                Button(
+                                    onClick = { vm.updateWritingCopilotTask(projectId, confirm = true) },
+                                    enabled = !state.copilotAgentBusy && !state.busy,
+                                ) { Text("Confirmar y guardar propuesta") }
+                            } else if (task.state == "OUTCOME_UNKNOWN" || task.state == "RUNNING") {
+                                Text(
+                                    "El resultado no es seguro. No se repetirá una operación de escritura.",
+                                    style = MaterialTheme.typography.bodySmall, color = JarvisAmber,
+                                )
+                            } else if (task.state == "UNSUPPORTED") {
+                                Text(
+                                    "Esta acción todavía no está conectada. No se simuló la ejecución.",
+                                    style = MaterialTheme.typography.bodySmall, color = JarvisAmber,
+                                )
+                            }
+                            TextButton(
+                                onClick = { vm.updateWritingCopilotTask(projectId) },
+                                enabled = !state.copilotAgentBusy && !state.busy,
+                            ) { Text("Actualizar estado desde el VPS") }
+                            state.copilotAgentError?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = JarvisAmber)
+                            }
+                        }
+                    }
+                }
+            }
+
             state.chatHistory.forEach { turn ->
                 item {
                     CopilotUserMessage(turn.prompt, turn.referenceAttachmentId, vm)
@@ -1196,6 +1273,24 @@ private fun ChatSection(
                             Icon(Icons.Filled.Close, contentDescription = "Quitar referencia")
                         }
                     }
+                }
+                FilterChip(
+                    selected = toolMode,
+                    onClick = { toolMode = !toolMode },
+                    enabled = !state.busy && !state.copilotAgentBusy,
+                    label = { Text("Agente con herramientas") },
+                    leadingIcon = {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+                    },
+                )
+                if (toolMode) {
+                    Text(
+                        "JARVIS elegirá herramientas del proyecto. Lecturas automáticas; " +
+                            "cualquier propuesta para guardar requiere tu aprobación. " +
+                            "Las herramientas aún no conectadas se indicarán sin simular resultados.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisCyan,
+                    )
                 }
                 state.copilotReferenceError?.let { message ->
                     Text(message, color = JarvisRed, style = MaterialTheme.typography.bodySmall)
