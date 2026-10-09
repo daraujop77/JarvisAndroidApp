@@ -2,7 +2,7 @@ package com.jarvis.android.ui.writing
 
 import com.jarvis.android.transport.live.CopilotVisualCandidate
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Narrow, side-effect-free recovery selector. Only candidates originally
@@ -22,10 +22,10 @@ fun recoverableCopilotPortraitCandidates(
             asset.character_ids.single().startsWith("character:") &&
             asset.asset_id.startsWith("va_") &&
             Regex("^[A-Fa-f0-9]{64}$").matches(asset.sha256) &&
-            provenance["requested_from"]?.jsonPrimitive?.contentOrNull == "copilot" &&
-            provenance["operation"]?.jsonPrimitive?.contentOrNull == "generation" &&
-            provenance["model"]?.jsonPrimitive?.contentOrNull == "gpt-image-2-medium" &&
-            provenance["fallback_used"]?.jsonPrimitive?.contentOrNull == "false"
+            (provenance["requested_from"] as? JsonPrimitive)?.contentOrNull == "copilot" &&
+            (provenance["operation"] as? JsonPrimitive)?.contentOrNull == "generation" &&
+            (provenance["model"] as? JsonPrimitive)?.contentOrNull == "gpt-image-2-medium" &&
+            (provenance["fallback_used"] as? JsonPrimitive)?.contentOrNull == "false"
     }
     .take(limit.coerceIn(1, 12))
     .toList()
