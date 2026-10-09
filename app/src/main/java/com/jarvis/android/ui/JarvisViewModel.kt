@@ -22,6 +22,11 @@ import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
 import com.jarvis.android.ui.writing.copilotApprovableViewIds
 import com.jarvis.android.ui.writing.copilotBatchCanStartNew
+import com.jarvis.android.ui.writing.CopilotAppearanceIntent
+import com.jarvis.android.ui.writing.looksLikeCopilotAppearanceCommand
+import com.jarvis.android.ui.writing.resolveCopilotAppearance
+import com.jarvis.android.ui.writing.applyCopilotAppearanceChange
+import com.jarvis.android.ui.writing.copilotAppearanceFieldValue
 import android.net.Uri
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -189,6 +194,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _writingRoomState.value = WritingRoomState.Idle
     }
 
+    data class CopilotAppearanceCard(
+        val characterId: String,
+        val canonicalName: String,
+        val original: VisualCharacterDirectionProfile,
+        val proposed: VisualCharacterDirectionProfile? = null,
+        val field: String? = null,
+    )
+
     data class WritingWorkspaceChatTurn(
         val prompt: String,
         val response: WritingRoomAutoChat? = null,
@@ -230,6 +243,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val copilotViewLoading: Boolean = false,
         val copilotViewError: String? = null,
         val copilotViewNotice: String? = null,
+        val copilotAppearance: CopilotAppearanceCard? = null,
+        val copilotAppearanceBusy: Boolean = false,
+        val copilotAppearanceError: String? = null,
+        val copilotAppearanceNotice: String? = null,
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
         val wikiTimeline: WritingWikiTimeline? = null,
@@ -274,6 +291,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private var copilotRecoveryEpoch = 0L
     private var copilotRecoveryActiveProject: String? = null
     private var copilotViewPollJob: Job? = null
+    private var copilotAppearanceEpoch = 0L
 
     private var writingAutoReviewScopeVersion = 0L
     private var writingAutoReviewPollJob: Job? = null
@@ -445,6 +463,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun refreshWritingWorkspace(projectId: String) {
         if (_writingWorkspace.value.chatProjectId != projectId) {
             copilotRecoveryEpoch++
+            copilotAppearanceEpoch++
             copilotRecoveryActiveProject = null
             copilotViewPollJob?.cancel()
             copilotViewPollJob = null
@@ -469,6 +488,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 copilotViewLoading = false,
                 copilotViewError = null,
                 copilotViewNotice = null,
+                copilotAppearance = null,
+                copilotAppearanceBusy = false,
+                copilotAppearanceError = null,
+                copilotAppearanceNotice = null,
                 wikiCharacters = emptyList(),
                 wikiLocations = emptyList(),
                 knowledgeCapabilities = null,
@@ -1383,6 +1406,133 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /**
+     * Read an existing canon-seeded visual direction or prepare one precise owner change.
+     * No generation, image approval, or wiki narrative mutation occurs here.
+     */
+    private fun openCopilotAppearance(projectId: String, intent: CopilotAppearanceIntent) {
+        if (_writingWorkspace.value.chatProjectId != projectId || _writingWorkspace.value.busy ||
+            _writingWorkspace.value.copilotAppearanceBusy
+        ) return
+        val epoch = ++copilotAppearanceEpoch
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            copilotAppearanceBusy = true,
+            copilotAppearance = null,
+            copilotAppearanceError = null,
+            copilotAppearanceNotice = null,
+        )
+        viewModelScope.launch {
+            try {
+                val response = container.liveSession.visualCharacterDirection(
+                    projectId, intent.characterId,
+                ).getOrThrow()
+                val profile = response.profile
+                if (profile.project_id != projectId || profile.character_id != intent.characterId) {
+                    throw IllegalStateException("Ficha visual fuera del proyecto o personaje activo.")
+                }
+                val proposed = if (intent.isChange) {
+                    applyCopilotAppearanceChange(profile, intent)
+                        ?: throw IllegalArgumentException("No reconozco ese cambio visual.")
+                } else null
+                if (copilotAppearanceScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAppearance = CopilotAppearanceCard(
+                            characterId = intent.characterId,
+                            canonicalName = intent.canonicalName,
+                            original = profile,
+                            proposed = proposed,
+                            field = intent.field,
+                        ),
+                        copilotAppearanceNotice = if (proposed != null) {
+                            "Cambio visual preparado; revisa y guarda para futuras imágenes. No se ha modificado el canon."
+                        } else {
+                            "Ficha visual recuperada de Character Studio, sin generar ni modificar imágenes."
+                        },
+                        copilotAppearanceError = null,
+                    )
+                }
+            } catch (error: Exception) {
+                if (copilotAppearanceScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAppearanceError = error.message ?: "No se pudo leer la apariencia.",
+                    )
+                }
+            } finally {
+                if (copilotAppearanceScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotAppearanceBusy = false)
+                }
+            }
+        }
+    }
+
+    private fun copilotAppearanceScopeMatches(projectId: String, epoch: Long): Boolean =
+        _writingWorkspace.value.chatProjectId == projectId && copilotAppearanceEpoch == epoch
+
+    fun dismissCopilotAppearance(projectId: String) {
+        if (_writingWorkspace.value.chatProjectId != projectId) return
+        copilotAppearanceEpoch++
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            copilotAppearance = null,
+            copilotAppearanceBusy = false,
+            copilotAppearanceError = null,
+            copilotAppearanceNotice = null,
+        )
+    }
+
+    /** Explicit one-tap save. The VPS enforces owner authorization and expected_revision. */
+    fun confirmCopilotAppearance(projectId: String) {
+        val initial = _writingWorkspace.value
+        val card = initial.copilotAppearance ?: return
+        val proposed = card.proposed ?: return
+        val field = card.field ?: return
+        if (initial.chatProjectId != projectId || initial.copilotAppearanceBusy ||
+            initial.busy || card.characterId != card.original.character_id ||
+            proposed.project_id != projectId || proposed.character_id != card.characterId ||
+            proposed.revision != card.original.revision ||
+            copilotAppearanceFieldValue(card.original, field) ==
+                copilotAppearanceFieldValue(proposed, field)
+        ) return
+        val epoch = ++copilotAppearanceEpoch
+        _writingWorkspace.value = initial.copy(
+            copilotAppearanceBusy = true,
+            copilotAppearanceError = null,
+            copilotAppearanceNotice = null,
+        )
+        viewModelScope.launch {
+            try {
+                val result = container.liveSession.visualUpdateCharacterDirection(
+                    projectId, card.characterId, proposed,
+                ).getOrThrow()
+                if (result.profile.project_id != projectId ||
+                    result.profile.character_id != card.characterId ||
+                    copilotAppearanceFieldValue(result.profile, field) !=
+                        copilotAppearanceFieldValue(proposed, field)
+                ) throw IllegalStateException(
+                    "El servidor no confirmó los datos esperados; vuelve a consultar la ficha.",
+                )
+                if (copilotAppearanceScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAppearance = card.copy(original = result.profile, proposed = null),
+                        copilotAppearanceNotice = "Apariencia guardada en Character Studio. " +
+                            "Se aplicará a próximas generaciones; las imágenes ya aprobadas no cambian.",
+                        copilotAppearanceError = null,
+                    )
+                }
+            } catch (error: Exception) {
+                if (copilotAppearanceScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAppearanceError = (error.message ?: "No se confirmó el guardado") +
+                            ". No se intentó de nuevo automáticamente: consulta la ficha antes de repetir.",
+                    )
+                }
+            } finally {
+                if (copilotAppearanceScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotAppearanceBusy = false)
+                }
+            }
+        }
+    }
+
     fun runWritingRoomAutoChat(
         projectId: String,
         projectTitle: String,
@@ -1391,6 +1541,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val clean = prompt.trim()
         if (clean.isEmpty()) return
+        if (looksLikeCopilotAppearanceCommand(clean)) {
+            if (_writingWorkspace.value.chatProjectId != projectId) return
+            val intent = resolveCopilotAppearance(clean, _writingWorkspace.value.wikiCharacters)
+            if (intent == null) {
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    copilotAppearanceError = "No encontré un personaje único con ese nombre en el " +
+                        "Wiki de este proyecto. Usa el nombre canónico exacto.",
+                )
+            } else {
+                openCopilotAppearance(projectId, intent)
+            }
+            return
+        }
         if (looksLikeCopilotPortraitCommand(clean)) {
             val characters = _writingWorkspace.value.wikiCharacters
             val portrait = resolveCopilotPortrait(clean, characters)
