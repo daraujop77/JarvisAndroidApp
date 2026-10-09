@@ -19,6 +19,9 @@ import com.jarvis.android.transport.live.*
 import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitCandidates
+import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
+import com.jarvis.android.ui.writing.copilotApprovableViewIds
+import com.jarvis.android.ui.writing.copilotBatchCanStartNew
 import android.net.Uri
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -222,6 +225,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val copilotRecovering: Boolean = false,
         val copilotRecoveryError: String? = null,
         val copilotRecoveredPortraits: List<CopilotRecoveredPortrait> = emptyList(),
+        val copilotViewBatch: VisualCharacterBatch? = null,
+        val copilotViewPreviews: Map<String, String> = emptyMap(),
+        val copilotViewLoading: Boolean = false,
+        val copilotViewError: String? = null,
+        val copilotViewNotice: String? = null,
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
         val wikiTimeline: WritingWikiTimeline? = null,
@@ -265,6 +273,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private var copilotRecoveryEpoch = 0L
     private var copilotRecoveryActiveProject: String? = null
+    private var copilotViewPollJob: Job? = null
 
     private var writingAutoReviewScopeVersion = 0L
     private var writingAutoReviewPollJob: Job? = null
@@ -437,6 +446,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (_writingWorkspace.value.chatProjectId != projectId) {
             copilotRecoveryEpoch++
             copilotRecoveryActiveProject = null
+            copilotViewPollJob?.cancel()
+            copilotViewPollJob = null
+            deleteVisualStudioAttachments(_writingWorkspace.value.copilotViewPreviews.values)
             resetWritingAutoReviewPolling()
             // Project changes are an authorization boundary for visual media.
             // Drop local thumbnails/candidates so protected bytes cannot bleed
@@ -452,6 +464,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 copilotRecovering = false,
                 copilotRecoveryError = null,
                 copilotRecoveredPortraits = emptyList(),
+                copilotViewBatch = null,
+                copilotViewPreviews = emptyMap(),
+                copilotViewLoading = false,
+                copilotViewError = null,
+                copilotViewNotice = null,
                 wikiCharacters = emptyList(),
                 wikiLocations = emptyList(),
                 knowledgeCapabilities = null,
@@ -1084,6 +1101,259 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     )
                 },
             )
+        }
+    }
+
+
+    /**
+     * Owner-initiated, paid turnaround action in Copilot. The VPS remains authoritative
+     * for the approved front master, missing views, budget, and batch idempotency.
+     * Any existing batch (including BLOCKED/FAILED) is displayed, never reissued.
+     */
+    fun beginCopilotCharacterViews(
+        projectId: String,
+        characterId: String,
+        masterAssetId: String,
+        masterSha256: String,
+    ) {
+        val current = _writingWorkspace.value
+        if (current.chatProjectId != projectId || current.busy || current.copilotViewLoading ||
+            !characterId.startsWith("character:") || masterAssetId.isBlank() ||
+            masterSha256.isBlank()
+        ) return
+        val confirmedMaster = current.chatHistory.any {
+            it.candidateAssetId == masterAssetId &&
+                it.candidateSha256.equals(masterSha256, ignoreCase = true) &&
+                it.candidateCharacterId == characterId && it.candidateStatus == "APPROVED"
+        } || current.copilotRecoveredPortraits.any {
+            it.assetId == masterAssetId && it.sha256.equals(masterSha256, ignoreCase = true) &&
+                it.characterId == characterId && it.status == "APPROVED"
+        }
+        if (!confirmedMaster) {
+            _writingWorkspace.value = current.copy(
+                copilotViewError = "Aprueba primero la imagen frontal exacta desde Copilot.",
+            )
+            return
+        }
+        val epoch = copilotRecoveryEpoch
+        copilotViewPollJob?.cancel()
+        copilotViewPollJob = null
+        val sameCharacter = current.copilotViewBatch?.character_id == characterId
+        if (!sameCharacter) deleteVisualStudioAttachments(current.copilotViewPreviews.values)
+        _writingWorkspace.value = current.copy(
+            copilotViewLoading = true,
+            copilotViewError = null,
+            copilotViewNotice = null,
+            copilotViewBatch = if (sameCharacter) current.copilotViewBatch else null,
+            copilotViewPreviews = if (sameCharacter) current.copilotViewPreviews else emptyMap(),
+        )
+        viewModelScope.launch {
+            try {
+                // A failed lookup is NOT permission to call a potentially paid endpoint.
+                val previous = container.liveSession.visualCharacterBatchStatus(
+                    projectId, characterId,
+                ).getOrThrow().batch
+                if (previous != null && (previous.project_id != projectId ||
+                        previous.character_id != characterId)) {
+                    throw IllegalStateException("Lote visual fuera del personaje o proyecto.")
+                }
+                val batch = if (copilotBatchCanStartNew(previous)) {
+                    container.liveSession.visualCompleteCharacterViews(
+                        projectId = projectId,
+                        characterId = characterId,
+                        perspectives = COPILOT_TURNAROUND_PERSPECTIVES,
+                    ).getOrThrow().batch ?: throw IllegalStateException(
+                        "El servidor no confirmó un lote. Consulta Character Studio antes de reintentar.",
+                    )
+                } else {
+                    previous ?: throw IllegalStateException("No se pudo recuperar el lote.")
+                }
+                showCopilotCharacterBatch(projectId, characterId, batch, epoch)
+                if (batch.status == "RUNNING") pollCopilotCharacterBatch(projectId, characterId, epoch)
+            } catch (error: Exception) {
+                if (copilotViewScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotViewError = "No se confirmó el lote: " +
+                            (error.message ?: "consulta Character Studio") +
+                            ". No repitas una generación sin revisar su estado.",
+                    )
+                }
+            } finally {
+                if (copilotViewScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotViewLoading = false)
+                }
+            }
+        }
+    }
+
+    /** Read-only manual refresh; safe after process restarts or uncertain responses. */
+    fun refreshCopilotCharacterViews(projectId: String, characterId: String) {
+        val current = _writingWorkspace.value
+        if (current.chatProjectId != projectId || current.copilotViewLoading ||
+            !characterId.startsWith("character:")
+        ) return
+        val epoch = copilotRecoveryEpoch
+        _writingWorkspace.value = current.copy(copilotViewLoading = true, copilotViewError = null)
+        viewModelScope.launch {
+            try {
+                val batch = container.liveSession.visualCharacterBatchStatus(
+                    projectId, characterId,
+                ).getOrThrow().batch
+                if (batch != null) {
+                    showCopilotCharacterBatch(projectId, characterId, batch, epoch)
+                    if (batch.status == "RUNNING") pollCopilotCharacterBatch(projectId, characterId, epoch)
+                } else if (copilotViewScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotViewNotice = "El servidor todavía no registra un lote para este personaje.",
+                    )
+                }
+            } catch (error: Exception) {
+                if (copilotViewScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotViewError = error.message ?: "No se pudo consultar el lote.",
+                    )
+                }
+            } finally {
+                if (copilotViewScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotViewLoading = false)
+                }
+            }
+        }
+    }
+
+    private fun copilotViewScopeMatches(projectId: String, epoch: Long): Boolean =
+        copilotRecoveryEpoch == epoch && _writingWorkspace.value.chatProjectId == projectId
+
+    /** Download each candidate only through authenticated fetch and verify SHA before showing. */
+    private suspend fun showCopilotCharacterBatch(
+        projectId: String,
+        characterId: String,
+        batch: VisualCharacterBatch,
+        epoch: Long,
+    ) {
+        if (batch.project_id != projectId || batch.character_id != characterId ||
+            !copilotViewScopeMatches(projectId, epoch)
+        ) throw IllegalStateException("Respuesta de lote fuera del proyecto o personaje.")
+        val state = _writingWorkspace.value
+        val previous = if (state.copilotViewBatch?.character_id == characterId) {
+            state.copilotViewPreviews
+        } else emptyMap()
+        val previews = previous.toMutableMap()
+        for (item in batch.items) {
+            if (!copilotViewScopeMatches(projectId, epoch)) return
+            if (item.status !in setOf("CANDIDATE", "CANDIDATE_EXISTING") ||
+                !item.candidate_asset_id.startsWith("va_") ||
+                !Regex("^[0-9A-Fa-f]{64}$").matches(item.candidate_sha256) ||
+                previews.containsKey(item.candidate_asset_id)
+            ) continue
+            val content = container.liveSession.writingRoomVisualAssetFetch(
+                projectId, item.candidate_asset_id,
+            ).getOrNull() ?: continue
+            if (content.asset_id != item.candidate_asset_id ||
+                !content.sha256.equals(item.candidate_sha256, ignoreCase = true) ||
+                !content.mime_type.startsWith("image/")
+            ) continue
+            val staged = withContext(Dispatchers.IO) {
+                container.attachmentStore.stageVisualAssetBase64(
+                    content.image_base64, item.candidate_sha256,
+                )
+            }
+            if (staged != null) previews[item.candidate_asset_id] = staged.attachmentId
+        }
+        if (!copilotViewScopeMatches(projectId, epoch)) {
+            deleteVisualStudioAttachments(previews.values - previous.values.toSet())
+            return
+        }
+        val current = _writingWorkspace.value
+        _writingWorkspace.value = current.copy(
+            copilotViewBatch = batch,
+            copilotViewPreviews = previews,
+            copilotViewNotice = when (batch.status) {
+                "RUNNING" -> "JARVIS está creando vistas individuales desde el master frontal aprobado."
+                "READY_FOR_REVIEW" -> "Revisa las vistas recuperadas antes de aprobarlas como lote."
+                "BLOCKED" -> "El lote está bloqueado: no se repetirá ninguna llamada de pago ambigua."
+                "COMPLETED" -> "El lote aparece completo en el servidor."
+                else -> "Lote recuperado del servidor sin generar imágenes adicionales."
+            },
+            copilotViewError = null,
+        )
+    }
+
+    private fun pollCopilotCharacterBatch(projectId: String, characterId: String, epoch: Long) {
+        copilotViewPollJob?.cancel()
+        copilotViewPollJob = viewModelScope.launch {
+            while (copilotViewScopeMatches(projectId, epoch)) {
+                delay(2_800L)
+                if (!copilotViewScopeMatches(projectId, epoch)) return@launch
+                val response = container.liveSession.visualCharacterBatchStatus(
+                    projectId, characterId,
+                )
+                val batch = response.getOrNull()?.batch
+                if (batch == null) {
+                    if (copilotViewScopeMatches(projectId, epoch)) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            copilotViewError = "Se perdió la consulta del lote. Pulsa Actualizar lote para recuperarlo.",
+                        )
+                    }
+                    return@launch
+                }
+                try {
+                    showCopilotCharacterBatch(projectId, characterId, batch, epoch)
+                } catch (error: Exception) {
+                    if (copilotViewScopeMatches(projectId, epoch)) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            copilotViewError = error.message ?: "Error de estado del lote.",
+                        )
+                    }
+                    return@launch
+                }
+                if (batch.status != "RUNNING") return@launch
+            }
+        }
+    }
+
+    /** Separate explicit owner action; every candidate must have a verified preview. */
+    fun approveCopilotCharacterViews(projectId: String) {
+        val current = _writingWorkspace.value
+        val batch = current.copilotViewBatch ?: return
+        val ids = copilotApprovableViewIds(batch, current.copilotViewPreviews)
+        if (current.chatProjectId != projectId || batch.project_id != projectId ||
+            current.copilotViewLoading || current.busy || ids.isEmpty()
+        ) return
+        val epoch = copilotRecoveryEpoch
+        _writingWorkspace.value = current.copy(
+            copilotViewLoading = true, copilotViewError = null, copilotViewNotice = null,
+        )
+        viewModelScope.launch {
+            try {
+                val response = container.liveSession.visualApproveCharacterViewBatch(
+                    projectId, batch.character_id, batch.batch_id, ids,
+                ).getOrThrow()
+                val confirmed = response.batch ?: throw IllegalStateException(
+                    "Aprobación enviada pero sin estado confirmado; actualiza el lote antes de reintentar.",
+                )
+                if (confirmed.batch_id != batch.batch_id || confirmed.project_id != projectId ||
+                    confirmed.character_id != batch.character_id
+                ) throw IllegalStateException("El servidor devolvió otro lote.")
+                showCopilotCharacterBatch(projectId, batch.character_id, confirmed, epoch)
+                if (copilotViewScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotViewNotice = response.approved.size.toString() + " vistas aprobadas; " +
+                            response.failed.size.toString() + " pendientes. Revisa el lote para confirmar.",
+                    )
+                }
+            } catch (error: Exception) {
+                if (copilotViewScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotViewError = (error.message ?: "No se confirmó la aprobación") +
+                            ". Actualiza el lote antes de repetir una operación.",
+                    )
+                }
+            } finally {
+                if (copilotViewScopeMatches(projectId, epoch)) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotViewLoading = false)
+                }
+            }
         }
     }
 
