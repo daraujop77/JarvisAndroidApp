@@ -39,4 +39,4 @@ internal fun copilotApprovableViewIds(
 }
 
 internal fun copilotBatchCanStartNew(batch: VisualCharacterBatch?): Boolean =
-    batch == null || batch.status in setOf("FAILED", "CANCELLED")
+    batch == null
