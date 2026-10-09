@@ -186,6 +186,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     data class WritingWorkspaceChatTurn(
         val prompt: String,
         val response: WritingRoomAutoChat? = null,
+        val referenceAttachmentId: String? = null,
+        val referenceAssetId: String? = null,
     )
 
     data class WritingWorkspaceState(
@@ -196,6 +198,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val chat: WritingRoomAutoChat? = null,
         val chatHistory: List<WritingWorkspaceChatTurn> = emptyList(),
         val streamingText: String = "",
+        val copilotPendingReferenceId: String? = null,
+        val copilotReferenceError: String? = null,
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
         val wikiTimeline: WritingWikiTimeline? = null,
@@ -638,6 +642,141 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             knowledgeSelectedEdge = null,
             knowledgeResolvedSource = null,
         )
+    }
+
+    /** Stage one privacy-scrubbed JPEG for the Writing Room Copilot composer. */
+    fun stageWritingCopilotReference(uri: Uri) {
+        if (_writingWorkspace.value.busy) return
+        viewModelScope.launch {
+            val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
+            val valid = staged != null && staged.sizeBytes in 1..(5L * 1024 * 1024)
+            if (!valid) {
+                staged?.let { withContext(Dispatchers.IO) { container.attachmentStore.delete(it.attachmentId) } }
+                _writingWorkspace.value = _writingWorkspace.value.copy(
+                    copilotReferenceError = "La referencia debe ser una imagen JPEG de hasta 5 MB.",
+                )
+                return@launch
+            }
+            val old = _writingWorkspace.value.copilotPendingReferenceId
+            if (old != null) {
+                withContext(Dispatchers.IO) { container.attachmentStore.delete(old) }
+            }
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                copilotPendingReferenceId = staged!!.attachmentId,
+                copilotReferenceError = null,
+            )
+        }
+    }
+
+    fun removeWritingCopilotReference() {
+        val old = _writingWorkspace.value.copilotPendingReferenceId
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            copilotPendingReferenceId = null,
+            copilotReferenceError = null,
+        )
+        if (old != null) viewModelScope.launch(Dispatchers.IO) { container.attachmentStore.delete(old) }
+    }
+
+    /**
+     * Import image as a project CANDIDATE via the existing owner-only Visual Registry.
+     * Do not invoke an image model, approve a master, or claim visual analysis.
+     */
+    fun importWritingCopilotReference(projectId: String, projectTitle: String, note: String) {
+        val id = _writingWorkspace.value.copilotPendingReferenceId ?: return
+        if (_writingWorkspace.value.busy) return
+        val cleanNote = note.trim().take(1000)
+        val userText = cleanNote.ifBlank { "Adjuntar referencia visual" }
+        val previous = _writingWorkspace.value
+        val history = if (previous.chatProjectId == projectId) previous.chatHistory else emptyList()
+        _writingWorkspace.value = previous.copy(
+            busy = true,
+            busyLabel = "Guardando referencia visual candidata",
+            chatProjectId = projectId,
+            chat = null,
+            chatHistory = history + WritingWorkspaceChatTurn(
+                prompt = userText,
+                referenceAttachmentId = id,
+            ),
+            streamingText = "",
+            copilotReferenceError = null,
+            error = null,
+        )
+        viewModelScope.launch {
+            val encoded = withContext(Dispatchers.IO) {
+                val file = container.attachmentStore.resolve(id)
+                if (file == null || file.length() !in 1L..(5L * 1024 * 1024)) null
+                else Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+            }
+            val result = if (encoded == null) {
+                Result.failure<CopilotVisualImport>(IllegalArgumentException("Referencia no disponible o demasiado grande"))
+            } else {
+                container.liveSession.writingRoomCopilotImportReference(projectId, encoded, cleanNote)
+            }
+            result.fold(
+                onSuccess = { uploaded ->
+                    val candidate = uploaded.asset
+                    if (candidate.asset_id.isBlank() || candidate.status != "CANDIDATE" || candidate.sha256.isBlank()) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            busy = false,
+                            busyLabel = "",
+                            copilotReferenceError = "El servidor no confirmó una referencia candidata válida.",
+                            error = "Referencia visual sin confirmar",
+                        )
+                        return@fold
+                    }
+                    val text = "Referencia guardada como candidata en el proyecto (ID: ${candidate.asset_id}). " +
+                        "No es una imagen oficial del personaje, no modificó el canon y no generé ninguna imagen. " +
+                        "Puedes revisarla en Visual Studio antes de aprobarla."
+                    val response = WritingRoomAutoChat(
+                        schema = "jarvis.writing-room.chat.v1",
+                        classification = WritingClassification(
+                            task_class = "COPILOT_TOOL",
+                            source = "visual_reference_import",
+                        ),
+                        selected_participant = "copilot",
+                        turn = JarvisAppSession.WritingRoomTurn(
+                            schema = "jarvis.writing-room.turn.v1",
+                            project_id = projectId,
+                            project_title = projectTitle,
+                            participant = JarvisAppSession.WritingRoomParticipant(
+                                id = "copilot", label = "Writing Room Copilot",
+                            ),
+                            routing = JarvisAppSession.WritingRoomRouting(
+                                destination = "typed_tool",
+                            ),
+                            response = JarvisAppSession.WritingRoomText(text),
+                        ),
+                    )
+                    val current = _writingWorkspace.value
+                    if (current.chatProjectId != projectId) return@fold
+                    val updated = current.chatHistory.toMutableList()
+                    val pending = updated.indexOfLast { it.response == null && it.referenceAttachmentId == id }
+                    if (pending >= 0) {
+                        updated[pending] = updated[pending].copy(
+                            response = response,
+                            referenceAssetId = candidate.asset_id,
+                        )
+                    }
+                    _writingWorkspace.value = current.copy(
+                        busy = false,
+                        busyLabel = "",
+                        chat = response,
+                        chatHistory = updated,
+                        copilotPendingReferenceId = null,
+                        copilotReferenceError = null,
+                        error = null,
+                    )
+                },
+                onFailure = { error ->
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false,
+                        busyLabel = "",
+                        copilotReferenceError = error.message ?: "No se pudo guardar la referencia",
+                        error = error.message ?: "No se pudo guardar la referencia",
+                    )
+                },
+            )
+        }
     }
 
     fun runWritingRoomAutoChat(
