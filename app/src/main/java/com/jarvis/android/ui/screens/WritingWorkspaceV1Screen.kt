@@ -1174,6 +1174,7 @@ private fun ChatSection(
                                         "list_story_library" -> "Biblioteca"
                                         "get_story_timeline" -> "Cronología y eventos del canon"
                                         "get_story_lore" -> "Lore y fuentes verificadas"
+                                        "get_world_map_status" -> "Estado y revisiones del mapa narrativo"
                                         "prepare_official_chapter_export" -> "Preparar exportación de capítulo oficial"
                                         "list_story_characters" -> "Personajes"
                                         "search_story_wiki" -> "Consultar el Wiki"
