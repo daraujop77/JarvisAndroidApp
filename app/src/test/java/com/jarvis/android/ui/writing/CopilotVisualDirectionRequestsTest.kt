@@ -13,6 +13,7 @@ class CopilotVisualDirectionRequestsTest {
     @Test fun complexCharacterDirectionEditsRouteToCopilot() {
         assertTrue(looksLikeCopilotVisualDirectionChangeRequest("Actualiza la apariencia de Soren: cabello más largo"))
         assertTrue(looksLikeCopilotVisualDirectionChangeRequest("Modifica el diseño físico de Alexander para tener armadura plateada"))
+        assertTrue(looksLikeCopilotVisualDirectionChangeRequest("Cambia el cabello y los ojos de Soren a plateado y violeta"))
     }
     @Test fun discussionAndImagesNeverBecomeProfileWrites() {
         assertFalse(looksLikeCopilotVisualDirectionChangeRequest("¿Cómo cambiar el estilo visual?"))
