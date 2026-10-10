@@ -65,6 +65,6 @@ class CopilotAgentWiringTest {
         assertTrue(screen.contains("Mostrar imagen aquí"))
         assertTrue(screen.contains("Aprobar esta imagen"))
         assertTrue(screen.contains("Generar corrección · puede tener costo"))
-        assertTrue(screen.contains("scene.rootAssetId == progress.final_asset_id"))
+        assertTrue(screen.contains("it.rootAssetId == progress.final_asset_id"))
     }
 }
