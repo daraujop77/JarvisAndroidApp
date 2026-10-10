@@ -138,6 +138,17 @@ data class CopilotTaskResult(
 )
 
 @Serializable
+data class CopilotTaskLiveProgress(
+    val tool: String = "",
+    val job_id: String = "",
+    val chapter_id: String = "",
+    val status: String = "",
+    val final_asset_id: String = "",
+    val storage_state: String = "",
+    val human_approval_required: Boolean = true,
+)
+
+@Serializable
 data class CopilotTaskState(
     val schema: String = "",
     val task_id: String = "",
@@ -147,6 +158,7 @@ data class CopilotTaskState(
     val requires_confirmation: Boolean = false,
     val steps: List<CopilotTaskStep> = emptyList(),
     val results: List<CopilotTaskResult> = emptyList(),
+    val live_progress: List<CopilotTaskLiveProgress> = emptyList(),
     val error_code: String = "",
     val created_utc: String = "",
     val updated_utc: String = "",
