@@ -1425,7 +1425,8 @@ private fun ChatSection(
                                             ". Sin correcciones automáticas. El candidato " +
                                             "requiere aprobación humana y NO cambia el canon."
                                     } else if (changesVisualDirection) {
-                                        "Se guardará únicamente el campo y valor visuales mostrados arriba. " +
+                                        "Se guardarán únicamente los campos y valores visuales mostrados arriba, " +
+                                            "en una sola revisión y con tu confirmación. " +
                                             "Esto afecta futuras imágenes candidatas, pero no modifica " +
                                             "el canon escrito, imágenes existentes ni masters aprobados. " +
                                             "Se comprobará la revisión del perfil en el VPS antes de guardar."
