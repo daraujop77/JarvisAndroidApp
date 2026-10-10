@@ -238,6 +238,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val visualRevision: Int,
     )
 
+    data class CopilotPendingPortrait(
+        val projectId: String,
+        val projectTitle: String,
+        val prompt: String,
+        val characterId: String,
+        val canonicalName: String,
+        val adjustment: String,
+    )
+
     data class WritingWorkspaceState(
         val busy: Boolean = false,
         val busyLabel: String = "",
@@ -260,6 +269,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val copilotAppearanceBusy: Boolean = false,
         val copilotAppearanceError: String? = null,
         val copilotAppearanceNotice: String? = null,
+        val pendingPortrait: CopilotPendingPortrait? = null,
         val copilotAgentTask: CopilotTaskState? = null,
         val copilotAgentBusy: Boolean = false,
         val copilotAgentError: String? = null,
@@ -316,6 +326,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private var copilotViewPollJob: Job? = null
     private var copilotAppearanceEpoch = 0L
 
+    private var writingWorkspaceLoadEpoch = 0L
     private var writingAutoReviewScopeVersion = 0L
     private var writingAutoReviewPollJob: Job? = null
 
@@ -484,6 +495,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun refreshWritingWorkspace(projectId: String) {
+        val loadEpoch = ++writingWorkspaceLoadEpoch
         if (_writingWorkspace.value.chatProjectId != projectId) {
             copilotRecoveryEpoch++
             copilotAppearanceEpoch++
@@ -502,52 +514,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             // Drop local thumbnails/candidates so protected bytes cannot bleed
             // into another project's UI even if asset ids happen to collide.
             resetVisualStudioProtectedMedia()
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                chatProjectId = projectId,
-                chat = null,
-                chatHistory = emptyList(),
-                streamingText = "",
-                copilotPendingReferenceId = null,
-                copilotReferenceError = null,
-                copilotRecovering = false,
-                copilotRecoveryError = null,
-                copilotRecoveredPortraits = emptyList(),
-                copilotViewBatch = null,
-                copilotViewPreviews = emptyMap(),
-                copilotViewLoading = false,
-                copilotViewError = null,
-                copilotViewNotice = null,
-                copilotAppearance = null,
-                copilotAppearanceBusy = false,
-                copilotAppearanceError = null,
-                copilotAppearanceNotice = null,
-                copilotAgentTask = null,
-                copilotAgentBusy = false,
-                copilotAgentError = null,
-                copilotSceneCandidate = null,
-                copilotSceneBusy = false,
-                copilotSceneError = null,
-                copilotSceneNotice = null,
-                copilotSceneCorrectionUnknown = false,
-                wikiCharacters = emptyList(),
-                wikiLocations = emptyList(),
-                knowledgeCapabilities = null,
-                knowledgeTimelineV2 = null,
-                knowledgeGraphV2 = null,
-                knowledgeSelectedNode = null,
-                knowledgeSelectedEdge = null,
-                knowledgeResolvedSource = null,
-                knowledgeAtlasLoading = false,
-                knowledgeAtlasError = null,
-                knowledgeSnapshotChanged = false,
-                planningV2ChapterId = null,
-                planningV2AggregateVersion = 0,
-                planningV2Turns = emptyList(),
-                planningV2Direction = null,
-                draftV2 = null,
-                approvalV2 = null,
-                autoReviewV2 = null,
-            )
+            _writingWorkspace.value = WritingWorkspaceState(chatProjectId = projectId)
         }
         // Task restoration must work even when an unrelated Wiki/Drive refresh fails.
         recoverWritingCopilotTask(projectId)
@@ -571,6 +538,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             val councilSessions = container.liveSession.writingRoomPlanningCouncilList(projectId)
             val chapters = container.liveSession.writingRoomChapterList(projectId)
             val library = container.liveSession.writingRoomLibraryList(projectId)
+            // A previous project's slower response must not repopulate this one.
+            if (loadEpoch != writingWorkspaceLoadEpoch ||
+                _writingWorkspace.value.chatProjectId != projectId) return@launch
             val failure = listOf(
                 overview, wikiHome, wikiCharacters, wikiLocations, wikiTimeline,
                 canonExplorer, plans, councilSessions, chapters, library,
@@ -980,6 +950,23 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     /** One requested character portrait, never a hidden tool call or automatic retry. */
+    fun cancelWritingCopilotPortrait(projectId: String) {
+        if (_writingWorkspace.value.chatProjectId != projectId) return
+        _writingWorkspace.value = _writingWorkspace.value.copy(pendingPortrait = null)
+    }
+
+    fun confirmWritingCopilotPortrait(projectId: String) {
+        val state = _writingWorkspace.value
+        val request = state.pendingPortrait ?: return
+        if (request.projectId != projectId || state.chatProjectId != projectId ||
+            state.busy) return
+        _writingWorkspace.value = state.copy(pendingPortrait = null)
+        generateCopilotPortrait(
+            request.projectId, request.projectTitle, request.prompt,
+            request.characterId, request.canonicalName, request.adjustment,
+        )
+    }
+
     private fun generateCopilotPortrait(
         projectId: String,
         projectTitle: String,
@@ -2018,9 +2005,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 )
                 return
             }
-            generateCopilotPortrait(
-                projectId, projectTitle, clean, portrait.characterId,
-                portrait.canonicalName, portrait.adjustment,
+            if (_writingWorkspace.value.chatProjectId != projectId) return
+            // A chat instruction is a request to prepare an image, not consent
+            // to spend cloud credits. Dispatch only after an explicit tap.
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                pendingPortrait = CopilotPendingPortrait(
+                    projectId, projectTitle, clean, portrait.characterId,
+                    portrait.canonicalName, portrait.adjustment,
+                ),
+                error = null,
             )
             return
         }
