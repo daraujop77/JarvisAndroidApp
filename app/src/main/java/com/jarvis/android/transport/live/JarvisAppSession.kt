@@ -150,7 +150,7 @@ class JarvisAppSession(
     val expired: Boolean
         get() {
             val exp = expiresUtc ?: return false
-            return runCatching { Instant.parse(exp).isBefore(Instant.now().minusSeconds(30)) }.getOrDefault(false)
+            return runCatching { Instant.parse(exp).isBefore(Instant.now().plusSeconds(30)) }.getOrDefault(false)
         }
 
     suspend fun login(base: String, user: String, password: String): Result<AppUser> =
