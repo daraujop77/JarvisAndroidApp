@@ -45,4 +45,20 @@ class VisualDirectionEditorWiringTest {
         assertTrue(screen.contains("Requiere diseño"))
         assertTrue(screen.contains("canon escrito conserva prioridad"))
     }
+    @Test
+    fun paidCharacterGenerationRequiresConsentAndPinnedVisualModel() {
+        val screen = source("app/src/main/java/com/jarvis/android/ui/writing/CharacterStudioScreen.kt")
+        val viewModel = source("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
+        assertTrue(screen.contains("bulkMasterConfirmation"))
+        assertTrue(screen.contains("AlertDialog("))
+        assertTrue(screen.contains("Se solicitarán $count imágenes de pago"))
+        assertTrue(screen.contains("vm.generateMissingCharacterMasters(projectId, count)"))
+        assertTrue(viewModel.contains("fun generateMissingCharacterMasters(projectId: String, expectedCount: Int)"))
+        assertTrue(viewModel.contains("ready.size != expectedCount"))
+        assertTrue(viewModel.contains("mode = \"model_select\",\n                    model = \"gpt-image-2-medium\""))
+        assertTrue(viewModel.contains("mode = \"model_select\",\n                model = \"gpt-image-2-medium\""))
+        assertTrue(viewModel.contains("generationMode = loadedBatch.mode"))
+        assertTrue(viewModel.contains("mode = previous.mode"))
+        assertTrue(viewModel.contains("_characterStudio.value.projectId != cleanProject"))
+    }
 }
