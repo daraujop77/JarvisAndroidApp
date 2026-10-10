@@ -699,7 +699,9 @@ private fun ChatSection(
         ActivityResultContracts.CreateDocument("text/markdown"),
     ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
     LaunchedEffect(state.pendingExport?.sha256) {
-        val file = state.pendingExport ?: return@LaunchedEffect
+        val file = state.pendingExport?.takeIf {
+            it.project_id == projectId
+        } ?: return@LaunchedEffect
         when (file.format) {
             "pdf" -> copilotPdfPicker.launch(file.filename)
             "docx" -> copilotDocxPicker.launch(file.filename)
@@ -1185,6 +1187,7 @@ private fun ChatSection(
                                         "get_character_master_readiness" -> "Consultar masters y pendientes visuales"
                                         "complete_character_views" -> "Completar vistas del personaje"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
+                                        "get_chapter_approval_packet" -> "Paquete de aprobación y CanonDiff del capítulo"
                                         "get_scene_context" -> "Consultar contexto visual congelado"
                                         "prepare_visual_scene" -> "Preparar escena a partir del canon"
                                         "start_scene_generation" -> "Generar imagen desde contexto aprobado"
