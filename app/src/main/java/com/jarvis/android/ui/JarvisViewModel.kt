@@ -3251,10 +3251,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
-    fun requestWritingLibraryExport(projectId: String, documentId: String, format: String) {
+    fun requestWritingLibraryExport(
+        projectId: String,
+        documentId: String,
+        format: String,
+        expectedSourceSha256: String = "",
+    ) {
         writingWorkspaceBusy("Preparing ${format.uppercase()} export")
         viewModelScope.launch {
-            val result = container.liveSession.writingRoomLibraryExport(projectId, documentId, format)
+            val result = container.liveSession.writingRoomLibraryExport(
+                projectId, documentId, format, expectedSourceSha256,
+            )
             result.fold(
                 onSuccess = {
                     _writingWorkspace.value = _writingWorkspace.value.copy(
