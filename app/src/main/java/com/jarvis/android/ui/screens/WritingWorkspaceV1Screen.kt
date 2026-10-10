@@ -1187,6 +1187,10 @@ private fun ChatSection(
                                     Text("Trabajo: " + progress.job_id,
                                         style = MaterialTheme.typography.bodySmall)
                                 }
+                                if (progress.batch_id.isNotBlank()) {
+                                    Text("Lote visual: " + progress.batch_id,
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
                                 if (progress.final_asset_id.isNotBlank() &&
                                     progress.tool in setOf("start_scene_generation", "generate_story_scene")
                                 ) {
