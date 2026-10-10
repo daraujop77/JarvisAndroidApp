@@ -88,10 +88,6 @@ fun ProjectsScreen(vm: JarvisViewModel) {
     val actionMessage by vm.projectsMessage.collectAsStateWithLifecycle()
     var openProject by remember { mutableStateOf<ProjectSummary?>(null) }
     var selectedFilter by rememberSaveable { mutableStateOf(ProjectFilter.ALL) }
-    var creating by rememberSaveable { mutableStateOf(false) }
-    var draftTitle by rememberSaveable { mutableStateOf("") }
-    var editing by remember { mutableStateOf<ProjectSummary?>(null) }
-    var deleting by remember { mutableStateOf<ProjectSummary?>(null) }
 
     val project = openProject
     if (project != null) {
@@ -99,21 +95,14 @@ fun ProjectsScreen(vm: JarvisViewModel) {
             vm,
             project,
             onBack = { openProject = null },
-            onEdit = {
-                draftTitle = project.title
-                editing = project
-            },
-            onDelete = { deleting = project },
+            onEdit = null,
+            onDelete = null,
         )
     } else {
 
     ProjectsScaffold(
         title = "WORKSPACE REGISTRY",
         onRefresh = vm::refreshProjects,
-        onCreate = {
-            draftTitle = ""
-            creating = true
-        },
     ) {
         Column(Modifier.fillMaxSize()) {
         if (!actionMessage.isNullOrBlank()) {
@@ -199,6 +188,14 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    item {
+                        Text(
+                            "Proyectos disponibles en el VPS. La creación, el cambio de nombre y " +
+                                "la eliminación se habilitarán cuando exista un contrato seguro de provisión.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     item {
                         Surface(
                             shape = RoundedCornerShape(18.dp),
@@ -296,11 +293,8 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                             ProjectRow(
                                 p,
                                 onClick = { openProject = p },
-                                onEdit = {
-                                    draftTitle = p.title
-                                    editing = p
-                                },
-                                onDelete = { deleting = p },
+                                onEdit = null,
+                                onDelete = null,
                             )
                         }
                     }
@@ -312,62 +306,7 @@ fun ProjectsScreen(vm: JarvisViewModel) {
     }
     }
 
-    if (creating || editing != null) {
-        val target = editing
-        AlertDialog(
-            onDismissRequest = {
-                creating = false
-                editing = null
-            },
-            title = { Text(if (target == null) "New project" else "Rename project") },
-            text = {
-                OutlinedTextField(
-                    value = draftTitle,
-                    onValueChange = { draftTitle = it },
-                    label = { Text("Title") },
-                    singleLine = true,
-                    colors = jarvisTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (target == null) vm.createProject(draftTitle)
-                        else vm.renameProject(target.id, draftTitle)
-                        creating = false
-                        editing = null
-                    },
-                    enabled = draftTitle.isNotBlank(),
-                ) { Text(if (target == null) "Create" else "Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    creating = false
-                    editing = null
-                }) { Text("Cancel") }
-            },
-        )
-    }
-    deleting?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text("Delete project") },
-            text = {
-                Text("Ask the server to delete ${target.title}? Canon stays unchanged unless the server accepts the delete.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.deleteProject(target.id)
-                    if (openProject?.id == target.id) openProject = null
-                    deleting = null
-                }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleting = null }) { Text("Cancel") }
-            },
-        )
-    }
+
 }
 
 @Composable
@@ -375,8 +314,8 @@ private fun ProjectDetailView(
     vm: JarvisViewModel,
     project: ProjectSummary,
     onBack: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
+    onEdit: (() -> Unit)?,
+    onDelete: (() -> Unit)?,
 ) {
     val conversations by vm.conversationsFor(project.id).collectAsStateWithLifecycle(initialValue = null)
     if (project.kind == ProjectKind.WRITING_ROOM) {
@@ -434,8 +373,8 @@ private fun ProjectDetailView(
 private fun ProjectRow(
     project: ProjectSummary,
     onClick: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
+    onEdit: (() -> Unit)?,
+    onDelete: (() -> Unit)?,
 ) {
     val accents = LocalJarvisAccents.current
     val isWritingRoom = project.kind == ProjectKind.WRITING_ROOM
@@ -529,11 +468,15 @@ private fun ProjectRow(
                     )
                 }
             }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Edit, contentDescription = "Rename project", tint = JarvisCyan)
+            if (onEdit != null) {
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Rename project", tint = JarvisCyan)
+                }
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete project", tint = MaterialTheme.colorScheme.error)
+            if (onDelete != null) {
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete project", tint = MaterialTheme.colorScheme.error)
+                }
             }
             Icon(
                 Icons.AutoMirrored.Filled.ArrowForwardIos,
