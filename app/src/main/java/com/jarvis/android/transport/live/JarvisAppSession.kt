@@ -7,6 +7,8 @@ import com.jarvis.android.security.SecureRefreshCredentialStore
 import com.jarvis.android.transport.TransportException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -77,6 +79,7 @@ class JarvisAppSession(
     }
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val refreshMutex = Mutex()
 
     @Serializable
     data class AppUser(val id: String = "", val username: String = "", val role: String = "")
@@ -216,8 +219,16 @@ class JarvisAppSession(
      * Exchange the device-bound refresh credential for a fresh 24h bearer.
      * The refresh credential rotates on every successful exchange.
      */
-    suspend fun refresh(candidateBases: Iterable<String> = emptyList()): Result<AppUser> =
-        withContext(Dispatchers.IO) {
+    suspend fun refresh(
+        candidateBases: Iterable<String> = emptyList(),
+        staleBearer: String? = null,
+    ): Result<AppUser> = withContext(Dispatchers.IO) {
+        refreshMutex.withLock {
+        // If a concurrent call already renewed the bearer, do not rotate again.
+        val currentBearer = authHeader()
+        if (staleBearer != null && currentBearer != null &&
+            currentBearer != staleBearer && !expired
+        ) return@withLock Result.success(AppUser(userId, username, role))
         val credential = refreshStore.load()
             ?: return@withContext Result.failure(TransportException("pairing required"))
         val current = normalizeBase(baseUrl)?.takeIf { isAllowedLiveHost(it) }
@@ -251,6 +262,7 @@ class JarvisAppSession(
             )
             refreshStore.save(parsed.refresh_token, parsed.refresh_expires_utc)
             parsed.user
+        }
         }
     }
 
