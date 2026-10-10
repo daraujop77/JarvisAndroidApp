@@ -225,6 +225,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val storageState: String,
     )
 
+    data class CopilotSceneCandidateCard(
+        val taskId: String,
+        val jobId: String,
+        val assetId: String,
+        val sha256: String,
+        val previewAttachmentId: String,
+        val status: String,
+        val storageState: String,
+        val visualRevision: Int,
+    )
+
     data class WritingWorkspaceState(
         val busy: Boolean = false,
         val busyLabel: String = "",
@@ -250,6 +261,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val copilotAgentTask: CopilotTaskState? = null,
         val copilotAgentBusy: Boolean = false,
         val copilotAgentError: String? = null,
+        val copilotSceneCandidate: CopilotSceneCandidateCard? = null,
+        val copilotSceneBusy: Boolean = false,
+        val copilotSceneError: String? = null,
+        val copilotSceneNotice: String? = null,
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
         val wikiTimeline: WritingWikiTimeline? = null,
@@ -498,6 +513,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 copilotAgentTask = null,
                 copilotAgentBusy = false,
                 copilotAgentError = null,
+                copilotSceneCandidate = null,
+                copilotSceneBusy = false,
+                copilotSceneError = null,
+                copilotSceneNotice = null,
                 wikiCharacters = emptyList(),
                 wikiLocations = emptyList(),
                 knowledgeCapabilities = null,
