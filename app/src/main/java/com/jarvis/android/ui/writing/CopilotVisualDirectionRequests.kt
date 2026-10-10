@@ -16,7 +16,7 @@ fun looksLikeCopilotVisualDirectionChangeRequest(text: String): Boolean {
         .containsMatchIn(value)
     val style = Regex("""\b(estilo visual|estilo artístico|estilo artistico|paleta|iluminación|iluminacion|renderizado|realismo)\b""")
         .containsMatchIn(value)
-    val character = Regex("""\b(apariencia|diseño físico|diseno fisico|aspecto físico|aspecto fisico)\b""")
+    val character = Regex("""\b(apariencia|diseño físico|diseno fisico|aspecto físico|aspecto fisico|cabello|pelo|ojos|armadura|vestimenta|ropa|rostro|cara|piel|altura|complexión|complexion|aura|accesorios|armas)\b""")
         .containsMatchIn(value)
     val explicitValue = Regex("""\b(a|por|para|con|como)\b|:""").containsMatchIn(value)
     return command && (style || character) && explicitValue
