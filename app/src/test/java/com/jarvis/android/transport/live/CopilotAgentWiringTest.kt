@@ -75,5 +75,11 @@ class CopilotAgentWiringTest {
         assertTrue(visualApi.contains("/api/app/images/copilot-scene-edits"))
         assertTrue(visualApi.contains("if (candidateEdit) put(\"scene_job_id\", sceneJobId.orEmpty())"))
         assertTrue(visualApi.contains("(!candidateEdit && parentAsset.status != \"APPROVED\")"))
+        assertTrue(screen.contains("looksLikeCopilotSceneImageRequest(clean)"))
+        assertTrue(screen.contains("generate_story_scene"))
+        assertTrue(vm.contains("card.status !in setOf(\"CANDIDATE\", \"APPROVED\")"))
+        assertTrue(visualApi.contains("if (candidateEdit) \"/api/app/images/copilot-scene-edits\""))
+        assertTrue(screen.contains("Se iniciará UNA generación"))
+        assertTrue(screen.contains("Aprobar esta imagen"))
     }
 }
