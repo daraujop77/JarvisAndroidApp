@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -94,6 +95,7 @@ fun CharacterStudioScreen(
     }
     var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
+    var bulkMasterConfirmation by rememberSaveable(projectId) { mutableStateOf(false) }
     var selectedPerspective by rememberSaveable(projectId) { mutableStateOf("left_profile") }
     var showProjectStyleEditor by rememberSaveable(projectId) { mutableStateOf(false) }
     var showCharacterAppearanceEditor by rememberSaveable(projectId, selectedCharacterId) {
@@ -194,6 +196,38 @@ fun CharacterStudioScreen(
         }
     }
 
+    if (bulkMasterConfirmation) {
+        val count = state.masterRoster?.items.orEmpty().count {
+            it.state == "READY" && it.character_id.isNotBlank()
+        }
+        AlertDialog(
+            onDismissRequest = { bulkMasterConfirmation = false },
+            title = { Text("Confirmar generación de masters") },
+            text = {
+                Text(
+                    "Se solicitarán $count imágenes de pago con GPT Image 2 Medium. " +
+                        "Cada master será una referencia frontal de cuerpo completo; " +
+                        "el estilo visual del proyecto será el mismo para todos. " +
+                        "Las imágenes se guardan como candidatas y requieren aprobación."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = count > 0 && !state.busy && settings.isOwner,
+                    onClick = {
+                        bulkMasterConfirmation = false
+                        vm.generateMissingCharacterMasters(projectId, count)
+                    },
+                ) { Text("Generar $count candidatos") }
+            },
+            dismissButton = {
+                TextButton(onClick = { bulkMasterConfirmation = false }) {
+                    Text("Cancelar")
+                }
+            },
+        )
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -259,8 +293,8 @@ fun CharacterStudioScreen(
                             }
                             Spacer(Modifier.height(8.dp))
                             Button(
-                                onClick = { vm.generateMissingCharacterMasters(projectId) },
-                                enabled = !state.busy && roster.counts.ready > 0,
+                                onClick = { bulkMasterConfirmation = true },
+                                enabled = settings.isOwner && !state.busy && roster.counts.ready > 0,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Icon(Icons.Filled.AutoAwesome, contentDescription = null)
@@ -274,7 +308,7 @@ fun CharacterStudioScreen(
                                 )
                             }
                             Text(
-                                "JARVIS usa Wiki/canon y pasajes existentes. Crea candidatos; nunca los aprueba ni cambia canon automáticamente.",
+                                "JARVIS usa Wiki/canon y pasajes existentes. Primero confirmas la cantidad de generaciones de pago. Cada imagen sigue siendo candidata.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFF8BA2BE),
                             )
