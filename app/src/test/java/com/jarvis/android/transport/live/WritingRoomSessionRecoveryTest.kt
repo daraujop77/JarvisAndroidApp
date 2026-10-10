@@ -185,4 +185,43 @@ class WritingRoomSessionRecoveryTest {
         assertEquals("pair-new", refreshStore.load()?.token)
     }
 
+
+    @Test
+    fun concurrentMissingBearerRequestsShareOneRefresh() = runBlocking {
+        val base = server.url("/").toString().trimEnd('/')
+        val count = AtomicInteger(0)
+        server.dispatcher = object : MockDispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/api/app/refresh" -> {
+                    count.incrementAndGet()
+                    MockResponse().setResponseCode(200).setBody(
+                        """{"authenticated":true,"token":"fresh","expires_utc":"2099-01-01T00:00:00Z","refresh_token":"pair-next","refresh_expires_utc":"2099-02-01T00:00:00Z","user":{"id":"u1","username":"owner","role":"owner"}}"""
+                    )
+                }
+                "/api/app/writing-room/overview" ->
+                    MockResponse().setResponseCode(
+                        if (request.getHeader("Authorization") == "Bearer fresh") 200 else 401
+                    ).setBody(
+                        """{"schema":"jarvis.writing-room.overview.v1","project":{"project_id":"prj_story"}}"""
+                    )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val store = JarvisAppSession.MemoryStore().apply {
+            put(mapOf(JarvisAppSession.KEY_BASE to base))
+        }
+        val refreshStore = MemoryRefreshCredentialStore().apply {
+            save("pair-old", "2099-02-01T00:00:00Z")
+        }
+        val session = JarvisAppSession(store, refreshStore = refreshStore)
+        val results = coroutineScope {
+            (1..8).map {
+                async(Dispatchers.IO) { session.writingRoomOverview("prj_story") }
+            }.awaitAll()
+        }
+        assertTrue(results.toString(), results.all { it.isSuccess })
+        assertEquals(1, count.get())
+        assertEquals("fresh", session.token)
+        assertEquals("pair-next", refreshStore.load()?.token)
+    }
 }

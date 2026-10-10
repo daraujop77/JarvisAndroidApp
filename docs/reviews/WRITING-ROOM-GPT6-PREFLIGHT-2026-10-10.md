@@ -36,3 +36,13 @@ on a real Android device and UI responsiveness.
 This review is a source-level preflight, not a fully observed end-to-end
 device trial. No paid image generation or signed APK is authorized by it.
 Pause after PR CI is triggered for the owner to monitor.
+
+## Additional startup/reconnect finding
+
+The initial CI (38047939289) passed. Further review found that
+LiveAppGatewayTransport.connect() rejected null bearers before restore(),
+and restore() never used a valid paired refresh credential on expiry.
+The next commit fixes both startup paths and coalesces concurrent
+no-bearer recoveries. Tests cover expired-session restore, missing-bearer
+connect, and eight simultaneous no-bearer Writing Room requests.
+No APK or paid image calls. Verify the next CI before integration.

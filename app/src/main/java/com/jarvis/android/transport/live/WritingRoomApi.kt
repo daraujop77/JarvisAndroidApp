@@ -1254,7 +1254,7 @@ private suspend inline fun <reified T> JarvisAppSession.writingPost(
     // The device refresh credential survives a short-lived access-token expiry.
     // Never clear the paired device just because one Writing Room request is 401.
     if (expired || authHeader() == null) {
-        val renewed = refresh(staleBearer = authHeader())
+        val renewed = refresh(staleBearer = authHeader(), reuseIfAlreadyValid = true)
         if (renewed.isFailure) {
             return@withContext Result.failure(
                 renewed.exceptionOrNull() ?: TransportException("session expired"),
@@ -1429,7 +1429,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     if (clean.isEmpty()) return@withContext Result.failure(TransportException("Writing Room prompt is empty"))
     if (clean.length > 6000) return@withContext Result.failure(TransportException("Writing Room prompt is too long"))
     if (expired || authHeader() == null) {
-        val renewed = refresh(staleBearer = authHeader())
+        val renewed = refresh(staleBearer = authHeader(), reuseIfAlreadyValid = true)
         if (renewed.isFailure) {
             return@withContext Result.failure(
                 renewed.exceptionOrNull() ?: TransportException("session expired"),

@@ -4,6 +4,10 @@ import com.jarvis.android.BuildConfig
 import com.jarvis.android.security.MemoryRefreshCredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import com.jarvis.android.transport.LinkState
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -187,26 +191,60 @@ class JarvisAppSessionRefreshTest {
     }
 
     @Test
-    fun localAccessExpiryPreservesRefreshCredential() = runBlocking(Dispatchers.IO) {
-        val store = JarvisAppSession.MemoryStore()
-        val refreshStore = MemoryRefreshCredentialStore().apply {
-            save("refresh-still-valid", "2099-02-01T00:00:00Z")
-        }
-        store.put(
-            mapOf(
+    fun localAccessExpiryRestoresFromValidDeviceCredential() = runBlocking(Dispatchers.IO) {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"authenticated":true,"token":"fresh","expires_utc":"2099-01-01T00:00:00Z","refresh_token":"pair-next","refresh_expires_utc":"2099-02-01T00:00:00Z","user":{"id":"u1","username":"owner","role":"owner"}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"authenticated":true,"user":{"id":"u1","username":"owner","role":"owner"}}"""
+        ))
+        val store = JarvisAppSession.MemoryStore().apply {
+            put(mapOf(
                 JarvisAppSession.KEY_TOKEN to "expired-access",
-                JarvisAppSession.KEY_BASE to "http://127.0.0.1:8788",
+                JarvisAppSession.KEY_BASE to server.url("/").toString().trimEnd('/'),
                 JarvisAppSession.KEY_EXPIRES to "2000-01-01T00:00:00Z",
-            )
-        )
+            ))
+        }
+        val refreshStore = MemoryRefreshCredentialStore().apply {
+            save("pair-old", "2099-02-01T00:00:00Z")
+        }
         val session = JarvisAppSession(store, refreshStore = refreshStore)
-
-        val restored = session.restore()
-
-        assertTrue(restored.isFailure)
-        assertEquals(null, session.token)
+        assertTrue(session.restore().isSuccess)
+        assertEquals("fresh", session.token)
+        assertEquals("pair-next", refreshStore.load()?.token)
+        assertEquals("/api/app/refresh", server.takeRequest().path)
+        assertEquals("/api/app/session", server.takeRequest().path)
         assertTrue(session.hasRefreshCredential)
-        assertEquals("http://127.0.0.1:8788", session.baseUrl)
+    }
+
+
+    @Test
+    fun missingBearerStillReconnectsUsingDeviceCredential() = runBlocking(Dispatchers.IO) {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"authenticated":true,"token":"fresh","expires_utc":"2099-01-01T00:00:00Z","refresh_token":"pair-next","refresh_expires_utc":"2099-02-01T00:00:00Z","user":{"id":"u1","username":"owner","role":"owner"}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"authenticated":true,"user":{"id":"u1","username":"owner","role":"owner"}}"""
+        ))
+        val store = JarvisAppSession.MemoryStore().apply {
+            put(mapOf(JarvisAppSession.KEY_BASE to server.url("/").toString().trimEnd('/')))
+        }
+        val refreshStore = MemoryRefreshCredentialStore().apply {
+            save("pair-old", "2099-02-01T00:00:00Z")
+        }
+        val session = JarvisAppSession(store, refreshStore = refreshStore)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            val transport = LiveAppGatewayTransport(session, scope)
+            transport.connect()
+            assertEquals(LinkState.CONNECTED, transport.linkState.value)
+            assertEquals("fresh", session.token)
+            assertEquals("/api/app/refresh", server.takeRequest().path)
+            assertEquals("/api/app/session", server.takeRequest().path)
+            transport.disconnect()
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test

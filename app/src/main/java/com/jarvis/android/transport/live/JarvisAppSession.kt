@@ -195,18 +195,30 @@ class JarvisAppSession(
             }
         }
 
-    /** Validate the stored access token. Expiry clears only the short-lived token. */
+    /** Reconnect using the durable paired credential after bearer expiry. */
     suspend fun restore(): Result<AppUser> = withContext(Dispatchers.IO) {
-        token ?: return@withContext Result.failure(TransportException("no session"))
-        if (expired) {
-            clearAccess()
-            return@withContext Result.failure(TransportException("session expired"))
+        if (token.isNullOrBlank() || expired) {
+            if (!hasRefreshCredential) {
+                if (expired) clearAccess()
+                return@withContext Result.failure(TransportException("no session"))
+            }
+            val renewed = refresh(staleBearer = authHeader(), reuseIfAlreadyValid = true)
+            if (renewed.isFailure) return@withContext renewed
         }
         runCatching {
-            val resp = get(baseUrl, "/api/app/session", auth = authHeader())
+            var checked = authHeader() ?: throw TransportException("no session")
+            var resp = get(baseUrl, "/api/app/session", auth = checked)
             if (resp.first == 401) {
-                clearAccess()
-                throw TransportException("session expired")
+                val renewed = refresh(staleBearer = checked, reuseIfAlreadyValid = true)
+                if (renewed.isFailure) {
+                    throw renewed.exceptionOrNull() ?: TransportException("session expired")
+                }
+                checked = authHeader() ?: throw TransportException("no session")
+                resp = get(baseUrl, "/api/app/session", auth = checked)
+                if (resp.first == 401) {
+                    if (authHeader() == checked) clearAccess()
+                    throw TransportException("session expired")
+                }
             }
             requireOk(resp)
             val parsed = json.decodeFromString(SessionResponse.serializer(), resp.second)
@@ -222,12 +234,15 @@ class JarvisAppSession(
     suspend fun refresh(
         candidateBases: Iterable<String> = emptyList(),
         staleBearer: String? = null,
+        reuseIfAlreadyValid: Boolean = false,
     ): Result<AppUser> = withContext(Dispatchers.IO) {
         refreshMutex.withLock {
-        // If a concurrent call already renewed the bearer, do not rotate again.
+        // Allow explicit manual refresh while coalescing concurrent recovery,
+        // even when recovery began with no access bearer.
         val currentBearer = authHeader()
-        if (staleBearer != null && currentBearer != null &&
-            currentBearer != staleBearer && !expired
+        if (currentBearer != null && !expired &&
+            ((reuseIfAlreadyValid && staleBearer == null) ||
+             (staleBearer != null && currentBearer != staleBearer))
         ) return@withLock Result.success(AppUser(userId, username, role))
         val credential = refreshStore.load()
             ?: return@withContext Result.failure(TransportException("pairing required"))

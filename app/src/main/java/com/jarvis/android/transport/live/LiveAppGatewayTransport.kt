@@ -99,7 +99,7 @@ class LiveAppGatewayTransport(
     override suspend fun connect() {
         if (_linkState.value == LinkState.CONNECTED || _linkState.value == LinkState.CONNECTING) return
         val token = session.token
-        if (token.isNullOrBlank()) {
+        if (token.isNullOrBlank() && !session.hasRefreshCredential) {
             _linkState.value = LinkState.FAILED
             throw TransportException("not authenticated")
         }
