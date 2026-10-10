@@ -673,6 +673,7 @@ private fun ChatSection(
     ) { uri -> if (uri != null) vm.stageWritingCopilotReference(uri) }
     val listState = rememberLazyListState()
     val completedTurns = state.chatHistory.count { it.response != null }
+    val settings by vm.settings.collectAsStateWithLifecycle()
 
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
@@ -1173,14 +1174,100 @@ private fun ChatSection(
                                     Text("Trabajo: " + progress.job_id,
                                         style = MaterialTheme.typography.bodySmall)
                                 }
-                                if (progress.final_asset_id.isNotBlank()) {
+                                if (progress.final_asset_id.isNotBlank() &&
+                                    progress.tool == "start_scene_generation"
+                                ) {
                                     Text(
-                                        "Candidato visual: " + progress.final_asset_id +
-                                            ". Abre Visual Studio para revisar y aprobar; " +
-                                            "todavía no es canon.",
+                                        "Escena generada · " + progress.final_asset_id +
+                                            ". Imagen candidata, todavía no es canon.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = JarvisGreen,
                                     )
+                                    val scene = state.copilotSceneCandidate?.takeIf {
+                                        it.taskId == task.task_id &&
+                                            it.jobId == progress.job_id &&
+                                            it.assetId == progress.final_asset_id
+                                    }
+                                    if (scene == null) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                vm.loadCopilotSceneCandidate(
+                                                    projectId, progress.final_asset_id, progress.job_id,
+                                                )
+                                            },
+                                            enabled = settings.isOwner &&
+                                                !state.copilotSceneBusy &&
+                                                !state.copilotAgentBusy && !state.busy &&
+                                                progress.status == "READY_FOR_REVIEW",
+                                        ) { Text("Mostrar imagen aquí") }
+                                    } else {
+                                        val bitmap = remember(scene.previewAttachmentId) {
+                                            vm.attachmentStore.decodeThumbnail(
+                                                scene.previewAttachmentId, maxSize = 1024,
+                                            )
+                                        }
+                                        if (bitmap != null) {
+                                            Image(
+                                                bitmap = bitmap.asImageBitmap(),
+                                                contentDescription = "Candidato visual de la escena",
+                                                modifier = Modifier.fillMaxWidth().height(290.dp),
+                                                contentScale = ContentScale.Fit,
+                                            )
+                                        } else {
+                                            Text(
+                                                "La vista previa no está disponible en este dispositivo.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = JarvisAmber,
+                                            )
+                                        }
+                                        Text(
+                                            "Estado del registro: " + scene.status +
+                                                " · SHA256 " + scene.sha256.take(12) + "…",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = JarvisCyan,
+                                        )
+                                        if (scene.status == "CANDIDATE" &&
+                                            progress.status == "READY_FOR_REVIEW"
+                                        ) {
+                                            Text(
+                                                "Confirma solo si esta imagen representa " +
+                                                    "correctamente la escena. No modifica " +
+                                                    "los hechos del canon.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = JarvisAmber,
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    vm.approveCopilotSceneCandidate(projectId)
+                                                },
+                                                enabled = settings.isOwner &&
+                                                    !state.copilotSceneBusy &&
+                                                    !state.copilotAgentBusy && !state.busy,
+                                            ) { Text("Aprobar esta imagen") }
+                                        } else if (scene.status == "APPROVED") {
+                                            Text(
+                                                "Imagen aprobada en Visual Studio. " +
+                                                    "No se aprobó canon narrativo.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = JarvisGreen,
+                                            )
+                                        }
+                                    }
+                                    if (state.copilotSceneBusy) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = JarvisCyan,
+                                        )
+                                    }
+                                    state.copilotSceneNotice?.let {
+                                        Text(it, style = MaterialTheme.typography.bodySmall,
+                                             color = JarvisGreen)
+                                    }
+                                    state.copilotSceneError?.let {
+                                        Text(it, style = MaterialTheme.typography.bodySmall,
+                                             color = JarvisAmber)
+                                    }
                                 }
                             }
                             if (task.state == "READY" && task.requires_confirmation) {
