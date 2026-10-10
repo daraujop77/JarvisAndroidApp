@@ -20,6 +20,7 @@ import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
+import com.jarvis.android.ui.writing.selectCopilotSceneReviewAsset
 import com.jarvis.android.ui.writing.copilotApprovableViewIds
 import com.jarvis.android.ui.writing.copilotBatchCanStartNew
 import com.jarvis.android.ui.writing.CopilotAppearanceIntent
@@ -1607,43 +1608,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 if (listed.project_id != projectId) {
                     throw IllegalStateException("Las imágenes corresponden a otro proyecto.")
                 }
-                val root = listed.assets.singleOrNull { it.asset_id == assetId }
-                    ?: throw IllegalStateException("La escena original ya no está en el registro.")
-                if (root.kind != "SCENE_ART" || root.project_id != projectId) {
-                    throw IllegalStateException("El trabajo no corresponde a una escena.")
-                }
-                // Recover the most recent STORED revision connected by exact immutable
-                // parent IDs/hashes. Never mistake another project's image for this job.
-                val family = mutableMapOf(root.asset_id to root.sha256)
-                val eligible = mutableListOf(root)
-                repeat(16) {
-                    val descendants = listed.assets.filter { candidate ->
-                        candidate.kind == "SCENE_ART" &&
-                            candidate.project_id == projectId &&
-                            candidate.status in setOf("CANDIDATE", "APPROVED") &&
-                            candidate.storage.state == "stored" &&
-                            candidate.parent_asset_id in family &&
-                            candidate.parent_sha256.equals(
-                                family[candidate.parent_asset_id], ignoreCase = true,
-                            ) && !family.containsKey(candidate.asset_id)
-                    }
-                    if (descendants.isEmpty()) return@repeat
-                    descendants.forEach {
-                        family[it.asset_id] = it.sha256
-                        eligible.add(it)
-                    }
-                }
-                val asset = eligible.filter {
-                    it.status in setOf("CANDIDATE", "APPROVED") &&
-                        it.storage.state == "stored"
-                }.maxWithOrNull(compareBy<com.jarvis.android.transport.live.VisualStudioAsset> {
-                    it.created_utc
-                }.thenBy { it.asset_id }) ?: throw IllegalStateException(
-                    "La imagen todavía no está almacenada para revisión."
+                val asset = selectCopilotSceneReviewAsset(
+                    projectId, assetId, listed.assets,
+                ) ?: throw IllegalStateException(
+                    "La escena no está almacenada o la revisión no se pudo verificar."
                 )
-                if (!Regex("^[A-Fa-f0-9]{64}$").matches(asset.sha256)) {
-                    throw IllegalStateException("El registro visual tiene un hash inválido.")
-                }
                 val content = container.liveSession.writingRoomVisualAssetFetch(
                     projectId, asset.asset_id,
                 ).getOrThrow()
