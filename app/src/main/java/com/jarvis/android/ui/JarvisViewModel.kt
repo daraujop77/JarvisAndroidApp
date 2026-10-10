@@ -1846,6 +1846,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     /** Read-only polling of VPS worker state. Never resubmits a generation or review. */
+    /** Read-only recovery of the existing durable batch; never starts generation. */
+    private fun recoverCopilotTurnaroundBatch(projectId: String, task: CopilotTaskState) {
+        val progress = task.live_progress.firstOrNull {
+            it.tool == "complete_character_views" &&
+                it.character_id.startsWith("character:") &&
+                it.batch_id.isNotBlank()
+        } ?: return
+        val current = _writingWorkspace.value
+        if (current.chatProjectId != projectId || current.copilotViewLoading ||
+            current.copilotViewBatch?.batch_id == progress.batch_id
+        ) return
+        refreshCopilotCharacterViews(projectId, progress.character_id)
+    }
+
     private fun followCopilotTaskProgress(projectId: String, task: CopilotTaskState) {
         if (task.project_id != projectId || task.task_id.isBlank() ||
             _writingWorkspace.value.chatProjectId != projectId
@@ -1858,6 +1872,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (scene != null) {
             loadCopilotSceneCandidate(projectId, scene.final_asset_id, scene.job_id)
         }
+        recoverCopilotTurnaroundBatch(projectId, task)
         val pending = task.live_progress.any {
             it.status in setOf("QUEUED", "RUNNING", "WORKING",
                                "PENDING", "PENDING_CANON_DIFF")
@@ -1896,6 +1911,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 if (preview != null) {
                     loadCopilotSceneCandidate(projectId, preview.final_asset_id, preview.job_id)
                 }
+                recoverCopilotTurnaroundBatch(projectId, next)
                 if (next.live_progress.none {
                     it.status in setOf("QUEUED", "RUNNING", "WORKING",
                                        "PENDING", "PENDING_CANON_DIFF")
