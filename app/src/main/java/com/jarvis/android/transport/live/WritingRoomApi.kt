@@ -143,6 +143,8 @@ data class CopilotTaskLiveProgress(
     val tool: String = "",
     val job_id: String = "",
     val chapter_id: String = "",
+    val character_id: String = "",
+    val batch_id: String = "",
     val status: String = "",
     val final_asset_id: String = "",
     val storage_state: String = "",
