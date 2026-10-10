@@ -228,6 +228,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     data class CopilotSceneCandidateCard(
         val taskId: String,
         val jobId: String,
+        val rootAssetId: String,
         val assetId: String,
         val sha256: String,
         val previewAttachmentId: String,
@@ -265,6 +266,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val copilotSceneBusy: Boolean = false,
         val copilotSceneError: String? = null,
         val copilotSceneNotice: String? = null,
+        val copilotSceneCorrectionUnknown: Boolean = false,
         val wikiHome: WritingWikiHome? = null,
         val wiki: WritingWikiSearch? = null,
         val wikiTimeline: WritingWikiTimeline? = null,
@@ -525,6 +527,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 copilotSceneBusy = false,
                 copilotSceneError = null,
                 copilotSceneNotice = null,
+                copilotSceneCorrectionUnknown = false,
                 wikiCharacters = emptyList(),
                 wikiLocations = emptyList(),
                 knowledgeCapabilities = null,
@@ -1587,7 +1590,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.status == "READY_FOR_REVIEW"
             }
         ) return
-        if (current.copilotSceneCandidate?.assetId == assetId &&
+        if (current.copilotSceneCandidate?.rootAssetId == assetId &&
             current.copilotSceneCandidate.jobId == jobId &&
             current.copilotSceneCandidate.taskId == task.task_id
         ) return
@@ -1633,7 +1636,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value = _writingWorkspace.value.copy(
                         copilotSceneCandidate = CopilotSceneCandidateCard(
                             taskId = task.task_id, jobId = jobId,
-                            assetId = assetId, sha256 = asset.sha256,
+                            rootAssetId = assetId, assetId = assetId,
+                            sha256 = asset.sha256,
                             previewAttachmentId = staged.attachmentId,
                             status = asset.status, storageState = asset.storage.state,
                             visualRevision = asset.visual_revision,
@@ -1665,6 +1669,118 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /** Explicit cloud-capable edit of an APPROVED scene. No automatic retry on timeout. */
+    fun reviseCopilotSceneCandidate(projectId: String, requestedInstruction: String) {
+        val now = _writingWorkspace.value
+        val card = now.copilotSceneCandidate ?: return
+        val task = now.copilotAgentTask ?: return
+        val instruction = requestedInstruction.trim()
+        if (!settings.value.isOwner || now.chatProjectId != projectId ||
+            task.project_id != projectId || card.taskId != task.task_id ||
+            card.status != "APPROVED" || card.storageState != "stored" ||
+            now.copilotSceneBusy || now.copilotSceneCorrectionUnknown || now.busy ||
+            instruction.length !in 8..800 ||
+            !task.live_progress.any {
+                it.tool == "start_scene_generation" &&
+                    it.job_id == card.jobId &&
+                    it.final_asset_id == card.rootAssetId &&
+                    it.status == "READY_FOR_REVIEW"
+            }
+        ) return
+        val epoch = copilotRecoveryEpoch
+        _writingWorkspace.value = now.copy(
+            copilotSceneBusy = true, copilotSceneNotice = null, copilotSceneError = null,
+        )
+        viewModelScope.launch {
+            try {
+                // Recover the complete immutable parent from the VPS registry; do not
+                // fabricate its scene/chapter references in the Android client.
+                val assets = container.liveSession.visualAssetList(
+                    projectId = projectId, characterId = "",
+                ).getOrThrow()
+                if (assets.project_id != projectId) {
+                    throw IllegalStateException("El registro no pertenece al proyecto.")
+                }
+                val parent = assets.assets.singleOrNull { it.asset_id == card.assetId }
+                    ?: throw IllegalStateException("No se encontró la imagen base.")
+                if (parent.project_id != projectId || parent.kind != "SCENE_ART" ||
+                    parent.status != "APPROVED" || parent.storage.state != "stored" ||
+                    !parent.sha256.equals(card.sha256, ignoreCase = true)
+                ) throw IllegalStateException("La imagen base ya no está aprobada.")
+                val source = container.liveSession.writingRoomVisualAssetFetch(
+                    projectId, card.assetId,
+                ).getOrThrow()
+                if (source.asset_id != card.assetId ||
+                    !source.sha256.equals(card.sha256, ignoreCase = true) ||
+                    source.mime_type !in setOf("image/png", "image/jpeg", "image/webp") ||
+                    source.image_base64.length > 16 * 1024 * 1024
+                ) throw IllegalStateException("La imagen original no pasó la verificación.")
+                // One owner gesture dispatches one existing Image Studio edit route.
+                // gpt-image-2-medium is the project's currently configured image model.
+                val response = container.liveSession.editSceneVisualAssetImage(
+                    imageBase64 = source.image_base64,
+                    mimeType = source.mime_type,
+                    projectId = projectId,
+                    instruction = instruction,
+                    parentAsset = parent,
+                    mode = "quality",
+                    model = "gpt-image-2-medium",
+                    preserveIdentity = "high",
+                    aspectRatio = "landscape",
+                ).getOrThrow()
+                val child = response.visual_asset
+                    ?: throw IllegalStateException("La edición no devolvió registro de candidato.")
+                if (child.project_id != projectId || child.kind != "SCENE_ART" ||
+                    child.status != "CANDIDATE" ||
+                    child.parent_asset_id != parent.asset_id ||
+                    !child.parent_sha256.equals(parent.sha256, ignoreCase = true) ||
+                    !Regex("^[A-Fa-f0-9]{64}$").matches(child.sha256)
+                ) throw IllegalStateException("La edición no coincide con la imagen padre.")
+                val preview = withContext(Dispatchers.IO) {
+                    container.attachmentStore.stageVisualAssetBase64(
+                        response.data_base64, child.sha256,
+                    )
+                } ?: throw IllegalStateException("La edición no pudo verificarse en Android.")
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId &&
+                    _writingWorkspace.value.copilotAgentTask?.task_id == card.taskId
+                ) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotSceneCandidate = card.copy(
+                            assetId = child.asset_id, sha256 = child.sha256,
+                            previewAttachmentId = preview.attachmentId,
+                            status = child.status, storageState = child.storage.state,
+                            visualRevision = child.visual_revision,
+                        ),
+                        copilotSceneNotice = "Nueva versión guardada como candidata. " +
+                            "La versión anterior sigue aprobada hasta que confirmes ésta.",
+                        copilotSceneCorrectionUnknown = false,
+                    )
+                    deleteVisualStudioAttachments(listOf(card.previewAttachmentId))
+                } else {
+                    deleteVisualStudioAttachments(listOf(preview.attachmentId))
+                }
+            } catch (error: Exception) {
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
+                ) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotSceneCorrectionUnknown = true,
+                        copilotSceneError = "No se confirmó el resultado de la edición: " +
+                            (error.message ?: "resultado desconocido") +
+                            ". No se reintentará. Revisa los candidatos en Visual Studio.",
+                    )
+                }
+            } finally {
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
+                ) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotSceneBusy = false)
+                }
+            }
+        }
+    }
+
     /** Human-only approval of the exact immutable SCENE_ART candidate, not of story canon. */
     fun approveCopilotSceneCandidate(projectId: String) {
         val current = _writingWorkspace.value
@@ -1677,7 +1793,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             !Regex("^[A-Fa-f0-9]{64}$").matches(card.sha256) ||
             !task.live_progress.any {
                 it.tool == "start_scene_generation" && it.job_id == card.jobId &&
-                    it.final_asset_id == card.assetId &&
+                    it.final_asset_id == card.rootAssetId &&
                     it.status == "READY_FOR_REVIEW"
             }
         ) return
