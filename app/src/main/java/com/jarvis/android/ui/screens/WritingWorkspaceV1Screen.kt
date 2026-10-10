@@ -1045,6 +1045,46 @@ private fun ChatSection(
                 }
             }
 
+            state.pendingPortrait?.let { request ->
+                item(key = "copilot-portrait-confirmation") {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color(0xEE0E182A),
+                        border = BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.65f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                "CONFIRMAR GENERACIÓN DE IMAGEN",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = JarvisAmber,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Retrato de " + request.canonicalName +
+                                    ". Se utilizará GPT Image 2 Medium y puede consumir créditos.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                "Se guardará como candidato; no cambiará el canon ni se aprobará solo.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF94A3B8),
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { vm.confirmWritingCopilotPortrait(projectId) },
+                                    enabled = !state.busy,
+                                ) { Text("Generar imagen") }
+                                TextButton(
+                                    onClick = { vm.cancelWritingCopilotPortrait(projectId) },
+                                ) { Text("Cancelar") }
+                            }
+                        }
+                    }
+                }
+            }
+
             state.copilotAppearance?.let { card ->
                 item(key = "copilot-appearance-" + card.characterId) {
                     Surface(
