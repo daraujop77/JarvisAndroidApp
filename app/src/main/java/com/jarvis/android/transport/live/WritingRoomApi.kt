@@ -1254,7 +1254,7 @@ private suspend inline fun <reified T> JarvisAppSession.writingPost(
     // The device refresh credential survives a short-lived access-token expiry.
     // Never clear the paired device just because one Writing Room request is 401.
     if (expired || authHeader() == null) {
-        val renewed = refresh()
+        val renewed = refresh(staleBearer = authHeader(), reuseIfAlreadyValid = true)
         if (renewed.isFailure) {
             return@withContext Result.failure(
                 renewed.exceptionOrNull() ?: TransportException("session expired"),
@@ -1265,15 +1265,14 @@ private suspend inline fun <reified T> JarvisAppSession.writingPost(
         var auth = authHeader() ?: throw TransportException("no live session")
         var response = post(baseUrl, path, body.toString(), auth, timeoutMillis)
         if (response.first == 401) {
-            clearAccess()
-            val renewed = refresh()
+            val renewed = refresh(staleBearer = auth)
             if (renewed.isFailure) {
                 throw renewed.exceptionOrNull() ?: TransportException("session expired")
             }
             auth = authHeader() ?: throw TransportException("no live session")
             response = post(baseUrl, path, body.toString(), auth, timeoutMillis)
             if (response.first == 401) {
-                clearAccess()
+                if (authHeader() == auth) clearAccess()
                 throw TransportException("session expired")
             }
         }
@@ -1429,11 +1428,15 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     val clean = prompt.trim()
     if (clean.isEmpty()) return@withContext Result.failure(TransportException("Writing Room prompt is empty"))
     if (clean.length > 6000) return@withContext Result.failure(TransportException("Writing Room prompt is too long"))
-    if (expired) {
-        clear()
-        return@withContext Result.failure(TransportException("session expired"))
+    if (expired || authHeader() == null) {
+        val renewed = refresh(staleBearer = authHeader(), reuseIfAlreadyValid = true)
+        if (renewed.isFailure) {
+            return@withContext Result.failure(
+                renewed.exceptionOrNull() ?: TransportException("session expired"),
+            )
+        }
     }
-    val auth = authHeader()
+    var auth = authHeader()
         ?: return@withContext Result.failure(TransportException("no live session"))
     val body = buildJsonObject {
         put("project_id", projectId)
@@ -1447,12 +1450,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     runCatching {
         var completed: WritingRoomAutoChat? = null
         var streamError: String? = null
-        val status = postSse(
-            baseUrl,
-            "/api/app/writing-room/chat/stream",
-            body,
-            auth,
-        ) { event, data ->
+        val onEvent: (String, String) -> Unit = { event, data ->
             when (event) {
                 "delta" -> {
                     val obj = writingRoomJson.parseToJsonElement(data).jsonObject
@@ -1469,9 +1467,24 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 }
             }
         }
+        var status = postSse(
+            baseUrl, "/api/app/writing-room/chat/stream", body, auth, onEvent,
+        )
         if (status == 401) {
-            clear()
-            throw TransportException("session expired")
+            // HTTP 401 means the stream was rejected before execution.
+            // Retrying the same request_id avoids accidental duplicate tasks.
+            val renewed = refresh(staleBearer = auth)
+            if (renewed.isFailure) {
+                throw renewed.exceptionOrNull() ?: TransportException("session expired")
+            }
+            auth = authHeader() ?: throw TransportException("no live session")
+            status = postSse(
+                baseUrl, "/api/app/writing-room/chat/stream", body, auth, onEvent,
+            )
+            if (status == 401) {
+                if (authHeader() == auth) clearAccess()
+                throw TransportException("session expired")
+            }
         }
         if (status !in 200..299) throw TransportException("HTTP $status")
         streamError?.let { throw TransportException(it) }

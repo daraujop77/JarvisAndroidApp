@@ -7,6 +7,8 @@ import com.jarvis.android.security.SecureRefreshCredentialStore
 import com.jarvis.android.transport.TransportException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -77,6 +79,7 @@ class JarvisAppSession(
     }
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val refreshMutex = Mutex()
 
     @Serializable
     data class AppUser(val id: String = "", val username: String = "", val role: String = "")
@@ -192,18 +195,30 @@ class JarvisAppSession(
             }
         }
 
-    /** Validate the stored access token. Expiry clears only the short-lived token. */
+    /** Reconnect using the durable paired credential after bearer expiry. */
     suspend fun restore(): Result<AppUser> = withContext(Dispatchers.IO) {
-        token ?: return@withContext Result.failure(TransportException("no session"))
-        if (expired) {
-            clearAccess()
-            return@withContext Result.failure(TransportException("session expired"))
+        if (token.isNullOrBlank() || expired) {
+            if (!hasRefreshCredential) {
+                if (expired) clearAccess()
+                return@withContext Result.failure(TransportException("no session"))
+            }
+            val renewed = refresh(staleBearer = authHeader(), reuseIfAlreadyValid = true)
+            if (renewed.isFailure) return@withContext renewed
         }
         runCatching {
-            val resp = get(baseUrl, "/api/app/session", auth = authHeader())
+            var checked = authHeader() ?: throw TransportException("no session")
+            var resp = get(baseUrl, "/api/app/session", auth = checked)
             if (resp.first == 401) {
-                clearAccess()
-                throw TransportException("session expired")
+                val renewed = refresh(staleBearer = checked, reuseIfAlreadyValid = true)
+                if (renewed.isFailure) {
+                    throw renewed.exceptionOrNull() ?: TransportException("session expired")
+                }
+                checked = authHeader() ?: throw TransportException("no session")
+                resp = get(baseUrl, "/api/app/session", auth = checked)
+                if (resp.first == 401) {
+                    if (authHeader() == checked) clearAccess()
+                    throw TransportException("session expired")
+                }
             }
             requireOk(resp)
             val parsed = json.decodeFromString(SessionResponse.serializer(), resp.second)
@@ -216,8 +231,19 @@ class JarvisAppSession(
      * Exchange the device-bound refresh credential for a fresh 24h bearer.
      * The refresh credential rotates on every successful exchange.
      */
-    suspend fun refresh(candidateBases: Iterable<String> = emptyList()): Result<AppUser> =
-        withContext(Dispatchers.IO) {
+    suspend fun refresh(
+        candidateBases: Iterable<String> = emptyList(),
+        staleBearer: String? = null,
+        reuseIfAlreadyValid: Boolean = false,
+    ): Result<AppUser> = withContext(Dispatchers.IO) {
+        refreshMutex.withLock {
+        // Allow explicit manual refresh while coalescing concurrent recovery,
+        // even when recovery began with no access bearer.
+        val currentBearer = authHeader()
+        if (currentBearer != null && !expired &&
+            ((reuseIfAlreadyValid && staleBearer == null) ||
+             (staleBearer != null && currentBearer != staleBearer))
+        ) return@withLock Result.success(AppUser(userId, username, role))
         val credential = refreshStore.load()
             ?: return@withContext Result.failure(TransportException("pairing required"))
         val current = normalizeBase(baseUrl)?.takeIf { isAllowedLiveHost(it) }
@@ -251,6 +277,7 @@ class JarvisAppSession(
             )
             refreshStore.save(parsed.refresh_token, parsed.refresh_expires_utc)
             parsed.user
+        }
         }
     }
 
