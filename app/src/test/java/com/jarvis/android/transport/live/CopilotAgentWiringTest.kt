@@ -66,5 +66,14 @@ class CopilotAgentWiringTest {
         assertTrue(screen.contains("Aprobar esta imagen"))
         assertTrue(screen.contains("Generar corrección · puede tener costo"))
         assertTrue(screen.contains("it.rootAssetId == progress.final_asset_id"))
+        val visualApi = code("app/src/main/java/com/jarvis/android/transport/live/VisualStudioApi.kt")
+        assertTrue(screen.contains("generate_story_scene"))
+        assertTrue(screen.contains("Puedes corregir esta imagen sin aprobarla"))
+        assertTrue(screen.contains("scene.status in setOf(\"CANDIDATE\", \"APPROVED\")"))
+        assertTrue(vm.contains("sceneJobId = if (parent.status == \"CANDIDATE\") card.jobId else null"))
+        assertTrue(vm.contains("it.tool in setOf(\"start_scene_generation\", \"generate_story_scene\")"))
+        assertTrue(visualApi.contains("/api/app/images/copilot-scene-edits"))
+        assertTrue(visualApi.contains("if (candidateEdit) put(\"scene_job_id\", sceneJobId.orEmpty())"))
+        assertTrue(visualApi.contains("(!candidateEdit && parentAsset.status != \"APPROVED\")"))
     }
 }
