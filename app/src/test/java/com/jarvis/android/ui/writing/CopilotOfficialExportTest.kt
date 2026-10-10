@@ -52,6 +52,7 @@ class CopilotOfficialExportTest {
         assertFalse(looksLikeCopilotOfficialExportRequest("Genera un retrato del capítulo 37"))
         assertTrue(looksLikeCopilotCanonReadRequest("Revisa la cronología del canon"))
         assertTrue(looksLikeCopilotCanonReadRequest("Quiero ver el lore establecido"))
+        assertTrue(looksLikeCopilotCanonReadRequest("Muestra el estado del mapa narrativo"))
         assertFalse(looksLikeCopilotCanonReadRequest("Quiero una batalla visual épica"))
     }
 }
