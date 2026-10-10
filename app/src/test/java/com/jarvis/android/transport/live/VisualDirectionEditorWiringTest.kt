@@ -51,7 +51,7 @@ class VisualDirectionEditorWiringTest {
         val viewModel = source("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
         assertTrue(screen.contains("bulkMasterConfirmation"))
         assertTrue(screen.contains("AlertDialog("))
-        assertTrue(screen.contains("Se solicitarán $count imágenes de pago"))
+        assertTrue(screen.contains("Se solicitarán \$count imágenes de pago"))
         assertTrue(screen.contains("vm.generateMissingCharacterMasters(projectId, count)"))
         assertTrue(viewModel.contains("fun generateMissingCharacterMasters(projectId: String, expectedCount: Int)"))
         assertTrue(viewModel.contains("ready.size != expectedCount"))
