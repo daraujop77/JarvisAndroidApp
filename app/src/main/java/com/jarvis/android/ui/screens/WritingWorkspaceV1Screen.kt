@@ -67,6 +67,7 @@ import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
+import com.jarvis.android.ui.writing.looksLikeCopilotCharacterViewsRequest
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
@@ -690,7 +691,8 @@ private fun ChatSection(
                 vm.runWritingRoomAutoChat(
                     projectId, title, clean,
                     toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean) ||
-                        looksLikeCopilotChapterWriteRequest(clean),
+                        looksLikeCopilotChapterWriteRequest(clean) ||
+                        looksLikeCopilotCharacterViewsRequest(clean),
                 )
             }
             prompt = ""
@@ -1142,6 +1144,8 @@ private fun ChatSection(
                                         "get_character_wiki_profile" -> "Ficha del personaje (Wiki)"
                                         "get_character_visual_direction" -> "Apariencia del personaje"
                                         "get_project_visual_style" -> "Estilo visual del proyecto"
+                                        "get_character_master_readiness" -> "Consultar masters y pendientes visuales"
+                                        "complete_character_views" -> "Completar vistas del personaje"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
                                         "get_scene_context" -> "Consultar contexto visual congelado"
                                         "prepare_visual_scene" -> "Preparar escena a partir del canon"
@@ -1334,6 +1338,9 @@ private fun ChatSection(
                                 val startsDraft = task.steps.any {
                                     it.tool == "draft_and_review_current_chapter"
                                 }
+                                val startsCharacterViews = task.steps.any {
+                                    it.tool == "complete_character_views"
+                                }
                                 val engine = task.steps.firstOrNull {
                                     it.tool in setOf("start_scene_generation", "generate_story_scene")
                                 }?.arguments?.get("engine")?.toString()?.trim('"') ?: ""
@@ -1344,6 +1351,11 @@ private fun ChatSection(
                                              else "tu PC local") +
                                             ". Sin correcciones automáticas. El candidato " +
                                             "requiere aprobación humana y NO cambia el canon."
+                                    } else if (startsCharacterViews) {
+                                        "Se completarán hasta seis vistas individuales usando el master " +
+                                            "frontal ya aprobado. Puede consumir tokens cloud. Se harán " +
+                                            "como máximo seis intentos de generación, sin correcciones " +
+                                            "automáticas ni aprobación de imágenes o canon."
                                     } else if (startsDraft) {
                                         "Se escribirá el capítulo completo usando el Writer W2 y " +
                                             "después se revisará con el coordinador A4 existente. " +
@@ -1372,6 +1384,7 @@ private fun ChatSection(
                                     Text(
                                         when {
                                             generatesScene -> "Confirmar generación de imagen"
+                                            startsCharacterViews -> "Completar vistas del personaje"
                                             startsDraft -> "Escribir y revisar capítulo"
                                             startsReview -> "Iniciar revisión del capítulo"
                                             preparesScene -> "Preparar escena"
