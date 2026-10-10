@@ -69,6 +69,9 @@ import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotCharacterViewsRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotVisualDirectionChangeRequest
+import com.jarvis.android.ui.writing.looksLikeCopilotOfficialExportRequest
+import com.jarvis.android.ui.writing.looksLikeCopilotCanonReadRequest
+import com.jarvis.android.ui.writing.resolveCopilotOfficialExport
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
@@ -679,6 +682,32 @@ private fun ChatSection(
     val listState = rememberLazyListState()
     val completedTurns = state.chatHistory.count { it.response != null }
     val settings by vm.settings.collectAsStateWithLifecycle()
+    // Chat uses the same existing verified Library export pipeline and Android
+    // document picker. The tool returns metadata only; no bytes in Copilot.
+    val copilotPdfPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val copilotDocxPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val copilotEpubPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/epub+zip"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val copilotMarkdownPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/markdown"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    LaunchedEffect(state.pendingExport?.sha256) {
+        val file = state.pendingExport ?: return@LaunchedEffect
+        when (file.format) {
+            "pdf" -> copilotPdfPicker.launch(file.filename)
+            "docx" -> copilotDocxPicker.launch(file.filename)
+            "epub" -> copilotEpubPicker.launch(file.filename)
+            "markdown" -> copilotMarkdownPicker.launch(file.filename)
+            else -> vm.cancelPendingWritingExport()
+        }
+    }
 
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
@@ -694,7 +723,9 @@ private fun ChatSection(
                     toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean) ||
                         looksLikeCopilotChapterWriteRequest(clean) ||
                         looksLikeCopilotCharacterViewsRequest(clean) ||
-                        looksLikeCopilotVisualDirectionChangeRequest(clean),
+                        looksLikeCopilotVisualDirectionChangeRequest(clean) ||
+                        looksLikeCopilotOfficialExportRequest(clean) ||
+                        looksLikeCopilotCanonReadRequest(clean),
                 )
             }
             prompt = ""
@@ -1139,6 +1170,9 @@ private fun ChatSection(
                                         "get_story_overview" -> "Resumen del proyecto"
                                         "list_story_chapters" -> "Capítulos"
                                         "list_story_library" -> "Biblioteca"
+                                        "get_story_timeline" -> "Cronología y eventos del canon"
+                                        "get_story_lore" -> "Lore y fuentes verificadas"
+                                        "prepare_official_chapter_export" -> "Preparar exportación de capítulo oficial"
                                         "list_story_characters" -> "Personajes"
                                         "search_story_wiki" -> "Consultar el Wiki"
                                         "list_story_ideas" -> "Ideas"
@@ -1179,6 +1213,30 @@ private fun ChatSection(
                                 Spacer(Modifier.height(7.dp))
                                 Text(output.text, style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFFE2E8F0))
+                                // A read-only tool resolves only official full-text source IDs.
+                                // Export bytes are requested AFTER user action, with SHA pin.
+                                val prepared = if (output.tool == "prepare_official_chapter_export" &&
+                                    task.state == "DONE" && task.project_id == projectId
+                                ) resolveCopilotOfficialExport(output.result) else null
+                                if (prepared != null) {
+                                    Spacer(Modifier.height(6.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            vm.requestWritingLibraryExport(
+                                                projectId, prepared.documentId, prepared.format,
+                                                prepared.sourceSha256,
+                                            )
+                                        },
+                                        enabled = !state.busy && !state.copilotAgentBusy &&
+                                            !state.copilotAppearanceBusy,
+                                    ) {
+                                        Text("Exportar capítulo ${prepared.chapterNumber} · ${prepared.format.uppercase()}")
+                                    }
+                                }
+                            }
+                            state.exportMessage?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisGreen)
                             }
                             task.live_progress.forEach { progress ->
                                 Spacer(Modifier.height(8.dp))
