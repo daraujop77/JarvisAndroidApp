@@ -90,6 +90,7 @@ class CopilotAgentWiringTest {
         assertTrue(screen.contains("get_chapter_approval_packet"))
         assertTrue(screen.contains("get_story_timeline"))
         assertTrue(screen.contains("get_story_lore"))
+        assertTrue(screen.contains("get_world_map_status"))
         assertTrue(api.contains("expected_source_sha256"))
         assertTrue(vm.contains("expectedSourceSha256"))
         assertTrue(vm.contains("writingRoomLibraryExport("))
