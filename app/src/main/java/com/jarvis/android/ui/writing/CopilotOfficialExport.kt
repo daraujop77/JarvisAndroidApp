@@ -48,5 +48,7 @@ fun looksLikeCopilotCanonReadRequest(text: String): Boolean {
     if (value.length !in 13..500) return false
     return listOf("cronología del canon", "cronologia del canon",
         "línea de tiempo del canon", "linea de tiempo del canon",
-        "lore establecido", "lore del proyecto").any(value::contains)
+        "lore establecido", "lore del proyecto",
+        "estado del mapa narrativo", "revisiones del mapa narrativo",
+        "estado del mapa del mundo").any(value::contains)
 }
