@@ -1525,22 +1525,26 @@ suspend fun JarvisAppSession.editSceneVisualAssetImage(
     model: String? = null,
     preserveIdentity: String = "high",
     aspectRatio: String = "landscape",
+    sceneJobId: String? = null,
 ): Result<VisualStudioGeneratedImage> {
+    val candidateEdit = parentAsset.status == "CANDIDATE"
     if (
         parentAsset.project_id != projectId ||
         parentAsset.kind != "SCENE_ART" ||
-        parentAsset.status != "APPROVED" ||
+        (candidateEdit && !Regex("^vsj_[0-9a-f]{32}$").matches(sceneJobId.orEmpty())) ||
+        (!candidateEdit && parentAsset.status != "APPROVED") ||
         parentAsset.asset_id.isBlank() ||
         parentAsset.sha256.isBlank()
     ) {
         return Result.failure(
-            TransportException("scene edit requires an approved SCENE_ART parent from the same project"),
+            TransportException("scene edit requires an approved parent or an exact Scene Director candidate job in the same project"),
         )
     }
     return visualStudioObjectPost(
-        "/api/app/images/edits",
+        if (candidateEdit) "/api/app/images/copilot-scene-edits" else "/api/app/images/edits",
         buildJsonObject {
             put("project_id", projectId)
+            if (candidateEdit) put("scene_job_id", sceneJobId.orEmpty())
             put("image_base64", imageBase64)
             put("mime_type", mimeType)
             put("instruction", instruction.trim())
