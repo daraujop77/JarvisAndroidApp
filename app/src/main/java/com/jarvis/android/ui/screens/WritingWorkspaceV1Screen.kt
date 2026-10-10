@@ -1140,6 +1140,7 @@ private fun ChatSection(
                                         "get_scene_context" -> "Consultar contexto visual congelado"
                                         "prepare_visual_scene" -> "Preparar escena a partir del canon"
                                         "start_scene_generation" -> "Generar imagen desde contexto aprobado"
+                                        "generate_story_scene" -> "Crear escena desde el canon, sin IDs manuales"
                                         "get_scene_generation_status" -> "Consultar estado de imagen"
                                         "get_chapter_draft_status" -> "Estado del borrador y la revisión"
                                         "get_chapter_auto_review_status" -> "Estado de la revisión automática"
@@ -1176,7 +1177,7 @@ private fun ChatSection(
                                         style = MaterialTheme.typography.bodySmall)
                                 }
                                 if (progress.final_asset_id.isNotBlank() &&
-                                    progress.tool == "start_scene_generation"
+                                    progress.tool in setOf("start_scene_generation", "generate_story_scene")
                                 ) {
                                     Text(
                                         "Escena generada · " + progress.final_asset_id +
@@ -1252,6 +1253,8 @@ private fun ChatSection(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = JarvisGreen,
                                             )
+                                        }
+                                        if (scene.status in setOf("CANDIDATE", "APPROVED")) {
                                             Spacer(Modifier.height(8.dp))
                                             OutlinedTextField(
                                                 value = sceneCorrection,
@@ -1270,11 +1273,11 @@ private fun ChatSection(
                                                     !state.copilotSceneCorrectionUnknown,
                                             )
                                             Text(
-                                                "La corrección utiliza el proveedor visual " +
-                                                    "y puede consumir créditos. Se creará una " +
-                                                    "nueva imagen candidata sin reemplazar ésta " +
-                                                    "hasta que la apruebes. Si falla, no se " +
-                                                    "reintenta automáticamente.",
+                                                "Puedes corregir esta imagen sin aprobarla. La " +
+                                                    "corrección puede consumir créditos y crea " +
+                                                    "una nueva candidata. Esta versión conserva " +
+                                                    "su estado; el canon no cambia. Si falla, no " +
+                                                    "se reintenta automáticamente.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = JarvisAmber,
                                             )
@@ -1316,13 +1319,13 @@ private fun ChatSection(
                                     it.tool == "prepare_visual_scene"
                                 }
                                 val generatesScene = task.steps.any {
-                                    it.tool == "start_scene_generation"
+                                    it.tool in setOf("start_scene_generation", "generate_story_scene")
                                 }
                                 val startsReview = task.steps.any {
                                     it.tool == "start_chapter_auto_review"
                                 }
                                 val engine = task.steps.firstOrNull {
-                                    it.tool == "start_scene_generation"
+                                    it.tool in setOf("start_scene_generation", "generate_story_scene")
                                 }?.arguments?.get("engine")?.toString()?.trim('"') ?: ""
                                 Text(
                                     if (generatesScene) {
