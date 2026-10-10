@@ -21,6 +21,15 @@ class WritingRoomIntegrityWiringTest {
     }
 
     @Test
+    fun unsupportedProjectMutationsAreNotAdvertisedInTheUi() {
+        val projects = code("app/src/main/java/com/jarvis/android/ui/screens/ProjectsScreen.kt")
+        assertFalse(projects.contains("vm.createProject("))
+        assertFalse(projects.contains("vm.renameProject("))
+        assertFalse(projects.contains("vm.deleteProject("))
+        assertTrue(projects.contains("contrato seguro de provisión"))
+    }
+
+    @Test
     fun portraitIntentDoesNotImmediatelyDispatchCloudGeneration() {
         val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
         val screen = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
