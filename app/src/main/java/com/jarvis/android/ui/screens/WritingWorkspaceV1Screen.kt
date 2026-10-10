@@ -68,6 +68,7 @@ import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotCharacterViewsRequest
+import com.jarvis.android.ui.writing.looksLikeCopilotVisualDirectionChangeRequest
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
@@ -692,7 +693,8 @@ private fun ChatSection(
                     projectId, title, clean,
                     toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean) ||
                         looksLikeCopilotChapterWriteRequest(clean) ||
-                        looksLikeCopilotCharacterViewsRequest(clean),
+                        looksLikeCopilotCharacterViewsRequest(clean) ||
+                        looksLikeCopilotVisualDirectionChangeRequest(clean),
                 )
             }
             prompt = ""
@@ -1144,6 +1146,8 @@ private fun ChatSection(
                                         "get_character_wiki_profile" -> "Ficha del personaje (Wiki)"
                                         "get_character_visual_direction" -> "Apariencia del personaje"
                                         "get_project_visual_style" -> "Estilo visual del proyecto"
+                                        "update_project_visual_style" -> "Cambiar estilo visual del proyecto"
+                                        "update_character_visual_direction" -> "Actualizar apariencia del personaje"
                                         "get_character_master_readiness" -> "Consultar masters y pendientes visuales"
                                         "complete_character_views" -> "Completar vistas del personaje"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
@@ -1345,6 +1349,10 @@ private fun ChatSection(
                                 val startsCharacterViews = task.steps.any {
                                     it.tool == "complete_character_views"
                                 }
+                                val changesVisualDirection = task.steps.any {
+                                    it.tool in setOf("update_project_visual_style",
+                                        "update_character_visual_direction")
+                                }
                                 val engine = task.steps.firstOrNull {
                                     it.tool in setOf("start_scene_generation", "generate_story_scene")
                                 }?.arguments?.get("engine")?.toString()?.trim('"') ?: ""
@@ -1355,6 +1363,11 @@ private fun ChatSection(
                                              else "tu PC local") +
                                             ". Sin correcciones automáticas. El candidato " +
                                             "requiere aprobación humana y NO cambia el canon."
+                                    } else if (changesVisualDirection) {
+                                        "Se guardará únicamente el campo y valor visuales mostrados arriba. " +
+                                            "Esto afecta futuras imágenes candidatas, pero no modifica " +
+                                            "el canon escrito, imágenes existentes ni masters aprobados. " +
+                                            "Se comprobará la revisión del perfil en el VPS antes de guardar."
                                     } else if (startsCharacterViews) {
                                         "Se completarán hasta seis vistas individuales usando el master " +
                                             "frontal ya aprobado. Puede consumir tokens cloud. Se harán " +
@@ -1389,6 +1402,7 @@ private fun ChatSection(
                                         when {
                                             generatesScene -> "Confirmar generación de imagen"
                                             startsCharacterViews -> "Completar vistas del personaje"
+                                            changesVisualDirection -> "Guardar cambio visual"
                                             startsDraft -> "Escribir y revisar capítulo"
                                             startsReview -> "Iniciar revisión del capítulo"
                                             preparesScene -> "Preparar escena"
