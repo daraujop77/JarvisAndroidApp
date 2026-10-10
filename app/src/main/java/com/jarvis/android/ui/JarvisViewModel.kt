@@ -306,6 +306,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _writingWorkspace = MutableStateFlow(WritingWorkspaceState())
     val writingWorkspace: StateFlow<WritingWorkspaceState> = _writingWorkspace
 
+    private var copilotTaskPollJob: Job? = null
+    private var copilotTaskPollId: String? = null
     private var copilotRecoveryEpoch = 0L
     private var copilotRecoveryActiveProject: String? = null
     private var copilotViewPollJob: Job? = null
@@ -485,6 +487,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             copilotRecoveryActiveProject = null
             copilotViewPollJob?.cancel()
             copilotViewPollJob = null
+            copilotTaskPollJob?.cancel()
+            copilotTaskPollJob = null
+            copilotTaskPollId = null
             deleteVisualStudioAttachments(_writingWorkspace.value.copilotViewPreviews.values)
             _writingWorkspace.value.copilotSceneCandidate?.let {
                 deleteVisualStudioAttachments(listOf(it.previewAttachmentId))
@@ -1631,7 +1636,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             assetId = assetId, sha256 = asset.sha256,
                             previewAttachmentId = staged.attachmentId,
                             status = asset.status, storageState = asset.storage.state,
-                            visualRevision = 0,
+                            visualRevision = asset.visual_revision,
                         ),
                         copilotSceneNotice = "Imagen recuperada y verificada. Todavía no cambia el canon.",
                     )
@@ -1722,6 +1727,65 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /** Read-only polling of VPS worker state. Never resubmits a generation or review. */
+    private fun followCopilotTaskProgress(projectId: String, task: CopilotTaskState) {
+        if (task.project_id != projectId || task.task_id.isBlank() ||
+            _writingWorkspace.value.chatProjectId != projectId
+        ) return
+        val scene = task.live_progress.firstOrNull {
+            it.tool == "start_scene_generation" &&
+                it.status == "READY_FOR_REVIEW" &&
+                it.final_asset_id.isNotBlank()
+        }
+        if (scene != null) {
+            loadCopilotSceneCandidate(projectId, scene.final_asset_id, scene.job_id)
+        }
+        val pending = task.live_progress.any {
+            it.status in setOf("QUEUED", "RUNNING", "WORKING",
+                               "PENDING", "PENDING_CANON_DIFF")
+        }
+        if (!pending) {
+            if (copilotTaskPollId == task.task_id) {
+                copilotTaskPollJob?.cancel()
+                copilotTaskPollJob = null
+                copilotTaskPollId = null
+            }
+            return
+        }
+        if (copilotTaskPollId == task.task_id && copilotTaskPollJob?.isActive == true) {
+            return
+        }
+        copilotTaskPollJob?.cancel()
+        copilotTaskPollId = task.task_id
+        val epoch = copilotRecoveryEpoch
+        copilotTaskPollJob = viewModelScope.launch {
+            repeat(120) {
+                delay(4_000)
+                if (_writingWorkspace.value.chatProjectId != projectId ||
+                    copilotRecoveryEpoch != epoch ||
+                    _writingWorkspace.value.copilotAgentTask?.task_id != task.task_id
+                ) return@launch
+                val next = container.liveSession.writingRoomCopilotTaskStatus(
+                    projectId, task.task_id,
+                ).getOrNull() ?: return@repeat
+                if (next.project_id != projectId || next.task_id != task.task_id) return@launch
+                _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = next)
+                val preview = next.live_progress.firstOrNull {
+                    it.tool == "start_scene_generation" &&
+                        it.status == "READY_FOR_REVIEW" &&
+                        it.final_asset_id.isNotBlank()
+                }
+                if (preview != null) {
+                    loadCopilotSceneCandidate(projectId, preview.final_asset_id, preview.job_id)
+                }
+                if (next.live_progress.none {
+                    it.status in setOf("QUEUED", "RUNNING", "WORKING",
+                                       "PENDING", "PENDING_CANON_DIFF")
+                }) return@launch
+            }
+        }
+    }
+
     /** Backend owns orchestration and authorization; this only retrieves visible state. */
     fun recoverWritingCopilotTask(projectId: String) {
         if (_writingWorkspace.value.chatProjectId != projectId) return
@@ -1733,6 +1797,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 _writingWorkspace.value.chatProjectId == projectId
             ) {
                 _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = response)
+                followCopilotTaskProgress(projectId, response)
             }
         }
     }
@@ -1765,6 +1830,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value.chatProjectId == projectId
                 ) {
                     _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = updated)
+                    followCopilotTaskProgress(projectId, updated)
                 }
             } catch (error: Exception) {
                 if (copilotRecoveryEpoch == epoch &&
@@ -1871,9 +1937,16 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             chat = response,
                             chatHistory = updatedHistory,
                             copilotAgentTask = response.copilot_task ?: state.copilotAgentTask,
+                            copilotSceneCandidate = if (
+                                response.copilot_task != null &&
+                                response.copilot_task.task_id != state.copilotAgentTask?.task_id
+                            ) null else state.copilotSceneCandidate,
                             streamingText = "",
                             error = null,
                         )
+                        response.copilot_task?.let {
+                            followCopilotTaskProgress(projectId, it)
+                        }
                     }
                 },
                 onFailure = { error ->
