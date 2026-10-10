@@ -1251,17 +1251,31 @@ private suspend inline fun <reified T> JarvisAppSession.writingPost(
     body: JsonObject,
     timeoutMillis: Long? = null,
 ): Result<T> = withContext(Dispatchers.IO) {
-    if (expired) {
-        clear()
-        return@withContext Result.failure(TransportException("session expired"))
+    // The device refresh credential survives a short-lived access-token expiry.
+    // Never clear the paired device just because one Writing Room request is 401.
+    if (expired || authHeader() == null) {
+        val renewed = refresh()
+        if (renewed.isFailure) {
+            return@withContext Result.failure(
+                renewed.exceptionOrNull() ?: TransportException("session expired"),
+            )
+        }
     }
-    val auth = authHeader()
-        ?: return@withContext Result.failure(TransportException("no live session"))
     runCatching {
-        val response = post(baseUrl, path, body.toString(), auth, timeoutMillis)
+        var auth = authHeader() ?: throw TransportException("no live session")
+        var response = post(baseUrl, path, body.toString(), auth, timeoutMillis)
         if (response.first == 401) {
-            clear()
-            throw TransportException("session expired")
+            clearAccess()
+            val renewed = refresh()
+            if (renewed.isFailure) {
+                throw renewed.exceptionOrNull() ?: TransportException("session expired")
+            }
+            auth = authHeader() ?: throw TransportException("no live session")
+            response = post(baseUrl, path, body.toString(), auth, timeoutMillis)
+            if (response.first == 401) {
+                clearAccess()
+                throw TransportException("session expired")
+            }
         }
         requireOk(response)
         writingRoomJson.decodeFromString<T>(response.second)
