@@ -1601,24 +1601,53 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         )
         viewModelScope.launch {
             try {
-                val listed = container.liveSession.writingRoomCopilotListPortraits(
-                    projectId,
+                val listed = container.liveSession.visualAssetList(
+                    projectId = projectId, characterId = "",
                 ).getOrThrow()
                 if (listed.project_id != projectId) {
                     throw IllegalStateException("Las imágenes corresponden a otro proyecto.")
                 }
-                val matches = listed.assets.filter { it.asset_id == assetId }
-                val asset = matches.singleOrNull()
-                    ?: throw IllegalStateException("El candidato ya no está en el registro.")
-                if (asset.kind != "SCENE_ART" ||
-                    asset.status !in setOf("CANDIDATE", "APPROVED") ||
-                    asset.storage.state != "stored" ||
-                    !Regex("^[A-Fa-f0-9]{64}$").matches(asset.sha256)
-                ) throw IllegalStateException("El candidato no está disponible para revisar.")
+                val root = listed.assets.singleOrNull { it.asset_id == assetId }
+                    ?: throw IllegalStateException("La escena original ya no está en el registro.")
+                if (root.kind != "SCENE_ART" || root.project_id != projectId) {
+                    throw IllegalStateException("El trabajo no corresponde a una escena.")
+                }
+                // Recover the most recent STORED revision connected by exact immutable
+                // parent IDs/hashes. Never mistake another project's image for this job.
+                val family = mutableMapOf(root.asset_id to root.sha256)
+                val eligible = mutableListOf(root)
+                repeat(16) {
+                    val descendants = listed.assets.filter { candidate ->
+                        candidate.kind == "SCENE_ART" &&
+                            candidate.project_id == projectId &&
+                            candidate.status in setOf("CANDIDATE", "APPROVED") &&
+                            candidate.storage.state == "stored" &&
+                            candidate.parent_asset_id in family &&
+                            candidate.parent_sha256.equals(
+                                family[candidate.parent_asset_id], ignoreCase = true,
+                            ) && !family.containsKey(candidate.asset_id)
+                    }
+                    if (descendants.isEmpty()) return@repeat
+                    descendants.forEach {
+                        family[it.asset_id] = it.sha256
+                        eligible.add(it)
+                    }
+                }
+                val asset = eligible.filter {
+                    it.status in setOf("CANDIDATE", "APPROVED") &&
+                        it.storage.state == "stored"
+                }.maxWithOrNull(compareBy<com.jarvis.android.transport.live.VisualStudioAsset> {
+                    it.created_utc
+                }.thenBy { it.asset_id }) ?: throw IllegalStateException(
+                    "La imagen todavía no está almacenada para revisión."
+                )
+                if (!Regex("^[A-Fa-f0-9]{64}$").matches(asset.sha256)) {
+                    throw IllegalStateException("El registro visual tiene un hash inválido.")
+                }
                 val content = container.liveSession.writingRoomVisualAssetFetch(
-                    projectId, assetId,
+                    projectId, asset.asset_id,
                 ).getOrThrow()
-                if (content.asset_id != assetId ||
+                if (content.asset_id != asset.asset_id ||
                     !content.sha256.equals(asset.sha256, ignoreCase = true) ||
                     content.mime_type !in setOf("image/png", "image/jpeg", "image/webp") ||
                     content.image_base64.length > 16 * 1024 * 1024
@@ -1636,7 +1665,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value = _writingWorkspace.value.copy(
                         copilotSceneCandidate = CopilotSceneCandidateCard(
                             taskId = task.task_id, jobId = jobId,
-                            rootAssetId = assetId, assetId = assetId,
+                            rootAssetId = assetId, assetId = asset.asset_id,
                             sha256 = asset.sha256,
                             previewAttachmentId = staged.attachmentId,
                             status = asset.status, storageState = asset.storage.state,
