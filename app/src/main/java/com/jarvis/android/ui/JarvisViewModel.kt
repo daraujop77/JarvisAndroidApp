@@ -1586,7 +1586,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             task.task_id.isBlank() || current.copilotSceneBusy || current.busy ||
             !settings.value.isOwner ||
             !task.live_progress.any {
-                it.tool == "start_scene_generation" &&
+                it.tool in setOf("start_scene_generation", "generate_story_scene") &&
                     it.job_id == jobId && it.final_asset_id == assetId &&
                     it.status == "READY_FOR_REVIEW"
             }
@@ -1641,6 +1641,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             visualRevision = asset.visual_revision,
                         ),
                         copilotSceneNotice = "Imagen recuperada y verificada. Todavía no cambia el canon.",
+                        copilotSceneCorrectionUnknown = false,
                     )
                     if (previous != null && previous.previewAttachmentId != staged.attachmentId) {
                         deleteVisualStudioAttachments(listOf(previous.previewAttachmentId))
@@ -1675,11 +1676,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val instruction = requestedInstruction.trim()
         if (!settings.value.isOwner || now.chatProjectId != projectId ||
             task.project_id != projectId || card.taskId != task.task_id ||
-            card.status != "APPROVED" || card.storageState != "stored" ||
+            card.status !in setOf("CANDIDATE", "APPROVED") ||
+            card.storageState != "stored" ||
             now.copilotSceneBusy || now.copilotSceneCorrectionUnknown || now.busy ||
             instruction.length !in 8..800 ||
             !task.live_progress.any {
-                it.tool == "start_scene_generation" &&
+                it.tool in setOf("start_scene_generation", "generate_story_scene") &&
                     it.job_id == card.jobId &&
                     it.final_asset_id == card.rootAssetId &&
                     it.status == "READY_FOR_REVIEW"
@@ -1702,7 +1704,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val parent = assets.assets.singleOrNull { it.asset_id == card.assetId }
                     ?: throw IllegalStateException("No se encontró la imagen base.")
                 if (parent.project_id != projectId || parent.kind != "SCENE_ART" ||
-                    parent.status != "APPROVED" || parent.storage.state != "stored" ||
+                    parent.status !in setOf("CANDIDATE", "APPROVED") ||
+                    parent.storage.state != "stored" ||
                     !parent.sha256.equals(card.sha256, ignoreCase = true)
                 ) throw IllegalStateException("La imagen base ya no está aprobada.")
                 val source = container.liveSession.writingRoomVisualAssetFetch(
@@ -1725,6 +1728,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     model = "gpt-image-2-medium",
                     preserveIdentity = "high",
                     aspectRatio = "landscape",
+                    sceneJobId = if (parent.status == "CANDIDATE") card.jobId else null,
                 ).getOrThrow()
                 val child = response.visual_asset
                     ?: throw IllegalStateException("La edición no devolvió registro de candidato.")
@@ -1750,8 +1754,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             status = child.status, storageState = child.storage.state,
                             visualRevision = child.visual_revision,
                         ),
-                        copilotSceneNotice = "Nueva versión guardada como candidata. " +
-                            "La versión anterior sigue aprobada hasta que confirmes ésta.",
+                        copilotSceneNotice = "Nueva versión candidata verificada. " +
+                            "La versión anterior mantiene su estado hasta que apruebes la nueva.",
                         copilotSceneCorrectionUnknown = false,
                     )
                     deleteVisualStudioAttachments(listOf(card.previewAttachmentId))
@@ -1790,7 +1794,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             current.copilotSceneBusy || current.busy ||
             !Regex("^[A-Fa-f0-9]{64}$").matches(card.sha256) ||
             !task.live_progress.any {
-                it.tool == "start_scene_generation" && it.job_id == card.jobId &&
+                it.tool in setOf("start_scene_generation", "generate_story_scene") && it.job_id == card.jobId &&
                     it.final_asset_id == card.rootAssetId &&
                     it.status == "READY_FOR_REVIEW"
             }
@@ -1847,7 +1851,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             _writingWorkspace.value.chatProjectId != projectId
         ) return
         val scene = task.live_progress.firstOrNull {
-            it.tool == "start_scene_generation" &&
+            it.tool in setOf("start_scene_generation", "generate_story_scene") &&
                 it.status == "READY_FOR_REVIEW" &&
                 it.final_asset_id.isNotBlank()
         }
@@ -1885,7 +1889,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 if (next.project_id != projectId || next.task_id != task.task_id) return@launch
                 _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = next)
                 val preview = next.live_progress.firstOrNull {
-                    it.tool == "start_scene_generation" &&
+                    it.tool in setOf("start_scene_generation", "generate_story_scene") &&
                         it.status == "READY_FOR_REVIEW" &&
                         it.final_asset_id.isNotBlank()
                 }
