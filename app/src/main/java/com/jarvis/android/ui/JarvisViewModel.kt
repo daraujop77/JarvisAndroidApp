@@ -541,14 +541,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             // A previous project's slower response must not repopulate this one.
             if (loadEpoch != writingWorkspaceLoadEpoch ||
                 _writingWorkspace.value.chatProjectId != projectId) return@launch
-            val failure = listOf(
+            // Reading a project does not imply permission to read its
+            // unpublished plans/chapters. Keep the public Wiki functional
+            // when optional owner-only workspace endpoints return 403.
+            val publicFailure = listOf(
                 overview, wikiHome, wikiCharacters, wikiLocations, wikiTimeline,
-                canonExplorer, plans, councilSessions, chapters, library,
+                canonExplorer,
             ).firstOrNull { it.isFailure }
-            if (failure != null) {
-                writingWorkspaceError(failure.exceptionOrNull())
+            if (publicFailure != null) {
+                writingWorkspaceError(publicFailure.exceptionOrNull())
                 return@launch
             }
+            val privateFailure = listOf(
+                plans, councilSessions, chapters, library,
+            ).firstOrNull { it.isFailure }
             _writingWorkspace.value = _writingWorkspace.value.copy(
                 busy = false,
                 busyLabel = "",
@@ -562,7 +568,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 planningCouncilSessions = councilSessions.getOrNull()?.items.orEmpty(),
                 chapters = chapters.getOrNull()?.items.orEmpty(),
                 library = library.getOrNull(),
-                error = null,
+                error = privateFailure?.exceptionOrNull()?.message,
             )
             refreshKnowledgeAtlas(projectId = projectId, refreshSnapshot = true)
             recoverWritingCopilotPortraits(projectId)
