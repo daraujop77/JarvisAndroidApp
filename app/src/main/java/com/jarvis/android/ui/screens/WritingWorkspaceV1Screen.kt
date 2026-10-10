@@ -668,6 +668,7 @@ private fun ChatSection(
     val focusManager = LocalFocusManager.current
     var prompt by rememberSaveable { mutableStateOf("") }
     var toolMode by rememberSaveable(projectId) { mutableStateOf(false) }
+    var sceneCorrection by rememberSaveable(projectId) { mutableStateOf("") }
     val referencePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri -> if (uri != null) vm.stageWritingCopilotReference(uri) }
@@ -1186,7 +1187,7 @@ private fun ChatSection(
                                     val scene = state.copilotSceneCandidate?.takeIf {
                                         it.taskId == task.task_id &&
                                             it.jobId == progress.job_id &&
-                                            it.assetId == progress.final_asset_id
+                                            it.rootAssetId == progress.final_asset_id
                                     }
                                     if (scene == null) {
                                         OutlinedButton(
@@ -1251,6 +1252,45 @@ private fun ChatSection(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = JarvisGreen,
                                             )
+                                            Spacer(Modifier.height(8.dp))
+                                            OutlinedTextField(
+                                                value = sceneCorrection,
+                                                onValueChange = {
+                                                    sceneCorrection = it.take(800)
+                                                },
+                                                label = { Text("¿Qué corregimos en esta imagen?") },
+                                                placeholder = { Text(
+                                                    "Ej.: cambia la iluminación, conserva los rostros y la armadura"
+                                                ) },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                minLines = 2,
+                                                maxLines = 4,
+                                                enabled = settings.isOwner &&
+                                                    !state.copilotSceneBusy &&
+                                                    !state.copilotSceneCorrectionUnknown,
+                                            )
+                                            Text(
+                                                "La corrección utiliza el proveedor visual " +
+                                                    "y puede consumir créditos. Se creará una " +
+                                                    "nueva imagen candidata sin reemplazar ésta " +
+                                                    "hasta que la apruebes. Si falla, no se " +
+                                                    "reintenta automáticamente.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = JarvisAmber,
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    vm.reviseCopilotSceneCandidate(
+                                                        projectId, sceneCorrection.trim(),
+                                                    )
+                                                    sceneCorrection = ""
+                                                },
+                                                enabled = settings.isOwner &&
+                                                    sceneCorrection.trim().length in 8..800 &&
+                                                    !state.copilotSceneBusy &&
+                                                    !state.copilotSceneCorrectionUnknown &&
+                                                    !state.busy,
+                                            ) { Text("Generar corrección · puede tener costo") }
                                         }
                                     }
                                     if (state.copilotSceneBusy) {
