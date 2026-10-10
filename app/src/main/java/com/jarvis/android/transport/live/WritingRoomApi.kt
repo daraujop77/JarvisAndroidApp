@@ -80,6 +80,7 @@ data class CopilotVisualCandidate(
     val perspective: String = "",
     val character_ids: List<String> = emptyList(),
     val mime_type: String = "",
+    val visual_revision: Int = 0,
     val alt: String = "",
     val provenance: JsonObject = JsonObject(emptyMap()),
 )

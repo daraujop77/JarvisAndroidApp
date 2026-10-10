@@ -51,5 +51,20 @@ class CopilotAgentWiringTest {
         assertTrue(screen.contains("step.effect == \"PROPOSED_ONLY\""))
         assertTrue(screen.contains("Preparar escena"))
         assertTrue(screen.contains("No generará imágenes ni cambiará el canon"))
+        // A5.3: only the exact stored SCENE_ART from its durable job may enter
+        // the chat. Preview is SHA-verified, approval is exact owner-only.
+        assertTrue(vm.contains("fun loadCopilotSceneCandidate("))
+        assertTrue(vm.contains("fun approveCopilotSceneCandidate("))
+        assertTrue(vm.contains("fun reviseCopilotSceneCandidate("))
+        assertTrue(vm.contains("followCopilotTaskProgress(projectId, updated)"))
+        assertTrue(vm.contains("stageVisualAssetBase64("))
+        assertTrue(vm.contains("selectCopilotSceneReviewAsset("))
+        assertTrue(vm.contains("visualAssetApproveExact("))
+        assertTrue(vm.contains("editSceneVisualAssetImage("))
+        assertTrue(vm.contains("copilotSceneCorrectionUnknown"))
+        assertTrue(screen.contains("Mostrar imagen aquí"))
+        assertTrue(screen.contains("Aprobar esta imagen"))
+        assertTrue(screen.contains("Generar corrección · puede tener costo"))
+        assertTrue(screen.contains("it.rootAssetId == progress.final_asset_id"))
     }
 }
