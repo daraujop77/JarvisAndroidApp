@@ -66,6 +66,7 @@ import com.jarvis.android.data.story.CharacterChapterActivity
 import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
+import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
@@ -688,7 +689,8 @@ private fun ChatSection(
             } else {
                 vm.runWritingRoomAutoChat(
                     projectId, title, clean,
-                    toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean),
+                    toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean) ||
+                        looksLikeCopilotChapterWriteRequest(clean),
                 )
             }
             prompt = ""
@@ -1149,6 +1151,7 @@ private fun ChatSection(
                                         "get_chapter_draft_status" -> "Estado del borrador y la revisión"
                                         "get_chapter_auto_review_status" -> "Estado de la revisión automática"
                                         "start_chapter_auto_review" -> "Iniciar revisión especializada del capítulo"
+                                        "draft_and_review_current_chapter" -> "Escribir y revisar el capítulo actual"
                                         else -> step.tool
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
@@ -1328,6 +1331,9 @@ private fun ChatSection(
                                 val startsReview = task.steps.any {
                                     it.tool == "start_chapter_auto_review"
                                 }
+                                val startsDraft = task.steps.any {
+                                    it.tool == "draft_and_review_current_chapter"
+                                }
                                 val engine = task.steps.firstOrNull {
                                     it.tool in setOf("start_scene_generation", "generate_story_scene")
                                 }?.arguments?.get("engine")?.toString()?.trim('"') ?: ""
@@ -1338,6 +1344,12 @@ private fun ChatSection(
                                              else "tu PC local") +
                                             ". Sin correcciones automáticas. El candidato " +
                                             "requiere aprobación humana y NO cambia el canon."
+                                    } else if (startsDraft) {
+                                        "Se escribirá el capítulo completo usando el Writer W2 y " +
+                                            "después se revisará con el coordinador A4 existente. " +
+                                            "Puede consumir tokens cloud. Solo continuará si hay " +
+                                            "un capítulo inequívoco con Brief aprobado. " +
+                                            "No se aprobará ni publicará el canon automáticamente."
                                     } else if (startsReview) {
                                         "Se iniciará la revisión automática existente. Puede " +
                                             "consumir tokens de modelos cloud. El capítulo " +
@@ -1360,6 +1372,7 @@ private fun ChatSection(
                                     Text(
                                         when {
                                             generatesScene -> "Confirmar generación de imagen"
+                                            startsDraft -> "Escribir y revisar capítulo"
                                             startsReview -> "Iniciar revisión del capítulo"
                                             preparesScene -> "Preparar escena"
                                             else -> "Confirmar y guardar propuesta"

@@ -79,6 +79,12 @@ class CopilotAgentWiringTest {
         assertTrue(screen.contains("generate_story_scene"))
         assertTrue(vm.contains("card.status !in setOf(\"CANDIDATE\", \"APPROVED\")"))
         assertTrue(visualApi.contains("if (candidateEdit) \"/api/app/images/copilot-scene-edits\""))
+        assertTrue(screen.contains("looksLikeCopilotChapterWriteRequest(clean)"))
+        assertTrue(screen.contains("draft_and_review_current_chapter"))
+        assertTrue(screen.contains("Escribir y revisar capítulo"))
+        assertTrue(screen.contains("Writer W2"))
+        assertTrue(screen.contains("Puede consumir tokens cloud"))
+        assertTrue(screen.contains("Brief aprobado"))
         assertTrue(screen.contains("Se iniciará UNA generación"))
         assertTrue(screen.contains("Aprobar esta imagen"))
     }
