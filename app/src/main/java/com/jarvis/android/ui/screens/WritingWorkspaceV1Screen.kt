@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.Tune
 import com.jarvis.android.data.story.CharacterChapterActivity
 import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
+import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
@@ -685,7 +686,10 @@ private fun ChatSection(
             if (state.copilotPendingReferenceId != null) {
                 vm.importWritingCopilotReference(projectId, title, clean)
             } else {
-                vm.runWritingRoomAutoChat(projectId, title, clean, toolMode = toolMode)
+                vm.runWritingRoomAutoChat(
+                    projectId, title, clean,
+                    toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean),
+                )
             }
             prompt = ""
         }
