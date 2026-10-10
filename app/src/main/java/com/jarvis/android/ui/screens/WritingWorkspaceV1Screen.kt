@@ -68,6 +68,10 @@ import com.jarvis.android.data.story.CharacterLifeStatus
 import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotCharacterViewsRequest
+import com.jarvis.android.ui.writing.looksLikeCopilotVisualDirectionChangeRequest
+import com.jarvis.android.ui.writing.looksLikeCopilotOfficialExportRequest
+import com.jarvis.android.ui.writing.looksLikeCopilotCanonReadRequest
+import com.jarvis.android.ui.writing.resolveCopilotOfficialExport
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
 import com.jarvis.android.data.story.StoryMilestone
@@ -678,6 +682,34 @@ private fun ChatSection(
     val listState = rememberLazyListState()
     val completedTurns = state.chatHistory.count { it.response != null }
     val settings by vm.settings.collectAsStateWithLifecycle()
+    // Chat uses the same existing verified Library export pipeline and Android
+    // document picker. The tool returns metadata only; no bytes in Copilot.
+    val copilotPdfPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val copilotDocxPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val copilotEpubPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/epub+zip"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    val copilotMarkdownPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/markdown"),
+    ) { uri -> if (uri != null) vm.savePendingWritingExport(uri) else vm.cancelPendingWritingExport() }
+    LaunchedEffect(state.pendingExport?.sha256) {
+        val file = state.pendingExport?.takeIf {
+            it.project_id == projectId
+        } ?: return@LaunchedEffect
+        when (file.format) {
+            "pdf" -> copilotPdfPicker.launch(file.filename)
+            "docx" -> copilotDocxPicker.launch(file.filename)
+            "epub" -> copilotEpubPicker.launch(file.filename)
+            "markdown" -> copilotMarkdownPicker.launch(file.filename)
+            else -> vm.cancelPendingWritingExport()
+        }
+    }
 
     val sendPrompt: () -> Unit = {
         val clean = prompt.trim()
@@ -692,7 +724,10 @@ private fun ChatSection(
                     projectId, title, clean,
                     toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean) ||
                         looksLikeCopilotChapterWriteRequest(clean) ||
-                        looksLikeCopilotCharacterViewsRequest(clean),
+                        looksLikeCopilotCharacterViewsRequest(clean) ||
+                        looksLikeCopilotVisualDirectionChangeRequest(clean) ||
+                        looksLikeCopilotOfficialExportRequest(clean) ||
+                        looksLikeCopilotCanonReadRequest(clean),
                 )
             }
             prompt = ""
@@ -1137,6 +1172,10 @@ private fun ChatSection(
                                         "get_story_overview" -> "Resumen del proyecto"
                                         "list_story_chapters" -> "Capítulos"
                                         "list_story_library" -> "Biblioteca"
+                                        "get_story_timeline" -> "Cronología y eventos del canon"
+                                        "get_story_lore" -> "Lore y fuentes verificadas"
+                                        "get_world_map_status" -> "Estado y revisiones del mapa narrativo"
+                                        "prepare_official_chapter_export" -> "Preparar exportación de capítulo oficial"
                                         "list_story_characters" -> "Personajes"
                                         "search_story_wiki" -> "Consultar el Wiki"
                                         "list_story_ideas" -> "Ideas"
@@ -1144,9 +1183,12 @@ private fun ChatSection(
                                         "get_character_wiki_profile" -> "Ficha del personaje (Wiki)"
                                         "get_character_visual_direction" -> "Apariencia del personaje"
                                         "get_project_visual_style" -> "Estilo visual del proyecto"
+                                        "update_project_visual_style" -> "Cambiar estilo visual del proyecto"
+                                        "update_character_visual_direction" -> "Actualizar apariencia del personaje"
                                         "get_character_master_readiness" -> "Consultar masters y pendientes visuales"
                                         "complete_character_views" -> "Completar vistas del personaje"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
+                                        "get_chapter_approval_packet" -> "Paquete de aprobación y CanonDiff del capítulo"
                                         "get_scene_context" -> "Consultar contexto visual congelado"
                                         "prepare_visual_scene" -> "Preparar escena a partir del canon"
                                         "start_scene_generation" -> "Generar imagen desde contexto aprobado"
@@ -1175,6 +1217,30 @@ private fun ChatSection(
                                 Spacer(Modifier.height(7.dp))
                                 Text(output.text, style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFFE2E8F0))
+                                // A read-only tool resolves only official full-text source IDs.
+                                // Export bytes are requested AFTER user action, with SHA pin.
+                                val prepared = if (output.tool == "prepare_official_chapter_export" &&
+                                    task.state == "DONE" && task.project_id == projectId
+                                ) resolveCopilotOfficialExport(output.result) else null
+                                if (prepared != null) {
+                                    Spacer(Modifier.height(6.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            vm.requestWritingLibraryExport(
+                                                projectId, prepared.documentId, prepared.format,
+                                                prepared.sourceSha256,
+                                            )
+                                        },
+                                        enabled = !state.busy && !state.copilotAgentBusy &&
+                                            !state.copilotAppearanceBusy,
+                                    ) {
+                                        Text("Exportar capítulo ${prepared.chapterNumber} · ${prepared.format.uppercase()}")
+                                    }
+                                }
+                            }
+                            state.exportMessage?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisGreen)
                             }
                             task.live_progress.forEach { progress ->
                                 Spacer(Modifier.height(8.dp))
@@ -1345,6 +1411,10 @@ private fun ChatSection(
                                 val startsCharacterViews = task.steps.any {
                                     it.tool == "complete_character_views"
                                 }
+                                val changesVisualDirection = task.steps.any {
+                                    it.tool in setOf("update_project_visual_style",
+                                        "update_character_visual_direction")
+                                }
                                 val engine = task.steps.firstOrNull {
                                     it.tool in setOf("start_scene_generation", "generate_story_scene")
                                 }?.arguments?.get("engine")?.toString()?.trim('"') ?: ""
@@ -1355,6 +1425,12 @@ private fun ChatSection(
                                              else "tu PC local") +
                                             ". Sin correcciones automáticas. El candidato " +
                                             "requiere aprobación humana y NO cambia el canon."
+                                    } else if (changesVisualDirection) {
+                                        "Se guardarán únicamente los campos y valores visuales mostrados arriba, " +
+                                            "en una sola revisión y con tu confirmación. " +
+                                            "Esto afecta futuras imágenes candidatas, pero no modifica " +
+                                            "el canon escrito, imágenes existentes ni masters aprobados. " +
+                                            "Se comprobará la revisión del perfil en el VPS antes de guardar."
                                     } else if (startsCharacterViews) {
                                         "Se completarán hasta seis vistas individuales usando el master " +
                                             "frontal ya aprobado. Puede consumir tokens cloud. Se harán " +
@@ -1389,6 +1465,7 @@ private fun ChatSection(
                                         when {
                                             generatesScene -> "Confirmar generación de imagen"
                                             startsCharacterViews -> "Completar vistas del personaje"
+                                            changesVisualDirection -> "Guardar cambio visual"
                                             startsDraft -> "Escribir y revisar capítulo"
                                             startsReview -> "Iniciar revisión del capítulo"
                                             preparesScene -> "Preparar escena"

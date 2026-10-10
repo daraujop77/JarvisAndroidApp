@@ -2275,6 +2275,7 @@ suspend fun JarvisAppSession.writingRoomLibraryExport(
     projectId: String,
     documentId: String,
     format: String,
+    expectedSourceSha256: String = "",
 ): Result<WritingLibraryExport> =
     writingPost(
         "/api/app/writing-room/library/export",
@@ -2282,5 +2283,11 @@ suspend fun JarvisAppSession.writingRoomLibraryExport(
             put("project_id", projectId)
             put("document_id", documentId)
             put("format", format)
+            if (expectedSourceSha256.isNotBlank()) {
+                require(Regex("^[a-f0-9]{64}$").matches(expectedSourceSha256)) {
+                    "Invalid source hash"
+                }
+                put("expected_source_sha256", expectedSourceSha256)
+            }
         },
     )
