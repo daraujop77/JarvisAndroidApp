@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.Tune
 import com.jarvis.android.data.story.CharacterChapterActivity
 import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
+import com.jarvis.android.ui.writing.looksLikeCopilotApprovedVisualInspectionRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotCharacterViewsRequest
@@ -741,7 +742,8 @@ private fun ChatSection(
                         looksLikeCopilotCharacterViewsRequest(clean) ||
                         looksLikeCopilotVisualDirectionChangeRequest(clean) ||
                         looksLikeCopilotOfficialExportRequest(clean) ||
-                        looksLikeCopilotCanonReadRequest(clean),
+                        looksLikeCopilotCanonReadRequest(clean) ||
+                        looksLikeCopilotApprovedVisualInspectionRequest(clean),
                 )
             }
             prompt = ""
@@ -1243,6 +1245,8 @@ private fun ChatSection(
                                         "get_project_visual_style" -> "Estilo visual del proyecto"
                                         "update_project_visual_style" -> "Cambiar estilo visual del proyecto"
                                         "update_character_visual_direction" -> "Actualizar apariencia del personaje"
+                                        "get_approved_visual_references" -> "Mostrar imágenes aprobadas"
+                                        "inspect_approved_character_image" -> "Inspeccionar master aprobado con modelo visual"
                                         "get_character_master_readiness" -> "Consultar masters y pendientes visuales"
                                         "complete_character_views" -> "Completar vistas del personaje"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
@@ -1261,6 +1265,15 @@ private fun ChatSection(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = if (step.effect == "PROPOSED_ONLY") JarvisAmber else JarvisGreen,
                                 )
+                                if (step.tool == "inspect_approved_character_image") {
+                                    Text(
+                                        "La inspección envía una referencia aprobada al proveedor de visión. " +
+                                            "Puede consumir tokens. Solo se ejecuta cuando tú confirmas. " +
+                                            "No genera imágenes ni cambia el canon.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = JarvisAmber,
+                                    )
+                                }
                                 if (step.effect == "PROPOSED_ONLY") {
                                     Text(
                                         (if (step.tool == "prepare_visual_scene")
