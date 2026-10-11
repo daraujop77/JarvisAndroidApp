@@ -15,16 +15,22 @@ jobs:
     steps:
       - name: Check out owner-preview code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Verify app source matches approved main commit
         shell: bash
         run: |
           set -Eeuo pipefail
           EXPECTED="0d46a574e846a552be91b533cc8bbb8d00e60dd2"
-          test "$(git rev-parse HEAD^)" = "$EXPECTED" || {
-            echo "Refusing to build app source that differs from reviewed main"; exit 1;
+          git cat-file -e "$EXPECTED^{commit}" || {
+            echo "Reviewed main commit is unavailable"; exit 1;
           }
-          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/writing-room-owner-preview-apk-20261011.yml" || {
-            echo "Refusing additional code changes in preview branch"; exit 1;
+          git merge-base --is-ancestor "$EXPECTED" HEAD || {
+            echo "Preview branch does not descend from the reviewed code"; exit 1;
+          }
+          CHANGED="$(git diff --name-only "$EXPECTED" HEAD)"
+          test "$CHANGED" = ".github/workflows/writing-room-owner-preview-apk-20261011.yml" || {
+            echo "Refusing to build: changes beyond the standalone preview workflow"; exit 1;
           }
       - name: Set up JDK 21
         uses: actions/setup-java@v4
