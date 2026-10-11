@@ -1943,6 +1943,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 _writingWorkspace.value.chatProjectId == projectId
             ) {
                 _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = response)
+                val approved = response.results.flatMap { it.visual_assets }
+                if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
                 followCopilotTaskProgress(projectId, response)
             }
         }
@@ -1976,6 +1978,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value.chatProjectId == projectId
                 ) {
                     _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = updated)
+                    val approved = updated.results.flatMap { it.visual_assets }
+                    if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
                     followCopilotTaskProgress(projectId, updated)
                 }
             } catch (error: Exception) {

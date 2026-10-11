@@ -136,6 +136,7 @@ data class CopilotTaskResult(
     val text: String = "",
     val effect: String = "",
     val result: JsonObject = JsonObject(emptyMap()),
+    val visual_assets: List<CopilotApprovedVisualAsset> = emptyList(),
 )
 
 @Serializable

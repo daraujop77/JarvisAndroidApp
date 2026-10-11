@@ -1288,6 +1288,37 @@ private fun ChatSection(
                                 Spacer(Modifier.height(7.dp))
                                 Text(output.text, style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFFE2E8F0))
+                                output.visual_assets.take(6).forEach { approved ->
+                                    if (approved.status == "APPROVED") {
+                                        Spacer(Modifier.height(7.dp))
+                                        Text(
+                                            "REFERENCIA APROBADA · " + approved.kind,
+                                            style = HudTextStyle.copy(fontSize = 10.sp),
+                                            color = JarvisGreen,
+                                        )
+                                        val thumbnailId = state.approvedVisualAttachments[approved.asset_id]
+                                        val bitmap = remember(thumbnailId) {
+                                            thumbnailId?.let {
+                                                vm.attachmentStore.decodeThumbnail(it, maxSize = 768)
+                                            }
+                                        }
+                                        if (bitmap != null) {
+                                            Image(
+                                                bitmap = bitmap.asImageBitmap(),
+                                                contentDescription = approved.alt.ifBlank { "Imagen aprobada" },
+                                                modifier = Modifier.fillMaxWidth().height(240.dp)
+                                                    .clip(RoundedCornerShape(12.dp)),
+                                                contentScale = ContentScale.Fit,
+                                            )
+                                        } else {
+                                            Text(
+                                                "Referencia identificada; archivo visual pendiente de verificar.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = JarvisAmber,
+                                            )
+                                        }
+                                    }
+                                }
                                 // A read-only tool resolves only official full-text source IDs.
                                 // Export bytes are requested AFTER user action, with SHA pin.
                                 val prepared = if (output.tool == "prepare_official_chapter_export" &&
