@@ -1500,6 +1500,9 @@ private fun ChatSection(
                             }
                             if (task.state == "READY" && task.requires_confirmation) {
                                 Spacer(Modifier.height(9.dp))
+                                val inspectsApprovedVisuals = task.steps.any {
+                                    it.tool == "inspect_approved_character_image"
+                                }
                                 val preparesScene = task.steps.any {
                                     it.tool == "prepare_visual_scene"
                                 }
@@ -1523,7 +1526,13 @@ private fun ChatSection(
                                     it.tool in setOf("start_scene_generation", "generate_story_scene")
                                 }?.arguments?.get("engine")?.toString()?.trim('"') ?: ""
                                 Text(
-                                    if (generatesScene) {
+                                    if (inspectsApprovedVisuals) {
+                                        "Copilot analizará los píxeles de hasta DOS referencias " +
+                                            "APROBADAS del proyecto. Puede consumir tokens del proveedor " +
+                                            "de visión. Debes confirmarlo antes de enviar las imágenes. " +
+                                            "No genera imágenes nuevas ni cambia el canon. Si una revisión " +
+                                            "falta o es ambigua, se detendrá sin inventar el contenido."
+                                    } else if (generatesScene) {
                                         "Se iniciará UNA generación en " +
                                             (if (engine == "cloud") "nube (puede generar costos)"
                                              else "tu PC local") +
@@ -1567,6 +1576,7 @@ private fun ChatSection(
                                 ) {
                                     Text(
                                         when {
+                                            inspectsApprovedVisuals -> "Analizar imágenes aprobadas"
                                             generatesScene -> "Confirmar generación de imagen"
                                             startsCharacterViews -> "Completar vistas del personaje"
                                             changesVisualDirection -> "Guardar cambio visual"

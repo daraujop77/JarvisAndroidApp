@@ -2119,6 +2119,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 ))
             }
         }.takeLast(12)
+        // Prefer the most recent visual response in this same project's chat.
+        // Never pick all images from global attachment storage or other projects.
+        val visibleApprovedIds = existingHistory.asReversed()
+            .mapNotNull { turn ->
+                turn.response?.visual_assets?.takeIf { assets -> assets.isNotEmpty() }
+            }
+            .firstOrNull().orEmpty()
+            .filter { asset ->
+                asset.status == "APPROVED" && asset.storage_state == "stored" &&
+                    asset.asset_id.startsWith("va_") &&
+                    Regex("^[a-fA-F0-9]{64}$").matches(asset.sha256)
+            }
+            .take(6).map { it.asset_id }.distinct()
         _writingWorkspace.value = current.copy(
             busy = true,
             busyLabel = "JARVIS is routing the Writing Room task",
@@ -2137,6 +2150,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 room = room,
                 toolMode = toolMode,
                 recentMessages = recent,
+                approvedVisualAssetIds = visibleApprovedIds,
                 onDelta = { delta ->
                     val state = _writingWorkspace.value
                     if (state.chatProjectId == projectId) {
