@@ -187,6 +187,58 @@ class WritingRoomSessionRecoveryTest {
 
 
     @Test
+    fun parallelRestoreAndWorkspaceReadShareLocalExpiryRefresh() = runBlocking {
+        val base = server.url("/").toString().trimEnd('/')
+        val count = AtomicInteger(0)
+        server.dispatcher = object : MockDispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/api/app/refresh" -> {
+                    count.incrementAndGet()
+                    MockResponse().setResponseCode(200).setBody(
+                        """{"authenticated":true,"token":"fresh-shared","expires_utc":"2099-01-01T00:00:00Z","refresh_token":"pair-shared","refresh_expires_utc":"2099-02-01T00:00:00Z","user":{"id":"u1","username":"owner","role":"owner"}}"""
+                    )
+                }
+                "/api/app/session" ->
+                    MockResponse().setResponseCode(
+                        if (request.getHeader("Authorization") == "Bearer fresh-shared") 200 else 401
+                    ).setBody(
+                        """{"authenticated":true,"user":{"id":"u1","username":"owner","role":"owner"}}"""
+                    )
+                "/api/app/writing-room/overview" ->
+                    MockResponse().setResponseCode(
+                        if (request.getHeader("Authorization") == "Bearer fresh-shared") 200 else 401
+                    ).setBody(
+                        """{"schema":"jarvis.writing-room.overview.v1","project":{"project_id":"prj_story"}}"""
+                    )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val store = JarvisAppSession.MemoryStore().apply {
+            put(mapOf(
+                JarvisAppSession.KEY_BASE to base,
+                JarvisAppSession.KEY_TOKEN to "expired",
+                JarvisAppSession.KEY_EXPIRES to "2000-01-01T00:00:00Z",
+            ))
+        }
+        val refreshStore = MemoryRefreshCredentialStore().apply {
+            save("pair-old", "2099-02-01T00:00:00Z")
+        }
+        val session = JarvisAppSession(store, refreshStore = refreshStore)
+        val results = coroutineScope {
+            (1..8).map { index ->
+                async(Dispatchers.IO) {
+                    if (index % 2 == 0) session.restore().isSuccess
+                    else session.writingRoomOverview("prj_story").isSuccess
+                }
+            }.awaitAll()
+        }
+        assertTrue(results.toString(), results.all { it })
+        assertEquals(1, count.get())
+        assertEquals("fresh-shared", session.token)
+        assertEquals("pair-shared", refreshStore.load()?.token)
+    }
+
+    @Test
     fun concurrentMissingBearerRequestsShareOneRefresh() = runBlocking {
         val base = server.url("/").toString().trimEnd('/')
         val count = AtomicInteger(0)

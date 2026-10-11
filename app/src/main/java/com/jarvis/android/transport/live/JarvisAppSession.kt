@@ -202,7 +202,7 @@ class JarvisAppSession(
                 if (expired) clearAccess()
                 return@withContext Result.failure(TransportException("no session"))
             }
-            val renewed = refresh(staleBearer = authHeader(), reuseIfAlreadyValid = true)
+            val renewed = refresh(reuseIfAlreadyValid = true)
             if (renewed.isFailure) return@withContext renewed
         }
         runCatching {
