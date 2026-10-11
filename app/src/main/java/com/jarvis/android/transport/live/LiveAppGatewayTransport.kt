@@ -68,6 +68,7 @@ class LiveAppGatewayTransport(
     private companion object {
         const val MAX_INLINE_IMAGE_BYTES = 3_500_000
         const val MAX_INLINE_DOCUMENT_BYTES = 2_000_000
+        const val MAX_INLINE_IMAGES_PER_TURN = 3
     }
 
     private val _frames = Channel<String>(Channel.UNLIMITED)
@@ -361,9 +362,6 @@ class LiveAppGatewayTransport(
         deviceId: String,
         sessionId: String,
     ): String {
-        if (req.attachmentIds.size > 1) {
-            throw TransportException("JARVIS currently supports one image per turn")
-        }
         val inlineImages = mutableListOf<String>()
         val inlineDocuments = mutableListOf<Triple<String, String, String>>()
         req.attachmentIds.forEach { attachmentId ->
@@ -395,6 +393,12 @@ class LiveAppGatewayTransport(
                     Base64.getEncoder().encodeToString(bytes),
                 )
             }
+        }
+        if (inlineImages.size > MAX_INLINE_IMAGES_PER_TURN) {
+            throw TransportException("JARVIS supports up to three images per turn")
+        }
+        if (inlineDocuments.size > 1 || (inlineDocuments.isNotEmpty() && inlineImages.isNotEmpty())) {
+            throw TransportException("Attach one document or up to three images per turn")
         }
 
         return buildJsonObject {

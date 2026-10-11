@@ -32,6 +32,7 @@ interface AppStrings {
     val loadingConversations: String
     val readyWhenYouAre: String
     val startConversationSubtitle: String
+    val savedPreferencesHint: String
     val quickPromptDraft: String
     val quickPromptBrainstorm: String
     val quickPromptStatus: String
@@ -42,6 +43,9 @@ interface AppStrings {
     val generateImage: String
     val imageGenerationUnavailable: String
     val deleteConversation: String
+    val imageAttachmentFailed: String
+    val documentAttachmentFailed: String
+    val someAttachmentsFailed: String
     val today: String
     val yesterday: String
     val thinking: String
@@ -211,6 +215,7 @@ object EnAppStrings : AppStrings {
     override val loadingConversations = "Loading conversations"
     override val readyWhenYouAre = "Ready when you are"
     override val startConversationSubtitle = "Start a conversation and I'll stream the reply here."
+    override val savedPreferencesHint = "Saved preferences: /memory list · /memory set key = text · /memory delete key"
     override val quickPromptDraft = "Draft an update"
     override val quickPromptBrainstorm = "Brainstorm ideas"
     override val quickPromptStatus = "Check status"
@@ -221,6 +226,9 @@ object EnAppStrings : AppStrings {
     override val generateImage = "Generate image"
     override val imageGenerationUnavailable = "Image generation unavailable"
     override val deleteConversation = "Delete"
+    override val imageAttachmentFailed = "Couldn't read this image. Choose a supported photo and try again."
+    override val documentAttachmentFailed = "Couldn't attach the file. Choose a TXT, MD, PDF, or DOCX file up to 2 MB."
+    override val someAttachmentsFailed = "Some files couldn't be attached. Check their format and size."
     override val today = "Today"
     override val yesterday = "Yesterday"
     override val thinking = "Thinking…"
@@ -387,6 +395,7 @@ object EsAppStrings : AppStrings {
     override val loadingConversations = "Cargando conversaciones"
     override val readyWhenYouAre = "Listo cuando tú lo estés"
     override val startConversationSubtitle = "Inicia una conversación y transmitiré la respuesta aquí."
+    override val savedPreferencesHint = "Preferencias guardadas: /memory list · /memory set clave = texto · /memory delete clave"
     override val quickPromptDraft = "Redactar actualización"
     override val quickPromptBrainstorm = "Lluvia de ideas"
     override val quickPromptStatus = "Verificar estado"
@@ -397,6 +406,9 @@ object EsAppStrings : AppStrings {
     override val generateImage = "Generar imagen"
     override val imageGenerationUnavailable = "Generación de imagen no disponible"
     override val deleteConversation = "Eliminar"
+    override val imageAttachmentFailed = "No se pudo leer la imagen. Elige una foto compatible y vuelve a intentarlo."
+    override val documentAttachmentFailed = "No se pudo adjuntar. Elige un TXT, MD, PDF o DOCX de hasta 2 MB."
+    override val someAttachmentsFailed = "Algunos archivos no se pudieron adjuntar. Revisa el formato y el tamaño."
     override val today = "Hoy"
     override val yesterday = "Ayer"
     override val thinking = "Pensando…"

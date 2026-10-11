@@ -365,6 +365,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val messages by vm.messages.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val pendingAttachments by vm.pendingAttachments.collectAsStateWithLifecycle()
+    val attachmentError by vm.attachmentError.collectAsStateWithLifecycle()
+    val strings = LocalAppStrings.current
     val chatAccess by vm.chatAccess.collectAsStateWithLifecycle()
     val imageGenerationState by vm.imageGenerationState.collectAsStateWithLifecycle()
     val imageGenerationDetails by vm.lastImageGenerationDetails.collectAsStateWithLifecycle()
@@ -396,8 +398,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     }
 
     val photoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri -> uri?.let { vm.stageAttachment(it) } }
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 3),
+    ) { uris -> vm.stageAttachments(uris) }
     val documentPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let { vm.stageAttachment(it, document = true) } }
@@ -617,6 +619,19 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 )
             }
 
+            attachmentError?.let { message ->
+                val errorText = when (message) {
+                    JarvisViewModel.AttachmentStageError.IMAGE -> strings.imageAttachmentFailed
+                    JarvisViewModel.AttachmentStageError.DOCUMENT -> strings.documentAttachmentFailed
+                    JarvisViewModel.AttachmentStageError.PARTIAL -> strings.someAttachmentsFailed
+                }
+                Text(
+                    errorText,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             if (imageGenerationState is JarvisViewModel.ImageGenerationState.Error) {
                 Text(
                     (imageGenerationState as JarvisViewModel.ImageGenerationState.Error).message,
@@ -645,7 +660,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
             Composer(
                 input = input,
-                onInput = { input = it; vm.clearImageGenerationError() },
+                onInput = { input = it; vm.clearImageGenerationError(); vm.clearAttachmentError() },
                 connected = snapshot.connection.isUsable,
                 streaming = chatStreaming,
                 generatingImage = imageGenerating,
@@ -1178,6 +1193,7 @@ private fun EmptyChatState(
     modifier: Modifier = Modifier,
 ) {
     val accents = LocalJarvisAccents.current
+    val strings = LocalAppStrings.current
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -1197,6 +1213,13 @@ private fun EmptyChatState(
             "Neural link active. Select an operational directive or enter instructions.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            strings.savedPreferencesHint,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(22.dp))
