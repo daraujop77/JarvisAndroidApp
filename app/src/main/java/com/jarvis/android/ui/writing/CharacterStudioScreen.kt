@@ -96,6 +96,13 @@ fun CharacterStudioScreen(
     var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var bulkMasterConfirmation by rememberSaveable(projectId) { mutableStateOf(false) }
+    // Single paid generations and missing-view batches require explicit owner consent too.
+    var pendingSingleGeneration by rememberSaveable(projectId, selectedCharacterId) {
+        mutableStateOf("")
+    }
+    var pendingTurnaroundGeneration by rememberSaveable(projectId, selectedCharacterId) {
+        mutableStateOf(false)
+    }
     var selectedPerspective by rememberSaveable(projectId) { mutableStateOf("left_profile") }
     var showProjectStyleEditor by rememberSaveable(projectId) { mutableStateOf(false) }
     var showCharacterAppearanceEditor by rememberSaveable(projectId, selectedCharacterId) {
@@ -194,6 +201,93 @@ fun CharacterStudioScreen(
                 uri = uri,
             )
         }
+    }
+
+    if (pendingSingleGeneration.isNotBlank()) {
+        val isMaster = pendingSingleGeneration == "master"
+        AlertDialog(
+            onDismissRequest = { pendingSingleGeneration = "" },
+            title = { Text("Confirmar imagen de pago") },
+            text = {
+                Text(
+                    (if (isMaster) "Se solicitará un master frontal de cuerpo completo"
+                        else "Se solicitará una vista ${prettyPerspective(selectedPerspective)}") +
+                        " de ${selectedCharacterName.ifBlank { "este personaje" }} con GPT Image 2 Medium. " +
+                        "La imagen puede tener costo y se guardará como candidata, sin aprobación automática."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = settings.isOwner && !state.busy &&
+                        state.projectId == projectId && state.characterId == selectedCharacterId &&
+                        !needsOwnerVisualDesign,
+                    onClick = {
+                        val action = pendingSingleGeneration
+                        pendingSingleGeneration = ""
+                        if (action == "master") {
+                            vm.generateCharacterVisual(
+                                projectId = projectId,
+                                characterId = selectedCharacterId,
+                                prompt = masterPrompt,
+                                kind = "PRIMARY_REFERENCE",
+                                perspective = "front",
+                                parentAsset = master,
+                            )
+                        } else if (action == "angle" && master != null) {
+                            val parentView = latestAsset(
+                                state.assets, kind = "IDENTITY_PACK",
+                                status = "APPROVED", perspective = selectedPerspective,
+                            )
+                            vm.generateCharacterVisual(
+                                projectId = projectId,
+                                characterId = selectedCharacterId,
+                                prompt = turnaroundPrompt,
+                                kind = "IDENTITY_PACK",
+                                perspective = selectedPerspective,
+                                parentAsset = parentView,
+                            )
+                        }
+                    },
+                ) { Text("Generar candidata") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingSingleGeneration = "" }) { Text("Cancelar") }
+            },
+        )
+    }
+
+    if (pendingTurnaroundGeneration) {
+        AlertDialog(
+            onDismissRequest = { pendingTurnaroundGeneration = false },
+            title = { Text("Confirmar generación de vistas") },
+            text = {
+                Text(
+                    "JARVIS solicitará las perspectivas faltantes usando el master aprobado " +
+                        "de ${selectedCharacterName.ifBlank { "este personaje" }} y GPT Image 2 Medium. " +
+                        "Puede efectuar varias generaciones de pago y hasta dos correcciones " +
+                        "automáticas. Las imágenes nuevas serán candidatas y necesitarán aprobación."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = settings.isOwner && master != null && !state.busy &&
+                        state.projectId == projectId && state.characterId == selectedCharacterId &&
+                        state.batch?.status != "RUNNING",
+                    onClick = {
+                        pendingTurnaroundGeneration = false
+                        vm.completeCharacterViews(
+                            projectId = projectId,
+                            characterId = selectedCharacterId,
+                            perspectives = TURNAROUND_PERSPECTIVES,
+                            adjustment = turnaroundPrompt,
+                        )
+                    },
+                ) { Text("Iniciar vistas de pago") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingTurnaroundGeneration = false }) { Text("Cancelar") }
+            },
+        )
     }
 
     if (bulkMasterConfirmation) {
@@ -733,16 +827,7 @@ fun CharacterStudioScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Button(
-                                onClick = {
-                                    vm.generateCharacterVisual(
-                                        projectId = projectId,
-                                        characterId = selectedCharacterId,
-                                        prompt = masterPrompt,
-                                        kind = "PRIMARY_REFERENCE",
-                                        perspective = "front",
-                                        parentAsset = master,
-                                    )
-                                },
+                                onClick = { pendingSingleGeneration = "master" },
                                 enabled = !state.busy && !needsOwnerVisualDesign,
                                 modifier = Modifier.weight(1f),
                             ) {
@@ -809,14 +894,7 @@ fun CharacterStudioScreen(
                     if (settings.isOwner) {
                         Spacer(Modifier.height(10.dp))
                         Button(
-                            onClick = {
-                                vm.completeCharacterViews(
-                                    projectId = projectId,
-                                    characterId = selectedCharacterId,
-                                    perspectives = TURNAROUND_PERSPECTIVES,
-                                    adjustment = turnaroundPrompt,
-                                )
-                            },
+                            onClick = { pendingTurnaroundGeneration = true },
                             enabled = master != null &&
                                 !state.busy &&
                                 state.batch?.status != "RUNNING",
@@ -985,16 +1063,7 @@ fun CharacterStudioScreen(
                             perspective = selectedPerspective,
                         )
                         Button(
-                            onClick = {
-                                vm.generateCharacterVisual(
-                                    projectId = projectId,
-                                    characterId = selectedCharacterId,
-                                    prompt = turnaroundPrompt,
-                                    kind = "IDENTITY_PACK",
-                                    perspective = selectedPerspective,
-                                    parentAsset = parentView,
-                                )
-                            },
+                            onClick = { pendingSingleGeneration = "angle" },
                             enabled = master != null && !state.busy,
                         ) {
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null)

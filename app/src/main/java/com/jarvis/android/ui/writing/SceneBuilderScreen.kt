@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -26,6 +27,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -92,6 +94,10 @@ fun SceneBuilderScreen(
     var showManual by rememberSaveable(projectId) { mutableStateOf(false) }
     var generationEngine by rememberSaveable(projectId) { mutableStateOf("cloud") }
     var generationMode by rememberSaveable(projectId) { mutableStateOf("quality") }
+    // All cloud paths (including Director auto-generation) disclose possible charges.
+    var pendingDirectorRequest by rememberSaveable(projectId) { mutableStateOf<String?>(null) }
+    var pendingDirectorEvidenceId by rememberSaveable(projectId) { mutableStateOf("") }
+    var pendingManualCloudGeneration by rememberSaveable(projectId) { mutableStateOf(false) }
 
     val selectedCharacterIds = selectedCharactersCsv
         .split("|")
@@ -118,6 +124,72 @@ fun SceneBuilderScreen(
             }.map { it.id }.filter { it.isNotBlank() }
             if (matches.isNotEmpty()) selectedCharactersCsv = matches.joinToString("|")
         }
+    }
+
+    pendingDirectorRequest?.let { requestedText ->
+        AlertDialog(
+            onDismissRequest = { pendingDirectorRequest = null },
+            title = { Text("Confirmar generación desde canon") },
+            text = {
+                Text(
+                    "El Director buscará el pasaje exacto y, si encuentra referencias suficientes, " +
+                        "podrá iniciar una o varias generaciones y correcciones de imagen en Cloud. " +
+                        "El proveedor puede generar cargos. El arte se guardará como candidato, " +
+                        "sin aprobarlo automáticamente."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = settings.isOwner && !builder.busy && requestedText.isNotBlank(),
+                    onClick = {
+                        val evidenceId = pendingDirectorEvidenceId
+                        pendingDirectorRequest = null
+                        pendingDirectorEvidenceId = ""
+                        vm.directSceneVisual(
+                            projectId = projectId,
+                            requestText = requestedText,
+                            selectedEvidenceId = evidenceId,
+                        )
+                    },
+                ) { Text("Iniciar proceso de imagen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDirectorRequest = null }) { Text("Cancelar") }
+            },
+        )
+    }
+
+    if (pendingManualCloudGeneration) {
+        AlertDialog(
+            onDismissRequest = { pendingManualCloudGeneration = false },
+            title = { Text("Confirmar imagen Cloud") },
+            text = {
+                Text(
+                    "Se solicitará una escena de pago en modo ${generationMode.uppercase()} " +
+                        "con referencias aprobadas. Esta operación puede generar cargos. " +
+                        "La imagen quedará como candidata, no como canon aprobado."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = settings.isOwner && !builder.busy &&
+                        builder.context?.generation_ready == true &&
+                        builder.context?.project_id == projectId,
+                    onClick = {
+                        pendingManualCloudGeneration = false
+                        vm.generateSceneVisual(
+                            projectId = projectId,
+                            engine = "cloud",
+                            mode = generationMode,
+                            aspectRatio = "landscape",
+                        )
+                    },
+                ) { Text("Generar escena de pago") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingManualCloudGeneration = false }) { Text("Cancelar") }
+            },
+        )
     }
 
     LazyColumn(
@@ -190,10 +262,8 @@ fun SceneBuilderScreen(
                             !builder.busy &&
                             directorRequest.isNotBlank(),
                         onClick = {
-                            vm.directSceneVisual(
-                                projectId = projectId,
-                                requestText = directorRequest,
-                            )
+                            pendingDirectorRequest = directorRequest.trim()
+                            pendingDirectorEvidenceId = ""
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -263,15 +333,12 @@ fun SceneBuilderScreen(
                         OutlinedButton(
                             enabled = !builder.busy,
                             onClick = {
-                                vm.directSceneVisual(
-                                    projectId = projectId,
-                                    requestText = directorRequest,
-                                    selectedEvidenceId = candidate.evidence_id,
-                                )
+                                pendingDirectorRequest = directorRequest.trim()
+                                pendingDirectorEvidenceId = candidate.evidence_id
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Usar este pasaje")
+                            Text("Generar imagen con este pasaje")
                         }
                     }
                 }
@@ -685,12 +752,16 @@ fun SceneBuilderScreen(
                             Spacer(Modifier.height(8.dp))
                             Button(
                                 onClick = {
-                                    vm.generateSceneVisual(
-                                        projectId = projectId,
-                                        engine = generationEngine,
-                                        mode = generationMode,
-                                        aspectRatio = "landscape",
-                                    )
+                                    if (generationEngine == "cloud") {
+                                        pendingManualCloudGeneration = true
+                                    } else {
+                                        vm.generateSceneVisual(
+                                            projectId = projectId,
+                                            engine = "local",
+                                            mode = generationMode,
+                                            aspectRatio = "landscape",
+                                        )
+                                    }
                                 },
                                 enabled = (
                                     settings.isOwner &&
@@ -709,7 +780,8 @@ fun SceneBuilderScreen(
                                     if (builder.busy) {
                                         builder.busyLabel.ifBlank { "Generando…" }
                                     } else {
-                                        "Generar escena con referencias"
+                                        if (generationEngine == "cloud") "Generar escena Cloud (puede tener costo)"
+                                    else "Generar escena local con referencias"
                                     },
                                 )
                             }

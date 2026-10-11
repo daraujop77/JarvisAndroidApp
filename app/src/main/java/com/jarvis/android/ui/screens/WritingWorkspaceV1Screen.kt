@@ -165,7 +165,7 @@ fun WritingWorkspaceV1Screen(
 ) {
     val strings = LocalAppStrings.current
     val state by vm.writingWorkspace.collectAsStateWithLifecycle()
-    var tab by rememberSaveable { mutableStateOf(WorkspaceTab.OVERVIEW) }
+    var tab by rememberSaveable(projectId) { mutableStateOf(WorkspaceTab.CHAT) }
     var visualSceneOpenRequest by rememberSaveable(projectId) { mutableStateOf(0) }
 
     LaunchedEffect(projectId) {
@@ -687,7 +687,7 @@ private fun ChatSection(
     val strings = LocalAppStrings.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    var prompt by rememberSaveable { mutableStateOf("") }
+    var prompt by rememberSaveable(projectId) { mutableStateOf("") }
     var toolMode by rememberSaveable(projectId) { mutableStateOf(false) }
     var sceneCorrection by rememberSaveable(projectId) { mutableStateOf("") }
     val referencePicker = rememberLauncherForActivityResult(
@@ -1975,20 +1975,20 @@ private fun WriteSection(
     vm: JarvisViewModel,
     onVisualizeScene: () -> Unit,
 ) {
-    var selectedChapterTitle by rememberSaveable { mutableStateOf("") }
-    var chapterBrief by rememberSaveable { mutableStateOf("") }
-    var extraDetailsExpanded by rememberSaveable { mutableStateOf(false) }
-    var characters by rememberSaveable { mutableStateOf("") }
-    var tone by rememberSaveable { mutableStateOf("") }
-    var mustAvoid by rememberSaveable { mutableStateOf("") }
+    var selectedChapterTitle by rememberSaveable(projectId) { mutableStateOf("") }
+    var chapterBrief by rememberSaveable(projectId) { mutableStateOf("") }
+    var extraDetailsExpanded by rememberSaveable(projectId) { mutableStateOf(false) }
+    var characters by rememberSaveable(projectId) { mutableStateOf("") }
+    var tone by rememberSaveable(projectId) { mutableStateOf("") }
+    var mustAvoid by rememberSaveable(projectId) { mutableStateOf("") }
 
-    var draft by rememberSaveable { mutableStateOf("") }
+    var draft by rememberSaveable(projectId) { mutableStateOf("") }
     val active = state.activeChapter
-    var planningReply by rememberSaveable(active?.chapter_id) { mutableStateOf("") }
-    var selectedDirectionTitle by rememberSaveable(active?.chapter_id) { mutableStateOf("") }
-    var revisionHistoryExpanded by rememberSaveable(active?.chapter_id) { mutableStateOf(false) }
-    var chapterPendingDelete by rememberSaveable { mutableStateOf<String?>(null) }
-    var trashExpanded by rememberSaveable { mutableStateOf(false) }
+    var planningReply by rememberSaveable(projectId, active?.chapter_id) { mutableStateOf("") }
+    var selectedDirectionTitle by rememberSaveable(projectId, active?.chapter_id) { mutableStateOf("") }
+    var revisionHistoryExpanded by rememberSaveable(projectId, active?.chapter_id) { mutableStateOf(false) }
+    var chapterPendingDelete by rememberSaveable(projectId) { mutableStateOf<String?>(null) }
+    var trashExpanded by rememberSaveable(projectId) { mutableStateOf(false) }
     val writeListState = rememberLazyListState()
 
     LaunchedEffect(active?.chapter_id, active?.draft_text, active?.title) {
@@ -3156,10 +3156,10 @@ private fun PlanSection(
     projectId: String,
     vm: JarvisViewModel,
 ) {
-    var councilTitle by rememberSaveable { mutableStateOf("") }
-    var councilPrompt by rememberSaveable { mutableStateOf("") }
-    var councilReply by rememberSaveable { mutableStateOf("") }
-    var selectedFilter by rememberSaveable { mutableStateOf(PlanFilter.ALL) }
+    var councilTitle by rememberSaveable(projectId) { mutableStateOf("") }
+    var councilPrompt by rememberSaveable(projectId) { mutableStateOf("") }
+    var councilReply by rememberSaveable(projectId) { mutableStateOf("") }
+    var selectedFilter by rememberSaveable(projectId) { mutableStateOf(PlanFilter.ALL) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
@@ -3684,7 +3684,7 @@ private fun CanonSection(
         return
     }
 
-    var canonView by rememberSaveable { mutableStateOf("timeline") }
+    var canonView by rememberSaveable(projectId) { mutableStateOf("timeline") }
     val timeline = state.wikiTimeline
     val explorer = state.canonExplorer
 
@@ -3885,10 +3885,10 @@ private fun WikiSection(
     vm: JarvisViewModel,
     onOpenChapter: () -> Unit,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var selectedCharacterId by rememberSaveable { mutableStateOf<String?>(null) }
-    var viewingCharactersDirectory by rememberSaveable { mutableStateOf(false) }
-    var knowledgeView by rememberSaveable { mutableStateOf("explore") }
+    var query by rememberSaveable(projectId) { mutableStateOf("") }
+    var selectedCharacterId by rememberSaveable(projectId) { mutableStateOf<String?>(null) }
+    var viewingCharactersDirectory by rememberSaveable(projectId) { mutableStateOf(false) }
+    var knowledgeView by rememberSaveable(projectId) { mutableStateOf("explore") }
 
     val home = state.wikiHome
     val wiki = state.wiki
@@ -3923,6 +3923,7 @@ private fun WikiSection(
 
     if (viewingCharactersDirectory) {
         CharactersDirectory(
+            projectId = projectId,
             characters = liveCharacters,
             latestChapterNumber = home?.latest_official_chapter?.chapter_number,
             onSelectCharacter = { character ->
@@ -4536,13 +4537,14 @@ private fun WikiSection(
 
 @Composable
 private fun CharactersDirectory(
+    projectId: String,
     characters: List<StoryCharacter>,
     latestChapterNumber: Int?,
     onSelectCharacter: (StoryCharacter) -> Unit,
     onBack: () -> Unit,
 ) {
-    var searchFilter by rememberSaveable { mutableStateOf("") }
-    var selectedStatusFilter by rememberSaveable { mutableStateOf<CharacterLifeStatus?>(null) }
+    var searchFilter by rememberSaveable(projectId) { mutableStateOf("") }
+    var selectedStatusFilter by rememberSaveable(projectId) { mutableStateOf<CharacterLifeStatus?>(null) }
 
     val filteredCharacters = remember(searchFilter, selectedStatusFilter, characters) {
         val base = if (searchFilter.trim().isEmpty()) {
@@ -4878,7 +4880,7 @@ private fun CharacterDetailWiki(
     onBack: () -> Unit,
     onSelectCharacter: (String) -> Unit,
 ) {
-    var currentSubTab by rememberSaveable(character.id) { mutableStateOf(DossierSubTab.TODOS) }
+    var currentSubTab by rememberSaveable(projectId, character.id) { mutableStateOf(DossierSubTab.TODOS) }
     val wikiPrimaryState by vm.wikiPrimaryState.collectAsStateWithLifecycle()
     val wikiVisualAttachments by vm.wikiVisualAttachments.collectAsStateWithLifecycle()
     val approvedSceneVisuals = remember(visualAssets) {
