@@ -1560,7 +1560,10 @@ private fun ChatSection(
                 }
                 turn.response?.let { response ->
                     item {
-                        CopilotAssistantMessage(response, turn, projectId, vm, state.busy)
+                        CopilotAssistantMessage(
+                        response, turn, projectId, vm, state.busy,
+                        state.approvedVisualAttachments,
+                    )
                     }
                 }
             }
@@ -1780,6 +1783,7 @@ private fun CopilotAssistantMessage(
     projectId: String,
     vm: JarvisViewModel,
     busy: Boolean,
+    approvedVisualAttachments: Map<String, String>,
 ) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
@@ -1851,6 +1855,46 @@ private fun CopilotAssistantMessage(
                 }
                 Spacer(Modifier.height(5.dp))
                 RichModelText(chat.turn.response.text)
+
+                chat.visual_assets.take(6).forEach { approved ->
+                    if (approved.status == "APPROVED") {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "REFERENCIA APROBADA · " + approved.kind +
+                                " · rev. " + approved.visual_revision,
+                            style = HudTextStyle.copy(fontSize = 10.sp),
+                            color = JarvisGreen,
+                        )
+                        if (approved.alt.isNotBlank()) {
+                            Text(
+                                approved.alt.take(200),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFCBD5E1),
+                            )
+                        }
+                        val thumbnailId = approvedVisualAttachments[approved.asset_id]
+                        val bitmap = remember(thumbnailId) {
+                            thumbnailId?.let { vm.attachmentStore.decodeThumbnail(it, maxSize = 768) }
+                        }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = approved.alt.ifBlank { "Imagen aprobada" },
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxWidth().height(240.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                            )
+                        } else {
+                            Text(
+                                if (approved.storage_state == "stored")
+                                    "Recuperando imagen verificada…"
+                                else "Imagen aprobada, pero su archivo todavía no está disponible.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisAmber,
+                            )
+                        }
+                    }
+                }
 
                 turn.generatedPreviewAttachmentId?.let { attachmentId ->
                     val image = remember(attachmentId) {
