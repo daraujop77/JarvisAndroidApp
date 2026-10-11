@@ -1,0 +1,78 @@
+name: Repair JARVIS v62 updater asset filename
+
+on:
+  push:
+    branches:
+      - release/repair-v62-asset-name-20261011
+
+permissions:
+  contents: write
+
+jobs:
+  correct-v62-asset-filename:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: c74e2842734b7a66adf81ef71795e873781f5aa86daa72c78d20d57346fef28c
+      EXPECTED_SOURCE: 89c64dc04bbfd9755df12d188c58da1ed4a982a0
+      TARGET_ASSET_ID: "630281768"
+    steps:
+      - name: Inspect already-published release and artifact
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          LATEST="$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')"
+          test "$LATEST" = "android-v62" || { echo "BLOCKED: latest release unexpectedly changed"; exit 1; }
+          TARGET="$(gh api "repos/$REPO/releases/tags/android-v62" --jq '.target_commitish')"
+          test "$TARGET" = "$EXPECTED_SOURCE" || { echo "BLOCKED: source commit differs"; exit 1; }
+          ASSET="$(gh api "repos/$REPO/releases/assets/$TARGET_ASSET_ID")"
+          NAME="$(printf '%s' "$ASSET" | jq -r '.name')"
+          DIGEST="$(printf '%s' "$ASSET" | jq -r '.digest')"
+          SIZE="$(printf '%s' "$ASSET" | jq -r '.size')"
+          test "$DIGEST" = "sha256:$EXPECTED_SHA" || { echo "BLOCKED: APK digest differs"; exit 1; }
+          test "$SIZE" -gt 1000000 || { echo "BLOCKED: APK size unexpected"; exit 1; }
+          MANIFEST_ASSET="$(gh api "repos/$REPO/releases/tags/android-v62" --jq '.assets[] | select(.name=="JARVIS-release.json") | .id')"
+          test -n "$MANIFEST_ASSET"
+          test "$(gh api "repos/$REPO/releases/tags/android-v62" --jq '.assets[] | select(.name=="JARVIS-release.apk") | .id')" = "" || test "$NAME" = "JARVIS-release.apk"
+          test "$NAME" = "app-release.apk" -o "$NAME" = "JARVIS-release.apk" || { echo "BLOCKED: unexpected asset name"; exit 1; }
+          echo "Verified: v62 is latest and APK has the approved SHA-256."
+      - name: Rename existing APK asset in place (no rebuild, no republish)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          CURRENT="$(gh api "repos/$REPO/releases/assets/$TARGET_ASSET_ID" --jq '.name')"
+          if [ "$CURRENT" = "app-release.apk" ]; then
+            gh api --method PATCH "repos/$REPO/releases/assets/$TARGET_ASSET_ID" -f name="JARVIS-release.apk" --jq '.name'
+          elif [ "$CURRENT" = "JARVIS-release.apk" ]; then
+            echo "Asset already has expected filename."
+          else
+            echo "BLOCKED: asset name changed unexpectedly"; exit 1
+          fi
+      - name: Verify both latest assets and signed-update manifest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          test "$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')" = "android-v62"
+          test "$(gh api "repos/$REPO/releases/assets/$TARGET_ASSET_ID" --jq '.name')" = "JARVIS-release.apk"
+          ASSETS="$(gh api "repos/$REPO/releases/tags/android-v62" --jq '.assets[].name' | sort)"
+          EXPECTED="$(printf '%s\n' JARVIS-release.apk JARVIS-release.json | sort)"
+          test "$ASSETS" = "$EXPECTED" || { echo "BLOCKED: unexpected release asset set"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/v62"
+          gh release download android-v62 --repo "$REPO" --pattern JARVIS-release.json --dir "$RUNNER_TEMP/v62"
+          python3 - "$RUNNER_TEMP/v62/JARVIS-release.json" <<'PY'
+          import json, os, sys
+          m = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert m["schema"] == "jarvis.android.signed-release.v1"
+          assert m["version_code"] == 62
+          assert m["version_name"] == "0.1.62-writing-room-preview"
+          assert m["package_name"] == "com.jarvis.android"
+          assert m["sha256"] == os.environ["EXPECTED_SHA"]
+          assert m["size_bytes"] > 1000000
+          assert m["source_sha"] == os.environ["EXPECTED_SOURCE"]
+          print("JARVIS in-app updater manifest verified for v62.")
+          PY
+          echo "Published correctly: https://github.com/$REPO/releases/latest/download/JARVIS-release.apk"
