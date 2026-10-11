@@ -1,0 +1,132 @@
+name: Publish JARVIS v62 signed direct update
+
+on:
+  push:
+    branches:
+      - publish/writing-room-direct-v62-20261011
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-signed-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      APPROVED_SOURCE_SHA: 89c64dc04bbfd9755df12d188c58da1ed4a982a0
+      APPROVED_APK_SHA256: c74e2842734b7a66adf81ef71795e873781f5aa86daa72c78d20d57346fef28c
+      APPROVED_CERT_SHA256: 46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a
+    steps:
+      - name: Check out publication-only workflow
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify publication does not modify approved app sources
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git cat-file -e "$APPROVED_SOURCE_SHA^{commit}"
+          test "$(git merge-base "$APPROVED_SOURCE_SHA" HEAD)" = "$APPROVED_SOURCE_SHA"
+          CHANGES="$(git diff --name-only "$APPROVED_SOURCE_SHA" HEAD)"
+          test "$CHANGES" = ".github/workflows/publish-writing-room-direct-v62-20261011.yml"
+      - name: Download exactly the signed and reviewed v62 APK artifact
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/verified-apk"
+          gh run download 38126298695 --repo "$GITHUB_REPOSITORY" \
+            --name JARVIS-WritingRoom-signed-update-v62 --dir "$RUNNER_TEMP/verified-apk"
+          APK="$RUNNER_TEMP/verified-apk/app-release.apk"
+          test -s "$APK"
+          echo "$APPROVED_APK_SHA256  $APK" | sha256sum --check
+          echo "APK=$APK" >> "$GITHUB_ENV"
+      - name: Verify v62 Android package and original signing certificate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TOOLS_DIR="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$TOOLS_DIR/aapt"
+          test -x "$TOOLS_DIR/apksigner"
+          BADGING="$("$TOOLS_DIR/aapt" dump badging "$APK" | head -n 1)"
+          echo "$BADGING"
+          [[ "$BADGING" == *"name='com.jarvis.android'"* ]]
+          [[ "$BADGING" == *"versionCode='62'"* ]]
+          [[ "$BADGING" == *"versionName='0.1.62-writing-room-preview'"* ]]
+          "$TOOLS_DIR/apksigner" verify --print-certs "$APK" > "$RUNNER_TEMP/v62-signature.txt"
+          python3 - "$RUNNER_TEMP/v62-signature.txt" <<'PY'
+          import os, re, sys
+          output = open(sys.argv[1], encoding="utf-8").read()
+          expected = os.environ["APPROVED_CERT_SHA256"]
+          certs = []
+          for line in output.splitlines():
+              if "sha" not in line.lower() or "256" not in line:
+                  continue
+              certs += [d.replace(":", "").lower() for d in re.findall(
+                  r"(?<![0-9a-fA-F])(?:[0-9a-fA-F]{2}:){31}[0-9a-fA-F]{2}(?![0-9a-fA-F])|(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])",
+                  line,
+                  flags=re.I,
+              )]
+          if expected not in certs:
+              raise SystemExit("BLOCKED: v62 signing certificate mismatch")
+          print("Verified v62 signer is the same as the published v61 release.")
+          PY
+      - name: Prepare exact updater manifest and publish GitHub Release v62
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          CURRENT_LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          test "$CURRENT_LATEST" = android-v61 || {
+            echo "BLOCKED: a newer release was already published"; exit 1;
+          }
+          if gh release view android-v62 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "BLOCKED: release android-v62 already exists; never overwrite releases"; exit 1;
+          fi
+          SIZE_BYTES="$(stat -c '%s' "$APK")"
+          MANIFEST="$RUNNER_TEMP/JARVIS-release.json"
+          python3 - "$MANIFEST" "$SIZE_BYTES" <<'PY'
+          import json, os, sys
+          output, size = sys.argv[1:]
+          with open(output, "w", encoding="utf-8") as f:
+              json.dump({
+                  "schema": "jarvis.android.signed-release.v1",
+                  "version_code": 62,
+                  "version_name": "0.1.62-writing-room-preview",
+                  "package_name": "com.jarvis.android",
+                  "sha256": os.environ["APPROVED_APK_SHA256"],
+                  "size_bytes": int(size),
+                  "source_sha": os.environ["APPROVED_SOURCE_SHA"],
+              }, f, indent=2)
+              f.write("\n")
+          PY
+          gh release create android-v62 \
+            "$APK#JARVIS-release.apk" \
+            "$MANIFEST#JARVIS-release.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$APPROVED_SOURCE_SHA" \
+            --title "JARVIS Android 0.1.62-writing-room-preview" \
+            --notes "Signed v62 direct-APK update for Writing Room owner testing. Built from reviewed Android app code, with versionCode 62, verified SHA-256 and matching v61 signing certificate. This is not a Google Play update." \
+            --latest
+          echo "Published signed v62 to the exact URLs used by the in-app updater."
+      - name: Verify latest updater publication and immutable manifest values
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')" = "android-v62"
+          ASSETS="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/android-v62" --jq '.assets[].name' | sort)"
+          test "$ASSETS" = "$(printf '%s\n' JARVIS-release.apk JARVIS-release.json | sort)"
+          mkdir -p "$RUNNER_TEMP/verify-published"
+          gh release download android-v62 --repo "$GITHUB_REPOSITORY" \
+            --pattern JARVIS-release.json --dir "$RUNNER_TEMP/verify-published"
+          python3 - "$RUNNER_TEMP/verify-published/JARVIS-release.json" <<'PY'
+          import json, os, sys
+          m = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert m["schema"] == "jarvis.android.signed-release.v1"
+          assert m["package_name"] == "com.jarvis.android"
+          assert m["version_code"] == 62
+          assert m["sha256"] == os.environ["APPROVED_APK_SHA256"]
+          assert m["source_sha"] == os.environ["APPROVED_SOURCE_SHA"]
+          assert m["size_bytes"] > 0
+          print("v62 is the latest release and the app-update manifest matches the approved APK.")
+          PY
