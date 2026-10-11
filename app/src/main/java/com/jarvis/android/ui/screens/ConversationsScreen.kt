@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
@@ -397,6 +398,9 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { vm.stageAttachment(it) } }
+    val documentPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let { vm.stageAttachment(it, document = true) } }
 
     val saveGeneratedImage = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("image/jpeg"),
@@ -426,10 +430,14 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         snapshot.session.requests.values,
         conversationId,
     )
+    val chatProgress = liveRequest?.let { request ->
+        snapshot.session.tasks["chat_${request.clientRequestId}"]?.label
+    }
     val chatStreaming = liveRequest != null
     val imageGenerating = imageGenerationState is JarvisViewModel.ImageGenerationState.Busy
     val busy = chatStreaming || imageGenerating
     val imageInputReady = chatAccess?.capabilityStates?.get("image_input") == "ready"
+    val documentInputReady = chatAccess?.capabilityStates?.get("document_input") == "ready"
     val imageGenerationReady = chatAccess?.capabilityStates?.get("image_generation") == "ready"
     val imageGenerationAccess = chatAccess?.imageGeneration
 
@@ -523,7 +531,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         Column {
                             Text("JARVIS", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (imageGenerating) "creating image…" else if (chatStreaming) "responding…" else "ready",
+                                if (imageGenerating) "creating image…" else if (chatStreaming) (chatProgress ?: "responding…") else "ready",
                                 style = HudTextStyle,
                                 color = if (busy) accents.orbGlow
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -643,12 +651,19 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 generatingImage = imageGenerating,
                 canSend = (input.isNotBlank() || pendingAttachments.isNotEmpty()) && !imageGenerating,
                 canPickPhoto = imageInputReady && pendingAttachments.isEmpty() && !imageGenerating,
+                canPickDocument = documentInputReady && pendingAttachments.isEmpty() && !imageGenerating,
                 canGenerateImage = imageGenerationReady && input.isNotBlank() &&
                     pendingAttachments.isEmpty() && !chatStreaming && !imageGenerating,
                 onPickPhoto = {
                     photoPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
+                },
+                onPickDocument = {
+                    documentPicker.launch(arrayOf(
+                        "text/plain", "text/markdown", "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ))
                 },
                 onGenerateImage = {
                     keyboardController?.hide()
@@ -981,8 +996,10 @@ private fun Composer(
     generatingImage: Boolean,
     canSend: Boolean,
     canPickPhoto: Boolean,
+    canPickDocument: Boolean,
     canGenerateImage: Boolean,
     onPickPhoto: () -> Unit,
+    onPickDocument: () -> Unit,
     onGenerateImage: () -> Unit,
     onStop: () -> Unit,
     onSend: () -> Unit,
@@ -1038,6 +1055,27 @@ private fun Composer(
                     Icons.Filled.AddPhotoAlternate,
                     contentDescription = if (canPickPhoto) "Attach photo" else "Image input unavailable",
                     tint = if (canPickPhoto) accents.orbGlow
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = if (canPickDocument) accents.orbGlow.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, if (canPickDocument) accents.orbGlow.copy(alpha = 0.35f) else Color(0xFF1E2E48)),
+            modifier = Modifier.size(40.dp),
+        ) {
+            IconButton(
+                onClick = onPickDocument,
+                enabled = canPickDocument,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Icon(
+                    Icons.Filled.Description,
+                    contentDescription = if (canPickDocument) "Attach document" else "Document input unavailable",
+                    tint = if (canPickDocument) accents.orbGlow
                     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                     modifier = Modifier.size(19.dp),
                 )
@@ -1642,7 +1680,10 @@ private fun AttachmentChip(
                     contentScale = ContentScale.Crop,
                 )
             } else {
-                Icon(Icons.Filled.Image, contentDescription = null)
+                Icon(
+                    if (attachmentId.startsWith("doc_")) Icons.Filled.Description else Icons.Filled.Image,
+                    contentDescription = if (attachmentId.startsWith("doc_")) "Document attachment" else null,
+                )
             }
             if (state?.uploading == true) {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -1692,7 +1733,10 @@ private fun PendingAttachmentStrip(
                             if (attachmentState(a.attachmentId)?.uploading == true) {
                                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                             } else {
-                                Icon(Icons.Filled.Image, contentDescription = null)
+                                Icon(
+                                    if (a.mimeType.startsWith("image/")) Icons.Filled.Image else Icons.Filled.Description,
+                                    contentDescription = if (a.mimeType.startsWith("image/")) null else a.filename,
+                                )
                             }
                         }
                     }

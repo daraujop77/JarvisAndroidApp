@@ -6301,13 +6301,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
      * Copy picked image into private storage and strip EXIF. File copy + JPEG
      * re-encode run on IO — never the main thread.
      */
-    fun stageAttachment(uri: Uri) {
+    fun stageAttachment(uri: Uri, document: Boolean = false) {
         viewModelScope.launch {
             val conversationId = _conversationId.value ?: conversations.newConversationId().also {
                 _conversationId.value = it
             }
             val staged = withContext(Dispatchers.IO) {
-                container.attachmentStore.stageFrom(uri)
+                if (document) container.attachmentStore.stageDocumentFrom(uri)
+                else container.attachmentStore.stageFrom(uri)
             } ?: return@launch
             _pendingAttachmentsByConversation.update { current ->
                 current + (conversationId to (current[conversationId].orEmpty() + staged))
@@ -6342,7 +6343,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val attachments = _pendingAttachmentsByConversation.value[id].orEmpty()
         if (trimmed.isEmpty() && attachments.isEmpty()) return
         val ids = attachments.map { it.attachmentId }
-        val body = trimmed.ifBlank { "(photo)" }
+        val body = trimmed.ifBlank {
+            if (attachments.firstOrNull()?.mimeType?.startsWith("image/") == true) "(photo)"
+            else "(document)"
+        }
         conversations.send(id, body, ids)
         _pendingAttachmentsByConversation.update { it - id }
     }

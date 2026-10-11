@@ -10,6 +10,8 @@ import com.jarvis.android.contract.HealthResponse
 import com.jarvis.android.contract.JarvisJson
 import com.jarvis.android.contract.MobileRequest
 import com.jarvis.android.contract.ServerConnectionState
+import com.jarvis.android.contract.TaskStatus
+import com.jarvis.android.contract.TaskUpdatedPayload
 import com.jarvis.android.transport.GatewayTransport
 import com.jarvis.android.transport.LinkState
 import com.jarvis.android.transport.TransportException
@@ -65,6 +67,7 @@ class LiveAppGatewayTransport(
 
     private companion object {
         const val MAX_INLINE_IMAGE_BYTES = 3_500_000
+        const val MAX_INLINE_DOCUMENT_BYTES = 2_000_000
     }
 
     private val _frames = Channel<String>(Channel.UNLIMITED)
@@ -361,16 +364,37 @@ class LiveAppGatewayTransport(
         if (req.attachmentIds.size > 1) {
             throw TransportException("JARVIS currently supports one image per turn")
         }
-        val inlineImages = req.attachmentIds.map { attachmentId ->
+        val inlineImages = mutableListOf<String>()
+        val inlineDocuments = mutableListOf<Triple<String, String, String>>()
+        req.attachmentIds.forEach { attachmentId ->
             val store = attachmentStore
-                ?: throw TransportException("image attachments are unavailable on this transport")
+                ?: throw TransportException("attachments are unavailable on this transport")
             val file = store.resolve(attachmentId)
-                ?: throw TransportException("image attachment is missing from private storage")
+                ?: throw TransportException("attachment is missing from private storage")
             val bytes = file.readBytes()
-            if (bytes.isEmpty() || bytes.size > MAX_INLINE_IMAGE_BYTES) {
-                throw TransportException("image attachment is too large for this JARVIS version")
+            val extension = file.extension.lowercase()
+            if (extension in setOf("jpg", "jpeg", "png", "webp")) {
+                if (bytes.isEmpty() || bytes.size > MAX_INLINE_IMAGE_BYTES) {
+                    throw TransportException("image attachment is too large for this JARVIS version")
+                }
+                inlineImages += Base64.getEncoder().encodeToString(bytes)
+            } else {
+                if (bytes.isEmpty() || bytes.size > MAX_INLINE_DOCUMENT_BYTES) {
+                    throw TransportException("document is too large for this JARVIS version")
+                }
+                val mime = when (extension) {
+                    "txt" -> "text/plain"
+                    "md" -> "text/markdown"
+                    "pdf" -> "application/pdf"
+                    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    else -> throw TransportException("unsupported document type")
+                }
+                inlineDocuments += Triple(
+                    mime,
+                    store.documentFilename(attachmentId) ?: "document.$extension",
+                    Base64.getEncoder().encodeToString(bytes),
+                )
             }
-            Base64.getEncoder().encodeToString(bytes)
         }
 
         return buildJsonObject {
@@ -403,6 +427,17 @@ class LiveAppGatewayTransport(
                     }
                 })
             }
+            if (inlineDocuments.isNotEmpty()) {
+                put("documents", buildJsonArray {
+                    inlineDocuments.forEach { (mime, filename, base64) ->
+                        addJsonObject {
+                            put("mime_type", mime)
+                            put("filename", filename)
+                            put("data_base64", base64)
+                        }
+                    }
+                })
+            }
         }.toString()
     }
 
@@ -411,6 +446,27 @@ class LiveAppGatewayTransport(
         if (data.isBlank()) return false
         when (event) {
             "ready" -> Unit // accepted already emitted when the turn started
+            "progress" -> {
+                val phase = runCatching {
+                    json.parseToJsonElement(data).jsonObject["phase"]?.jsonPrimitive?.content
+                }.getOrNull()
+                val label = when (phase) {
+                    "searching_web" -> "Searching the web"
+                    "reviewing_sources" -> "Reviewing sources"
+                    "analyzing_image" -> "Analyzing image"
+                    "reading_document" -> "Reading document"
+                    "generating_answer" -> "Writing answer"
+                    else -> null
+                }
+                if (label != null) {
+                    emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
+                        taskId = "chat_$requestId",
+                        requestId = requestId,
+                        status = TaskStatus.RUNNING,
+                        label = label,
+                    )))
+                }
+            }
             "delta" -> {
                 val text = runCatching {
                     json.parseToJsonElement(data).jsonObject["delta"]?.jsonPrimitive?.content
@@ -420,6 +476,10 @@ class LiveAppGatewayTransport(
                 }
             }
             "complete" -> {
+                emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
+                    taskId = "chat_$requestId", requestId = requestId,
+                    status = TaskStatus.COMPLETED,
+                )))
                 val completed = parseCompletedTurn(data)
                 if (completed != null) {
                     emit(completed.toEvent(requestId))
@@ -433,8 +493,16 @@ class LiveAppGatewayTransport(
                     json.parseToJsonElement(data).jsonObject["error"]?.jsonPrimitive?.content
                 }.getOrNull()
                 if (code == "chat_cancelled") {
+                    emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
+                        taskId = "chat_$requestId", requestId = requestId,
+                        status = TaskStatus.CANCELLED,
+                    )))
                     emit(GatewayEvent.MessageCompleted(requestId, "msg_$requestId"))
                 } else {
+                    emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
+                        taskId = "chat_$requestId", requestId = requestId,
+                        status = TaskStatus.FAILED,
+                    )))
                     emit(
                         GatewayEvent.MessageFailed(
                             requestId,

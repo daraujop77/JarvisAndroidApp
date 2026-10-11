@@ -166,7 +166,7 @@ class ConversationRepository(
      * own dispatch coroutine so this never blocks or reorders the hot path.
      */
     fun send(conversationId: String, text: String, attachmentIds: List<String> = emptyList()) {
-        val cid = session.send(conversationId, text, attachmentIds) { historyContext(conversationId) }
+        val cid = session.send(conversationId, text, attachmentIds) { historyContext(conversationId, text.length) }
         persistOutbound(cid, conversationId, text, attachmentIds)
         watchRequest(cid)
     }
@@ -178,8 +178,9 @@ class ConversationRepository(
      */
     private suspend fun historyContext(
         conversationId: String,
-        maxMessages: Int = 256,
-        maxChars: Int = 180_000,
+        newMessageChars: Int,
+        maxMessages: Int = 255,
+        maxChars: Int = (150_000 - newMessageChars).coerceAtLeast(0),
     ): List<com.jarvis.android.contract.ChatTurn> {
         val eligible = dao.messages(conversationId)
             .filter { it.status == RequestStatus.Completed.dbName }
@@ -322,7 +323,7 @@ class ConversationRepository(
             val cid = session.sendWithId(
                 p.clientRequestId, p.conversationId, p.text,
                 attachmentIds = p.attachmentIds.split(',').filter { it.isNotBlank() },
-                contextProvider = { historyContext(p.conversationId) },
+                contextProvider = { historyContext(p.conversationId, p.text.length) },
             )
             dao.upsertPending(p.copy(attempts = p.attempts + 1))
             watchRequest(cid)
