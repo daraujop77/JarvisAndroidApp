@@ -40,6 +40,33 @@ class WritingRoomIntegrityWiringTest {
     }
 
     @Test
+    fun paidVisualOperationsIgnoreLateOtherProjectAndCharacterResults() {
+        val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
+        val portrait = vm.substringAfter("private fun generateCopilotPortrait(")
+            .substringBefore("fun approveCopilotPortrait(")
+        assertTrue(portrait.contains("val epoch = copilotRecoveryEpoch"))
+        assertTrue(portrait.contains("if (copilotRecoveryEpoch != epoch ||"))
+        assertTrue(portrait.contains("deleteVisualStudioAttachments(listOf(it))"))
+        val approved = vm.substringAfter("fun approveCopilotPortrait(")
+            .substringBefore("fun beginCopilotCharacterViews(")
+        assertTrue(approved.contains("!settings.value.isOwner"))
+        assertTrue(approved.contains("if (copilotRecoveryEpoch != epoch ||"))
+        val generated = vm.substringAfter("fun generateCharacterVisual(")
+            .substringBefore("fun uploadCharacterMaster(")
+        assertTrue(generated.contains("current.projectId != projectId"))
+        assertTrue(generated.contains("current.characterId != characterId"))
+        assertTrue(generated.contains("scopeVersion != characterStudioScopeVersion"))
+        val batch = vm.substringAfter("fun approveCharacterViewBatch(")
+            .substringBefore("fun generateMissingCharacterMasters(")
+        assertTrue(batch.contains("_characterStudio.value.characterId != characterId"))
+        assertTrue(batch.contains("scopeVersion != characterStudioScopeVersion"))
+        val pack = vm.substringAfter("fun approveCharacterReferencePack(")
+            .substringBefore("fun openLocationStudio(")
+        assertTrue(pack.contains("scopeVersion != characterStudioScopeVersion"))
+        assertTrue(pack.contains("_characterStudio.value.projectId != projectId"))
+    }
+
+    @Test
     fun unsupportedProjectMutationsAreNotAdvertisedInTheUi() {
         val projects = code("app/src/main/java/com/jarvis/android/ui/screens/ProjectsScreen.kt")
         assertFalse(projects.contains("vm.createProject("))
