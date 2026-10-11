@@ -136,6 +136,7 @@ data class CopilotTaskResult(
     val text: String = "",
     val effect: String = "",
     val result: JsonObject = JsonObject(emptyMap()),
+    val visual_assets: List<CopilotApprovedVisualAsset> = emptyList(),
 )
 
 @Serializable
@@ -168,12 +169,31 @@ data class CopilotTaskState(
 )
 
 @Serializable
+data class CopilotApprovedVisualAsset(
+    val asset_id: String = "",
+    val sha256: String = "",
+    val alt: String = "",
+    val kind: String = "",
+    val status: String = "",
+    val storage_state: String = "",
+    val character_ids: List<String> = emptyList(),
+    val visual_revision: Int = 0,
+)
+
+@Serializable
+data class CopilotRecentMessage(
+    val role: String = "",
+    val content: String = "",
+)
+
+@Serializable
 data class WritingRoomAutoChat(
     val schema: String = "",
     val classification: WritingClassification = WritingClassification(),
     val selected_participant: String = "",
     val turn: JarvisAppSession.WritingRoomTurn = JarvisAppSession.WritingRoomTurn(),
     val copilot_task: CopilotTaskState? = null,
+    val visual_assets: List<CopilotApprovedVisualAsset> = emptyList(),
 )
 
 @Serializable
@@ -1425,6 +1445,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     prompt: String,
     room: String = "chat",
     toolMode: Boolean = false,
+    recentMessages: List<CopilotRecentMessage> = emptyList(),
     onDelta: (String) -> Unit,
 ): Result<WritingRoomAutoChat> = withContext(Dispatchers.IO) {
     val clean = prompt.trim()
@@ -1448,6 +1469,17 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         put("room", room)
         put("prompt", clean)
         if (toolMode) put("tool_mode", "plan")
+        // Bounded context is never a replacement for project-scoped canon.
+        put("history", kotlinx.serialization.json.buildJsonArray {
+            recentMessages.takeLast(12).forEach { msg ->
+                if (msg.role in setOf("user", "assistant") && msg.content.isNotBlank()) {
+                    add(buildJsonObject {
+                        put("role", msg.role)
+                        put("content", msg.content.take(1200))
+                    })
+                }
+            }
+        })
         put("request_id", java.util.UUID.randomUUID().toString())
     }.toString()
 

@@ -254,6 +254,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val overview: WritingRoomOverview? = null,
         val chat: WritingRoomAutoChat? = null,
         val chatHistory: List<WritingWorkspaceChatTurn> = emptyList(),
+        val approvedVisualAttachments: Map<String, String> = emptyMap(),
+        val approvedVisualErrors: Set<String> = emptySet(),
         val streamingText: String = "",
         val copilotPendingReferenceId: String? = null,
         val copilotReferenceError: String? = null,
@@ -506,6 +508,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             copilotTaskPollJob = null
             copilotTaskPollId = null
             deleteVisualStudioAttachments(_writingWorkspace.value.copilotViewPreviews.values)
+            deleteVisualStudioAttachments(_writingWorkspace.value.approvedVisualAttachments.values)
             _writingWorkspace.value.copilotSceneCandidate?.let {
                 deleteVisualStudioAttachments(listOf(it.previewAttachmentId))
             }
@@ -1941,6 +1944,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 _writingWorkspace.value.chatProjectId == projectId
             ) {
                 _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = response)
+                val approved = response.results.flatMap { it.visual_assets }
+                if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
                 followCopilotTaskProgress(projectId, response)
             }
         }
@@ -1974,6 +1979,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value.chatProjectId == projectId
                 ) {
                     _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = updated)
+                    val approved = updated.results.flatMap { it.visual_assets }
+                    if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
                     followCopilotTaskProgress(projectId, updated)
                 }
             } catch (error: Exception) {
@@ -1991,6 +1998,64 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value.chatProjectId == projectId
                 ) {
                     _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentBusy = false)
+                }
+            }
+        }
+    }
+
+    private fun markCopilotApprovedVisualUnavailable(projectId: String, epoch: Long, assetId: String) {
+        if (copilotRecoveryEpoch != epoch || _writingWorkspace.value.chatProjectId != projectId) return
+        val current = _writingWorkspace.value
+        _writingWorkspace.value = current.copy(
+            approvedVisualErrors = current.approvedVisualErrors + assetId,
+        )
+    }
+
+    private fun loadApprovedCopilotVisuals(
+        projectId: String,
+        assets: List<CopilotApprovedVisualAsset>,
+    ) {
+        if (_writingWorkspace.value.chatProjectId != projectId) return
+        val epoch = copilotRecoveryEpoch
+        // Only SHA-bound APPROVED and persisted assets may be displayed.
+        viewModelScope.launch {
+            for (asset in assets.take(6)) {
+                if (asset.status != "APPROVED" || asset.storage_state != "stored" ||
+                    !asset.asset_id.startsWith("va_") ||
+                    !Regex("^[a-fA-F0-9]{64}$").matches(asset.sha256)
+                ) continue
+                if (copilotRecoveryEpoch != epoch || _writingWorkspace.value.chatProjectId != projectId) return@launch
+                if (_writingWorkspace.value.approvedVisualAttachments.containsKey(asset.asset_id)) continue
+                val response = container.liveSession.writingRoomVisualAssetFetch(
+                    projectId, asset.asset_id,
+                ).getOrNull()
+                if (response == null || response.asset_id != asset.asset_id ||
+                    !response.sha256.equals(asset.sha256, ignoreCase = true) ||
+                    response.mime_type !in setOf("image/jpeg", "image/png", "image/webp") ||
+                    response.image_base64.length > 16 * 1024 * 1024
+                ) {
+                    markCopilotApprovedVisualUnavailable(projectId, epoch, asset.asset_id)
+                    continue
+                }
+                val staged = withContext(Dispatchers.IO) {
+                    container.attachmentStore.stageVisualAssetBase64(
+                        response.image_base64, asset.sha256,
+                    )
+                }
+                if (staged == null) {
+                    markCopilotApprovedVisualUnavailable(projectId, epoch, asset.asset_id)
+                    continue
+                }
+                if (copilotRecoveryEpoch == epoch && _writingWorkspace.value.chatProjectId == projectId) {
+                    val current = _writingWorkspace.value
+                    _writingWorkspace.value = current.copy(
+                        approvedVisualAttachments = current.approvedVisualAttachments +
+                            (asset.asset_id to staged.attachmentId),
+                        approvedVisualErrors = current.approvedVisualErrors - asset.asset_id,
+                    )
+                } else {
+                    deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                    return@launch
                 }
             }
         }
@@ -2043,6 +2108,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
         val current = _writingWorkspace.value
         val existingHistory = if (current.chatProjectId == projectId) current.chatHistory else emptyList()
+        val recent = existingHistory.takeLast(6).flatMap { previous ->
+            buildList {
+                if (previous.prompt.isNotBlank()) add(CopilotRecentMessage(
+                    role = "user", content = previous.prompt.take(1200),
+                ))
+                val reply = previous.response?.turn?.response?.text
+                if (!reply.isNullOrBlank()) add(CopilotRecentMessage(
+                    role = "assistant", content = reply.take(1200),
+                ))
+            }
+        }.takeLast(12)
         _writingWorkspace.value = current.copy(
             busy = true,
             busyLabel = "JARVIS is routing the Writing Room task",
@@ -2060,6 +2136,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 prompt = clean,
                 room = room,
                 toolMode = toolMode,
+                recentMessages = recent,
                 onDelta = { delta ->
                     val state = _writingWorkspace.value
                     if (state.chatProjectId == projectId) {
@@ -2096,6 +2173,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         )
                         response.copilot_task?.let {
                             followCopilotTaskProgress(projectId, it)
+                        }
+                        if (response.visual_assets.isNotEmpty()) {
+                            loadApprovedCopilotVisuals(projectId, response.visual_assets)
                         }
                     }
                 },

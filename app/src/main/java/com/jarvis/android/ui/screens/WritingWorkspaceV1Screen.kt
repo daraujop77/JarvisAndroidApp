@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.Tune
 import com.jarvis.android.data.story.CharacterChapterActivity
 import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
+import com.jarvis.android.ui.writing.looksLikeCopilotApprovedVisualInspectionRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
 import com.jarvis.android.ui.writing.looksLikeCopilotCharacterViewsRequest
@@ -741,7 +742,8 @@ private fun ChatSection(
                         looksLikeCopilotCharacterViewsRequest(clean) ||
                         looksLikeCopilotVisualDirectionChangeRequest(clean) ||
                         looksLikeCopilotOfficialExportRequest(clean) ||
-                        looksLikeCopilotCanonReadRequest(clean),
+                        looksLikeCopilotCanonReadRequest(clean) ||
+                        looksLikeCopilotApprovedVisualInspectionRequest(clean),
                 )
             }
             prompt = ""
@@ -1243,6 +1245,8 @@ private fun ChatSection(
                                         "get_project_visual_style" -> "Estilo visual del proyecto"
                                         "update_project_visual_style" -> "Cambiar estilo visual del proyecto"
                                         "update_character_visual_direction" -> "Actualizar apariencia del personaje"
+                                        "get_approved_visual_references" -> "Mostrar imágenes aprobadas"
+                                        "inspect_approved_character_image" -> "Inspeccionar master aprobado con modelo visual"
                                         "get_character_master_readiness" -> "Consultar masters y pendientes visuales"
                                         "complete_character_views" -> "Completar vistas del personaje"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
@@ -1261,6 +1265,15 @@ private fun ChatSection(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = if (step.effect == "PROPOSED_ONLY") JarvisAmber else JarvisGreen,
                                 )
+                                if (step.tool == "inspect_approved_character_image") {
+                                    Text(
+                                        "La inspección envía una referencia aprobada al proveedor de visión. " +
+                                            "Puede consumir tokens. Solo se ejecuta cuando tú confirmas. " +
+                                            "No genera imágenes ni cambia el canon.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = JarvisAmber,
+                                    )
+                                }
                                 if (step.effect == "PROPOSED_ONLY") {
                                     Text(
                                         (if (step.tool == "prepare_visual_scene")
@@ -1275,6 +1288,39 @@ private fun ChatSection(
                                 Spacer(Modifier.height(7.dp))
                                 Text(output.text, style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFFE2E8F0))
+                                output.visual_assets.take(6).forEach { approved ->
+                                    if (approved.status == "APPROVED") {
+                                        Spacer(Modifier.height(7.dp))
+                                        Text(
+                                            "REFERENCIA APROBADA · " + approved.kind,
+                                            style = HudTextStyle.copy(fontSize = 10.sp),
+                                            color = JarvisGreen,
+                                        )
+                                        val thumbnailId = state.approvedVisualAttachments[approved.asset_id]
+                                        val bitmap = remember(thumbnailId) {
+                                            thumbnailId?.let {
+                                                vm.attachmentStore.decodeThumbnail(it, maxSize = 768)
+                                            }
+                                        }
+                                        if (bitmap != null) {
+                                            Image(
+                                                bitmap = bitmap.asImageBitmap(),
+                                                contentDescription = approved.alt.ifBlank { "Imagen aprobada" },
+                                                modifier = Modifier.fillMaxWidth().height(240.dp)
+                                                    .clip(RoundedCornerShape(12.dp)),
+                                                contentScale = ContentScale.Fit,
+                                            )
+                                        } else {
+                                            Text(
+                                                if (approved.asset_id in state.approvedVisualErrors)
+                                                    "No se pudo verificar o descargar esta imagen."
+                                                else "Referencia identificada; archivo visual pendiente de verificar.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = JarvisAmber,
+                                            )
+                                        }
+                                    }
+                                }
                                 // A read-only tool resolves only official full-text source IDs.
                                 // Export bytes are requested AFTER user action, with SHA pin.
                                 val prepared = if (output.tool == "prepare_official_chapter_export" &&
@@ -1560,7 +1606,11 @@ private fun ChatSection(
                 }
                 turn.response?.let { response ->
                     item {
-                        CopilotAssistantMessage(response, turn, projectId, vm, state.busy)
+                        CopilotAssistantMessage(
+                        response, turn, projectId, vm, state.busy,
+                        state.approvedVisualAttachments,
+                        state.approvedVisualErrors,
+                    )
                     }
                 }
             }
@@ -1780,6 +1830,8 @@ private fun CopilotAssistantMessage(
     projectId: String,
     vm: JarvisViewModel,
     busy: Boolean,
+    approvedVisualAttachments: Map<String, String>,
+    approvedVisualErrors: Set<String>,
 ) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
@@ -1851,6 +1903,48 @@ private fun CopilotAssistantMessage(
                 }
                 Spacer(Modifier.height(5.dp))
                 RichModelText(chat.turn.response.text)
+
+                chat.visual_assets.take(6).forEach { approved ->
+                    if (approved.status == "APPROVED") {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "REFERENCIA APROBADA · " + approved.kind +
+                                " · rev. " + approved.visual_revision,
+                            style = HudTextStyle.copy(fontSize = 10.sp),
+                            color = JarvisGreen,
+                        )
+                        if (approved.alt.isNotBlank()) {
+                            Text(
+                                approved.alt.take(200),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFCBD5E1),
+                            )
+                        }
+                        val thumbnailId = approvedVisualAttachments[approved.asset_id]
+                        val bitmap = remember(thumbnailId) {
+                            thumbnailId?.let { vm.attachmentStore.decodeThumbnail(it, maxSize = 768) }
+                        }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = approved.alt.ifBlank { "Imagen aprobada" },
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxWidth().height(240.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                            )
+                        } else {
+                            Text(
+                                if (approved.asset_id in approvedVisualErrors)
+                                    "No se pudo verificar o descargar esta imagen. Consulta Visual Studio."
+                                else if (approved.storage_state == "stored")
+                                    "Recuperando imagen verificada…"
+                                else "Imagen aprobada, pero su archivo todavía no está disponible.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisAmber,
+                            )
+                        }
+                    }
+                }
 
                 turn.generatedPreviewAttachmentId?.let { attachmentId ->
                     val image = remember(attachmentId) {
