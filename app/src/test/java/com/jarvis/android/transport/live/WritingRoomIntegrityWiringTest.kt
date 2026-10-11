@@ -116,6 +116,36 @@ class WritingRoomIntegrityWiringTest {
     }
 
     @Test
+    fun approvedImagesAreShaVerifiedBeforeInlineCopilotPreview() {
+        val api = code("app/src/main/java/com/jarvis/android/transport/live/WritingRoomApi.kt")
+        val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
+        val ui = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
+        assertTrue(api.contains("data class CopilotApprovedVisualAsset("))
+        assertTrue(api.contains("val visual_assets: List<CopilotApprovedVisualAsset>"))
+        assertTrue(api.contains("recentMessages: List<CopilotRecentMessage>")) // contract evolution guard
+        assertTrue(api.contains("put(\"history\", kotlinx.serialization.json.buildJsonArray"))
+        assertTrue(vm.contains("loadApprovedCopilotVisuals(projectId, response.visual_assets)"))
+        assertTrue(vm.contains("asset.status != \"APPROVED\""))
+        assertTrue(vm.contains("asset.storage_state != \"stored\""))
+        assertTrue(vm.contains("stageVisualAssetBase64("))
+        assertTrue(vm.contains("copilotRecoveryEpoch == epoch"))
+        assertTrue(vm.contains("deleteVisualStudioAttachments(_writingWorkspace.value.approvedVisualAttachments.values)"))
+        assertTrue(ui.contains("chat.visual_assets.take(6).forEach"))
+        assertTrue(ui.contains("REFERENCIA APROBADA"))
+    }
+
+    @Test
+    fun copilotChatHistoryRemainsBoundedAndProjectScoped() {
+        val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
+        val api = code("app/src/main/java/com/jarvis/android/transport/live/WritingRoomApi.kt")
+        assertTrue(vm.contains("if (current.chatProjectId == projectId) current.chatHistory else emptyList()"))
+        assertTrue(vm.contains("existingHistory.takeLast(6)"))
+        assertTrue(vm.contains("recentMessages = recent"))
+        assertTrue(api.contains("recentMessages.takeLast(12)"))
+        assertTrue(api.contains("msg.content.take(1200)"))
+    }
+
+    @Test
     fun unsupportedProjectMutationsAreNotAdvertisedInTheUi() {
         val projects = code("app/src/main/java/com/jarvis/android/ui/screens/ProjectsScreen.kt")
         assertFalse(projects.contains("vm.createProject("))
