@@ -1,0 +1,98 @@
+name: Writing Room Signed Direct APK Preview v62
+
+on:
+  push:
+    branches:
+      - build/writing-room-signed-direct-update-v62-20261011
+
+permissions:
+  contents: read
+
+jobs:
+  signed-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+    steps:
+      - name: Checkout reviewed source with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify reviewed app source and isolated build-only changes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          APPROVED="0d46a574e846a552be91b533cc8bbb8d00e60dd2"
+          git cat-file -e "$APPROVED^{commit}"
+          test "$(git merge-base "$APPROVED" HEAD)" = "$APPROVED"
+          ACTUAL="$(git diff --name-only "$APPROVED" HEAD | sort)"
+          EXPECTED="$(printf '%s\n' '.github/workflows/writing-room-signed-direct-preview-v62-20261011.yml' 'app/build.gradle.kts' | sort)"
+          test "$ACTUAL" = "$EXPECTED" || {
+            echo "Refusing extra app/code changes"; exit 1;
+          }
+          git diff --unified=0 "$APPROVED" HEAD -- app/build.gradle.kts
+          grep -F 'versionCode = jarvisVersionCode ?: 62' app/build.gradle.kts
+          grep -F 'versionName = "0.1.62-writing-room-preview"' app/build.gradle.kts
+          grep -F '.orElse("com.jarvis.android")' app/build.gradle.kts
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Restore original direct-APK signing certificate
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$RELEASE_KEYSTORE_BASE64"
+          test -n "$RELEASE_STORE_PASSWORD"
+          test -n "$RELEASE_KEY_ALIAS"
+          test -n "$RELEASE_KEY_PASSWORD"
+          mkdir -p "$RUNNER_TEMP/jarvis-signing"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/jarvis-signing/release.jks"
+          echo "RELEASE_STORE_FILE=$RUNNER_TEMP/jarvis-signing/release.jks" >> "$GITHUB_ENV"
+      - name: Test and build signed update APK without publishing
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleRelease --stacktrace
+          test -s app/build/outputs/apk/release/app-release.apk
+      - name: Verify package, version code and existing release signing identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          TOOLS_DIR="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$TOOLS_DIR/apksigner"
+          test -x "$TOOLS_DIR/aapt"
+          PACKAGE="$("$TOOLS_DIR/aapt" dump badging "$APK" | head -n 1)"
+          echo "$PACKAGE"
+          [[ "$PACKAGE" == *"name='com.jarvis.android'"* ]]
+          [[ "$PACKAGE" == *"versionCode='62'"* ]]
+          "$TOOLS_DIR/apksigner" verify --print-certs "$APK" > "$RUNNER_TEMP/current-signature.txt"
+          mkdir -p "$RUNNER_TEMP/prior-release"
+          gh release download android-v61 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'JARVIS-release.apk' --dir "$RUNNER_TEMP/prior-release"
+          "$TOOLS_DIR/apksigner" verify --print-certs "$RUNNER_TEMP/prior-release/JARVIS-release.apk" > "$RUNNER_TEMP/prior-signature.txt"
+          CURRENT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/current-signature.txt" | head -n 1)"
+          PRIOR="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/prior-signature.txt" | head -n 1)"
+          test -n "$CURRENT" && test "$CURRENT" = "$PRIOR" || {
+            echo "The new APK is not signed with the same identity as v61"; exit 1;
+          }
+          echo "Direct-install signing identity matches v61."
+          sha256sum "$APK"
+      - name: Upload signed v62 owner-preview APK only (no release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-WritingRoom-signed-update-v62
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
