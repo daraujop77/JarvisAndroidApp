@@ -21,6 +21,25 @@ class WritingRoomIntegrityWiringTest {
     }
 
     @Test
+    fun canonDashboardNeverFabricatesChapterSourcesOrProjectIdentity() {
+        val screen = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
+        assertFalse(screen.contains("STORY-001"))
+        assertFalse(screen.contains("?: 37"))
+        assertFalse(screen.contains("Capítulo 37: La contingencia"))
+        assertFalse(screen.contains("CANON · CAP 37"))
+        assertFalse(screen.contains("?: 23"))
+        assertFalse(screen.contains("CANON SINCRONIZADO"))
+        assertFalse(screen.contains("RAG CONECTADO"))
+        assertFalse(screen.contains("Conectado al Canon de Alexander History"))
+        assertTrue(screen.contains("overview.sources.total} FUENTES REGISTRADAS"))
+        assertTrue(screen.contains("latestChapterNumber = home?.latest_official_chapter?.chapter_number"))
+        assertTrue(screen.contains("CAPÍTULO OFICIAL POR CONFIRMAR"))
+        assertTrue(screen.contains("Canon del proyecto:"))
+        assertTrue(screen.contains("Hitos del canon"))
+        assertTrue(screen.contains("ÚLTIMA APARICIÓN · CAP"))
+    }
+
+    @Test
     fun unsupportedProjectMutationsAreNotAdvertisedInTheUi() {
         val projects = code("app/src/main/java/com/jarvis/android/ui/screens/ProjectsScreen.kt")
         assertFalse(projects.contains("vm.createProject("))

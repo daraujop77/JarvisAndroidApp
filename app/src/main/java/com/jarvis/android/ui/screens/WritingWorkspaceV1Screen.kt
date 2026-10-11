@@ -281,7 +281,7 @@ fun WritingWorkspaceV1Screen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            "WRITING ROOM · STORY-001",
+                            "WRITING ROOM · " + (overview?.project?.story_id?.takeIf(String::isNotBlank) ?: projectId),
                             style = HudTextStyle,
                             color = accents.orbGlow,
                         )
@@ -291,10 +291,15 @@ fun WritingWorkspaceV1Screen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            val chapter = overview?.latest_official_chapter?.chapter_number ?: 37
-                            MiniPill("CANON · CAP $chapter", JarvisGreen)
+                            val chapter = overview?.latest_official_chapter?.chapter_number
+                            if (chapter != null) {
+                                MiniPill("CANON · CAP $chapter", JarvisGreen)
+                            } else {
+                                MiniPill("CANON · NO VERIFICADO", JarvisAmber)
+                            }
                             MiniPill(
-                                if (state.busy) writingRoomActivityLabel(state, strings) else strings.statusOnline,
+                                if (state.busy) writingRoomActivityLabel(state, strings)
+                                else if (overview == null) "DATOS PENDIENTES" else strings.statusOnline,
                                 if (state.busy) JarvisAmber else accents.online,
                             )
                         }
@@ -475,7 +480,7 @@ private fun OverviewSection(
                             }
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                overview?.project?.title ?: "Alexander History",
+                                overview?.project?.title?.takeIf(String::isNotBlank) ?: "Proyecto narrativo",
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                 color = Color(0xFFF8FAFC),
                             )
@@ -497,9 +502,13 @@ private fun OverviewSection(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        MiniPill("CANON SINCRONIZADO", JarvisGreen)
-                        MiniPill("${overview?.sources?.total ?: 23} FUENTES ACTIVAS", JarvisCyan)
-                        MiniPill("RAG CONECTADO", JarvisCyan)
+                        if (overview == null) {
+                            MiniPill("DATOS DEL CANON PENDIENTES", JarvisAmber)
+                            MiniPill("FUENTES POR CARGAR", JarvisAmber)
+                        } else {
+                            MiniPill("CANON DEL PROYECTO", JarvisGreen)
+                            MiniPill("${overview.sources.total} FUENTES REGISTRADAS", JarvisCyan)
+                        }
                         overview?.project?.snapshot_date?.let {
                             MiniPill("SNAPSHOT · $it", JarvisViolet)
                         }
@@ -527,26 +536,31 @@ private fun OverviewSection(
                             Icon(Icons.Filled.AutoStories, contentDescription = null, tint = JarvisGreen, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                "ÚLTIMO CAPÍTULO OFICIAL ESTABLECIDO",
+                                if (latest?.chapter_number != null) "ÚLTIMO CAPÍTULO OFICIAL ESTABLECIDO"
+                                else "CAPÍTULO OFICIAL POR CONFIRMAR",
                                 style = HudTextStyle.copy(fontSize = 10.sp),
                                 color = JarvisGreen,
                             )
                         }
                         MiniPill(
-                            if (latest?.chapter_number != null) "CAPÍTULO ${latest.chapter_number}" else "VIGENTE",
-                            JarvisGreen,
+                            if (latest?.chapter_number != null) "CAPÍTULO ${latest.chapter_number}" else "SIN CAPÍTULO",
+                            if (latest?.chapter_number != null) JarvisGreen else JarvisAmber,
                         )
                     }
 
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        latest?.title ?: "Capítulo 37: La contingencia",
+                        latest?.title?.takeIf(String::isNotBlank) ?: "Aún no hay un capítulo oficial confirmado",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = Color(0xFFF8FAFC),
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Los hechos de este capítulo son verdad canónica inmutable. Todo el razonamiento de JARVIS protege la continuidad a partir de este punto.",
+                        if (latest?.chapter_number != null) {
+                                "Los hechos de este capítulo son verdad canónica inmutable. Todo el razonamiento de JARVIS protege la continuidad a partir de este punto."
+                            } else {
+                                "JARVIS no debe atribuir hechos a un último capítulo hasta que el proyecto confirme su canon."
+                            },
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFCBD5E1),
                     )
@@ -778,7 +792,9 @@ private fun ChatSection(
                                         color = Color(0xFFF8FAFC),
                                     )
                                     Text(
-                                        "Conectado al Canon de Alexander History",
+                                        state.overview?.project?.title?.takeIf(String::isNotBlank)
+                                            ?.let { "Canon del proyecto: $it" }
+                                            ?: "Canon de $title · datos pendientes",
                                         style = HudTextStyle.copy(fontSize = 11.sp),
                                         color = LocalJarvisAccents.current.orbGlow,
                                     )
@@ -803,7 +819,9 @@ private fun ChatSection(
                             }?.let { it.canonical_name.ifBlank { it.name } }
                                 ?.takeIf(String::isNotBlank)
                             val suggestions = listOf(
-                                "¿Cuál es el estado de Alexander tras el Cap. 37?",
+                                state.overview?.latest_official_chapter?.chapter_number
+                                    ?.let { "¿Qué ocurrió en el capítulo $it según el canon?" }
+                                    ?: "¿Qué hechos oficiales están registrados en este proyecto?",
                                 "¿Qué facciones y generales tienen tensiones activas?",
                                 "Sugiere un punto de partida para el siguiente capítulo",
                             ) + listOfNotNull(
@@ -3906,6 +3924,7 @@ private fun WikiSection(
     if (viewingCharactersDirectory) {
         CharactersDirectory(
             characters = liveCharacters,
+            latestChapterNumber = home?.latest_official_chapter?.chapter_number,
             onSelectCharacter = { character ->
                 selectedCharacterId = character.id
             },
@@ -3943,8 +3962,12 @@ private fun WikiSection(
                             color = Color(0xFFF8FAFC),
                         )
                         Spacer(Modifier.weight(1f))
-                        val canonChapter = home?.latest_official_chapter?.chapter_number ?: 37
-                        MiniPill("CANON · CH $canonChapter", JarvisGreen)
+                        val canonChapter = home?.latest_official_chapter?.chapter_number
+                        if (canonChapter != null) {
+                            MiniPill("CANON · CH $canonChapter", JarvisGreen)
+                        } else {
+                            MiniPill("CANON · NO VERIFICADO", JarvisAmber)
+                        }
                     }
                     Spacer(Modifier.height(5.dp))
                     Text(
@@ -4044,7 +4067,7 @@ private fun WikiSection(
                                 query = ""
                                 vm.clearWritingWikiSearch()
                             },
-                            label = { Text("Hitos Cap 1–37 (${timeline?.occurred?.size ?: 0})") },
+                            label = { Text("Hitos del canon (${timeline?.occurred?.size ?: 0})") },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = Color(0x33101B2E),
                                 labelColor = JarvisAmber,
@@ -4514,6 +4537,7 @@ private fun WikiSection(
 @Composable
 private fun CharactersDirectory(
     characters: List<StoryCharacter>,
+    latestChapterNumber: Int?,
     onSelectCharacter: (StoryCharacter) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -4563,7 +4587,9 @@ private fun CharactersDirectory(
                             Text("Volver al Wiki", color = Color(0xFFF1F5F9), style = HudTextStyle)
                         }
                         Spacer(Modifier.weight(1f))
-                        MiniPill("CANON · CAP 37", JarvisGreen)
+                        latestChapterNumber?.let { chapter ->
+                            MiniPill("CANON · CAP $chapter", JarvisGreen)
+                        }
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -4916,10 +4942,9 @@ private fun CharacterDetailWiki(
                     Text("Volver a personajes", color = Color(0xFFF1F5F9), fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.weight(1f))
-                MiniPill(
-                    "CANON OFICIAL · CAP " + (character.encyclopediaProfile.latestAppearance ?: 37),
-                    JarvisGreen,
-                )
+                character.encyclopediaProfile.latestAppearance?.let { chapter ->
+                    MiniPill("ÚLTIMA APARICIÓN · CAP $chapter", JarvisGreen)
+                }
             }
         }
 
