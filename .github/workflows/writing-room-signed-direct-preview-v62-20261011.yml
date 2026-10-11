@@ -67,7 +67,7 @@ jobs:
             -storepass "$RELEASE_STORE_PASSWORD" \
             > "$RUNNER_TEMP/jarvis-keystore-certificates.txt"
           python3 - "$RUNNER_TEMP/jarvis-keystore-certificates.txt" "$GITHUB_ENV" <<'PY'
-          import re, sys
+          import os, re, sys
           expected = "46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a"
           path, env_file = sys.argv[1:]
           contents = open(path, encoding="utf-8").read()
@@ -91,6 +91,9 @@ jobs:
               sys.exit(1)
           with open(env_file, "a", encoding="utf-8") as out:
               out.write("RELEASE_KEY_ALIAS=" + matches[0] + "\n")
+          alias_file = os.path.join(os.environ["RUNNER_TEMP"], "jarvis-signing", "matched-alias.txt")
+          with open(alias_file, "w", encoding="utf-8") as out:
+              out.write(matches[0] + "\n")
           print("Original v61 signing certificate found. Safe to attempt signed v62 update.")
           PY
       - name: Test and build signed update APK without publishing
@@ -98,6 +101,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           chmod +x gradlew
+          # Force the exact alias independently of job-level secret precedence.
+          export RELEASE_KEY_ALIAS="$(cat "$RUNNER_TEMP/jarvis-signing/matched-alias.txt")"
+          test -n "$RELEASE_KEY_ALIAS"
           ./gradlew :app:testDebugUnitTest :app:assembleRelease --stacktrace
           test -s app/build/outputs/apk/release/app-release.apk
       - name: Verify package, version code and existing release signing identity
@@ -127,16 +133,20 @@ jobs:
 
           def signer_sha(path):
               output = open(path, encoding="utf-8").read()
-              found = re.search(
-                  r"Signer\s+#1\s+certificate\s+SHA-256\s+digest:\s*([0-9a-fA-F:]+)",
-                  output,
-                  re.IGNORECASE,
-              )
-              if not found:
-                  print("BLOCKED: apksigner did not provide a parseable signer certificate.")
-                  print("apksigner output lines:", len(output.splitlines()))
-                  sys.exit(1)
-              return found.group(1).replace(":", "").lower()
+              for line in output.splitlines():
+                  if "sha" not in line.lower() or "256" not in line:
+                      continue
+                  digests = re.findall(
+                      r"(?<![0-9a-fA-F])(?:[0-9a-fA-F]{2}:){31}[0-9a-fA-F]{2}(?![0-9a-fA-F])|(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])",
+                      line,
+                      re.IGNORECASE,
+                  )
+                  if digests:
+                      return digests[-1].replace(":", "").lower()
+              print("BLOCKED: apksigner did not provide a parseable SHA-256 certificate.")
+              print("Public apksigner output for diagnosis:")
+              print(output)
+              sys.exit(1)
 
           current = signer_sha(sys.argv[1])
           prior = signer_sha(sys.argv[2])
