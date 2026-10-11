@@ -1,0 +1,150 @@
+name: Publish JARVIS v63 Copilot direct update
+
+on:
+  push:
+    branches:
+      - publish/copilot-approved-visuals-v63-20261011
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-copilot-v63:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GH_TOKEN: ${{ github.token }}
+      APPROVED_SOURCE_SHA: f1b0e80fe8050f610bb6ad3d09392c29f9be15a0
+      APPROVED_APK_SHA256: 3116a08cc37a632f0ca2dd62efdde59c567d1b817391d47716dfc6c32cd227fd
+      APPROVED_CERT_SHA256: 46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a
+      APPROVED_BUILD_RUN: "38130609919"
+
+    steps:
+      - name: Check out publication-only commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify immutable source and publication-only change
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git cat-file -e "$APPROVED_SOURCE_SHA^{commit}"
+          test "$(git merge-base "$APPROVED_SOURCE_SHA" HEAD)" = "$APPROVED_SOURCE_SHA"
+          CHANGES="$(git diff --name-only "$APPROVED_SOURCE_SHA" HEAD)"
+          test "$CHANGES" = ".github/workflows/publish-copilot-approved-visuals-v63-20261011.yml" || {
+            echo "BLOCKED: publication branch contains app/code changes"; exit 1;
+          }
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')" = "android-v62" || {
+            echo "BLOCKED: published updater is no longer android-v62"; exit 1;
+          }
+          if gh release view android-v63 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "BLOCKED: android-v63 already exists; never overwrite"; exit 1;
+          fi
+
+      - name: Download exactly the tested signed v63 artifact
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/v63-approved"
+          gh run download "$APPROVED_BUILD_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name JARVIS-Copilot-approved-visuals-signed-update-v63 \
+            --dir "$RUNNER_TEMP/v63-approved"
+          APK="$RUNNER_TEMP/v63-approved/app-release.apk"
+          test -s "$APK"
+          echo "$APPROVED_APK_SHA256  $APK" | sha256sum --check
+          echo "APPROVED_APK=$APK" >> "$GITHUB_ENV"
+
+      - name: Verify version, package and original signing certificate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TOOLS_DIR="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$TOOLS_DIR/aapt"
+          test -x "$TOOLS_DIR/apksigner"
+          BADGING="$("$TOOLS_DIR/aapt" dump badging "$APPROVED_APK" | head -n 1)"
+          echo "$BADGING"
+          [[ "$BADGING" == *"name='com.jarvis.android'"* ]]
+          [[ "$BADGING" == *"versionCode='63'"* ]]
+          [[ "$BADGING" == *"versionName='0.1.63-copilot-approved-visuals'"* ]]
+          "$TOOLS_DIR/apksigner" verify --print-certs "$APPROVED_APK" > "$RUNNER_TEMP/v63-signer.txt"
+          python3 - "$RUNNER_TEMP/v63-signer.txt" <<'PY'
+          import os, re, sys
+          contents = open(sys.argv[1], encoding="utf-8").read()
+          matches = []
+          for line in contents.splitlines():
+              if "sha" in line.lower() and "256" in line:
+                  matches += [x.replace(":", "").lower() for x in re.findall(
+                      r"(?<![a-fA-F0-9])(?:[a-fA-F0-9]{2}:){31}[a-fA-F0-9]{2}(?![a-fA-F0-9])|(?<![a-fA-F0-9])[a-fA-F0-9]{64}(?![a-fA-F0-9])",
+                      line,
+                  )]
+          if os.environ["APPROVED_CERT_SHA256"] not in matches:
+              raise SystemExit("BLOCKED: v63 signing certificate differs from installed v62")
+          print("Signed v63 preserves the verified v61/v62 signing certificate.")
+          PY
+
+      - name: Publish exact APK and manifest to normal in-app updater
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')" = "android-v62"
+          if gh release view android-v63 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "BLOCKED: do not replace an existing release"; exit 1;
+          fi
+          RELEASE_APK="$RUNNER_TEMP/JARVIS-release.apk"
+          RELEASE_MANIFEST="$RUNNER_TEMP/JARVIS-release.json"
+          cp "$APPROVED_APK" "$RELEASE_APK"
+          echo "$APPROVED_APK_SHA256  $RELEASE_APK" | sha256sum --check
+          python3 - "$RELEASE_MANIFEST" "$RELEASE_APK" <<'PY'
+          import hashlib, json, os, pathlib, sys
+          manifest_path, apk_path = sys.argv[1:]
+          data = pathlib.Path(apk_path).read_bytes()
+          digest = hashlib.sha256(data).hexdigest()
+          assert digest == os.environ["APPROVED_APK_SHA256"]
+          manifest = {
+              "schema": "jarvis.android.signed-release.v1",
+              "version_code": 63,
+              "version_name": "0.1.63-copilot-approved-visuals",
+              "package_name": "com.jarvis.android",
+              "sha256": digest,
+              "size_bytes": len(data),
+              "source_sha": os.environ["APPROVED_SOURCE_SHA"],
+          }
+          pathlib.Path(manifest_path).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
+          # Rename the file on disk before publication. The prior v62 issue
+          # was caused by relying on GitHub's '#assetname' release syntax.
+          gh release create android-v63 "$RELEASE_APK" "$RELEASE_MANIFEST" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$APPROVED_SOURCE_SHA" \
+            --title "JARVIS Android 0.1.63-copilot-approved-visuals" \
+            --notes "Signed v63 direct update for Writing Room Copilot. Approved image cards, scoped chat history and owner-confirmed visual inspection. Verified same signing certificate as v62. Phone acceptance and live provider readiness remain to be tested." \
+            --latest
+
+      - name: Verify latest updater assets and immutable published APK hash
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')" = "android-v63"
+          ASSETS="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/android-v63" --jq '.assets[].name' | sort)"
+          EXPECTED="$(printf '%s\n' JARVIS-release.apk JARVIS-release.json | sort)"
+          test "$ASSETS" = "$EXPECTED" || {
+            echo "BLOCKED: updater assets incorrectly named"; exit 1;
+          }
+          mkdir -p "$RUNNER_TEMP/check-v63"
+          gh release download android-v63 --repo "$GITHUB_REPOSITORY" \
+            --pattern JARVIS-release.apk --pattern JARVIS-release.json --dir "$RUNNER_TEMP/check-v63"
+          echo "$APPROVED_APK_SHA256  $RUNNER_TEMP/check-v63/JARVIS-release.apk" | sha256sum --check
+          python3 - "$RUNNER_TEMP/check-v63/JARVIS-release.json" <<'PY'
+          import json, os, pathlib, sys
+          m = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          assert m["schema"] == "jarvis.android.signed-release.v1"
+          assert m["version_code"] == 63
+          assert m["version_name"] == "0.1.63-copilot-approved-visuals"
+          assert m["package_name"] == "com.jarvis.android"
+          assert m["sha256"] == os.environ["APPROVED_APK_SHA256"]
+          assert m["source_sha"] == os.environ["APPROVED_SOURCE_SHA"]
+          assert int(m["size_bytes"]) > 0
+          print("v63 is latest and both updater assets match the signed APK.")
+          PY
