@@ -1312,7 +1312,9 @@ private fun ChatSection(
                                             )
                                         } else {
                                             Text(
-                                                "Referencia identificada; archivo visual pendiente de verificar.",
+                                                if (approved.asset_id in state.approvedVisualErrors)
+                                                    "No se pudo verificar o descargar esta imagen."
+                                                else "Referencia identificada; archivo visual pendiente de verificar.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = JarvisAmber,
                                             )
@@ -1607,6 +1609,7 @@ private fun ChatSection(
                         CopilotAssistantMessage(
                         response, turn, projectId, vm, state.busy,
                         state.approvedVisualAttachments,
+                        state.approvedVisualErrors,
                     )
                     }
                 }
@@ -1828,6 +1831,7 @@ private fun CopilotAssistantMessage(
     vm: JarvisViewModel,
     busy: Boolean,
     approvedVisualAttachments: Map<String, String>,
+    approvedVisualErrors: Set<String>,
 ) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
@@ -1930,7 +1934,9 @@ private fun CopilotAssistantMessage(
                             )
                         } else {
                             Text(
-                                if (approved.storage_state == "stored")
+                                if (approved.asset_id in approvedVisualErrors)
+                                    "No se pudo verificar o descargar esta imagen. Consulta Visual Studio."
+                                else if (approved.storage_state == "stored")
                                     "Recuperando imagen verificada…"
                                 else "Imagen aprobada, pero su archivo todavía no está disponible.",
                                 style = MaterialTheme.typography.bodySmall,

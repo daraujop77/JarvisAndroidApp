@@ -255,6 +255,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val chat: WritingRoomAutoChat? = null,
         val chatHistory: List<WritingWorkspaceChatTurn> = emptyList(),
         val approvedVisualAttachments: Map<String, String> = emptyMap(),
+        val approvedVisualErrors: Set<String> = emptySet(),
         val streamingText: String = "",
         val copilotPendingReferenceId: String? = null,
         val copilotReferenceError: String? = null,
@@ -2002,6 +2003,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    private fun markCopilotApprovedVisualUnavailable(projectId: String, epoch: Long, assetId: String) {
+        if (copilotRecoveryEpoch != epoch || _writingWorkspace.value.chatProjectId != projectId) return
+        val current = _writingWorkspace.value
+        _writingWorkspace.value = current.copy(
+            approvedVisualErrors = current.approvedVisualErrors + assetId,
+        )
+    }
+
     private fun loadApprovedCopilotVisuals(
         projectId: String,
         assets: List<CopilotApprovedVisualAsset>,
@@ -2019,22 +2028,30 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 if (_writingWorkspace.value.approvedVisualAttachments.containsKey(asset.asset_id)) continue
                 val response = container.liveSession.writingRoomVisualAssetFetch(
                     projectId, asset.asset_id,
-                ).getOrNull() ?: continue
-                if (response.asset_id != asset.asset_id ||
+                ).getOrNull()
+                if (response == null || response.asset_id != asset.asset_id ||
                     !response.sha256.equals(asset.sha256, ignoreCase = true) ||
                     response.mime_type !in setOf("image/jpeg", "image/png", "image/webp") ||
                     response.image_base64.length > 16 * 1024 * 1024
-                ) continue
+                ) {
+                    markCopilotApprovedVisualUnavailable(projectId, epoch, asset.asset_id)
+                    continue
+                }
                 val staged = withContext(Dispatchers.IO) {
                     container.attachmentStore.stageVisualAssetBase64(
                         response.image_base64, asset.sha256,
                     )
-                } ?: continue
+                }
+                if (staged == null) {
+                    markCopilotApprovedVisualUnavailable(projectId, epoch, asset.asset_id)
+                    continue
+                }
                 if (copilotRecoveryEpoch == epoch && _writingWorkspace.value.chatProjectId == projectId) {
                     val current = _writingWorkspace.value
                     _writingWorkspace.value = current.copy(
                         approvedVisualAttachments = current.approvedVisualAttachments +
                             (asset.asset_id to staged.attachmentId),
+                        approvedVisualErrors = current.approvedVisualErrors - asset.asset_id,
                     )
                 } else {
                     deleteVisualStudioAttachments(listOf(staged.attachmentId))
