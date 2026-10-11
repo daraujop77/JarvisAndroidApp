@@ -66,6 +66,55 @@ class WritingRoomIntegrityWiringTest {
         assertTrue(pack.contains("_characterStudio.value.projectId != projectId"))
     }
 
+
+    @Test
+    fun copilotIsDefaultAndDraftsAreScopedByProject() {
+        val ui = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
+        assertTrue(ui.contains("var tab by rememberSaveable(projectId) { mutableStateOf(WorkspaceTab.CHAT) }"))
+        assertTrue(ui.contains("var prompt by rememberSaveable(projectId) { mutableStateOf(\"\") }"))
+        assertTrue(ui.contains("var draft by rememberSaveable(projectId) { mutableStateOf(\"\") }"))
+        assertTrue(ui.contains("var councilPrompt by rememberSaveable(projectId) { mutableStateOf(\"\") }"))
+        assertTrue(ui.contains("var query by rememberSaveable(projectId) { mutableStateOf(\"\") }"))
+        assertTrue(ui.contains("var selectedCharacterId by rememberSaveable(projectId)"))
+        assertTrue(ui.contains("var planningReply by rememberSaveable(projectId, active?.chapter_id)"))
+        assertTrue(ui.contains("var currentSubTab by rememberSaveable(projectId, character.id)"))
+        assertTrue(ui.contains("CharactersDirectory(\n            projectId = projectId,"))
+    }
+
+    @Test
+    fun singleAndBatchPaidGenerationNeedsExplicitConfirmation() {
+        val studio = code("app/src/main/java/com/jarvis/android/ui/writing/CharacterStudioScreen.kt")
+        val scene = code("app/src/main/java/com/jarvis/android/ui/writing/SceneBuilderScreen.kt")
+        assertTrue(studio.contains("pendingSingleGeneration = \"master\""))
+        assertTrue(studio.contains("pendingSingleGeneration = \"angle\""))
+        assertTrue(studio.contains("pendingTurnaroundGeneration = true"))
+        assertTrue(studio.contains("Confirmar imagen de pago"))
+        assertTrue(studio.contains("Confirmar generación de vistas"))
+        assertTrue(studio.contains("vm.generateCharacterVisual("))
+        assertTrue(studio.contains("vm.completeCharacterViews("))
+        assertTrue(studio.contains("bulkMasterConfirmation"))
+        assertTrue(scene.contains("pendingDirectorRequest = directorRequest.trim()"))
+        assertTrue(scene.contains("pendingDirectorEvidenceId = candidate.evidence_id"))
+        assertTrue(scene.contains("Confirmar generación desde canon"))
+        assertTrue(scene.contains("Confirmar imagen Cloud"))
+        assertTrue(scene.contains("if (generationEngine == \"cloud\")"))
+        assertTrue(scene.contains("pendingManualCloudGeneration = true"))
+        assertTrue(scene.contains("Generar imagen con este pasaje"))
+    }
+
+    @Test
+    fun sceneAndTurnaroundAsyncResultsAreProjectScoped() {
+        val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
+        val scene = vm.substringAfter("fun generateSceneVisual(").substringBefore("\n    fun ", "")
+        assertTrue(scene.contains("scopeVersion != sceneBuilderScopeVersion"))
+        assertTrue(scene.contains("staged?.attachmentId?.let { deleteVisualStudioAttachments(listOf(it)) }"))
+        val batch = vm.substringAfter("fun completeCharacterViews(").substringBefore("fun approveCharacterViewBatch(")
+        assertTrue(batch.contains("scopeVersion != characterStudioScopeVersion"))
+        assertTrue(batch.contains("current.projectId != projectId"))
+        assertTrue(batch.contains("current.characterId != characterId"))
+        assertTrue(batch.contains("!settings.value.isOwner"))
+    }
+
     @Test
     fun unsupportedProjectMutationsAreNotAdvertisedInTheUi() {
         val projects = code("app/src/main/java/com/jarvis/android/ui/screens/ProjectsScreen.kt")

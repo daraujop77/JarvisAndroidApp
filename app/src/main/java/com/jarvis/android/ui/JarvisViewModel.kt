@@ -3742,7 +3742,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         resumeBatchId: String = "",
         generationMode: String = "model_select",
     ) {
-        if (_characterStudio.value.busy || perspectives.isEmpty()) return
+        val current = _characterStudio.value
+        if (current.busy || perspectives.isEmpty() ||
+            current.projectId != projectId || current.characterId != characterId ||
+            !settings.value.isOwner
+        ) return
+        val scopeVersion = characterStudioScopeVersion
         _characterStudio.update {
             it.copy(
                 busy = true,
@@ -3756,14 +3761,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             )
         }
         viewModelScope.launch {
-            container.liveSession.visualCompleteCharacterViews(
+            val response = container.liveSession.visualCompleteCharacterViews(
                 projectId = projectId,
                 characterId = characterId,
                 perspectives = perspectives,
                 adjustment = adjustment,
                 mode = generationMode,
                 batchId = resumeBatchId,
-            ).fold(
+            )
+            if (scopeVersion != characterStudioScopeVersion ||
+                _characterStudio.value.projectId != projectId ||
+                _characterStudio.value.characterId != characterId
+            ) return@launch
+            response.fold(
                 onSuccess = { response ->
                     val batch = response.batch
                     _characterStudio.update {
@@ -6806,7 +6816,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             }
             return
         }
-        if (_sceneBuilder.value.busy) return
+        if (_sceneBuilder.value.busy || !settings.value.isOwner) return
         sceneDirectorPollJob?.cancel()
         sceneDirectorPollJob = null
         sceneBuilderScopeVersion++
@@ -7300,11 +7310,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val context = state.context ?: return
         if (
             state.busy ||
+            state.projectId != projectId ||
+            !settings.value.isOwner ||
             context.project_id != projectId ||
             !context.generation_ready ||
             context.exploratory ||
             context.selection.instruction.isBlank()
         ) return
+        val scopeVersion = sceneBuilderScopeVersion
         _sceneBuilder.update {
             it.copy(
                 busy = true,
@@ -7314,7 +7327,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             )
         }
         viewModelScope.launch {
-            container.liveSession.generateSceneVisualAssetImage(
+            val response = container.liveSession.generateSceneVisualAssetImage(
                 projectId = projectId,
                 contextId = context.context_id,
                 contextHash = context.context_hash,
@@ -7323,7 +7336,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 model = model,
                 aspectRatio = aspectRatio,
                 maxCorrections = maxCorrections.coerceIn(0, 2),
-            ).fold(
+            )
+            if (scopeVersion != sceneBuilderScopeVersion ||
+                _sceneBuilder.value.projectId != projectId
+            ) return@launch
+            response.fold(
                 onSuccess = { reply ->
                     val oldAttachments = _sceneBuilder.value.attachmentIds +
                         listOfNotNull(_sceneBuilder.value.generatedAttachmentId)
@@ -7331,6 +7348,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         container.attachmentStore.stageGeneratedBase64(
                             reply.data_base64,
                         )
+                    }
+                    if (scopeVersion != sceneBuilderScopeVersion ||
+                        _sceneBuilder.value.projectId != projectId
+                    ) {
+                        staged?.attachmentId?.let { deleteVisualStudioAttachments(listOf(it)) }
+                        return@fold
                     }
                     val keep = staged?.attachmentId
                     deleteVisualStudioAttachments(
@@ -7363,6 +7386,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     }
                 },
                 onFailure = { error ->
+                    if (scopeVersion != sceneBuilderScopeVersion ||
+                        _sceneBuilder.value.projectId != projectId
+                    ) return@fold
                     _sceneBuilder.update {
                         it.copy(
                             busy = false,
