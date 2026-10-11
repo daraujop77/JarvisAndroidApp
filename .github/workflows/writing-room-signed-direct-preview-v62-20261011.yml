@@ -56,6 +56,43 @@ jobs:
           mkdir -p "$RUNNER_TEMP/jarvis-signing"
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/jarvis-signing/release.jks"
           echo "RELEASE_STORE_FILE=$RUNNER_TEMP/jarvis-signing/release.jks" >> "$GITHUB_ENV"
+      - name: Require original v61 signing certificate before building
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export LC_ALL=C
+          # The public v61 APK signer SHA-256 was independently extracted from
+          # GitHub release android-v61 and matched its published file digest.
+          keytool -list -v -keystore "$RELEASE_STORE_FILE" \
+            -storepass "$RELEASE_STORE_PASSWORD" \
+            > "$RUNNER_TEMP/jarvis-keystore-certificates.txt"
+          python3 - "$RUNNER_TEMP/jarvis-keystore-certificates.txt" "$GITHUB_ENV" <<'PY'
+          import re, sys
+          expected = "46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a"
+          path, env_file = sys.argv[1:]
+          contents = open(path, encoding="utf-8").read()
+          entries = re.split(r"(?m)^Alias name:\s*", contents)[1:]
+          matches = []
+          for entry in entries:
+              lines = entry.splitlines()
+              if not lines:
+                  continue
+              alias = lines[0].strip()
+              match = re.search(r"(?m)^\s*SHA256:\s*([0-9A-Fa-f:]+)\s*$", entry)
+              if not match:
+                  continue
+              fingerprint = match.group(1).replace(":", "").lower()
+              if fingerprint == expected:
+                  matches.append(alias)
+          if len(matches) != 1 or not matches[0] or any(ch in matches[0] for ch in "\n\r="):
+              print("Signing compatibility BLOCKED: no unique signing alias matching GitHub v61.")
+              print("The current keystore must be restored to the v61 signing identity.")
+              print("App source remains unchanged; do not uninstall the existing JARVIS app.")
+              sys.exit(1)
+          with open(env_file, "a", encoding="utf-8") as out:
+              out.write("RELEASE_KEY_ALIAS=" + matches[0] + "\n")
+          print("Original v61 signing certificate found. Safe to attempt signed v62 update.")
+          PY
       - name: Test and build signed update APK without publishing
         shell: bash
         run: |
