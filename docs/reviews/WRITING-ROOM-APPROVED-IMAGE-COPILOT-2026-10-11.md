@@ -8,4 +8,4 @@ Prior chat context is bounded to the most recent six locally available turns, se
 
 Acceptance gate: on the phone verify stored approved image previews, blocked/pending image messages, absence of cross-project thumbnail bleed, multiline responses, preserving the distinction between visually seeing pixels and listing metadata. Generating a new Android APK and publishing it must occur only after backend + Android CI and explicit acceptance of this batch.
 
-This implementation does **not** claim that the chat's text model can interpret image pixels. It can retrieve/render approved images; a model-vision connector is separate.
+This implementation does not claim that the regular text-chat model understands image pixels. A separate owner-confirmed tool plan, `inspect_approved_character_image`, routes one exact approved master through the configured backend vision provider. No visual inspection is claimed unless that provider actually returns a result. The owner card discloses possible token cost before dispatch. Live model availability, image format/size, and successful end-to-end phone behavior remain acceptance tests.
