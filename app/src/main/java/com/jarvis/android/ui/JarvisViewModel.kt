@@ -982,8 +982,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         adjustment: String,
     ) {
         val existing = _writingWorkspace.value
-        if (existing.busy) return
-        val history = if (existing.chatProjectId == projectId) existing.chatHistory else emptyList()
+        if (existing.busy || existing.chatProjectId != projectId || !settings.value.isOwner) return
+        val epoch = copilotRecoveryEpoch
+        val history = existing.chatHistory
         _writingWorkspace.value = existing.copy(
             busy = true,
             busyLabel = "Generando retrato con GPT Image 2 Medium",
@@ -1000,6 +1001,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 characterName = characterName,
                 adjustment = adjustment,
             )
+            if (copilotRecoveryEpoch != epoch ||
+                _writingWorkspace.value.chatProjectId != projectId
+            ) return@launch
             result.fold(
                 onSuccess = { generated ->
                     val asset = generated.visual_asset
@@ -1020,6 +1024,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         container.attachmentStore.stageVisualAssetBase64(
                             generated.data_base64, asset!!.sha256,
                         )
+                    }
+                    if (copilotRecoveryEpoch != epoch ||
+                        _writingWorkspace.value.chatProjectId != projectId
+                    ) {
+                        image?.attachmentId?.let { deleteVisualStudioAttachments(listOf(it)) }
+                        return@fold
                     }
                     val stored = asset!!.storage.state == "stored"
                     val bodyText = if (stored) {
@@ -1097,7 +1107,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     /** Exact owner action: approve one stored candidate by server-verified SHA. */
     fun approveCopilotPortrait(projectId: String, assetId: String, expectedSha256: String) {
         val current = _writingWorkspace.value
-        if (current.busy || current.chatProjectId != projectId) return
+        if (current.busy || current.chatProjectId != projectId || !settings.value.isOwner) return
+        val epoch = copilotRecoveryEpoch
         val selected = current.chatHistory.firstOrNull {
             it.candidateAssetId == assetId && it.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
                 it.candidateStatus == "CANDIDATE" && it.candidateStorageState == "stored" &&
@@ -1117,9 +1128,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             error = null,
         )
         viewModelScope.launch {
-            container.liveSession.writingRoomCopilotApprovePortrait(
+            val response = container.liveSession.writingRoomCopilotApprovePortrait(
                 projectId, characterId, assetId, expectedSha256,
-            ).fold(
+            )
+            if (copilotRecoveryEpoch != epoch ||
+                _writingWorkspace.value.chatProjectId != projectId
+            ) return@launch
+            response.fold(
                 onSuccess = { confirmed ->
                     val asset = confirmed.asset
                     if (asset.asset_id != assetId || !asset.sha256.equals(expectedSha256, ignoreCase = true) ||
@@ -3795,8 +3810,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun approveCharacterViewBatch(projectId: String, characterId: String) {
-        val batch = _characterStudio.value.batch ?: return
-        if (_characterStudio.value.busy || batch.batch_id.isBlank()) return
+        val current = _characterStudio.value
+        val batch = current.batch ?: return
+        if (current.busy || current.projectId != projectId ||
+            current.characterId != characterId || batch.batch_id.isBlank() ||
+            !settings.value.isOwner
+        ) return
+        val scopeVersion = characterStudioScopeVersion
         val assetIds = batch.items
             .filter { it.status == "CANDIDATE" || it.status == "CANDIDATE_EXISTING" }
             .map { it.candidate_asset_id }
@@ -3809,12 +3829,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             it.copy(busy = true, busyLabel = "Aprobando lote exacto", notice = null, error = null)
         }
         viewModelScope.launch {
-            container.liveSession.visualApproveCharacterViewBatch(
+            val response = container.liveSession.visualApproveCharacterViewBatch(
                 projectId = projectId,
                 characterId = characterId,
                 batchId = batch.batch_id,
                 assetIds = assetIds,
-            ).fold(
+            )
+            if (scopeVersion != characterStudioScopeVersion ||
+                _characterStudio.value.projectId != projectId ||
+                _characterStudio.value.characterId != characterId
+            ) return@launch
+            response.fold(
                 onSuccess = { response ->
                     val approvedCount = response.approved.size
                     val failedCount = response.failed.size
@@ -4152,7 +4177,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         parentAsset: VisualStudioAsset? = null,
     ) {
         val cleanPrompt = prompt.trim()
-        if (_characterStudio.value.busy) return
+        val current = _characterStudio.value
+        if (current.busy || current.projectId != projectId ||
+            current.characterId != characterId || !settings.value.isOwner
+        ) return
+        val scopeVersion = characterStudioScopeVersion
         _characterStudio.update {
             it.copy(
                 busy = true,
@@ -4181,6 +4210,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 parentSha256 = parentAsset?.sha256.orEmpty(),
                 derivation = if (parentAsset == null) "" else "REGENERATION",
             )
+            if (scopeVersion != characterStudioScopeVersion ||
+                _characterStudio.value.projectId != projectId ||
+                _characterStudio.value.characterId != characterId
+            ) return@launch
             if (result.isFailure) {
                 _characterStudio.update {
                     it.copy(
@@ -4824,7 +4857,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun approveCharacterReferencePack(projectId: String, characterId: String, packId: String) {
-        if (_characterStudio.value.busy) return
+        val current = _characterStudio.value
+        if (current.busy || current.projectId != projectId ||
+            current.characterId != characterId || !settings.value.isOwner
+        ) return
+        val scopeVersion = characterStudioScopeVersion
         _characterStudio.update {
             it.copy(
                 busy = true,
@@ -4834,7 +4871,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             )
         }
         viewModelScope.launch {
-            container.liveSession.visualReferencePackApprove(projectId, packId).fold(
+            val response = container.liveSession.visualReferencePackApprove(projectId, packId)
+            if (scopeVersion != characterStudioScopeVersion ||
+                _characterStudio.value.projectId != projectId ||
+                _characterStudio.value.characterId != characterId
+            ) return@launch
+            response.fold(
                 onSuccess = { result ->
                     _characterStudio.update {
                         it.copy(
