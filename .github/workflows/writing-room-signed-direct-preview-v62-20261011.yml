@@ -119,12 +119,38 @@ jobs:
           gh release download android-v61 --repo "$GITHUB_REPOSITORY" \
             --pattern 'JARVIS-release.apk' --dir "$RUNNER_TEMP/prior-release"
           "$TOOLS_DIR/apksigner" verify --print-certs "$RUNNER_TEMP/prior-release/JARVIS-release.apk" > "$RUNNER_TEMP/prior-signature.txt"
-          CURRENT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/current-signature.txt" | head -n 1)"
-          PRIOR="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/prior-signature.txt" | head -n 1)"
-          test -n "$CURRENT" && test "$CURRENT" = "$PRIOR" || {
-            echo "The new APK is not signed with the same identity as v61"; exit 1;
-          }
-          echo "Direct-install signing identity matches v61."
+          python3 - "$RUNNER_TEMP/current-signature.txt" "$RUNNER_TEMP/prior-signature.txt" <<'PY'
+          import re
+          import sys
+
+          expected_v61 = "46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a"
+
+          def signer_sha(path):
+              output = open(path, encoding="utf-8").read()
+              found = re.search(
+                  r"Signer\s+#1\s+certificate\s+SHA-256\s+digest:\s*([0-9a-fA-F:]+)",
+                  output,
+                  re.IGNORECASE,
+              )
+              if not found:
+                  print("BLOCKED: apksigner did not provide a parseable signer certificate.")
+                  print("apksigner output lines:", len(output.splitlines()))
+                  sys.exit(1)
+              return found.group(1).replace(":", "").lower()
+
+          current = signer_sha(sys.argv[1])
+          prior = signer_sha(sys.argv[2])
+          # A signing-certificate fingerprint is public metadata, not a keystore secret.
+          print("Signed v62 certificate SHA-256:", current)
+          print("Official v61 certificate SHA-256:", prior)
+          if prior != expected_v61:
+              print("BLOCKED: published v61 signer did not match the independently verified baseline.")
+              sys.exit(1)
+          if current != prior:
+              print("BLOCKED: signed v62 is incompatible with v61; keep existing app installed.")
+              sys.exit(1)
+          print("Verified: signed v62 and original v61 share the exact signing certificate.")
+          PY
           sha256sum "$APK"
       - name: Upload signed v62 owner-preview APK only (no release)
         uses: actions/upload-artifact@v4
