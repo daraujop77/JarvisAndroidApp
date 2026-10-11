@@ -1446,6 +1446,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     room: String = "chat",
     toolMode: Boolean = false,
     recentMessages: List<CopilotRecentMessage> = emptyList(),
+    approvedVisualAssetIds: List<String> = emptyList(),
     onDelta: (String) -> Unit,
 ): Result<WritingRoomAutoChat> = withContext(Dispatchers.IO) {
     val clean = prompt.trim()
@@ -1469,6 +1470,12 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         put("room", room)
         put("prompt", clean)
         if (toolMode) put("tool_mode", "plan")
+        // These are untrusted hints: the VPS re-checks project scope, owner,
+        // APPROVED status and immutable bytes before any vision call.
+        put("approved_visual_asset_ids", kotlinx.serialization.json.buildJsonArray {
+            approvedVisualAssetIds.filter { it.matches(Regex("va_[a-zA-Z0-9_]{6,80}")) }
+                .distinct().take(6).forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
+        })
         // Bounded context is never a replacement for project-scoped canon.
         put("history", kotlinx.serialization.json.buildJsonArray {
             recentMessages.takeLast(12).forEach { msg ->
