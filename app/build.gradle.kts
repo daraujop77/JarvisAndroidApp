@@ -39,8 +39,8 @@ android {
         targetSdk = 36
         // Google Play can override versionCode independently so direct APK
         // updates keep their existing version sequence.
-        versionCode = jarvisVersionCode ?: 61
-        versionName = "0.1.61-external-character-seeds"
+        versionCode = jarvisVersionCode ?: 63
+        versionName = "0.1.63-copilot-approved-visuals"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
