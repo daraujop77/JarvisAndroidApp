@@ -1231,6 +1231,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         projectId = projectId,
                         characterId = characterId,
                         perspectives = COPILOT_TURNAROUND_PERSPECTIVES,
+                        mode = "model_select",
                     ).getOrThrow().batch ?: throw IllegalStateException(
                         "El servidor no confirmó un lote. Consulta Character Studio antes de reintentar.",
                     )
@@ -1242,6 +1243,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         characterId = characterId,
                         perspectives = previous.requested_perspectives,
                         adjustment = previous.adjustment,
+                        mode = previous.mode,
                         batchId = previous.batch_id,
                     ).getOrThrow().batch ?: throw IllegalStateException(
                         "El servidor no confirmó la reanudación. Consulta el lote antes de reintentar.",
@@ -3570,6 +3572,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 perspectives = loadedBatch.requested_perspectives,
                 adjustment = loadedBatch.adjustment,
                 resumeBatchId = loadedBatch.batch_id,
+                generationMode = loadedBatch.mode,
             )
         } else if (loadedBatch?.status == "RUNNING") {
             startCharacterBatchPolling(
@@ -3722,6 +3725,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         perspectives: List<String>,
         adjustment: String = "",
         resumeBatchId: String = "",
+        generationMode: String = "model_select",
     ) {
         if (_characterStudio.value.busy || perspectives.isEmpty()) return
         _characterStudio.update {
@@ -3742,6 +3746,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 characterId = characterId,
                 perspectives = perspectives,
                 adjustment = adjustment,
+                mode = generationMode,
                 batchId = resumeBatchId,
             ).fold(
                 onSuccess = { response ->
@@ -3838,18 +3843,28 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
-    fun generateMissingCharacterMasters(projectId: String) {
+    fun generateMissingCharacterMasters(projectId: String, expectedCount: Int) {
         val cleanProject = projectId.trim()
         val current = _characterStudio.value
         if (
             cleanProject.isBlank() ||
             current.projectId != cleanProject ||
             current.busy ||
+            !settings.value.isOwner ||
+            expectedCount <= 0 ||
             characterMasterBootstrapJob?.isActive == true
         ) return
         val roster = current.masterRoster
         val ready = roster?.items.orEmpty()
             .filter { it.state == "READY" && it.character_id.isNotBlank() }
+        if (ready.size != expectedCount) {
+            _characterStudio.update {
+                it.copy(
+                    error = "El número de masters cambió. Actualiza Character Studio y confirma de nuevo.",
+                )
+            }
+            return
+        }
         if (ready.isEmpty()) {
             _characterStudio.update {
                 it.copy(
@@ -3894,10 +3909,16 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     prompt = "",
                     kind = "PRIMARY_REFERENCE",
                     perspective = "front",
-                    mode = "quality",
+                    mode = "model_select",
+                    model = "gpt-image-2-medium",
                     aspectRatio = "portrait",
                     referencesPerCharacter = 1,
                 )
+                // The in-flight provider call may finish after a project switch;
+                // never copy its result or notice into another project's state.
+                if (scopeVersion != characterStudioScopeVersion ||
+                    _characterStudio.value.projectId != cleanProject
+                ) return@launch
                 if (result.isFailure) {
                     val message = result.exceptionOrNull()?.message
                         ?: "No se pudo generar el master."
@@ -4151,7 +4172,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 prompt = cleanPrompt,
                 kind = kind,
                 perspective = perspective,
-                mode = "quality",
+                mode = "model_select",
+                model = "gpt-image-2-medium",
                 aspectRatio = "portrait",
                 referencePerspectives = if (kind == "IDENTITY_PACK") listOf("front") else emptyList(),
                 referencesPerCharacter = 1,
