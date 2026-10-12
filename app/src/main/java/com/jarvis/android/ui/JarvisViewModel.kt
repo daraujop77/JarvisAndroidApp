@@ -17,6 +17,7 @@ import com.jarvis.android.update.AppUpdateManager
 import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.transport.live.*
 import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
+import com.jarvis.android.ui.writing.shouldProbeAdaptiveCopilotTool
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
@@ -2167,11 +2168,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     ) {
         val clean = prompt.trim()
         if (clean.isEmpty()) return
-        if (!toolMode && !skipAdaptiveProbe &&
-            looksLikeCopilotAppearanceCommand(clean)) {
-            // Ask the authoritative backend, not a phrase classifier, whether
-            // the adaptive tool loop is enabled. Keep the legacy appearance
-            // card only when the server explicitly lacks that capability.
+        if (shouldProbeAdaptiveCopilotTool(clean, toolMode, skipAdaptiveProbe)) {
+            // Ask the authoritative backend before any legacy appearance OR
+            // portrait command handler. An enabled adaptive agent gets to
+            // resolve natural-language intent, canonical identities and
+            // necessary approvals without rigid Android phrase routing.
+            // Preserve the v64 cards when the agent capability is disabled.
             if (_writingWorkspace.value.chatProjectId != projectId ||
                 adaptiveAppearanceProbePending != null) return
             val key = projectId + ":" + clean

@@ -1,5 +1,7 @@
 package com.jarvis.android.transport.live
 
+import java.security.MessageDigest
+import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -94,6 +96,47 @@ class AgentApprovedVisualProjectionContractTest {
             assertEquals("/api/app/writing-room/agent/stream", req.path)
             assertTrue(req.getHeader("Authorization")!!.startsWith("Bearer "))
             assertEquals(1, server.requestCount)
+        }
+
+
+    @Test fun adaptiveApprovedReferenceRoundtripsThroughAuthenticatedFetchAndHashGate() =
+        runBlocking(Dispatchers.IO) {
+            val pngEncoded =
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lv8AAAAASUVORK5CYII="
+            val bytes = Base64.getDecoder().decode(pngEncoded)
+            val sha = MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+            server.enqueue(MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("event: ready\\ndata: {\\\"request_id\\\":\\\"req\\\"}\\n\\n" +
+                    "event: complete\\ndata: ${agentJson().replace(digest, sha)}\\n\\n"))
+            server.enqueue(MockResponse().setBody(
+                """{"schema":"jarvis.visual.asset.content.v1",
+                   "asset_id":"$approvedId","sha256":"$sha",
+                   "mime_type":"image/png","image_base64":"$pngEncoded"}""",
+            ))
+
+            val chat = session.writingRoomAutoChatStream(
+                projectId = "prj_story", projectTitle = "Alexander History",
+                prompt = "Muéstrame la imagen aprobada de Alexander",
+                onDelta = {},
+            ).getOrThrow()
+            val approved = chat.visual_assets.single()
+            assertEquals("APPROVED", approved.status)
+            val response = session.writingRoomVisualAssetFetch(
+                "prj_story", approved.asset_id,
+            ).getOrThrow()
+            assertTrue(isVerifiedApprovedVisualContent(approved, response))
+            assertEquals(bytes.toList(), Base64.getDecoder().decode(
+                response.image_base64,
+            ).toList())
+            val stream = server.takeRequest()
+            val image = server.takeRequest()
+            assertEquals("/api/app/writing-room/agent/stream", stream.path)
+            assertEquals("/api/app/writing-room/visual-assets/fetch", image.path)
+            assertEquals("Bearer test-token", image.getHeader("Authorization"))
+            assertTrue(image.body.readUtf8().contains(approvedId))
+            assertEquals(2, server.requestCount)
         }
 
     @Test fun metadataDoesNotClaimPixelsOrContainImageBytes() {
