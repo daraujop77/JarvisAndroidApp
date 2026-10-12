@@ -23,5 +23,17 @@ class CopilotApprovedVisualInspectionIntentTest {
             "Genera una imagen de la rev 2"))
         assertFalse(looksLikeCopilotApprovedVisualInspectionRequest(
             "Buenas noches, ¿qué tal el capítulo?"))
+        assertTrue(looksLikeCopilotApprovedVisualInspectionRequest(
+            "¿Puedes ver la Referencia v2 de Alexander?"))
+        assertTrue(looksLikeCopilotApprovedVisualInspectionRequest(
+            "¿Tienes acceso a las imágenes aprobadas de Alexander?"))
+        assertTrue(looksLikeCopilotApprovedVisualInspectionRequest(
+            "Revisa la referencia v3 de Alexander"))
+        assertTrue(looksLikeCopilotApprovedVisualInspectionRequest(
+            "La referencia v2 de Alexander es la imagen principal"))
+        assertFalse(looksLikeCopilotApprovedVisualInspectionRequest(
+            "El modelo v2 ya está conectado"))
+        assertFalse(looksLikeCopilotApprovedVisualInspectionRequest(
+            "Genera una referencia v2 de Alexander"))
     }
 }
