@@ -427,6 +427,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
     val agentProjectId by vm.globalChatAgentProject.collectAsStateWithLifecycle()
+    val agentProjectSelecting by vm.globalChatAgentSelecting.collectAsStateWithLifecycle()
+    val agentProjectError by vm.globalChatAgentError.collectAsStateWithLifecycle()
     val projectResults by vm.projects.collectAsStateWithLifecycle()
     val availableAgentProjects = (projectResults as?
         com.jarvis.android.data.projects.ProjectsResult.Loaded)
@@ -611,10 +613,11 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         Box {
                             TextButton(
                                 onClick = { projectMenuOpen = true },
-                                enabled = !busy,
+                                enabled = !busy && !agentProjectSelecting,
                             ) {
                                 Text(
-                                    if (agentProjectId == null) "Chat general"
+                                    if (agentProjectSelecting) "Verificando proyecto…"
+                                    else if (agentProjectId == null) "Chat general"
                                     else "Proyecto · lectura",
                                     style = HudTextStyle,
                                 )
@@ -659,6 +662,15 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(pad),
         ) {
+            if (agentProjectError != null) {
+                Text(
+                    agentProjectError.orEmpty(),
+                    modifier = Modifier.fillMaxWidth().padding(
+                        horizontal = screenInset, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             if (agentProjectId != null) {
                 Text(
                     "Agente de proyecto · consultas de texto y canon (solo lectura). " +
