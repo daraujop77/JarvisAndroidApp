@@ -110,6 +110,53 @@ class AgentStreamFallbackTest {
         assertEquals("/api/app/writing-room/agent/stream", server.takeRequest().path)
     }
 
+    @Test fun capabilityProbeNeverRunsModelAndReturnsTrueOnlyWhenEnabled() =
+        runBlocking(Dispatchers.IO) {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    if (request.path == "/api/app/writing-room/agent/latest") {
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.writing-room.copilot.task.v1",
+                            "project_id":"prj_story","state":"NONE","steps":[],"results":[]}""",
+                        )
+                    } else MockResponse().setResponseCode(404)
+            }
+            assertTrue(session.writingRoomAdaptiveReady("prj_story"))
+            val request = server.takeRequest()
+            assertEquals("/api/app/writing-room/agent/latest", request.path)
+            assertTrue(request.body.readUtf8().contains("conversation_id"))
+        }
+
+    @Test fun agentConfirmationCarriesTheFrozenActionHash() =
+        runBlocking(Dispatchers.IO) {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    if (request.path == "/api/app/writing-room/agent/confirm") {
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.writing-room.copilot.task.v1",
+                            "task_id":"ar_0123456789abcdef01234567",
+                            "project_id":"prj_story","conversation_id":"wrc_ab",
+                            "request_mode":"local_only","state":"DONE",
+                            "requires_confirmation":false,"steps":[],"results":[]}""",
+                        )
+                    } else MockResponse().setResponseCode(500)
+            }
+            val hash = "a".repeat(64)
+            val result = session.writingRoomCopilotTaskRun(
+                projectId = "prj_story",
+                taskId = "ar_0123456789abcdef01234567",
+                confirmed = true,
+                conversationId = "wrc_ab", actionHash = hash, mode = "local_only",
+            ).getOrThrow()
+            assertEquals("DONE", result.state)
+            val request = server.takeRequest()
+            assertEquals("/api/app/writing-room/agent/confirm", request.path)
+            val body = request.body.readUtf8()
+            assertTrue(body.contains(hash))
+            assertTrue(body.contains("local_only"))
+            assertTrue(body.contains("wrc_ab"))
+        }
+
     @Test fun separateUsersAndProjectsHaveDifferentConversationIds() {
         val a1 = session.writingRoomConversationId("prj_story")
         val a2 = session.writingRoomConversationId("prj_story")
