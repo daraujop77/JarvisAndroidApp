@@ -1535,6 +1535,12 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
             }
             auth = authHeader() ?: throw TransportException("no live session")
             status = postSse(baseUrl, endpoint, body, auth, onEvent)
+            if (status == 404 && endpoint == "/api/app/writing-room/agent/stream") {
+                // A refreshed bearer against an older VPS is not evidence of
+                // accepted work; keep the original idempotency key and fallback.
+                endpoint = "/api/app/writing-room/chat/stream"
+                status = postSse(baseUrl, endpoint, body, auth, onEvent)
+            }
             if (status == 401) {
                 if (authHeader() == auth) clearAccess()
                 throw TransportException("session expired")
