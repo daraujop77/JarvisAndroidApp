@@ -108,8 +108,8 @@ class AgentApprovedVisualProjectionContractTest {
                 .joinToString("") { "%02x".format(it) }
             server.enqueue(MockResponse()
                 .setHeader("Content-Type", "text/event-stream")
-                .setBody("event: ready\\ndata: {\\\"request_id\\\":\\\"req\\\"}\\n\\n" +
-                    "event: complete\\ndata: ${agentJson().replace(digest, sha)}\\n\\n"))
+                .setBody("event: ready\ndata: {\"request_id\":\"req\"}\n\n" +
+                    "event: complete\ndata: ${agentJson().replace(digest, sha)}\n\n"))
             server.enqueue(MockResponse().setBody(
                 """{"schema":"jarvis.visual.asset.content.v1",
                    "asset_id":"$approvedId","sha256":"$sha",
