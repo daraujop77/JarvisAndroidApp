@@ -37,14 +37,18 @@ import kotlin.math.sin
 fun TypingDots(modifier: Modifier = Modifier) {
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
-    val transition = rememberInfiniteTransition(label = "typing")
-    val t by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart),
-        label = "t",
-    )
-    val phase = if (reduced) 0f else t
+    val phase = if (reduced) {
+        0f
+    } else {
+        val transition = rememberInfiniteTransition(label = "typing")
+        val t by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = (2 * Math.PI).toFloat(),
+            animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart),
+            label = "t",
+        )
+        t
+    }
 
     Canvas(modifier.size(width = 34.dp, height = 12.dp)) {
         val r = size.height / 4.5f
@@ -69,13 +73,16 @@ fun TypingDots(modifier: Modifier = Modifier) {
 fun streamingText(text: String, streaming: Boolean): AnnotatedString {
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
-    val transition = rememberInfiniteTransition(label = "caret")
-    val blink by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), RepeatMode.Restart),
-        label = "blink",
-    )
+    val blink = if (streaming && !reduced) {
+        val transition = rememberInfiniteTransition(label = "caret")
+        val value by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), RepeatMode.Restart),
+            label = "blink",
+        )
+        value
+    } else 0f
     val show = streaming && (reduced || blink < 0.55f)
     return buildAnnotatedString {
         // While a reply is still arriving the markers are incomplete, so the
@@ -212,13 +219,16 @@ private fun AnnotatedString.Builder.appendStyled(
 fun ScanLine(modifier: Modifier = Modifier, active: Boolean = true) {
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
-    val transition = rememberInfiniteTransition(label = "scan")
-    val x by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart),
-        label = "x",
-    )
+    val x = if (active && !reduced) {
+        val transition = rememberInfiniteTransition(label = "scan")
+        val position by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart),
+            label = "x",
+        )
+        position
+    } else 0f
     Row(modifier.height(2.dp), verticalAlignment = Alignment.CenterVertically) {
         Canvas(Modifier.width(1.dp).height(2.dp)) {}
         Canvas(Modifier.height(2.dp).width(4000.dp)) {

@@ -43,20 +43,19 @@ fun JarvisMiniBrain(
     val clock = remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(activity, reduced) {
+        if (reduced) return@LaunchedEffect
         var last = 0L
         while (true) {
             withFrameNanos { now ->
                 val dt = if (last == 0L) 0f else ((now - last) / 1_000_000_000.0).toFloat().coerceAtMost(0.05f)
                 last = now
-                if (!reduced) {
-                    val tempo = when (activity) {
-                        OrbActivity.IDLE -> 0.55f
-                        OrbActivity.LISTENING -> 0.90f
-                        OrbActivity.THINKING -> 1.70f
-                        OrbActivity.OFFLINE -> 0.12f
-                    }
-                    clock.floatValue += dt * (0.25f + tempo)
+                val tempo = when (activity) {
+                    OrbActivity.IDLE -> 0.55f
+                    OrbActivity.LISTENING -> 0.90f
+                    OrbActivity.THINKING -> 1.70f
+                    OrbActivity.OFFLINE -> 0.12f
                 }
+                clock.floatValue += dt * (0.25f + tempo)
             }
         }
     }

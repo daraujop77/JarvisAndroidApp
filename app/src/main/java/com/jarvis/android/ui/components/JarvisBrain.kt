@@ -175,6 +175,7 @@ fun JarvisBrain(
     val clock = remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(activity, reduced) {
+        if (reduced) return@LaunchedEffect
         var last = 0L
         while (true) {
             withFrameNanos { now ->
@@ -182,7 +183,7 @@ fun JarvisBrain(
                 last = now
                 val base = activity.drive()
                 val boosted = base.copy(energy = (base.energy + intensity * 0.25f).coerceAtMost(1f))
-                field.step(if (reduced) 0f else dt, boosted)
+                field.step(dt, boosted)
                 clock.floatValue = field.sim.toFloat()
             }
         }

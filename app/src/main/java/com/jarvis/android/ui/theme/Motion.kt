@@ -2,8 +2,6 @@ package com.jarvis.android.ui.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -26,12 +24,12 @@ object JarvisMotion {
     @ReadOnlyComposable
     fun <T> enter(): FiniteAnimationSpec<T> =
         if (LocalReducedMotion.current) tween(0)
-        else spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+        else tween(180, easing = EmphasizedEasing)
 
     /** Standard state cross-fade / colour change. */
     @Composable
     @ReadOnlyComposable
-    fun <T> standard(durationMs: Int = 280): FiniteAnimationSpec<T> =
+    fun <T> standard(durationMs: Int = 180): FiniteAnimationSpec<T> =
         tween(if (LocalReducedMotion.current) 0 else durationMs, easing = EmphasizedEasing)
 
     /** Loop duration helper: returns null when looping motion should be skipped. */

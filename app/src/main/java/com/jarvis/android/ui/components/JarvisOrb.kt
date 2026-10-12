@@ -51,8 +51,6 @@ fun JarvisOrb(
 ) {
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
-    val transition = rememberInfiniteTransition(label = "orb")
-
     val speed = when (activity) {
         OrbActivity.IDLE -> 1f
         OrbActivity.LISTENING -> 1.8f
@@ -60,41 +58,48 @@ fun JarvisOrb(
         OrbActivity.OFFLINE -> 0.45f
     }
 
-    val spin by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            tween((9000 / speed).toInt(), easing = LinearEasing),
-            RepeatMode.Restart,
-        ),
-        label = "spin",
-    )
-    val counterSpin by transition.animateFloat(
-        initialValue = 360f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            tween((14000 / speed).toInt(), easing = LinearEasing),
-            RepeatMode.Restart,
-        ),
-        label = "counterSpin",
-    )
-    val pulse by transition.animateFloat(
-        initialValue = 0.86f,
-        targetValue = 1.06f,
-        animationSpec = infiniteRepeatable(
-            tween((1800 / speed).toInt(), easing = LinearEasing),
-            RepeatMode.Reverse,
-        ),
-        label = "pulse",
-    )
+    val motion = if (reduced) {
+        Triple(0f, 360f, 1f)
+    } else {
+        val transition = rememberInfiniteTransition(label = "orb")
+        val spin by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                tween((9000 / speed).toInt(), easing = LinearEasing),
+                RepeatMode.Restart,
+            ),
+            label = "spin",
+        )
+        val counterSpin by transition.animateFloat(
+            initialValue = 360f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                tween((14000 / speed).toInt(), easing = LinearEasing),
+                RepeatMode.Restart,
+            ),
+            label = "counterSpin",
+        )
+        val pulse by transition.animateFloat(
+            initialValue = 0.86f,
+            targetValue = 1.06f,
+            animationSpec = infiniteRepeatable(
+                tween((1800 / speed).toInt(), easing = LinearEasing),
+                RepeatMode.Reverse,
+            ),
+            label = "pulse",
+        )
+        Triple(spin, counterSpin, pulse)
+    }
+    val (spin, counterSpin, pulse) = motion
 
     val tint = when (activity) {
         OrbActivity.OFFLINE -> accents.offline
         else -> accents.orbGlow
     }
-    val liveSpin = if (reduced) 0f else spin
-    val liveCounter = if (reduced) 0f else counterSpin
-    val livePulse = if (reduced) 1f else pulse
+    val liveSpin = spin
+    val liveCounter = counterSpin
+    val livePulse = pulse
 
     val orbModifier = if (contentDescription != null) {
         modifier.semantics { this.contentDescription = contentDescription }
