@@ -71,9 +71,9 @@ fun DraftReviewScreen(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = Color(0xEE0E182A),
-        border = BorderStroke(1.dp, stageColor(stage).copy(alpha = 0.55f)),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, stageColor(stage).copy(alpha = 0.38f)),
     ) {
         Column(Modifier.padding(14.dp)) {
             Text("JARVIS · CAPÍTULO HASTA REVISIÓN FINAL", style = HudTextStyle, color = JarvisCyan)

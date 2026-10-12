@@ -66,25 +66,32 @@ import com.jarvis.android.data.projects.ProjectState
 import com.jarvis.android.data.projects.ProjectSummary
 import com.jarvis.android.data.projects.ProjectsResult
 import com.jarvis.android.ui.JarvisViewModel
-import com.jarvis.android.ui.components.AmbientBackdrop
+import com.jarvis.android.ui.i18n.AppStrings
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisAmber
 import com.jarvis.android.ui.theme.JarvisCyan
 import com.jarvis.android.ui.theme.JarvisGreen
 import com.jarvis.android.ui.theme.JarvisViolet
+import com.jarvis.android.ui.theme.JarvisUiTokens
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.ui.theme.jarvisScreenInset
 
-private enum class ProjectFilter(val label: String) {
-    ALL("All"),
-    WRITING("Writing Studios"),
-    ACTIVE("Active"),
-    ARCHIVED("Archived"),
+private enum class ProjectFilter { ALL, WRITING, ACTIVE, ARCHIVED }
+
+private fun ProjectFilter.label(strings: AppStrings): String = when (this) {
+    ProjectFilter.ALL -> strings.projectAll
+    ProjectFilter.WRITING -> strings.projectWriting
+    ProjectFilter.ACTIVE -> strings.projectActive
+    ProjectFilter.ARCHIVED -> strings.projectArchived
 }
 
 @Composable
 fun ProjectsScreen(vm: JarvisViewModel) {
     val result by vm.projects.collectAsStateWithLifecycle()
+    val strings = LocalAppStrings.current
+    val screenInset = jarvisScreenInset()
     val actionMessage by vm.projectsMessage.collectAsStateWithLifecycle()
     var openProject by remember { mutableStateOf<ProjectSummary?>(null) }
     var selectedFilter by rememberSaveable { mutableStateOf(ProjectFilter.ALL) }
@@ -101,7 +108,7 @@ fun ProjectsScreen(vm: JarvisViewModel) {
     } else {
 
     ProjectsScaffold(
-        title = "WORKSPACE REGISTRY",
+        title = strings.navProjects,
         onRefresh = vm::refreshProjects,
     ) {
         Column(Modifier.fillMaxSize()) {
@@ -121,7 +128,7 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    TextButton(onClick = vm::clearProjectsMessage) { Text("Dismiss") }
+                    TextButton(onClick = vm::clearProjectsMessage) { Text(strings.dismiss) }
                 }
             }
         }
@@ -146,13 +153,13 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                     }
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "No Workspaces Yet",
+                        strings.navProjects,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = Color(0xFFF1F5F9),
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Projects appear when your JARVIS PC organizes active narratives, stories, and conversations.",
+                        strings.projectsEmptyBody,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -168,7 +175,7 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = vm::refreshProjects) { Text("Retry") }
+                    TextButton(onClick = vm::refreshProjects) { Text(strings.retry) }
                 }
             }
             is ProjectsResult.Loaded -> {
@@ -180,65 +187,13 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                         ProjectFilter.ARCHIVED -> r.projects.filter { it.state == ProjectState.ARCHIVED }
                     }
                 }
-                val writingCount = remember(r.projects) {
-                    r.projects.count { it.kind == ProjectKind.WRITING_ROOM }
-                }
-
                 LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = screenInset, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     item {
-                        Text(
-                            "Proyectos disponibles en el VPS. La creación, el cambio de nombre y " +
-                                "la eliminación se habilitarán cuando exista un contrato seguro de provisión.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Text(strings.projectCount(r.projects.size), style = MaterialTheme.typography.bodySmall)
                     }
-                    item {
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = Color(0x990E182A),
-                            border = BorderStroke(1.dp, LocalJarvisAccents.current.orbGlow.copy(alpha = 0.20f)),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column {
-                                    Text(
-                                        "CONNECTED WORKSPACES",
-                                        style = HudTextStyle,
-                                        color = LocalJarvisAccents.current.orbGlow,
-                                    )
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(
-                                        "${r.projects.size} total · $writingCount story room${if (writingCount != 1) "s" else ""}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFFCBD5E1),
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = JarvisGreen.copy(alpha = 0.16f),
-                                    border = BorderStroke(1.dp, JarvisGreen.copy(alpha = 0.4f)),
-                                ) {
-                                    Text(
-                                        "LIVE SYNC",
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        style = HudTextStyle.copy(fontSize = 10.sp),
-                                        color = JarvisGreen,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
                     item {
                         Row(
                             modifier = Modifier
@@ -252,21 +207,21 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                                     onClick = { selectedFilter = filter },
                                     label = {
                                         Text(
-                                            filter.label,
+                                            filter.label(strings),
                                             fontWeight = if (selectedFilter == filter) FontWeight.Bold else FontWeight.Medium,
                                         )
                                     },
                                     colors = FilterChipDefaults.filterChipColors(
-                                        containerColor = Color(0x33101B2E),
-                                        labelColor = Color(0xFF94A3B8),
-                                        selectedContainerColor = LocalJarvisAccents.current.orbGlow.copy(alpha = 0.22f),
-                                        selectedLabelColor = Color(0xFF67E8F9),
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                        selectedLabelColor = MaterialTheme.colorScheme.primary,
                                     ),
                                     border = FilterChipDefaults.filterChipBorder(
                                         enabled = true,
                                         selected = selectedFilter == filter,
-                                        borderColor = Color(0x332A3B57),
-                                        selectedBorderColor = LocalJarvisAccents.current.orbGlow.copy(alpha = 0.65f),
+                                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.32f),
+                                        selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
                                     ),
                                 )
                             }
@@ -282,7 +237,7 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    "No projects matching \"${selectedFilter.label}\"",
+                                    strings.noProjectsForFilter(selectedFilter.label(strings)),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -329,14 +284,14 @@ private fun ProjectDetailView(
         )
         return
     }
-    ProjectsScaffold(title = project.title.uppercase(), onBack = onBack) {
+    ProjectsScaffold(title = project.title, onBack = onBack) {
         val list = conversations
         if (list == null) {
             Centered { CircularProgressIndicator(Modifier.size(28.dp)) }
         } else if (list.isEmpty()) {
             Centered {
                 Text(
-                    "No conversations linked to this project yet.",
+                    LocalAppStrings.current.noProjectConversations,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -377,47 +332,31 @@ private fun ProjectRow(
     onDelete: (() -> Unit)?,
 ) {
     val accents = LocalJarvisAccents.current
+    val strings = LocalAppStrings.current
     val isWritingRoom = project.kind == ProjectKind.WRITING_ROOM
 
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = Color(0xCC111E33),
-        border = BorderStroke(
-            1.dp,
-            if (isWritingRoom) Brush.horizontalGradient(
-                listOf(
-                    accents.orbGlow.copy(alpha = 0.45f),
-                    JarvisViolet.copy(alpha = 0.35f),
-                )
-            ) else Brush.horizontalGradient(
-                listOf(
-                    accents.orbGlow.copy(alpha = 0.16f),
-                    Color(0x112A3B57),
-                )
-            )
-        ),
+        shape = RoundedCornerShape(JarvisUiTokens.cardShape),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                shape = CircleShape,
-                color = if (isWritingRoom) JarvisViolet.copy(alpha = 0.22f) else accents.orbGlow.copy(alpha = 0.14f),
-                border = BorderStroke(
-                    1.dp,
-                    if (isWritingRoom) JarvisViolet.copy(alpha = 0.5f) else accents.orbGlow.copy(alpha = 0.3f)
-                ),
-                modifier = Modifier.size(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.size(40.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         if (isWritingRoom) Icons.Filled.AutoStories else Icons.Filled.Folder,
                         contentDescription = null,
-                        tint = if (isWritingRoom) Color(0xFFC084FC) else accents.orbGlow,
-                        modifier = Modifier.size(22.dp),
+                        tint = if (isWritingRoom) JarvisViolet else accents.orbGlow,
+                        modifier = Modifier.size(21.dp),
                     )
                 }
             }
@@ -426,7 +365,7 @@ private fun ProjectRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         project.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                         color = Color(0xFFF8FAFC),
                         maxLines = 1,
                         modifier = Modifier.weight(1f, fill = false),
@@ -434,13 +373,12 @@ private fun ProjectRow(
                     if (isWritingRoom) {
                         Spacer(Modifier.width(8.dp))
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = JarvisGreen.copy(alpha = 0.15f),
-                            border = BorderStroke(1.dp, JarvisGreen.copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(8.dp),
+                            color = JarvisGreen.copy(alpha = 0.12f),
                         ) {
                             Text(
-                                "STUDIO",
-                                style = HudTextStyle.copy(fontSize = 9.sp),
+                                strings.projectStudio,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = JarvisGreen,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             )
@@ -452,14 +390,14 @@ private fun ProjectRow(
                     Text(
                         when {
                             isWritingRoom -> buildString {
-                                append(project.storyId.ifBlank { "WRITING ROOM" })
+                                append(project.storyId.ifBlank { strings.projectWriting })
                                 project.chapterNumber?.let { append(" · CH $it") }
                                 project.snapshotDate?.let { append(" · $it") }
                             }
-                            project.state == ProjectState.ACTIVE -> "ACTIVE WORKSPACE"
-                            else -> "ARCHIVED"
+                            project.state == ProjectState.ACTIVE -> strings.activeWorkspace
+                            else -> strings.archivedWorkspace
                         },
-                        style = HudTextStyle.copy(fontSize = 11.sp),
+                        style = MaterialTheme.typography.labelMedium,
                         color = when {
                             isWritingRoom -> JarvisCyan
                             project.state == ProjectState.ACTIVE -> accents.online
@@ -470,12 +408,12 @@ private fun ProjectRow(
             }
             if (onEdit != null) {
                 IconButton(onClick = onEdit) {
-                    Icon(Icons.Filled.Edit, contentDescription = "Rename project", tint = JarvisCyan)
+                    Icon(Icons.Filled.Edit, contentDescription = strings.renameProject, tint = JarvisCyan)
                 }
             }
             if (onDelete != null) {
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete project", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Filled.Delete, contentDescription = strings.deleteProject, tint = MaterialTheme.colorScheme.error)
                 }
             }
             Icon(
@@ -499,34 +437,34 @@ private fun ProjectsScaffold(
     onDelete: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    AmbientBackdrop {
-        Scaffold(
-            containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets(0),
-            topBar = {
+    val strings = LocalAppStrings.current
+    Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0),
+        topBar = {
                 TopAppBar(
                     title = {
                         Text(
                             title,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium),
                         )
                     },
                     navigationIcon = {
                         if (onBack != null) IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back)
                         }
                     },
                     actions = {
                         if (onEdit != null) IconButton(onClick = onEdit) {
-                            Icon(Icons.Filled.Edit, contentDescription = "Rename project")
+                            Icon(Icons.Filled.Edit, contentDescription = strings.renameProject)
                         }
                         if (onDelete != null) IconButton(onClick = onDelete) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete project")
+                            Icon(Icons.Filled.Delete, contentDescription = strings.deleteProject)
                         }
                         if (onCreate != null) IconButton(onClick = onCreate) {
-                            Icon(Icons.Filled.Add, contentDescription = "New project")
+                            Icon(Icons.Filled.Add, contentDescription = strings.newProject)
                         }
-                        if (onRefresh != null) TextButton(onClick = onRefresh) { Text("Refresh") }
+                        if (onRefresh != null) TextButton(onClick = onRefresh) { Text(strings.refreshProjects) }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
@@ -536,10 +474,9 @@ private fun ProjectsScaffold(
                     ),
                     windowInsets = WindowInsets(0),
                 )
-            },
-        ) { pad ->
-            Box(Modifier.fillMaxSize().padding(pad)) { content() }
-        }
+        },
+    ) { pad ->
+        Box(Modifier.fillMaxSize().padding(pad)) { content() }
     }
 }
 

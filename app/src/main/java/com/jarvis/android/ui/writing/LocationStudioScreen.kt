@@ -820,9 +820,9 @@ private fun LocationStudioPanel(
     content: @Composable () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color(0xEE0E182A),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.38f)),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {

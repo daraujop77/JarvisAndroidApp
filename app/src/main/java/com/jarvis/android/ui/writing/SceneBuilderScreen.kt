@@ -201,9 +201,9 @@ fun SceneBuilderScreen(
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xCC0E182A),
-                border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
             ) {
                 Column(Modifier.padding(14.dp)) {
                     Text("SCENE BUILDER", style = MaterialTheme.typography.titleMedium, color = Color(0xFFF8FAFC))
@@ -231,9 +231,9 @@ fun SceneBuilderScreen(
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xCC0B2233),
-                border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.48f)),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
             ) {
                 Column(Modifier.padding(14.dp)) {
                     Text(
@@ -811,8 +811,8 @@ fun SceneBuilderScreen(
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xCC0E182A),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                     border = BorderStroke(
                         1.dp,
                         if (asset?.status == "APPROVED") {
@@ -1008,9 +1008,9 @@ private fun SceneGeneratedPreview(
 private fun SceneReferenceCard(reference: VisualSceneReference) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = Color(0xCC0E182A),
-        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.28f)),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(reference.role, color = Color(0xFFF8FAFC), style = MaterialTheme.typography.titleSmall)

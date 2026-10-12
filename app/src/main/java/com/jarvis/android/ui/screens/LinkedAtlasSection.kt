@@ -95,7 +95,7 @@ internal fun LinkedAtlasSection(
             AtlasCard(JarvisGreen) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("ATLAS", style = HudTextStyle, color = JarvisGreen)
+                        Text("Atlas", style = MaterialTheme.typography.titleMedium, color = JarvisGreen)
                         Text(
                             when (view) {
                                 "graph" -> "Entidades y relaciones. Toca un nodo para centrar su vecindario."
@@ -804,8 +804,17 @@ private fun AtlasAssertion(assertion: KnowledgeAssertion, onResolveEvidence: (St
 
 @Composable
 private fun AtlasEmpty(text: String) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = Color(0xC90B1322)) {
-        Text(text, Modifier.padding(13.dp), color = Color(0xFF94A3B8), style = MaterialTheme.typography.bodySmall)
+    Surface(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+    ) {
+        Text(
+            text,
+            Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 
@@ -813,10 +822,10 @@ private fun AtlasEmpty(text: String) {
 private fun AtlasCard(accent: Color, content: @Composable ColumnScope.() -> Unit) {
     Surface(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(15.dp),
-        color = Color(0xC90B1322),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.16f)),
     ) {
-        Column(Modifier.padding(12.dp), content = content)
+        Column(Modifier.padding(16.dp), content = content)
     }
 }

@@ -139,7 +139,9 @@ import com.jarvis.android.ui.theme.JarvisCyan
 import com.jarvis.android.ui.theme.JarvisGreen
 import com.jarvis.android.ui.theme.JarvisRed
 import com.jarvis.android.ui.theme.JarvisViolet
+import com.jarvis.android.ui.theme.JarvisUiTokens
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.jarvisScreenInset
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 import com.jarvis.android.ui.writing.VisualStudioScreen
 import com.jarvis.android.ui.writing.DraftReviewScreen
@@ -165,6 +167,7 @@ fun WritingWorkspaceV1Screen(
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalAppStrings.current
+    val screenInset = jarvisScreenInset()
     val state by vm.writingWorkspace.collectAsStateWithLifecycle()
     var tab by rememberSaveable(projectId) { mutableStateOf(WorkspaceTab.CHAT) }
     var visualSceneOpenRequest by rememberSaveable(projectId) { mutableStateOf(0) }
@@ -174,140 +177,77 @@ fun WritingWorkspaceV1Screen(
     }
 
     Column(
-        modifier
-            .fillMaxSize()
-            .background(LocalJarvisAccents.current.backdrop),
+        modifier.fillMaxSize(),
     ) {
         val accents = LocalJarvisAccents.current
         val overview = state.overview
 
-        // Barra de navegación y acciones superiores
-        if (onBack != null || onEdit != null || onDelete != null) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = screenInset, vertical = 6.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+        ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (onBack != null) {
-                    OutlinedButton(
-                        onClick = onBack,
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = strings.back,
-                            tint = LocalJarvisAccents.current.orbGlow,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(strings.back, color = Color(0xFFF1F5F9), style = HudTextStyle)
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back)
                     }
                 }
-                if (tab == WorkspaceTab.VISUAL) {
+                JarvisOrb(
+                    size = 40.dp,
+                    activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
+                    contentDescription = if (state.busy) strings.writingRoomResponding else strings.workspaceChat,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
                     Text(
                         title,
-                        modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color(0xFFF8FAFC),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                } else {
-                    Spacer(Modifier.weight(1f))
+                    Text(
+                        overview?.project?.story_id?.takeIf(String::isNotBlank) ?: projectId,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val chapter = overview?.latest_official_chapter?.chapter_number
+                        MiniPill(
+                            if (chapter != null) "CANON · CAP $chapter" else "CANON · NO VERIFICADO",
+                            if (chapter != null) JarvisGreen else JarvisAmber,
+                        )
+                        MiniPill(
+                            when {
+                                state.busy -> writingRoomActivityLabel(state, strings)
+                                overview == null -> "DATOS PENDIENTES"
+                                else -> strings.statusOnline
+                            },
+                            if (state.busy || overview == null) JarvisAmber else accents.online,
+                        )
+                    }
                 }
                 if (onEdit != null) {
                     IconButton(onClick = onEdit) {
-                        Icon(
-                            Icons.Filled.Edit,
-                            contentDescription = "Renombrar",
-                            tint = JarvisCyan,
-                            modifier = Modifier.size(18.dp),
-                        )
+                        Icon(Icons.Filled.Edit, contentDescription = strings.renameProject, tint = JarvisCyan)
                     }
                 }
                 if (onDelete != null) {
                     IconButton(onClick = onDelete) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = "Eliminar",
-                            tint = Color(0xFFEF4444).copy(alpha = 0.85f),
-                            modifier = Modifier.size(18.dp),
-                        )
+                        Icon(Icons.Filled.Delete, contentDescription = strings.deleteProject, tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
-        }
-
-        // Visual uses the compact title in the navigation row.
-        if (tab != WorkspaceTab.VISUAL) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xEE0E182A),
-                border = BorderStroke(
-                    1.dp,
-                    Brush.horizontalGradient(
-                        listOf(
-                            accents.orbGlow.copy(alpha = 0.38f),
-                            Color(0x228B5CF6),
-                            accents.orbGlow.copy(alpha = 0.20f),
-                        )
-                    ),
-                ),
-                shadowElevation = 4.dp,
-            ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    JarvisOrb(
-                        size = 62.dp,
-                        activity = if (state.busy) OrbActivity.THINKING else OrbActivity.IDLE,
-                        intensity = if (state.streamingText.isNotBlank()) 0.9f else 0.2f,
-                        contentDescription = "Writing Room status",
-                    )
-                    Spacer(Modifier.size(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFFF8FAFC),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            "WRITING ROOM · " + (overview?.project?.story_id?.takeIf(String::isNotBlank) ?: projectId),
-                            style = HudTextStyle,
-                            color = accents.orbGlow,
-                        )
-                        Spacer(Modifier.height(5.dp))
-                        Row(
-                            Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            val chapter = overview?.latest_official_chapter?.chapter_number
-                            if (chapter != null) {
-                                MiniPill("CANON · CAP $chapter", JarvisGreen)
-                            } else {
-                                MiniPill("CANON · NO VERIFICADO", JarvisAmber)
-                            }
-                            MiniPill(
-                                if (state.busy) writingRoomActivityLabel(state, strings)
-                                else if (overview == null) "DATOS PENDIENTES" else strings.statusOnline,
-                                if (state.busy) JarvisAmber else accents.online,
-                            )
-                        }
-                    }
-                }
-            }
-    
         }
 
         if (state.error != null) {
@@ -340,7 +280,7 @@ fun WritingWorkspaceV1Screen(
             Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .padding(horizontal = screenInset, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             WorkspaceTab.entries.forEach { item ->
@@ -362,16 +302,16 @@ fun WritingWorkspaceV1Screen(
                         )
                     },
                     colors = FilterChipDefaults.filterChipColors(
-                        containerColor = Color(0x33101B2E),
-                        labelColor = Color(0xFF94A3B8),
-                        selectedContainerColor = LocalJarvisAccents.current.orbGlow.copy(alpha = 0.22f),
-                        selectedLabelColor = Color(0xFF67E8F9),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                        selectedLabelColor = MaterialTheme.colorScheme.primary,
                     ),
                     border = FilterChipDefaults.filterChipBorder(
                         enabled = true,
                         selected = tab == item,
-                        borderColor = Color(0x332A3B57),
-                        selectedBorderColor = LocalJarvisAccents.current.orbGlow.copy(alpha = 0.65f),
+                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.32f),
+                        selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
                     ),
                 )
             }
@@ -446,19 +386,9 @@ private fun OverviewSection(
         item {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
-                color = Color(0xEE0B1528),
-                border = BorderStroke(
-                    1.dp,
-                    Brush.horizontalGradient(
-                        listOf(
-                            accents.orbGlow.copy(alpha = 0.50f),
-                            Color(0x338B5CF6),
-                            accents.orbGlow.copy(alpha = 0.25f),
-                        )
-                    )
-                ),
-                shadowElevation = 6.dp,
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
             ) {
                 Column(Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -475,7 +405,7 @@ private fun OverviewSection(
                                 Spacer(Modifier.width(4.dp))
                                 Text(
                                     "JARVIS CORE · NÚCLEO NARRATIVO",
-                                    style = HudTextStyle.copy(fontSize = 11.sp),
+                                    style = HudTextStyle,
                                     color = accents.orbGlow,
                                 )
                             }
@@ -539,7 +469,7 @@ private fun OverviewSection(
                             Text(
                                 if (latest?.chapter_number != null) "ÚLTIMO CAPÍTULO OFICIAL ESTABLECIDO"
                                 else "CAPÍTULO OFICIAL POR CONFIRMAR",
-                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                style = HudTextStyle,
                                 color = JarvisGreen,
                             )
                         }
@@ -797,7 +727,7 @@ private fun ChatSection(
                                         state.overview?.project?.title?.takeIf(String::isNotBlank)
                                             ?.let { "Canon del proyecto: $it" }
                                             ?: "Canon de $title · datos pendientes",
-                                        style = HudTextStyle.copy(fontSize = 11.sp),
+                                        style = HudTextStyle,
                                         color = LocalJarvisAccents.current.orbGlow,
                                     )
                                 }
@@ -811,7 +741,7 @@ private fun ChatSection(
                             Spacer(Modifier.height(14.dp))
                             Text(
                                 "CONSULTAS RÁPIDAS",
-                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                style = HudTextStyle,
                                 color = Color(0xFF94A3B8),
                             )
                             Spacer(Modifier.height(6.dp))
@@ -901,7 +831,7 @@ private fun ChatSection(
                         Column(Modifier.padding(12.dp)) {
                             Text(
                                 "RETRATO RECUPERADO · COPILOT",
-                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                style = HudTextStyle,
                                 color = JarvisCyan,
                             )
                             Spacer(Modifier.height(4.dp))
@@ -928,7 +858,7 @@ private fun ChatSection(
                             Spacer(Modifier.height(6.dp))
                             Text(
                                 "Estado: " + portrait.status + " · " + portrait.assetId,
-                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                style = HudTextStyle,
                                 color = if (portrait.status == "APPROVED") JarvisGreen else JarvisAmber,
                             )
                             if (portrait.status == "CANDIDATE" &&
@@ -982,9 +912,9 @@ private fun ChatSection(
                     ) {
                         Column(Modifier.padding(12.dp)) {
                             Text("VISTAS DEL PERSONAJE · " + batch.status,
-                                style = HudTextStyle.copy(fontSize = 11.sp), color = JarvisGreen)
+                                style = HudTextStyle, color = JarvisGreen)
                             Text(batch.character_id + " · " + batch.batch_id,
-                                style = HudTextStyle.copy(fontSize = 10.sp))
+                                style = HudTextStyle)
                             Spacer(Modifier.height(6.dp))
                             Text(
                                 "${batch.approved_count} aprobadas · ${batch.candidate_count} candidatas · " +
@@ -1121,7 +1051,7 @@ private fun ChatSection(
                             )
                             Text(
                                 "Datos de Character Studio · revisión " + card.original.revision,
-                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                style = HudTextStyle,
                                 color = Color(0xFF94A3B8),
                             )
                             Spacer(Modifier.height(8.dp))
@@ -1222,7 +1152,7 @@ private fun ChatSection(
                     ) {
                         Column(Modifier.padding(14.dp)) {
                             Text("HERRAMIENTAS DE COPILOT · " + task.state,
-                                style = HudTextStyle.copy(fontSize = 11.sp), color = JarvisCyan)
+                                style = HudTextStyle, color = JarvisCyan)
                             Spacer(Modifier.height(5.dp))
                             Text(task.summary, style = MaterialTheme.typography.titleSmall)
                             Spacer(Modifier.height(7.dp))
@@ -1293,7 +1223,7 @@ private fun ChatSection(
                                         Spacer(Modifier.height(7.dp))
                                         Text(
                                             "REFERENCIA APROBADA · " + approved.kind,
-                                            style = HudTextStyle.copy(fontSize = 10.sp),
+                                            style = HudTextStyle,
                                             color = JarvisGreen,
                                         )
                                         val thumbnailId = state.approvedVisualAttachments[approved.asset_id]
@@ -1350,7 +1280,7 @@ private fun ChatSection(
                                 Spacer(Modifier.height(8.dp))
                                 Text(
                                     "PROGRESO DEL TRABAJO · " + progress.status,
-                                    style = HudTextStyle.copy(fontSize = 11.sp),
+                                    style = HudTextStyle,
                                     color = JarvisCyan,
                                 )
                                 if (progress.job_id.isNotBlank()) {
@@ -1648,7 +1578,7 @@ private fun ChatSection(
                                     Spacer(Modifier.width(7.dp))
                                     Text(
                                         writingRoomActivityLabel(state, strings),
-                                        style = HudTextStyle.copy(fontSize = 10.sp),
+                                        style = HudTextStyle,
                                         color = JarvisAmber,
                                     )
                                 }
@@ -1803,7 +1733,7 @@ private fun CopilotUserMessage(text: String, referenceAttachmentId: String?, vm:
             Column(Modifier.padding(horizontal = 11.dp, vertical = 9.dp)) {
                 Text(
                     "TÚ",
-                    style = HudTextStyle.copy(fontSize = 10.sp),
+                    style = HudTextStyle,
                     color = JarvisCyan,
                 )
                 Spacer(Modifier.height(4.dp))
@@ -1907,7 +1837,7 @@ private fun CopilotAssistantMessage(
                 if (model.isNotBlank()) {
                     Text(
                         model,
-                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        style = HudTextStyle,
                         color = JarvisCyan,
                     )
                 }
@@ -1920,7 +1850,7 @@ private fun CopilotAssistantMessage(
                         Text(
                             "REFERENCIA APROBADA · " + approved.kind +
                                 " · rev. " + approved.visual_revision,
-                            style = HudTextStyle.copy(fontSize = 10.sp),
+                            style = HudTextStyle,
                             color = JarvisGreen,
                         )
                         if (approved.alt.isNotBlank()) {
@@ -1975,7 +1905,7 @@ private fun CopilotAssistantMessage(
                     Spacer(Modifier.height(7.dp))
                     Text(
                         "Referencia ${turn.candidateStatus ?: "CANDIDATE"} · ID ${assetId}",
-                        style = HudTextStyle.copy(fontSize = 10.sp),
+                        style = HudTextStyle,
                         color = if (turn.candidateStatus == "APPROVED") JarvisGreen else JarvisAmber,
                     )
                     if (turn.candidateStatus == "CANDIDATE" &&
@@ -2033,7 +1963,7 @@ private fun CopilotAssistantMessage(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "FUENTES CANÓNICAS CONSULTADAS",
-                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        style = HudTextStyle,
                         color = Color(0xFF94A3B8),
                     )
                     Spacer(Modifier.height(4.dp))
@@ -2053,7 +1983,7 @@ private fun CopilotAssistantMessage(
                                     Text(
                                         source.title,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = Color(0xFFE2E8F0),
                                     )
                                 }
@@ -2227,7 +2157,7 @@ private fun WriteSection(
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     "SHOWRUNNER · DIRECCIÓN DEL CAPÍTULO",
-                                    style = HudTextStyle.copy(fontSize = 10.sp),
+                                    style = HudTextStyle,
                                     color = JarvisAmber,
                                 )
                                 Text(
@@ -2241,7 +2171,7 @@ private fun WriteSection(
                         Spacer(Modifier.height(8.dp))
                         Text(
                             "Tu brief",
-                            style = HudTextStyle.copy(fontSize = 9.sp),
+                            style = HudTextStyle,
                             color = Color(0xFF94A3B8),
                         )
                         Text(
@@ -2330,13 +2260,13 @@ private fun WriteSection(
                                 ) {
                                     Text(
                                         "$wordCount palabras",
-                                        style = HudTextStyle.copy(fontSize = 11.sp),
+                                        style = HudTextStyle,
                                         color = JarvisGreen,
                                     )
                                     Text("•", color = Color(0xFF64748B), fontSize = 11.sp)
                                     Text(
                                         "$charCount caracteres",
-                                        style = HudTextStyle.copy(fontSize = 11.sp),
+                                        style = HudTextStyle,
                                         color = Color(0xFF94A3B8),
                                     )
                                     Text("•", color = Color(0xFF64748B), fontSize = 11.sp)
@@ -2350,7 +2280,7 @@ private fun WriteSection(
                                         Spacer(Modifier.width(2.dp))
                                         Text(
                                             "~$readingTimeMin min",
-                                            style = HudTextStyle.copy(fontSize = 11.sp),
+                                            style = HudTextStyle,
                                             color = JarvisAmber,
                                         )
                                     }
@@ -2468,13 +2398,13 @@ private fun WriteSection(
                                         ) {
                                             Text(
                                                 "VERSIÓN ${revision.revision_number} · $sourceLabel",
-                                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                                style = HudTextStyle,
                                                 color = if (revision.is_current) JarvisGreen else JarvisCyan,
                                             )
                                             if (revision.is_current) {
                                                 Text(
                                                     "ACTUAL",
-                                                    style = HudTextStyle.copy(fontSize = 9.sp),
+                                                    style = HudTextStyle,
                                                     color = JarvisGreen,
                                                 )
                                             }
@@ -2820,7 +2750,7 @@ private fun PersistentPlanningCard(
                 Column(Modifier.weight(1f)) {
                     Text(
                         "PLANEACIÓN DEL CAPÍTULO · SHOWRUNNER",
-                        style = HudTextStyle.copy(fontSize = 10.sp),
+                        style = HudTextStyle,
                         color = JarvisCyan,
                     )
                     Text(
@@ -2860,13 +2790,13 @@ private fun PersistentPlanningCard(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(Modifier.padding(10.dp)) {
-                            Text("TÚ", style = HudTextStyle.copy(fontSize = 9.sp), color = JarvisGreen)
+                            Text("TÚ", style = HudTextStyle, color = JarvisGreen)
                             Text(turn.user_message, color = Color(0xFFE2E8F0))
                             if (turn.assistant_message.isNotBlank()) {
                                 Spacer(Modifier.height(7.dp))
                                 Text(
                                     "SHOWRUNNER",
-                                    style = HudTextStyle.copy(fontSize = 9.sp),
+                                    style = HudTextStyle,
                                     color = JarvisCyan,
                                 )
                                 RichModelText(turn.assistant_message)
@@ -3322,7 +3252,7 @@ private fun PlanSection(
                             Column {
                                 Text(
                                     "SALA DE PLANIFICACIÓN",
-                                    style = HudTextStyle.copy(fontSize = 10.sp),
+                                    style = HudTextStyle,
                                     color = JarvisViolet,
                                 )
                                 Text(
@@ -3366,7 +3296,7 @@ private fun PlanSection(
                 Column {
                     Text(
                         "SALAS RECIENTES",
-                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        style = HudTextStyle,
                         color = Color(0xFF94A3B8),
                     )
                     Spacer(Modifier.height(5.dp))
@@ -3498,7 +3428,7 @@ private fun PlanSection(
                     Column(Modifier.padding(10.dp)) {
                         Text(
                             if (hasCouncilReview) "CONSEJO YA CONSULTADO" else "PROFUNDIZAR CUANDO TÚ DECIDAS",
-                            style = HudTextStyle.copy(fontSize = 9.sp),
+                            style = HudTextStyle,
                             color = JarvisViolet,
                         )
                         Spacer(Modifier.height(4.dp))
@@ -3547,7 +3477,7 @@ private fun PlanSection(
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 state.busyLabel.ifBlank { "CONSEJO TRABAJANDO" },
-                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                style = HudTextStyle,
                                 color = JarvisAmber,
                             )
                         }
@@ -3638,7 +3568,7 @@ private fun PlanSection(
                 Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
                     Text(
                         "HABLAR CON SHOWRUNNER",
-                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        style = HudTextStyle,
                         color = JarvisCyan,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -3709,7 +3639,7 @@ private fun PlanningCouncilMessageCard(
                 ) {
                     Text(
                         message.role_label.ifBlank { message.role.uppercase() },
-                        style = HudTextStyle.copy(fontSize = 9.sp),
+                        style = HudTextStyle,
                         color = accent,
                     )
                     if (!isUser) {
@@ -4931,7 +4861,7 @@ private enum class DossierSubTab(val label: String) {
 private fun CompactCharacterHeader(character: StoryCharacter) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(JarvisUiTokens.cardShape),
         color = Color(0xEE0E182A),
         border = BorderStroke(1.dp, character.themeColor.copy(alpha = 0.45f)),
     ) {
@@ -6705,7 +6635,7 @@ private fun ExportTile(
                 )
                 Text(
                     status.uppercase(),
-                    style = HudTextStyle.copy(fontSize = 9.sp),
+                    style = HudTextStyle,
                     color = if (status == "ready") JarvisGreen else JarvisAmber,
                 )
             }
@@ -6736,13 +6666,14 @@ private fun WorkspaceCard(
     accent: Color? = null,
     content: @Composable () -> Unit,
 ) {
-    val cardAccent = accent ?: LocalJarvisAccents.current.orbGlow
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = Color(0xEE0E182A),
-        border = BorderStroke(1.dp, cardAccent.copy(alpha = 0.32f)),
-        shadowElevation = 3.dp,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        border = BorderStroke(
+            1.dp,
+            (accent ?: MaterialTheme.colorScheme.outline).copy(alpha = if (accent == null) 0.38f else 0.24f),
+        ),
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(
@@ -6766,7 +6697,7 @@ private fun MiniPill(text: String, color: Color) {
         Text(
             text,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            style = HudTextStyle.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 1.1.sp),
+            style = HudTextStyle.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.25.sp),
             color = color,
         )
     }
@@ -6956,8 +6887,8 @@ private enum class WorkspaceTab(val icon: ImageVector) {
         WRITE -> strings.workspaceWrite
         CHAT -> strings.workspaceChat
         PLAN -> strings.workspacePlan
-        CANON -> "Canon"
-        VISUAL -> "Visual"
+        CANON -> strings.workspaceCanon
+        VISUAL -> strings.workspaceVisual
         WIKI -> strings.workspaceWiki
         LIBRARY -> strings.workspaceLibrary
     }

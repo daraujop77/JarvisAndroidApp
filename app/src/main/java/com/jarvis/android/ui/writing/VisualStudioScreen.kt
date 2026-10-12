@@ -2,7 +2,6 @@ package com.jarvis.android.ui.writing
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,7 +27,7 @@ import com.jarvis.android.transport.live.VisualStudioAsset
 import com.jarvis.android.transport.live.WritingWikiEntity
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.screens.ImageStudioScreen
-import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.i18n.LocalAppStrings
 
 private enum class VisualStudioSection {
     CHARACTERS,
@@ -47,7 +46,7 @@ fun VisualStudioScreen(
     onUseSceneInChapter: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val accents = LocalJarvisAccents.current
+    val strings = LocalAppStrings.current
     var section by rememberSaveable(projectId) {
         mutableStateOf(VisualStudioSection.CHARACTERS)
     }
@@ -153,7 +152,7 @@ fun VisualStudioScreen(
                 .padding(vertical = 4.dp),
         ) {
             Text(
-                "VISUAL STORY STUDIO",
+                strings.visualStudioTitle,
                 style = MaterialTheme.typography.titleMedium,
                 color = Color(0xFFF8FAFC),
             )
@@ -167,33 +166,33 @@ fun VisualStudioScreen(
                     onClick = {
                         section = VisualStudioSection.CHARACTERS
                     },
-                    label = { Text("Personajes", maxLines = 1) },
+                    label = { Text(strings.visualCharacters, maxLines = 1) },
                 )
                 FilterChip(
                     selected = section == VisualStudioSection.LOCATIONS,
                     onClick = {
                         section = VisualStudioSection.LOCATIONS
                     },
-                    label = { Text("Locaciones", maxLines = 1) },
+                    label = { Text(strings.visualLocations, maxLines = 1) },
                 )
                 FilterChip(
                     selected = section == VisualStudioSection.SCENES,
                     onClick = {
                         section = VisualStudioSection.SCENES
                     },
-                    label = { Text("Escenas", maxLines = 1) },
+                    label = { Text(strings.visualScenes, maxLines = 1) },
                 )
                 FilterChip(
                     selected = section == VisualStudioSection.MAP,
                     onClick = {
                         section = VisualStudioSection.MAP
                     },
-                    label = { Text("Mapa", maxLines = 1) },
+                    label = { Text(strings.visualMap, maxLines = 1) },
                 )
             }
         }
     }
-    Column(modifier.fillMaxSize().background(accents.backdrop)) {
+    Column(modifier.fillMaxSize()) {
         when (section) {
             VisualStudioSection.CHARACTERS -> CharacterStudioScreen(
                 vm = vm,
