@@ -6,10 +6,12 @@ import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.Button
@@ -36,8 +38,8 @@ import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.AmbientBackdrop
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.OrbActivity
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.shared.authenticateDeviceOwner
-import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import kotlinx.coroutines.launch
 
@@ -51,6 +53,7 @@ fun SessionReauthScreen(vm: JarvisViewModel) {
     val context = LocalContext.current
     val activity = context as? FragmentActivity
     val accents = LocalJarvisAccents.current
+    val strings = LocalAppStrings.current
     val scope = rememberCoroutineScope()
     val authState by vm.liveAuth.collectAsStateWithLifecycle()
     var promptDenied by remember { mutableStateOf(false) }
@@ -74,8 +77,8 @@ fun SessionReauthScreen(vm: JarvisViewModel) {
         scope.launch {
             val verified = authenticateDeviceOwner(
                 activity = host,
-                title = "Unlock JARVIS",
-                subtitle = "Confirm it's you to renew this device session",
+                title = strings.unlockAction,
+                subtitle = strings.reauthDescription,
             )
             prompting = false
             if (verified) {
@@ -90,7 +93,11 @@ fun SessionReauthScreen(vm: JarvisViewModel) {
 
     AmbientBackdrop {
         Column(
-            modifier = Modifier.fillMaxSize().padding(32.dp),
+            modifier = Modifier
+                .widthIn(max = 420.dp)
+                .fillMaxWidth()
+                .align(Alignment.Center)
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -104,17 +111,17 @@ fun SessionReauthScreen(vm: JarvisViewModel) {
             )
 
             Spacer(Modifier.height(30.dp))
-            Text("SESSION LOCKED", style = HudTextStyle, color = accents.orbGlow)
+            Text(strings.sessionLocked, style = MaterialTheme.typography.labelLarge, color = accents.orbGlow)
             Spacer(Modifier.height(10.dp))
             Text(
-                "Your JARVIS session expired",
+                strings.sessionExpired,
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Use your fingerprint, face, or device unlock. No JARVIS password is needed.",
+                strings.reauthDescription,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -125,12 +132,12 @@ fun SessionReauthScreen(vm: JarvisViewModel) {
             if (authState is JarvisViewModel.LiveAuthState.Busy) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
-                Text("Renewing secure session…")
+                Text(strings.renewingSession)
             } else {
-                Button(onClick = { prompt() }) {
+                Button(onClick = { prompt() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
                     Icon(Icons.Filled.Fingerprint, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Unlock JARVIS")
+                    Text(strings.unlockAction)
                 }
             }
 
@@ -138,7 +145,7 @@ fun SessionReauthScreen(vm: JarvisViewModel) {
             if (promptDenied || error != null) {
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    error ?: "Authentication was cancelled or is unavailable on this device.",
+                    error ?: strings.authenticationUnavailable,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center,
@@ -146,8 +153,11 @@ fun SessionReauthScreen(vm: JarvisViewModel) {
             }
 
             Spacer(Modifier.height(18.dp))
-            OutlinedButton(onClick = vm::pairAgain) {
-                Text("Pair again instead")
+            OutlinedButton(
+                onClick = vm::pairAgain,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            ) {
+                Text(strings.pairAgain)
             }
         }
     }
