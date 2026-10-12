@@ -81,7 +81,7 @@ class HttpGatewayTransportTest {
                         MockResponse().setBody("""{"ok":true}""")
                     }
                     request.method == "POST" && path == "/api/app/chat/conversations/delete" -> {
-                        posted += request.body.readUtf8()
+                        posted += request.body.clone().readUtf8()
                         MockResponse().setBody(
                             """{"schema":"jarvis.chat.conversation-delete.v1","deleted":true}""",
                         )
