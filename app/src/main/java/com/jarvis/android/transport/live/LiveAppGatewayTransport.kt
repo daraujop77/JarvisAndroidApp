@@ -278,6 +278,50 @@ class LiveAppGatewayTransport(
         sessionId: String,
         ctl: TurnCtl,
     ) {
+        // An explicit project selection uses the same adaptive backend as
+        // Writing Room, but only for text-only, read-only requests. All other
+        // conversations (and attachments) retain legacy stream/recovery.
+        val projectAgent = if (req.attachmentIds.isEmpty()) {
+            session.chatAgentProjectFor(req.conversationId)
+        } else null
+        if (projectAgent != null) {
+            emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
+                taskId = "chat_${req.clientRequestId}",
+                requestId = req.clientRequestId,
+                status = TaskStatus.RUNNING,
+                label = "Consultando herramientas del proyecto",
+            )))
+            val reply = session.chatGlobalProjectAgentTurn(
+                projectId = projectAgent,
+                conversationId = req.conversationId,
+                requestId = req.clientRequestId,
+                prompt = req.text,
+            ).getOrThrow()
+            if (ctl.cancelRequested || !currentCoroutineContext().isActive) {
+                throw CancellationException("Project agent turn cancelled")
+            }
+            val text = reply.response.text
+            if (text.isBlank()) throw TransportException("Agent returned no answer")
+            emit(GatewayEvent.MessageDelta(
+                req.clientRequestId, "msg_${req.clientRequestId}", 0, text,
+            ))
+            emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
+                taskId = "chat_${req.clientRequestId}",
+                requestId = req.clientRequestId,
+                status = TaskStatus.COMPLETED,
+            )))
+            emit(GatewayEvent.MessageCompleted(
+                requestId = req.clientRequestId,
+                messageId = "msg_${req.clientRequestId}",
+                fullText = text,
+                provider = reply.response.provider.ifBlank { null },
+                model = reply.response.model.ifBlank { null },
+                route = reply.route.ifBlank { null },
+                destination = "adaptive_agent",
+            ))
+            return
+        }
+
         val payload = chatPayload(req, traceId, deviceId, sessionId)
 
         val request = Request.Builder()
