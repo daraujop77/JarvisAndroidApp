@@ -91,6 +91,8 @@ jobs:
               raise SystemExit("BLOCKED: keystore does not contain exactly one original JARVIS signing certificate")
           with open(sys.argv[2], "a", encoding="utf-8") as out:
               out.write("RELEASE_KEY_ALIAS=" + matches[0] + "\n")
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "jarvis-signing", "matched-alias.txt"), "w", encoding="utf-8") as out:
+              out.write(matches[0] + "\n")
           print("Original v63-compatible signing alias found; keystore remains private.")
           PY
 
@@ -99,6 +101,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           chmod +x gradlew
+          # Match the original certificate regardless of any stale secret alias.
+          export RELEASE_KEY_ALIAS="$(cat "$RUNNER_TEMP/jarvis-signing/matched-alias.txt")"
+          test -n "$RELEASE_KEY_ALIAS"
           ./gradlew :app:assembleRelease --stacktrace
           test -s app/build/outputs/apk/release/app-release.apk
 
