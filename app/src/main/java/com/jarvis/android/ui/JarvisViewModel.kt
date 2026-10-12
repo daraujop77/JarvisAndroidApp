@@ -36,6 +36,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.SharingStarted
@@ -115,6 +116,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun openConversation(id: String) {
         _conversationId.value = id
+    }
+
+    suspend fun deleteConversation(id: String): Boolean {
+        val deleted = conversations.deleteConversation(id)
+        if (deleted && _conversationId.value == id) _conversationId.value = null
+        return deleted
     }
 
     // ---- AND-W9 Projects shell (Lane F: backend NOT_CONNECTED) ----------------
@@ -6377,6 +6384,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private val _pendingAttachmentsByConversation =
         MutableStateFlow<Map<String, List<StagedAttachment>>>(emptyMap())
+    enum class AttachmentStageError { IMAGE, DOCUMENT, PARTIAL }
+
+    private val _attachmentError = MutableStateFlow<AttachmentStageError?>(null)
+    val attachmentError: StateFlow<AttachmentStageError?> = _attachmentError.asStateFlow()
 
     /**
      * Pending media is conversation-local. Switching from chat A to chat B must
@@ -6395,27 +6406,53 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
      * Copy picked image into private storage and strip EXIF. File copy + JPEG
      * re-encode run on IO — never the main thread.
      */
-    fun stageAttachment(uri: Uri) {
+    fun stageAttachment(uri: Uri, document: Boolean = false) {
+        stageAttachments(listOf(uri), document)
+    }
+
+    fun stageAttachments(uris: List<Uri>) {
+        stageAttachments(uris, document = false)
+    }
+
+    private fun stageAttachments(uris: List<Uri>, document: Boolean) {
+        if (uris.isEmpty()) return
         viewModelScope.launch {
+            _attachmentError.value = null
             val conversationId = _conversationId.value ?: conversations.newConversationId().also {
                 _conversationId.value = it
             }
             val staged = withContext(Dispatchers.IO) {
-                container.attachmentStore.stageFrom(uri)
-            } ?: return@launch
+                uris.take(if (document) 1 else 3).mapNotNull { uri ->
+                    if (document) container.attachmentStore.stageDocumentFrom(uri)
+                    else container.attachmentStore.stageFrom(uri)
+                }
+            }
+            if (staged.isEmpty()) {
+                _attachmentError.value = if (document) AttachmentStageError.DOCUMENT else AttachmentStageError.IMAGE
+                return@launch
+            }
             _pendingAttachmentsByConversation.update { current ->
                 current + (conversationId to (current[conversationId].orEmpty() + staged))
             }
+            if (staged.size < uris.size) {
+                _attachmentError.value = AttachmentStageError.PARTIAL
+            }
             if (container.transportMode != AppContainer.TransportMode.LIVE) {
-                session.uploadAttachment(
-                    attachmentId = staged.attachmentId,
-                    conversationId = conversationId,
-                    filename = staged.filename,
-                    mimeType = staged.mimeType,
-                    sizeBytes = staged.sizeBytes,
-                )
+                staged.forEach { item ->
+                    session.uploadAttachment(
+                        attachmentId = item.attachmentId,
+                        conversationId = conversationId,
+                        filename = item.filename,
+                        mimeType = item.mimeType,
+                        sizeBytes = item.sizeBytes,
+                    )
+                }
             }
         }
+    }
+
+    fun clearAttachmentError() {
+        _attachmentError.value = null
     }
 
     fun removePendingAttachment(attachmentId: String) {
@@ -6436,7 +6473,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val attachments = _pendingAttachmentsByConversation.value[id].orEmpty()
         if (trimmed.isEmpty() && attachments.isEmpty()) return
         val ids = attachments.map { it.attachmentId }
-        val body = trimmed.ifBlank { "(photo)" }
+        val body = trimmed.ifBlank {
+            if (attachments.firstOrNull()?.mimeType?.startsWith("image/") == true) "(photo)"
+            else "(document)"
+        }
         conversations.send(id, body, ids)
         _pendingAttachmentsByConversation.update { it - id }
     }

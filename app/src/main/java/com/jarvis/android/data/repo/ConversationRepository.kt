@@ -4,6 +4,7 @@ import com.jarvis.android.data.local.ConversationEntity
 import com.jarvis.android.data.local.JarvisDao
 import com.jarvis.android.data.local.MessageEntity
 import com.jarvis.android.data.local.PendingOutboundEntity
+import com.jarvis.android.data.media.AttachmentStore
 import com.jarvis.android.data.state.RequestState
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.data.state.dbName
@@ -61,6 +62,7 @@ class ConversationRepository(
     private val session: JarvisSessionRepository,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val attachmentStore: AttachmentStore? = null,
 ) {
 
     private val _live = session.snapshot
@@ -94,6 +96,19 @@ class ConversationRepository(
         observeConversations()
             .map<List<ConversationSummary>, ConversationListState> { ConversationListState.Ready(it) }
             .onStart { emit(ConversationListState.Loading) }
+
+    /** Delete server history first, then atomically remove local rows and orphaned attachment files. */
+    suspend fun deleteConversation(conversationId: String): Boolean {
+        val id = conversationId.trim()
+        if (id.isEmpty()) return false
+        val isRunningHere = _live.value.session.requests.values.any {
+            it.conversationId == id && !it.status.isTerminal
+        }
+        if (isRunningHere || !session.deleteConversation(id)) return false
+        val orphanIds = dao.deleteConversationAndGetOrphanAttachmentIds(id)
+        orphanIds.forEach { attachmentStore?.delete(it) }
+        return true
+    }
 
     /** Persisted history for [conversationId] merged with the live streaming request. */
     fun observeMessages(conversationId: String): Flow<List<ChatMessage>> = combine(
@@ -166,7 +181,7 @@ class ConversationRepository(
      * own dispatch coroutine so this never blocks or reorders the hot path.
      */
     fun send(conversationId: String, text: String, attachmentIds: List<String> = emptyList()) {
-        val cid = session.send(conversationId, text, attachmentIds) { historyContext(conversationId) }
+        val cid = session.send(conversationId, text, attachmentIds) { historyContext(conversationId, text.length) }
         persistOutbound(cid, conversationId, text, attachmentIds)
         watchRequest(cid)
     }
@@ -178,8 +193,9 @@ class ConversationRepository(
      */
     private suspend fun historyContext(
         conversationId: String,
-        maxMessages: Int = 256,
-        maxChars: Int = 180_000,
+        newMessageChars: Int,
+        maxMessages: Int = 255,
+        maxChars: Int = (150_000 - newMessageChars).coerceAtLeast(0),
     ): List<com.jarvis.android.contract.ChatTurn> {
         val eligible = dao.messages(conversationId)
             .filter { it.status == RequestStatus.Completed.dbName }
@@ -322,7 +338,7 @@ class ConversationRepository(
             val cid = session.sendWithId(
                 p.clientRequestId, p.conversationId, p.text,
                 attachmentIds = p.attachmentIds.split(',').filter { it.isNotBlank() },
-                contextProvider = { historyContext(p.conversationId) },
+                contextProvider = { historyContext(p.conversationId, p.text.length) },
             )
             dao.upsertPending(p.copy(attempts = p.attempts + 1))
             watchRequest(cid)

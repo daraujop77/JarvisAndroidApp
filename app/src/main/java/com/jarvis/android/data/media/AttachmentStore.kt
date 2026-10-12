@@ -37,6 +37,62 @@ class AttachmentStore(context: Context) {
     /** False when the upload contract is still frozen-pending: fake mode only. */
     val uploadPending: Boolean = true
 
+    /** Copy a small document into app-private storage without changing its bytes. */
+    fun stageDocumentFrom(uri: Uri): StagedAttachment? = runCatching {
+        val (originalName, reportedMime, reportedSize) = queryMeta(uri) ?: return@runCatching null
+        val pickedName = originalName.substringAfterLast('/').substringAfterLast('\\').take(100)
+        val pickedExtension = pickedName.substringAfterLast('.', "").lowercase()
+        val extension = if (pickedExtension in setOf("txt", "md", "pdf", "docx")) pickedExtension else when (reportedMime) {
+            "text/plain" -> "txt"
+            "text/markdown" -> "md"
+            "application/pdf" -> "pdf"
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "docx"
+            else -> return@runCatching null
+        }
+        val name = if (pickedExtension == extension) pickedName else "document.$extension"
+        val mime = when (extension) {
+            "txt" -> "text/plain"
+            "md" -> "text/markdown"
+            "pdf" -> "application/pdf"
+            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            else -> return@runCatching null
+        }
+        if (reportedSize > 2_000_000) return@runCatching null
+        val id = "doc_" + UUID.randomUUID().toString().take(12)
+        val out = File(dir, "$id.$extension")
+        var count = 0
+        try {
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
+                out.outputStream().use { output ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        count += read
+                        if (count > 2_000_000) error("Document exceeds the chat limit")
+                        output.write(buffer, 0, read)
+                    }
+                }
+            } ?: return@runCatching null
+            if (count == 0) return@runCatching null
+            if (extension == "pdf" && !out.inputStream().use { input ->
+                    val header = ByteArray(5)
+                    input.read(header) == 5 && header.contentEquals("%PDF-".toByteArray())
+                }) {
+                return@runCatching null
+            }
+            File(dir, "$id.name").writeText(name.ifBlank { "document.$extension" }, Charsets.UTF_8)
+            StagedAttachment(id, out, name, mime, count.toLong())
+        } finally {
+            if (!File(dir, "$id.name").exists()) out.delete()
+        }
+    }.getOrNull()
+
+    fun documentFilename(attachmentId: String): String? = runCatching {
+        if (!attachmentId.matches(Regex("[A-Za-z0-9_-]{1,80}"))) return@runCatching null
+        File(dir, "$attachmentId.name").takeIf { it.isFile }?.readText(Charsets.UTF_8)?.take(100)
+    }.getOrNull()
+
     fun stageFrom(uri: Uri, mimeGuess: String? = null): StagedAttachment? = runCatching {
         val (name, mime, size) = queryMeta(uri) ?: return@runCatching null
         val id = "att_" + UUID.randomUUID().toString().take(12)
@@ -101,10 +157,11 @@ class AttachmentStore(context: Context) {
     }.getOrNull()
 
     fun resolve(attachmentId: String): File? =
-        dir.listFiles()?.firstOrNull { it.nameWithoutExtension == attachmentId && it.extension in setOf("jpg", "png", "webp") }
+        dir.listFiles()?.firstOrNull { it.nameWithoutExtension == attachmentId && it.extension in setOf("jpg", "png", "webp", "txt", "md", "pdf", "docx") }
 
     fun decodeThumbnail(attachmentId: String, maxSize: Int = 512): Bitmap? = runCatching {
         val f = resolve(attachmentId) ?: return@runCatching null
+        if (f.extension !in setOf("jpg", "png", "webp")) return@runCatching null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(f.absolutePath, bounds)
         var sample = 1
@@ -117,6 +174,9 @@ class AttachmentStore(context: Context) {
 
     fun delete(attachmentId: String) {
         runCatching { resolve(attachmentId)?.delete() }
+        if (attachmentId.matches(Regex("[A-Za-z0-9_-]{1,80}"))) {
+            runCatching { File(dir, "$attachmentId.name").delete() }
+        }
     }
 
     // ---- owner avatar (local only; never uploaded) ----------------------------

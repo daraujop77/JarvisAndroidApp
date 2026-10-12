@@ -30,6 +30,9 @@ interface GatewayTransport {
 
     suspend fun health(): HealthResponse
 
+    /** Delete a conversation remotely when the transport has a chat store. */
+    suspend fun deleteConversation(conversationId: String): Boolean = false
+
     /**
      * PCB-LIVE-2: reconcile a completed turn without a second inference.
      * Returns true if the server already finished this [clientRequestId] and

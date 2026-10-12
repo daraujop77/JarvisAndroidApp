@@ -27,6 +27,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -117,6 +124,19 @@ class HttpGatewayTransport(
             protocolVersion = h.protocolVersion,
             capabilities = h.capabilities,
         )
+    }
+
+    override suspend fun deleteConversation(conversationId: String): Boolean = withContext(Dispatchers.IO) {
+        val id = conversationId.trim()
+        if (id.isEmpty() || id.length > 240) throw TransportException("conversation id is invalid")
+        val body = buildJsonObject { put("conversation_id", id) }.toString()
+        val raw = post(requireBase(), "/api/app/chat/conversations/delete", body)
+        val deleted = WebV1.json.parseToJsonElement(raw)
+            .jsonObject["deleted"]
+            ?.jsonPrimitive
+            ?.booleanOrNull
+        if (deleted != true) throw TransportException("conversation deletion response is invalid")
+        true
     }
 
     suspend fun capabilities(): WebV1Capabilities {

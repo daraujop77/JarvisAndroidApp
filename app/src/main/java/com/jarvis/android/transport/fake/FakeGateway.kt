@@ -134,6 +134,8 @@ class FakeGateway(
         return healthResponse
     }
 
+    override suspend fun deleteConversation(conversationId: String): Boolean = conversationId.isNotBlank()
+
     // ---- scenario drivers -----------------------------------------------------
 
     private class StreamProgress {

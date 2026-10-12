@@ -9,6 +9,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -111,6 +112,40 @@ interface JarvisDao {
 
     @Query("SELECT * FROM pending_outbound WHERE clientRequestId = :rid")
     suspend fun pending(rid: String): PendingOutboundEntity?
+
+    @Query("SELECT attachmentIds FROM messages WHERE conversationId = :id")
+    suspend fun conversationMessageAttachmentIds(id: String): List<String>
+
+    @Query("SELECT attachmentIds FROM pending_outbound WHERE conversationId = :id")
+    suspend fun conversationPendingAttachmentIds(id: String): List<String>
+
+    @Query("DELETE FROM pending_outbound WHERE conversationId = :id")
+    suspend fun deleteConversationPending(id: String)
+
+    @Query("DELETE FROM conversations WHERE conversationId = :id")
+    suspend fun deleteConversationRow(id: String)
+
+    @Query("SELECT attachmentIds FROM messages")
+    suspend fun allMessageAttachmentIds(): List<String>
+
+    @Query("SELECT attachmentIds FROM pending_outbound")
+    suspend fun allPendingAttachmentIds(): List<String>
+
+    /** Remove local conversation rows atomically and return files with no remaining references. */
+    @Transaction
+    suspend fun deleteConversationAndGetOrphanAttachmentIds(id: String): List<String> {
+        fun parseIds(values: List<String>): Set<String> = values
+            .flatMap { value -> value.split(',') }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+
+        val removedIds = parseIds(conversationMessageAttachmentIds(id) + conversationPendingAttachmentIds(id))
+        deleteConversationPending(id)
+        deleteConversationRow(id) // MessageEntity rows cascade with their parent conversation.
+        val stillReferenced = parseIds(allMessageAttachmentIds() + allPendingAttachmentIds())
+        return (removedIds - stillReferenced).toList()
+    }
 
     @Query("UPDATE conversations SET lastCursorToken = :cursor WHERE conversationId = :id")
     suspend fun setCursor(id: String, cursor: String)

@@ -109,7 +109,7 @@ class AppContainer(private val context: Context) {
     }
 
     val conversations: ConversationRepository by lazy {
-        ConversationRepository(dao, session, scope)
+        ConversationRepository(dao, session, scope, attachmentStore = attachmentStore)
     }
 
     val projectsRepository: com.jarvis.android.data.projects.ProjectsRepository by lazy {

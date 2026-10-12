@@ -61,6 +61,8 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
@@ -78,6 +80,8 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -203,6 +207,10 @@ private fun ConversationListView(
     val accents = LocalJarvisAccents.current
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
+    var pendingDelete by remember { mutableStateOf<com.jarvis.android.data.repo.ConversationSummary?>(null) }
+    var deletingConversationId by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val activeConversationIds = ConversationActivity.activeConversationIds(
         snapshot.session.requests.values,
     )
@@ -210,6 +218,7 @@ private fun ConversationListView(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(strings.conversationsTitle, style = MaterialTheme.typography.titleLarge) },
@@ -350,11 +359,60 @@ private fun ConversationListView(
                                     modifier = Modifier.padding(start = 8.dp),
                                 )
                             }
+                            IconButton(
+                                onClick = { pendingDelete = c },
+                                enabled = !isActive && deletingConversationId == null,
+                            ) {
+                                if (deletingConversationId == c.conversationId) {
+                                    CircularProgressIndicator(
+                                        Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = accents.orbGlow,
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = strings.deleteConversation,
+                                        tint = if (isActive) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    pendingDelete?.let { conversation ->
+        AlertDialog(
+            onDismissRequest = { if (deletingConversationId == null) pendingDelete = null },
+            title = { Text(strings.deleteConversationTitle) },
+            text = { Text(strings.deleteConversationBody) },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingDelete = null },
+                    enabled = deletingConversationId == null,
+                ) { Text(strings.cancel) }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = deletingConversationId == null,
+                    onClick = {
+                        pendingDelete = null
+                        deletingConversationId = conversation.conversationId
+                        scope.launch {
+                            val deleted = runCatching {
+                                vm.deleteConversation(conversation.conversationId)
+                            }.getOrDefault(false)
+                            deletingConversationId = null
+                            if (!deleted) snackbarHostState.showSnackbar(strings.deleteConversationFailed)
+                        }
+                    },
+                ) { Text(strings.deleteConversation, color = MaterialTheme.colorScheme.error) }
+            },
+        )
     }
 }
 
@@ -364,6 +422,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val messages by vm.messages.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val pendingAttachments by vm.pendingAttachments.collectAsStateWithLifecycle()
+    val attachmentError by vm.attachmentError.collectAsStateWithLifecycle()
+    val strings = LocalAppStrings.current
     val chatAccess by vm.chatAccess.collectAsStateWithLifecycle()
     val imageGenerationState by vm.imageGenerationState.collectAsStateWithLifecycle()
     val imageGenerationDetails by vm.lastImageGenerationDetails.collectAsStateWithLifecycle()
@@ -395,8 +455,11 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     }
 
     val photoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri -> uri?.let { vm.stageAttachment(it) } }
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 3),
+    ) { uris -> vm.stageAttachments(uris) }
+    val documentPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let { vm.stageAttachment(it, document = true) } }
 
     val saveGeneratedImage = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("image/jpeg"),
@@ -426,10 +489,14 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         snapshot.session.requests.values,
         conversationId,
     )
+    val chatProgress = liveRequest?.let { request ->
+        snapshot.session.tasks["chat_${request.clientRequestId}"]?.label
+    }
     val chatStreaming = liveRequest != null
     val imageGenerating = imageGenerationState is JarvisViewModel.ImageGenerationState.Busy
     val busy = chatStreaming || imageGenerating
     val imageInputReady = chatAccess?.capabilityStates?.get("image_input") == "ready"
+    val documentInputReady = chatAccess?.capabilityStates?.get("document_input") == "ready"
     val imageGenerationReady = chatAccess?.capabilityStates?.get("image_generation") == "ready"
     val imageGenerationAccess = chatAccess?.imageGeneration
 
@@ -523,7 +590,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         Column {
                             Text("JARVIS", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (imageGenerating) "creating image…" else if (chatStreaming) "responding…" else "ready",
+                                if (imageGenerating) "creating image…" else if (chatStreaming) (chatProgress ?: "responding…") else "ready",
                                 style = HudTextStyle,
                                 color = if (busy) accents.orbGlow
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -609,6 +676,19 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 )
             }
 
+            attachmentError?.let { message ->
+                val errorText = when (message) {
+                    JarvisViewModel.AttachmentStageError.IMAGE -> strings.imageAttachmentFailed
+                    JarvisViewModel.AttachmentStageError.DOCUMENT -> strings.documentAttachmentFailed
+                    JarvisViewModel.AttachmentStageError.PARTIAL -> strings.someAttachmentsFailed
+                }
+                Text(
+                    errorText,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = HudTextStyle,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             if (imageGenerationState is JarvisViewModel.ImageGenerationState.Error) {
                 Text(
                     (imageGenerationState as JarvisViewModel.ImageGenerationState.Error).message,
@@ -637,18 +717,25 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
 
             Composer(
                 input = input,
-                onInput = { input = it; vm.clearImageGenerationError() },
+                onInput = { input = it; vm.clearImageGenerationError(); vm.clearAttachmentError() },
                 connected = snapshot.connection.isUsable,
                 streaming = chatStreaming,
                 generatingImage = imageGenerating,
                 canSend = (input.isNotBlank() || pendingAttachments.isNotEmpty()) && !imageGenerating,
                 canPickPhoto = imageInputReady && pendingAttachments.isEmpty() && !imageGenerating,
+                canPickDocument = documentInputReady && pendingAttachments.isEmpty() && !imageGenerating,
                 canGenerateImage = imageGenerationReady && input.isNotBlank() &&
                     pendingAttachments.isEmpty() && !chatStreaming && !imageGenerating,
                 onPickPhoto = {
                     photoPicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
+                },
+                onPickDocument = {
+                    documentPicker.launch(arrayOf(
+                        "text/plain", "text/markdown", "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ))
                 },
                 onGenerateImage = {
                     keyboardController?.hide()
@@ -981,8 +1068,10 @@ private fun Composer(
     generatingImage: Boolean,
     canSend: Boolean,
     canPickPhoto: Boolean,
+    canPickDocument: Boolean,
     canGenerateImage: Boolean,
     onPickPhoto: () -> Unit,
+    onPickDocument: () -> Unit,
     onGenerateImage: () -> Unit,
     onStop: () -> Unit,
     onSend: () -> Unit,
@@ -1038,6 +1127,27 @@ private fun Composer(
                     Icons.Filled.AddPhotoAlternate,
                     contentDescription = if (canPickPhoto) "Attach photo" else "Image input unavailable",
                     tint = if (canPickPhoto) accents.orbGlow
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = if (canPickDocument) accents.orbGlow.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, if (canPickDocument) accents.orbGlow.copy(alpha = 0.35f) else Color(0xFF1E2E48)),
+            modifier = Modifier.size(40.dp),
+        ) {
+            IconButton(
+                onClick = onPickDocument,
+                enabled = canPickDocument,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Icon(
+                    Icons.Filled.Description,
+                    contentDescription = if (canPickDocument) "Attach document" else "Document input unavailable",
+                    tint = if (canPickDocument) accents.orbGlow
                     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                     modifier = Modifier.size(19.dp),
                 )
@@ -1140,6 +1250,7 @@ private fun EmptyChatState(
     modifier: Modifier = Modifier,
 ) {
     val accents = LocalJarvisAccents.current
+    val strings = LocalAppStrings.current
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -1159,6 +1270,13 @@ private fun EmptyChatState(
             "Neural link active. Select an operational directive or enter instructions.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            strings.savedPreferencesHint,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(22.dp))
@@ -1642,7 +1760,10 @@ private fun AttachmentChip(
                     contentScale = ContentScale.Crop,
                 )
             } else {
-                Icon(Icons.Filled.Image, contentDescription = null)
+                Icon(
+                    if (attachmentId.startsWith("doc_")) Icons.Filled.Description else Icons.Filled.Image,
+                    contentDescription = if (attachmentId.startsWith("doc_")) "Document attachment" else null,
+                )
             }
             if (state?.uploading == true) {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -1692,7 +1813,10 @@ private fun PendingAttachmentStrip(
                             if (attachmentState(a.attachmentId)?.uploading == true) {
                                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                             } else {
-                                Icon(Icons.Filled.Image, contentDescription = null)
+                                Icon(
+                                    if (a.mimeType.startsWith("image/")) Icons.Filled.Image else Icons.Filled.Description,
+                                    contentDescription = if (a.mimeType.startsWith("image/")) null else a.filename,
+                                )
                             }
                         }
                     }

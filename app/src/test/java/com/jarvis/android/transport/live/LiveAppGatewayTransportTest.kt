@@ -116,6 +116,14 @@ class LiveAppGatewayTransportTest {
                         MockResponse().setResponseCode(202)
                             .setBody("""{"result":"cancel_requested"}""")
                     }
+                    request.path == "/api/app/chat/conversations/delete" && auth != "Bearer test-token" ->
+                        MockResponse().setResponseCode(401)
+                    request.path == "/api/app/chat/conversations/delete" -> {
+                        postedBodies += "POST /api/app/chat/conversations/delete\n" + request.body.clone().readUtf8()
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.chat.conversation-delete.v1","deleted":true}""",
+                        )
+                    }
                     request.path == "/api/app/images/generations" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
                     request.path == "/api/app/images/generations" -> {
@@ -195,6 +203,19 @@ class LiveAppGatewayTransportTest {
     }
 
     private fun baseUrl() = server.url("/").toString().trimEnd('/')
+
+    @Test
+    fun deleteConversationUsesAuthenticatedChatEndpoint() = runBlocking {
+        val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
+
+        assertTrue(transport.deleteConversation("conversation-a"))
+
+        val request = server.takeRequest(2, TimeUnit.SECONDS) ?: error("delete request was not sent")
+        assertEquals("POST", request.method)
+        assertEquals("/api/app/chat/conversations/delete", request.path)
+        assertEquals("Bearer test-token", request.getHeader("Authorization"))
+        assertEquals("{\"conversation_id\":\"conversation-a\"}", request.body.readUtf8())
+    }
 
     private fun seededStore(expired: Boolean = false): JarvisAppSession.MemoryStore {
         val store = JarvisAppSession.MemoryStore()
