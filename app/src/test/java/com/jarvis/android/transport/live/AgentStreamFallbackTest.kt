@@ -162,6 +162,31 @@ class AgentStreamFallbackTest {
             assertTrue(body.contains("wrc_ab"))
         }
 
+    @Test fun globalProjectAgentUsesExplicitProjectAndExistingChatScope() =
+        runBlocking(Dispatchers.IO) {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    if (request.path == "/api/app/chat/agent/project/turn") {
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.chat.turn.v1","route":"adaptive_agent",
+                            "response":{"text":"Canon localizado","provider":"jarvis-adaptive"}}""",
+                        )
+                    } else MockResponse().setResponseCode(500)
+            }
+            val result = session.chatGlobalProjectAgentTurn(
+                projectId = "prj_story", conversationId = "chat-project-a",
+                requestId = "req-1234", prompt = "Busca el canon",
+                mode = "local_only",
+            ).getOrThrow()
+            assertEquals("Canon localizado", result.response.text)
+            val request = server.takeRequest()
+            assertEquals("/api/app/chat/agent/project/turn", request.path)
+            val body = request.body.readUtf8()
+            assertTrue(body.contains("\\"project_id\\":\\"prj_story\\""))
+            assertTrue(body.contains("\\"conversation_id\\":\\"chat-project-a\\""))
+            assertTrue(body.contains("\\"mode\\":\\"local_only\\""))
+        }
+
     @Test fun separateUsersAndProjectsHaveDifferentConversationIds() {
         val a1 = session.writingRoomConversationId("prj_story")
         val a2 = session.writingRoomConversationId("prj_story")
