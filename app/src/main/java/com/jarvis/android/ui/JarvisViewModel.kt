@@ -64,11 +64,41 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private val _globalChatAgentProject = MutableStateFlow<String?>(null)
     val globalChatAgentProject: StateFlow<String?> = _globalChatAgentProject
+    private val _globalChatAgentSelecting = MutableStateFlow(false)
+    val globalChatAgentSelecting: StateFlow<Boolean> = _globalChatAgentSelecting
+    private val _globalChatAgentError = MutableStateFlow<String?>(null)
+    val globalChatAgentError: StateFlow<String?> = _globalChatAgentError
+    private var globalChatSelectionEpoch = 0L
 
     fun selectGlobalChatAgentProject(projectId: String?) {
         val id = _conversationId.value ?: return
-        container.liveSession.setChatAgentProjectFor(id, projectId)
-        _globalChatAgentProject.value = container.liveSession.chatAgentProjectFor(id)
+        val epoch = ++globalChatSelectionEpoch
+        _globalChatAgentError.value = null
+        if (projectId == null) {
+            container.liveSession.setChatAgentProjectFor(id, null)
+            _globalChatAgentProject.value = null
+            _globalChatAgentSelecting.value = false
+            return
+        }
+        _globalChatAgentSelecting.value = true
+        viewModelScope.launch {
+            val ready = container.liveSession.chatGlobalProjectAgentCapability(projectId)
+            if (_conversationId.value != id || globalChatSelectionEpoch != epoch) {
+                return@launch
+            }
+            _globalChatAgentSelecting.value = false
+            val capability = ready.getOrNull()
+            if (capability?.enabled == true && capability.project_id == projectId &&
+                capability.effect == "READ_ONLY" && !capability.supports_attachments
+            ) {
+                container.liveSession.setChatAgentProjectFor(id, projectId)
+                _globalChatAgentProject.value = projectId
+            } else {
+                _globalChatAgentError.value =
+                    "El agente de proyecto no está disponible en el VPS. " +
+                        "El chat general sigue funcionando."
+            }
+        }
     }
 
     val snapshot: StateFlow<SessionSnapshot> = session.snapshot
@@ -124,6 +154,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun openConversation(id: String) {
+        globalChatSelectionEpoch++
+        _globalChatAgentSelecting.value = false
+        _globalChatAgentError.value = null
         _conversationId.value = id
         _globalChatAgentProject.value = container.liveSession.chatAgentProjectFor(id)
     }
