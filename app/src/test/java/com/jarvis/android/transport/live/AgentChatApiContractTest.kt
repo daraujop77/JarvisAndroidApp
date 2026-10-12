@@ -49,6 +49,21 @@ class AgentChatApiContractTest {
         assertEquals("save_story_idea", task.steps.single().tool)
     }
 
+    @Test fun agentEventsUseSequenceCursorAndNoImagePayload() {
+        val payload = """
+            {"schema":"jarvis.agent.events.v1","run_id":"ar_0123456789abcdef01234567",
+             "events":[{"run_id":"ar_0123456789abcdef01234567",
+                        "seq":3,"state":"WAITING_CONFIRMATION",
+                        "pending_approval_id":"ap_234"}],
+             "next_cursor":3}
+        """.trimIndent()
+        val page = json.decodeFromString<AgentEventPage>(payload)
+        assertEquals(3, page.next_cursor)
+        assertEquals(3, page.events.single().seq)
+        assertEquals("WAITING_CONFIRMATION", page.events.single().state)
+        assertTrue(page.events.single().pending_approval_id.startsWith("ap_"))
+    }
+
     @Test fun completedTurnCanReuseLegacyV64ChatEnvelope() {
         val body = """
           {
