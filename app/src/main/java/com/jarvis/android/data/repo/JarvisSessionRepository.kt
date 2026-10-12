@@ -214,6 +214,9 @@ class JarvisSessionRepository(
 
     suspend fun health(): Result<HealthResponse> = runCatching { transport.health() }
 
+    suspend fun deleteConversation(conversationId: String): Boolean =
+        transport.deleteConversation(conversationId)
+
     /**
      * PCB-LIVE-2: ask the transport to reconcile a completed turn without a
      * second inference (LIVE does; Fake/HTTP return false so pending outbound

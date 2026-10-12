@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
@@ -79,6 +80,8 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -204,6 +207,10 @@ private fun ConversationListView(
     val accents = LocalJarvisAccents.current
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
+    var pendingDelete by remember { mutableStateOf<com.jarvis.android.data.repo.ConversationSummary?>(null) }
+    var deletingConversationId by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val activeConversationIds = ConversationActivity.activeConversationIds(
         snapshot.session.requests.values,
     )
@@ -211,6 +218,7 @@ private fun ConversationListView(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(strings.conversationsTitle, style = MaterialTheme.typography.titleLarge) },
@@ -351,11 +359,60 @@ private fun ConversationListView(
                                     modifier = Modifier.padding(start = 8.dp),
                                 )
                             }
+                            IconButton(
+                                onClick = { pendingDelete = c },
+                                enabled = !isActive && deletingConversationId == null,
+                            ) {
+                                if (deletingConversationId == c.conversationId) {
+                                    CircularProgressIndicator(
+                                        Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = accents.orbGlow,
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = strings.deleteConversation,
+                                        tint = if (isActive) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    pendingDelete?.let { conversation ->
+        AlertDialog(
+            onDismissRequest = { if (deletingConversationId == null) pendingDelete = null },
+            title = { Text(strings.deleteConversationTitle) },
+            text = { Text(strings.deleteConversationBody) },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingDelete = null },
+                    enabled = deletingConversationId == null,
+                ) { Text(strings.cancel) }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = deletingConversationId == null,
+                    onClick = {
+                        pendingDelete = null
+                        deletingConversationId = conversation.conversationId
+                        scope.launch {
+                            val deleted = runCatching {
+                                vm.deleteConversation(conversation.conversationId)
+                            }.getOrDefault(false)
+                            deletingConversationId = null
+                            if (!deleted) snackbarHostState.showSnackbar(strings.deleteConversationFailed)
+                        }
+                    },
+                ) { Text(strings.deleteConversation, color = MaterialTheme.colorScheme.error) }
+            },
+        )
     }
 }
 

@@ -151,6 +151,36 @@ class LiveAppGatewayTransport(
         )
     }
 
+    override suspend fun deleteConversation(conversationId: String): Boolean = withContext(Dispatchers.IO) {
+        val id = conversationId.trim()
+        if (id.isEmpty() || id.length > 240) {
+            throw TransportException("conversation id is invalid")
+        }
+        val auth = session.authHeader() ?: throw TransportException("no live session")
+        val body = buildJsonObject { put("conversation_id", id) }.toString()
+        val (status, responseBody) = session.post(
+            session.baseUrl,
+            "/api/app/chat/conversations/delete",
+            body,
+            auth,
+        )
+        if (status == 401) {
+            session.clearAccess()
+            throw TransportException("session expired", statusCode = status)
+        }
+        if (status !in 200..299) {
+            throw TransportException("conversation deletion failed ($status)", statusCode = status)
+        }
+        val deleted = runCatching {
+            json.parseToJsonElement(responseBody)
+                .jsonObject["deleted"]
+                ?.jsonPrimitive
+                ?.content == "true"
+        }.getOrNull()
+        if (deleted != true) throw TransportException("conversation deletion response is invalid")
+        true
+    }
+
     // ---- send / stream --------------------------------------------------------
 
     private fun handleSend(req: MobileRequest.SendMessage) {

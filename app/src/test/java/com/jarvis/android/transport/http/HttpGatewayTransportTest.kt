@@ -80,6 +80,12 @@ class HttpGatewayTransportTest {
                         posted += request.body.readUtf8()
                         MockResponse().setBody("""{"ok":true}""")
                     }
+                    request.method == "POST" && path == "/api/app/chat/conversations/delete" -> {
+                        posted += request.body.readUtf8()
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.chat.conversation-delete.v1","deleted":true}""",
+                        )
+                    }
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -156,6 +162,17 @@ class HttpGatewayTransportTest {
         }
         assertEquals(bearerCount, authSeen.count { it == "Bearer test-token" })
         assertTrue(authSeen.any { it == null })
+    }
+
+    @Test
+    fun deleteConversationUsesAuthenticatedAppEndpoint() {
+        val t = transport(AuthProvider { mapOf("Authorization" to "Bearer delete-token") })
+        assertTrue(runBlockingShort { t.deleteConversation("conversation-a") })
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/app/chat/conversations/delete", request.path)
+        assertEquals("Bearer delete-token", request.getHeader("Authorization"))
+        assertEquals("{\"conversation_id\":\"conversation-a\"}", request.body.readUtf8())
     }
 
     @Test

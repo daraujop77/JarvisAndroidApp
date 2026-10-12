@@ -117,6 +117,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         _conversationId.value = id
     }
 
+    suspend fun deleteConversation(id: String): Boolean {
+        val deleted = conversations.deleteConversation(id)
+        if (deleted && _conversationId.value == id) _conversationId.value = null
+        return deleted
+    }
+
     // ---- AND-W9 Projects shell (Lane F: backend NOT_CONNECTED) ----------------
 
     private val _projectsEpoch = MutableStateFlow(0)

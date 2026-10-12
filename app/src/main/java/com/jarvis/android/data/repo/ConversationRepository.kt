@@ -4,6 +4,7 @@ import com.jarvis.android.data.local.ConversationEntity
 import com.jarvis.android.data.local.JarvisDao
 import com.jarvis.android.data.local.MessageEntity
 import com.jarvis.android.data.local.PendingOutboundEntity
+import com.jarvis.android.data.media.AttachmentStore
 import com.jarvis.android.data.state.RequestState
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.data.state.dbName
@@ -61,6 +62,7 @@ class ConversationRepository(
     private val session: JarvisSessionRepository,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val attachmentStore: AttachmentStore? = null,
 ) {
 
     private val _live = session.snapshot
@@ -94,6 +96,19 @@ class ConversationRepository(
         observeConversations()
             .map<List<ConversationSummary>, ConversationListState> { ConversationListState.Ready(it) }
             .onStart { emit(ConversationListState.Loading) }
+
+    /** Delete server history first, then atomically remove local rows and orphaned attachment files. */
+    suspend fun deleteConversation(conversationId: String): Boolean {
+        val id = conversationId.trim()
+        if (id.isEmpty()) return false
+        val isRunningHere = _live.value.session.requests.values.any {
+            it.conversationId == id && !it.status.isTerminal
+        }
+        if (isRunningHere || !session.deleteConversation(id)) return false
+        val orphanIds = dao.deleteConversationAndGetOrphanAttachmentIds(id)
+        orphanIds.forEach { attachmentStore?.delete(it) }
+        return true
+    }
 
     /** Persisted history for [conversationId] merged with the live streaming request. */
     fun observeMessages(conversationId: String): Flow<List<ChatMessage>> = combine(

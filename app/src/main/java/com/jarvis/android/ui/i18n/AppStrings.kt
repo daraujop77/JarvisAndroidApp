@@ -43,6 +43,10 @@ interface AppStrings {
     val generateImage: String
     val imageGenerationUnavailable: String
     val deleteConversation: String
+    val deleteConversationTitle: String
+    val deleteConversationBody: String
+    val deleteConversationFailed: String
+    val cancel: String
     val imageAttachmentFailed: String
     val documentAttachmentFailed: String
     val someAttachmentsFailed: String
@@ -226,6 +230,10 @@ object EnAppStrings : AppStrings {
     override val generateImage = "Generate image"
     override val imageGenerationUnavailable = "Image generation unavailable"
     override val deleteConversation = "Delete"
+    override val deleteConversationTitle = "Delete this conversation?"
+    override val deleteConversationBody = "This removes its messages and attachments from Jarvis and this device. This action can't be undone."
+    override val deleteConversationFailed = "Couldn't delete this conversation. Check your connection and try again."
+    override val cancel = "Cancel"
     override val imageAttachmentFailed = "Couldn't read this image. Choose a supported photo and try again."
     override val documentAttachmentFailed = "Couldn't attach the file. Choose a TXT, MD, PDF, or DOCX file up to 2 MB."
     override val someAttachmentsFailed = "Some files couldn't be attached. Check their format and size."
@@ -406,6 +414,10 @@ object EsAppStrings : AppStrings {
     override val generateImage = "Generar imagen"
     override val imageGenerationUnavailable = "Generación de imagen no disponible"
     override val deleteConversation = "Eliminar"
+    override val deleteConversationTitle = "¿Eliminar esta conversación?"
+    override val deleteConversationBody = "Se eliminarán sus mensajes y archivos adjuntos de Jarvis y de este dispositivo. Esta acción no se puede deshacer."
+    override val deleteConversationFailed = "No se pudo eliminar la conversación. Revisa tu conexión e inténtalo de nuevo."
+    override val cancel = "Cancelar"
     override val imageAttachmentFailed = "No se pudo leer la imagen. Elige una foto compatible y vuelve a intentarlo."
     override val documentAttachmentFailed = "No se pudo adjuntar. Elige un TXT, MD, PDF o DOCX de hasta 2 MB."
     override val someAttachmentsFailed = "Algunos archivos no se pudieron adjuntar. Revisa el formato y el tamaño."
