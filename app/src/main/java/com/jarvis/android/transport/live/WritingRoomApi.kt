@@ -1552,6 +1552,21 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     }
 }
 
+/** Capability probe for migrating legacy appearance commands to model tools.
+ * This returns only an authorized task snapshot; no model inference is used. */
+suspend fun JarvisAppSession.writingRoomAdaptiveReady(projectId: String): Boolean {
+    val conversationId = runCatching { writingRoomConversationId(projectId) }.getOrNull()
+        ?: return false
+    val status: Result<CopilotTaskState> = writingPost(
+        "/api/app/writing-room/agent/latest",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("conversation_id", conversationId)
+        },
+    )
+    return status.isSuccess
+}
+
 /** Read-only recovery is scoped by VPS to the authenticated principal+conversation. */
 suspend fun JarvisAppSession.writingRoomCopilotTaskLatest(
     projectId: String,
