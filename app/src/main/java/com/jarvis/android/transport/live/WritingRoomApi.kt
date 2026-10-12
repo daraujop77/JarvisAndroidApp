@@ -157,6 +157,12 @@ data class CopilotTaskState(
     val schema: String = "",
     val task_id: String = "",
     val project_id: String = "",
+    val conversation_id: String = "",
+    val request_mode: String = "auto",
+    val agent_run_state: String = "",
+    val action_hash: String = "",
+    val approval_id: String = "",
+    val approval_expires_at: String = "",
     val state: String = "",
     val summary: String = "",
     val requires_confirmation: Boolean = false,
@@ -1488,6 +1494,8 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
             }
         })
         put("request_id", java.util.UUID.randomUUID().toString())
+        put("conversation_id", writingRoomConversationId(projectId))
+        put("mode", "auto")
     }.toString()
 
     runCatching {
@@ -1510,9 +1518,14 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 }
             }
         }
-        var status = postSse(
-            baseUrl, "/api/app/writing-room/chat/stream", body, auth, onEvent,
-        )
+        // Prefer the adaptive model loop. A disabled/old backend answers
+        // 404 BEFORE accepting any task: then retain the v64 legacy route.
+        var endpoint = "/api/app/writing-room/agent/stream"
+        var status = postSse(baseUrl, endpoint, body, auth, onEvent)
+        if (status == 404) {
+            endpoint = "/api/app/writing-room/chat/stream"
+            status = postSse(baseUrl, endpoint, body, auth, onEvent)
+        }
         if (status == 401) {
             // HTTP 401 means the stream was rejected before execution.
             // Retrying the same request_id avoids accidental duplicate tasks.
@@ -1521,9 +1534,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 throw renewed.exceptionOrNull() ?: TransportException("session expired")
             }
             auth = authHeader() ?: throw TransportException("no live session")
-            status = postSse(
-                baseUrl, "/api/app/writing-room/chat/stream", body, auth, onEvent,
-            )
+            status = postSse(baseUrl, endpoint, body, auth, onEvent)
             if (status == 401) {
                 if (authHeader() == auth) clearAccess()
                 throw TransportException("session expired")
