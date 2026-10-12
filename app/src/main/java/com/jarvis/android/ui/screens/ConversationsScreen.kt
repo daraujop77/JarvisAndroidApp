@@ -426,6 +426,13 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val imageGenerationDetails by vm.lastImageGenerationDetails.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
+    val agentProjectId by vm.globalChatAgentProject.collectAsStateWithLifecycle()
+    val projectResults by vm.projects.collectAsStateWithLifecycle()
+    val availableAgentProjects = (projectResults as?
+        com.jarvis.android.data.projects.ProjectsResult.Loaded)
+        ?.projects?.filter { it.kind == com.jarvis.android.data.projects.ProjectKind.WRITING_ROOM }
+        .orEmpty()
+    var projectMenuOpen by remember(conversationId) { mutableStateOf(false) }
     var input by rememberSaveable(conversationId) { mutableStateOf("") }
     var showImageOptions by rememberSaveable(conversationId) { mutableStateOf(false) }
     var selectedImageMode by rememberSaveable(conversationId) { mutableStateOf("speed") }
@@ -600,6 +607,41 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     }
                 },
                 actions = {
+                    if (availableAgentProjects.isNotEmpty() && conversationId != null) {
+                        Box {
+                            TextButton(
+                                onClick = { projectMenuOpen = true },
+                                enabled = !busy,
+                            ) {
+                                Text(
+                                    if (agentProjectId == null) "Chat general"
+                                    else "Proyecto · lectura",
+                                    style = HudTextStyle,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = projectMenuOpen,
+                                onDismissRequest = { projectMenuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Chat general") },
+                                    onClick = {
+                                        vm.selectGlobalChatAgentProject(null)
+                                        projectMenuOpen = false
+                                    },
+                                )
+                                availableAgentProjects.forEach { project ->
+                                    DropdownMenuItem(
+                                        text = { Text(project.title + " · solo lectura") },
+                                        onClick = {
+                                            vm.selectGlobalChatAgentProject(project.id.value)
+                                            projectMenuOpen = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     // Summon the floating brain from the conversation itself.
                     // If the overlay grant is missing, this sends the owner to
                     // the one system screen that can give it.
@@ -617,6 +659,15 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(pad),
         ) {
+            if (agentProjectId != null) {
+                Text(
+                    "Agente de proyecto · consultas de texto y canon (solo lectura). " +
+                        "Los adjuntos usan el chat general.",
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = screenInset, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accents.orbGlow,
+                )
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty()) {
                     EmptyChatState(
