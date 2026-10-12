@@ -39,8 +39,8 @@ android {
         targetSdk = 36
         // Google Play can override versionCode independently so direct APK
         // updates keep their existing version sequence.
-        versionCode = jarvisVersionCode ?: 61
-        versionName = "0.1.61-external-character-seeds"
+        versionCode = jarvisVersionCode ?: 64
+        versionName = "0.1.64-clean-modern-official"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
@@ -71,6 +71,8 @@ android {
             isMinifyEnabled = false
         }
         release {
+            // Official updates are never debuggable; debug-only diagnostics stay hidden.
+            isDebuggable = false
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasReleaseSigning) {
