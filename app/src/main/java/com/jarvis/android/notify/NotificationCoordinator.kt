@@ -151,8 +151,12 @@ class NotificationCoordinator(context: Context) {
     }
 
     private fun notify(channelId: String, id: Int, builder: NotificationCompat.Builder) {
-        runCatching { manager.notify(id, builder.build()) }
-            .onFailure { /* POST_NOTIFICATIONS race on <33 handled by permission check */ }
+        if (!hasPermission()) return
+        try {
+            manager.notify(id, builder.build())
+        } catch (_: SecurityException) {
+            // The user can revoke POST_NOTIFICATIONS after the check above.
+        }
     }
 
     private fun hasPermission(): Boolean =
