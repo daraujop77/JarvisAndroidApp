@@ -219,6 +219,28 @@ suspend fun JarvisAppSession.agentCancel(
 }
 
 @Serializable
+data class ChatGlobalProjectAgentCapability(
+    val schema: String = "",
+    val enabled: Boolean = false,
+    val project_id: String = "",
+    val effect: String = "",
+    val supports_attachments: Boolean = false,
+)
+
+/** Authorization + rollout probe. Never requests a model turn. */
+suspend fun JarvisAppSession.chatGlobalProjectAgentCapability(
+    projectId: String,
+): Result<ChatGlobalProjectAgentCapability> {
+    if (projectId.isBlank() || projectId.length > 160) {
+        return Result.failure(TransportException("invalid agent project"))
+    }
+    return agentPost(
+        "/api/app/chat/agent/project/capability",
+        buildJsonObject { put("project_id", projectId) }.toString(),
+    )
+}
+
+@Serializable
 data class ChatGlobalProjectAgentReplyText(
     val text: String = "",
     val provider: String = "",
