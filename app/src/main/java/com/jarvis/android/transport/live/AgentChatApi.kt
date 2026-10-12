@@ -45,6 +45,12 @@ data class AgentRunStatus(
 )
 
 @Serializable
+data class AgentCancellation(
+    val requested: Boolean = false,
+    val state: String = "",
+)
+
+@Serializable
 data class AgentRunEvent(
     val run_id: String = "",
     val seq: Int = 0,
@@ -186,6 +192,25 @@ suspend fun JarvisAppSession.agentEvents(
             put("conversation_id", scope.conversationId)
             put("task_id", taskId)
             put("after_seq", afterSequence)
+        }.toString(),
+    )
+}
+
+/** Request a safe stop at the next agent boundary, not cancellation of a
+ * provider call whose result may already have been committed remotely. */
+suspend fun JarvisAppSession.agentCancel(
+    scope: AgentConversationScope,
+    taskId: String,
+): Result<AgentCancellation> {
+    if (!Regex("^ar_[a-f0-9]{24}$").matches(taskId)) {
+        return Result.failure(TransportException("invalid agent run"))
+    }
+    return agentPost(
+        "/api/app/writing-room/agent/cancel",
+        buildJsonObject {
+            put("project_id", scope.projectId)
+            put("conversation_id", scope.conversationId)
+            put("task_id", taskId)
         }.toString(),
     )
 }
