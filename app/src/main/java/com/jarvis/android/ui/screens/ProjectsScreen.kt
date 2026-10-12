@@ -195,6 +195,13 @@ fun ProjectsScreen(vm: JarvisViewModel) {
                         Text(strings.projectCount(r.projects.size), style = MaterialTheme.typography.bodySmall)
                     }
                     item {
+                        Text(
+                            strings.projectMutationsUnavailable,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    item {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

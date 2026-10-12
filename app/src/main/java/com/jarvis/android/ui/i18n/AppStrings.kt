@@ -54,6 +54,7 @@ interface AppStrings {
     val projectActive: String
     val projectArchived: String
     val projectsEmptyBody: String
+    val projectMutationsUnavailable: String
     val projectStudio: String
     val activeWorkspace: String
     val archivedWorkspace: String
@@ -307,6 +308,7 @@ object EnAppStrings : AppStrings {
     override val projectActive = "Active"
     override val projectArchived = "Archived"
     override val projectsEmptyBody = "Projects appear here when they are available to this account."
+    override val projectMutationsUnavailable = "Creating, renaming, and deleting projects is not available yet."
     override val projectStudio = "STUDIO"
     override val activeWorkspace = "ACTIVE WORKSPACE"
     override val archivedWorkspace = "ARCHIVED"
@@ -557,6 +559,7 @@ object EsAppStrings : AppStrings {
     override val projectActive = "Activos"
     override val projectArchived = "Archivados"
     override val projectsEmptyBody = "Los proyectos disponibles para esta cuenta aparecerán aquí."
+    override val projectMutationsUnavailable = "La creación, el cambio de nombre y la eliminación de proyectos aún no están disponibles."
     override val projectStudio = "ESTUDIO"
     override val activeWorkspace = "ESPACIO ACTIVO"
     override val archivedWorkspace = "ARCHIVADO"
