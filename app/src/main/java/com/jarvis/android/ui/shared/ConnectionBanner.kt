@@ -12,7 +12,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -35,9 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jarvis.android.data.repo.SessionSnapshot
@@ -106,11 +103,7 @@ fun ConnectionBanner(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(animatedTint.copy(alpha = 0.12f), Color.Transparent),
-                    )
-                )
+                    .background(Color.Transparent)
                 // The app draws edge-to-edge and this bar is a plain Row, so it has to
                 // consume the status bar inset itself or it slides under the clock.
                 .statusBarsPadding()
@@ -118,9 +111,8 @@ fun ConnectionBanner(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = animatedTint.copy(alpha = 0.08f),
-                border = BorderStroke(1.dp, animatedTint.copy(alpha = 0.22f)),
+                shape = RoundedCornerShape(50),
+                color = animatedTint.copy(alpha = 0.10f),
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -134,11 +126,7 @@ fun ConnectionBanner(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         conn.label(strings),
-                        style = HudTextStyle.copy(
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.3.sp,
-                        ),
+                        style = MaterialTheme.typography.labelMedium,
                         color = animatedTint,
                     )
                 }
@@ -161,7 +149,7 @@ fun ConnectionBanner(
             ) {
                 Text(
                     strings.activeCount(active),
-                    style = HudTextStyle,
+                style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -174,15 +162,7 @@ fun ConnectionBanner(
             Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            animatedTint.copy(alpha = 0.28f),
-                            animatedTint.copy(alpha = 0.08f),
-                            Color.Transparent,
-                        )
-                    )
-                )
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
         )
     }
 }
@@ -196,24 +176,31 @@ private fun PulseDot(
     modifier: Modifier = Modifier,
 ) {
     val reduced = LocalReducedMotion.current
-    val transition = rememberInfiniteTransition(label = "dot")
-    val wave by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Restart),
-        label = "wave",
-    )
-    val breathe by transition.animateFloat(
-        initialValue = 0.18f,
-        targetValue = 0.45f,
-        animationSpec = infiniteRepeatable(
-            tween(2400, easing = FastOutSlowInEasing),
-            RepeatMode.Reverse,
-        ),
-        label = "breathe",
-    )
     val animate = pulsing && !reduced
     val liveBreathe = isOnline && !reduced
+    val wave = if (animate) {
+        val transition = rememberInfiniteTransition(label = "connectionPulse")
+        val value by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Restart),
+            label = "connectionPulse",
+        )
+        value
+    } else 0f
+    val breathe = if (liveBreathe) {
+        val transition = rememberInfiniteTransition(label = "connectionBreath")
+        val value by transition.animateFloat(
+            initialValue = 0.18f,
+            targetValue = 0.45f,
+            animationSpec = infiniteRepeatable(
+                tween(2400, easing = FastOutSlowInEasing),
+                RepeatMode.Reverse,
+            ),
+            label = "connectionBreath",
+        )
+        value
+    } else 0.18f
 
     Canvas(modifier.size(12.dp)) {
         val r = size.minDimension / 2f
