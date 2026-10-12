@@ -312,6 +312,25 @@ class JarvisAppSession(
     fun authHeader(): String? = token?.let { "Bearer $it" }
 
     /**
+     * A stable Writing Room conversation ID isolated by principal AND project.
+     * It persists across process death but never reuses another account's ID.
+     * Server access checks still decide whether this principal may view history.
+     */
+    fun writingRoomConversationId(projectId: String): String {
+        val principal = userId.trim()
+        require(principal.isNotBlank() && projectId.isNotBlank())
+        require(principal.length <= 160 && projectId.length <= 160)
+        val key = "writing_room.conversation." + principal + ":" + projectId
+        return synchronized(store) {
+            store.get(key)?.takeIf { it.matches(Regex("wrc_[a-f0-9-]{36}")) }
+                ?: ("wrc_" + java.util.UUID.randomUUID().toString()).also {
+                    store.put(mapOf(key to it))
+                }
+        }
+    }
+
+
+    /**
      * Conversation-local chat profile chosen by the OWNER (PCB-LIVE-4/5).
      * Values come from the server-driven catalog in `/api/app/status`
      * (`chat.models[].profile`) — the client never invents model names.
