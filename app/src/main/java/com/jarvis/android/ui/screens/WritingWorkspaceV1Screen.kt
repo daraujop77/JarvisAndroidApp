@@ -1528,6 +1528,16 @@ private fun ChatSection(
                                     style = MaterialTheme.typography.bodySmall, color = JarvisAmber,
                                 )
                             }
+                            if (task.task_id.startsWith("ar_") &&
+                                task.agent_run_state in setOf(
+                                    "RUNNING", "WAITING_CONFIRMATION", "DISPATCHING",
+                                )
+                            ) {
+                                TextButton(
+                                    onClick = { vm.cancelWritingCopilotTask(projectId) },
+                                    enabled = !state.copilotAgentBusy,
+                                ) { Text("Cancelar siguientes pasos") }
+                            }
                             TextButton(
                                 onClick = { vm.updateWritingCopilotTask(projectId) },
                                 enabled = !state.copilotAgentBusy && !state.busy,
