@@ -31,6 +31,7 @@ class AgentStreamFallbackTest {
         .setHeader("Content-Type", "text/event-stream")
         .setBody(
             "event: ready\ndata: {\"request_id\":\"req\"}\n\n" +
+            "event: progress\ndata: {\"phase\":\"thinking\"}\n\n" +
             "event: delta\ndata: {\"delta\":\"$text\"}\n\n" +
             "event: complete\ndata: $chatJson\n\n",
         )
@@ -61,9 +62,13 @@ class AgentStreamFallbackTest {
                 else MockResponse().setResponseCode(500)
         }
         val deltas = mutableListOf<String>()
+        val phases = mutableListOf<String>()
         val reply = session.writingRoomAutoChatStream(
-            "prj_story", "Alexander", "Hola", onDelta = { deltas.add(it) },
+            "prj_story", "Alexander", "Hola",
+            onProgress = { phases.add(it) },
+            onDelta = { deltas.add(it) },
         ).getOrThrow()
+        assertEquals(listOf("thinking"), phases)
         assertEquals(listOf("Agent"), deltas)
         assertEquals("Respuesta del agente", reply.turn.response.text)
         assertEquals(1, server.requestCount)
