@@ -144,7 +144,7 @@ interface JarvisDao {
         deleteConversationPending(id)
         deleteConversationRow(id) // MessageEntity rows cascade with their parent conversation.
         val stillReferenced = parseIds(allMessageAttachmentIds() + allPendingAttachmentIds())
-        return removedIds - stillReferenced
+        return (removedIds - stillReferenced).toList()
     }
 
     @Query("UPDATE conversations SET lastCursorToken = :cursor WHERE conversationId = :id")
