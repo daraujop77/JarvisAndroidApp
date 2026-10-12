@@ -31,6 +31,7 @@ data class AgentRunStatus(
     val task_id: String = "",
     val project_id: String = "",
     val conversation_id: String = "",
+    val request_mode: String = "auto",
     val state: String = "",
     val agent_run_state: String = "",
     val summary: String = "",
