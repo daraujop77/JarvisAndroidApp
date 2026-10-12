@@ -332,6 +332,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private var copilotTaskPollId: String? = null
     private var copilotRecoveryEpoch = 0L
     private var copilotRecoveryActiveProject: String? = null
+    private var adaptiveAppearanceProbePending: String? = null
     private var copilotViewPollJob: Job? = null
     private var copilotAppearanceEpoch = 0L
 
@@ -2077,9 +2078,35 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         prompt: String,
         room: String = "chat",
         toolMode: Boolean = false,
+        skipAdaptiveProbe: Boolean = false,
     ) {
         val clean = prompt.trim()
         if (clean.isEmpty()) return
+        if (!toolMode && !skipAdaptiveProbe &&
+            looksLikeCopilotAppearanceCommand(clean)) {
+            // Ask the authoritative backend, not a phrase classifier, whether
+            // the adaptive tool loop is enabled. Keep the legacy appearance
+            // card only when the server explicitly lacks that capability.
+            if (_writingWorkspace.value.chatProjectId != projectId ||
+                adaptiveAppearanceProbePending != null) return
+            val key = projectId + ":" + clean
+            val epoch = copilotRecoveryEpoch
+            adaptiveAppearanceProbePending = key
+            viewModelScope.launch {
+                val available = container.liveSession.writingRoomAdaptiveReady(projectId)
+                if (adaptiveAppearanceProbePending == key) {
+                    adaptiveAppearanceProbePending = null
+                }
+                if (epoch != copilotRecoveryEpoch ||
+                    _writingWorkspace.value.chatProjectId != projectId
+                ) return@launch
+                runWritingRoomAutoChat(
+                    projectId, projectTitle, clean, room,
+                    toolMode = available, skipAdaptiveProbe = true,
+                )
+            }
+            return
+        }
         if (!toolMode && looksLikeCopilotAppearanceCommand(clean)) {
             if (_writingWorkspace.value.chatProjectId != projectId) return
             val intent = resolveCopilotAppearance(clean, _writingWorkspace.value.wikiCharacters)
