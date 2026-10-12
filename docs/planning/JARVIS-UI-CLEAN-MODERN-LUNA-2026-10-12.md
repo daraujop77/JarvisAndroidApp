@@ -1,6 +1,6 @@
 # JARVIS: diseño más limpio y moderno — plan para Luna
 
-Fecha: 2026-10-12. Estado: **P1–P6 implementados y verificados en CI; APK debug y validación visual en dispositivo pendientes**.
+Fecha: 2026-10-12. Estado: **implementación, CI y APK debug completados; validación visual en dispositivo pendiente**.
 Implementador previsto: Luna.
 
 ## 1. Objetivo y alcance
@@ -28,9 +28,11 @@ Al comenzar, leer las instrucciones del repositorio, comprobar cambios locales y
 - P1–P5 están implementados: tema y movimiento, navegación/conexión, lista y chat, proyectos/Workspace/estudios y pantallas de ajustes/seguridad/uso/acceso.
 - Se mantuvieron los límites de permisos, API, datos, proveedores, autenticación y firma. Se corrigió el manejo explícito de una carrera de `POST_NOTIFICATIONS` ya cubierta por el código, sin cambiar permisos declarados; el atributo de navegación API 27 se separó en `values-v27` para conservar soporte de API 26.
 - El CI del PR ejecutó compilación Kotlin, unit tests y `lintDebug` correctamente en `76dd66521d09e7fb5afd802fe992c429dc28952e` (run `38197991510`). Lint terminó con 47 advertencias y 4 sugerencias, sin errores.
+- El CI del PR también pasó en el SHA del workflow final y del artefacto APK, `4d98cd506087ffff1a885d7e11764915894935c5` (run `38198367234`).
+- El workflow manual con `build_apk=true` y `publish_release=false` terminó correctamente en el commit `4d98cd506087ffff1a885d7e11764915894935c5` (run `38198368684`). Subió `JARVIS-debug`, tamaño 22,321,925 bytes; digest SHA-256 del artefacto ZIP: `fb3c1f3a0f768f0663989d704a4344b97885bc821f9af88d463501ea5089d93c`. No publicó artefactos firmados ni release.
 - En el workspace local `bash gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon` no pudo iniciar: el wrapper no pudo descargar Gradle 8.13 por conexión rechazada. La validación equivalente se completó en GitHub Actions. No hay Android SDK/emulador local.
 - No se han renderizado previews ni capturas reales. La matriz visual en dispositivo/emulador queda pendiente y bloquea declarar el rediseño totalmente verificado.
-- PR #76 está abierto como borrador, sin merge. El APK debug se genera sólo en la última fase manual, con `publish_release=false`.
+- PR #76 está abierto como borrador, sin merge. El APK debug está disponible como artefacto del run; su descarga directa desde este entorno respondió `Forbidden`, así que el artefacto se verifica por el resultado de build/upload y sus metadatos de GitHub.
 
 ## 2. Diagnóstico del código
 
@@ -185,7 +187,7 @@ Matriz de revisión (previews ahora; ejecución real al final):
 - [ ] Capturas antes/después con misma pantalla, fixture, tamaño, escala de fuente y método; indicar si son previews o ejecución real. No exponer conversaciones, tokens o información privada.
 - [x] Informe `docs/reviews/JARVIS-UI-CLEAN-MODERN-VERIFICATION.md` con base/candidato, comandos, resultados, dispositivo disponible y pendientes.
 - [x] Commits subidos y PR #76 en borrador, con pruebas, limitaciones y estrategia de reversión.
-- [ ] APK sólo de la fase final, identificado por SHA, sin publicación ni merge automático.
+- [x] APK debug generado en la fase final, ligado al SHA del workflow y sin publicación ni merge automático.
 
 ## 7. Volver al diseño anterior sin perder trabajo
 
