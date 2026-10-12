@@ -44,6 +44,26 @@ data class AgentRunStatus(
     val results: List<CopilotTaskResult> = emptyList(),
 )
 
+@Serializable
+data class AgentRunEvent(
+    val run_id: String = "",
+    val seq: Int = 0,
+    val state: String = "",
+    val calls: Int = 0,
+    val rounds: Int = 0,
+    val pending_approval_id: String = "",
+    val error_code: String = "",
+    val created_utc: String = "",
+)
+
+@Serializable
+data class AgentEventPage(
+    val schema: String = "",
+    val run_id: String = "",
+    val events: List<AgentRunEvent> = emptyList(),
+    val next_cursor: Int = -1,
+)
+
 data class AgentConversationScope(
     val projectId: String,
     val conversationId: String,
@@ -146,6 +166,26 @@ suspend fun JarvisAppSession.agentConfirm(
             put("action_hash", actionHash)
             put("confirmed", true)
             put("mode", mode)
+        }.toString(),
+    )
+}
+
+/** Event polling returns durable sequence numbers, not another model inference. */
+suspend fun JarvisAppSession.agentEvents(
+    scope: AgentConversationScope,
+    taskId: String,
+    afterSequence: Int = -1,
+): Result<AgentEventPage> {
+    if (!Regex("^ar_[a-f0-9]{24}$").matches(taskId) || afterSequence < -1) {
+        return Result.failure(TransportException("invalid agent event cursor"))
+    }
+    return agentPost(
+        "/api/app/writing-room/agent/events",
+        buildJsonObject {
+            put("project_id", scope.projectId)
+            put("conversation_id", scope.conversationId)
+            put("task_id", taskId)
+            put("after_seq", afterSequence)
         }.toString(),
     )
 }
