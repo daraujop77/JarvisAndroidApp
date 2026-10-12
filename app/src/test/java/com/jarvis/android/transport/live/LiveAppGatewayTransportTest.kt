@@ -119,7 +119,7 @@ class LiveAppGatewayTransportTest {
                     request.path == "/api/app/chat/conversations/delete" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
                     request.path == "/api/app/chat/conversations/delete" -> {
-                        postedBodies += "POST /api/app/chat/conversations/delete\n" + request.body.readUtf8()
+                        postedBodies += "POST /api/app/chat/conversations/delete\n" + request.body.clone().readUtf8()
                         MockResponse().setBody(
                             """{"schema":"jarvis.chat.conversation-delete.v1","deleted":true}""",
                         )
