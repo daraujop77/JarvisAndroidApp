@@ -1919,7 +1919,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value.copilotAgentTask?.task_id != task.task_id
                 ) return@launch
                 val next = container.liveSession.writingRoomCopilotTaskStatus(
-                    projectId, task.task_id,
+                    projectId, task.task_id, conversationId = task.conversation_id,
                 ).getOrNull() ?: return@repeat
                 if (next.project_id != projectId || next.task_id != task.task_id) return@launch
                 _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = next)
@@ -1973,10 +1973,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val updated = if (confirm) {
                     container.liveSession.writingRoomCopilotTaskRun(
                         projectId, task.task_id, confirmed = true,
+                        conversationId = task.conversation_id,
+                        actionHash = task.action_hash,
+                        mode = task.request_mode,
                     ).getOrThrow()
                 } else {
                     container.liveSession.writingRoomCopilotTaskStatus(
-                        projectId, task.task_id,
+                        projectId, task.task_id, conversationId = task.conversation_id,
                     ).getOrThrow()
                 }
                 if (updated.project_id != projectId || updated.task_id != task.task_id) {
