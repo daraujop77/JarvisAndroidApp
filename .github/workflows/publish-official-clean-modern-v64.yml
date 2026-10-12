@@ -17,7 +17,7 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_commit.message == 'release(android): official JARVIS v64'
+      startsWith(github.event.workflow_run.head_commit.message, 'release(android): official JARVIS v64')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
