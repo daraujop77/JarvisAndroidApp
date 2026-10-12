@@ -1,6 +1,6 @@
 # JARVIS: diseño más limpio y moderno — plan para Luna
 
-Fecha: 2026-10-12. Estado: **plan preparado; rediseño pendiente de implementación**.
+Fecha: 2026-10-12. Estado: **P1–P6 implementados y verificados en CI; APK debug y validación visual en dispositivo pendientes**.
 Implementador previsto: Luna.
 
 ## 1. Objetivo y alcance
@@ -20,6 +20,17 @@ Esta revisión se basa en el código Compose. No se ha realizado una inspección
 - El backend `jarvis` queda fuera de este cambio visual.
 
 Al comenzar, leer las instrucciones del repositorio, comprobar cambios locales y actualizar las referencias remotas. Si `main` avanzó, revisar los commits nuevos e integrar los necesarios en esta rama antes de editar archivos compartidos. Registrar la nueva base. No cambiar de rama en el checkout de otro trabajo, sobrescribir cambios ajenos ni hacer force-push.
+
+## Estado de ejecución — 2026-10-12
+
+- Rama aislada: `codex/ui-clean-modern-luna`. El checkout original sigue en `codex/chat-assistant-implementation`; `origin/main` continúa en `daa17a499de8df9e76ebf93cd4ba5483b853f5ea`.
+- P0 confirmó los destinos activos en `JarvisRoot.kt`; no existe una ruta activa llamada `WritingRoomScreen`. `LinkedAtlasSection` sí se usa desde `WritingWorkspaceV1Screen` y quedó incluida.
+- P1–P5 están implementados: tema y movimiento, navegación/conexión, lista y chat, proyectos/Workspace/estudios y pantallas de ajustes/seguridad/uso/acceso.
+- Se mantuvieron los límites de permisos, API, datos, proveedores, autenticación y firma. Se corrigió el manejo explícito de una carrera de `POST_NOTIFICATIONS` ya cubierta por el código, sin cambiar permisos declarados; el atributo de navegación API 27 se separó en `values-v27` para conservar soporte de API 26.
+- El CI del PR ejecutó compilación Kotlin, unit tests y `lintDebug` correctamente en `76dd66521d09e7fb5afd802fe992c429dc28952e` (run `38197991510`). Lint terminó con 47 advertencias y 4 sugerencias, sin errores.
+- En el workspace local `bash gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon` no pudo iniciar: el wrapper no pudo descargar Gradle 8.13 por conexión rechazada. La validación equivalente se completó en GitHub Actions. No hay Android SDK/emulador local.
+- No se han renderizado previews ni capturas reales. La matriz visual en dispositivo/emulador queda pendiente y bloquea declarar el rediseño totalmente verificado.
+- PR #76 está abierto como borrador, sin merge. El APK debug se genera sólo en la última fase manual, con `publish_release=false`.
 
 ## 2. Diagnóstico del código
 
@@ -158,7 +169,7 @@ Matriz de revisión (previews ahora; ejecución real al final):
 1. Completar P0–P6 hasta el límite real del entorno. Preparar resumen, capturas disponibles y reporte de verificaciones. No parar para pedir permiso por cada commit o paquete.
 2. Volver a leer los triggers de workflows antes de subir. En la base revisada, `writing-room-android-ci.yml` sólo corre por push a `main`, por PR con rutas relevantes o manualmente. Subir la rama aislada no activa ese workflow; un PR con cambios de app sí lo activa. No deshabilitar CI ni usar trucos para omitir controles.
 3. Subir todos los commits de diseño a `codex/ui-clean-modern-luna`, verificar que el SHA remoto coincide y abrir PR hacia `main` cuando el candidato esté preparado para revisión. Si faltan verificaciones por entorno, marcarlo como borrador y especificarlas.
-4. Ejecutar/observar CI al llegar a esta fase. Para una ejecución manual de validación: seleccionar esta rama y dejar `build_apk=false`, `publish_release=false`. CI actual ejecuta unit tests; no sustituye lint o las verificaciones visuales. Si falta un gate local, habilitar su ejecución final en CI con un cambio explícito mínimo, sin agregar publicación automática.
+4. Ejecutar/observar CI al llegar a esta fase. El CI del PR ejecuta compilación Kotlin y unit tests, más `lintDebug`; los pasos de APK y publicación siguen siendo manuales. Para una ejecución manual de validación sin artefacto, seleccionar esta rama y dejar `build_apk=false`, `publish_release=false`. CI no sustituye las verificaciones visuales.
 5. Corregir los fallos del candidato y revisar el SHA comprobado. Repetir sólo checks afectados. No considerar terminado un candidato que ni siquiera compila.
 6. Sólo con el código completo y gates previos aprobados, generar el APK debug final para dispositivo/emulador: workflow manual en esta rama con `build_apk=true` y `publish_release=false`, o compilación local equivalente si el entorno ya está disponible. Verificar el artefacto y su commit. Las pruebas instrumentadas, si existen, se ejecutan aquí con sus APK de test.
 7. Realizar la matriz funcional/visual en ese candidato y adjuntar evidencia antes/después comparable. Si aparece un defecto, corregir y volver a generar únicamente lo necesario; documentar la nueva revisión. Si no hay dispositivo/emulador, entregar el candidato claramente pendiente de validación visual, sin declarar el diseño totalmente verificado.
@@ -166,14 +177,14 @@ Matriz de revisión (previews ahora; ejecución real al final):
 
 ## 6. Entregables y definición de terminado
 
-- [ ] Inventario cubre todas las rutas activas y registra exclusiones justificadas.
-- [ ] P1–P5 implementados; estilo coherente más allá del chat.
-- [ ] Funciones y datos existentes preservados; sin migraciones ni cambios de permisos.
-- [ ] Compilación, unit tests y lint con resultado/commit registrados.
-- [ ] Matriz visual, accesibilidad y funcional completada o pendientes explícitos que impiden declarar cierre total.
+- [x] Inventario cubre las rutas activas; `WritingRoomScreen` no está conectada y se registra como inactiva.
+- [x] P1–P5 implementados; estilo actualizado en chat, proyectos, workspace, estudios y pantallas restantes.
+- [x] Funciones y datos existentes preservados; sin migraciones, permisos nuevos ni cambios de contratos.
+- [x] Compilación, unit tests y lint con resultado/commit registrados en el reporte y CI.
+- [x] Validación visual en dispositivo/emulador pendiente por falta de entorno; impide declarar cierre visual total.
 - [ ] Capturas antes/después con misma pantalla, fixture, tamaño, escala de fuente y método; indicar si son previews o ejecución real. No exponer conversaciones, tokens o información privada.
-- [ ] Informe `docs/reviews/JARVIS-UI-CLEAN-MODERN-VERIFICATION.md` con base/final SHA, comandos y resultados, dispositivos/API, diferencias respecto a baseline y pendientes.
-- [ ] Commits subidos y PR con resumen visual, pruebas, riesgos concretos y estrategia de reversión.
+- [x] Informe `docs/reviews/JARVIS-UI-CLEAN-MODERN-VERIFICATION.md` con base/candidato, comandos, resultados, dispositivo disponible y pendientes.
+- [x] Commits subidos y PR #76 en borrador, con pruebas, limitaciones y estrategia de reversión.
 - [ ] APK sólo de la fase final, identificado por SHA, sin publicación ni merge automático.
 
 ## 7. Volver al diseño anterior sin perder trabajo
