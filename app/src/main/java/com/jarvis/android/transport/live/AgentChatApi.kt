@@ -6,6 +6,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -213,4 +215,51 @@ suspend fun JarvisAppSession.agentCancel(
             put("task_id", taskId)
         }.toString(),
     )
+}
+
+@Serializable
+data class ChatGlobalProjectAgentReplyText(
+    val text: String = "",
+    val provider: String = "",
+    val model: String = "",
+)
+
+@Serializable
+data class ChatGlobalProjectAgentReply(
+    val schema: String = "",
+    val route: String = "",
+    val response: ChatGlobalProjectAgentReplyText = ChatGlobalProjectAgentReplyText(),
+    val agent_task: AgentRunStatus? = null,
+)
+
+suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
+    projectId: String,
+    conversationId: String,
+    requestId: String,
+    prompt: String,
+    mode: String = "auto",
+): Result<ChatGlobalProjectAgentReply> {
+    if (projectId.isBlank() || conversationId.isBlank() ||
+        requestId.isBlank() || prompt.isBlank() ||
+        projectId.length > 160 || conversationId.length > 160 ||
+        requestId.length > 160 || prompt.length > 6000 ||
+        mode !in setOf("auto", "local_only", "local_preferred", "cloud_only")
+    ) return Result.failure(TransportException("invalid project agent scope"))
+
+    val body = buildJsonObject {
+        put("project_id", projectId)
+        put("conversation_id", conversationId)
+        put("request_id", requestId)
+        put("trace_id", UUID.randomUUID().toString())
+        put("device_id", deviceId)
+        put("session_id", appSessionId)
+        put("mode", mode)
+        put("messages", buildJsonArray {
+            addJsonObject {
+                put("role", "user")
+                put("content", prompt)
+            }
+        })
+    }.toString()
+    return agentPost("/api/app/chat/agent/project/turn", body)
 }
