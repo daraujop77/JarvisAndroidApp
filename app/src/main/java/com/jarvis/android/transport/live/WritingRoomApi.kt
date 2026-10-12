@@ -1453,6 +1453,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     toolMode: Boolean = false,
     recentMessages: List<CopilotRecentMessage> = emptyList(),
     approvedVisualAssetIds: List<String> = emptyList(),
+    onProgress: (String) -> Unit = {},
     onDelta: (String) -> Unit,
 ): Result<WritingRoomAutoChat> = withContext(Dispatchers.IO) {
     val clean = prompt.trim()
@@ -1503,6 +1504,12 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         var streamError: String? = null
         val onEvent: (String, String) -> Unit = { event, data ->
             when (event) {
+                "progress" -> {
+                    val obj = runCatching {
+                        writingRoomJson.parseToJsonElement(data).jsonObject
+                    }.getOrNull()
+                    obj?.get("phase")?.jsonPrimitive?.contentOrNull?.let(onProgress)
+                }
                 "delta" -> {
                     val obj = writingRoomJson.parseToJsonElement(data).jsonObject
                     obj["delta"]?.jsonPrimitive?.contentOrNull?.let(onDelta)
