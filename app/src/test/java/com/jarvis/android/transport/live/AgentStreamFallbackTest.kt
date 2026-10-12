@@ -25,7 +25,7 @@ class AgentStreamFallbackTest {
          "turn":{"project_id":"prj_story","participant":{"id":"copilot","label":"Copilot"},
                  "response":{"text":"Respuesta del agente"}},
          "visual_assets":[]}
-    """.trimIndent()
+    """.trimIndent().replace("\n", "")
 
     private fun sse(text: String) = MockResponse()
         .setHeader("Content-Type", "text/event-stream")
