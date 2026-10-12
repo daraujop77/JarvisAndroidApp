@@ -2127,11 +2127,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val response = container.liveSession.writingRoomVisualAssetFetch(
                     projectId, asset.asset_id,
                 ).getOrNull()
-                if (response == null || response.asset_id != asset.asset_id ||
-                    !response.sha256.equals(asset.sha256, ignoreCase = true) ||
-                    response.mime_type !in setOf("image/jpeg", "image/png", "image/webp") ||
-                    response.image_base64.length > 16 * 1024 * 1024
-                ) {
+                if (response == null || !isVerifiedApprovedVisualContent(asset, response)) {
                     markCopilotApprovedVisualUnavailable(projectId, epoch, asset.asset_id)
                     continue
                 }
@@ -2140,7 +2136,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         response.image_base64, asset.sha256,
                     )
                 }
-                if (staged == null) {
+                if (staged == null || staged.mimeType != response.mime_type) {
+                    // Do not cache a MIME-disguised or invalid bitmap.
+                    if (staged != null) deleteVisualStudioAttachments(listOf(staged.attachmentId))
                     markCopilotApprovedVisualUnavailable(projectId, epoch, asset.asset_id)
                     continue
                 }
