@@ -187,6 +187,18 @@ class AgentStreamFallbackTest {
             assertTrue(body.contains("\\"mode\\":\\"local_only\\""))
         }
 
+    @Test fun projectAgentBindingIsExplicitPerAccountAndConversation() {
+        assertEquals(null, session.chatAgentProjectFor("chat-a"))
+        session.setChatAgentProjectFor("chat-a", "prj_story")
+        assertEquals("prj_story", session.chatAgentProjectFor("chat-a"))
+        assertEquals(null, session.chatAgentProjectFor("chat-b"))
+        session.setChatAgentProjectFor("chat-a", null)
+        assertEquals(null, session.chatAgentProjectFor("chat-a"))
+        session.setChatAgentProjectFor("chat-a", "prj_story")
+        store.put(mapOf(JarvisAppSession.KEY_USER_ID to "child"))
+        assertEquals(null, session.chatAgentProjectFor("chat-a"))
+    }
+
     @Test fun separateUsersAndProjectsHaveDifferentConversationIds() {
         val a1 = session.writingRoomConversationId("prj_story")
         val a2 = session.writingRoomConversationId("prj_story")
