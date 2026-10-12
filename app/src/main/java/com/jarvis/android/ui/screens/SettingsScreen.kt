@@ -97,7 +97,9 @@ import com.jarvis.android.ui.theme.JarvisCyan
 import com.jarvis.android.ui.theme.JarvisCyanBright
 import com.jarvis.android.ui.theme.JarvisGreen
 import com.jarvis.android.ui.theme.JarvisRed
+import com.jarvis.android.ui.theme.JarvisUiTokens
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.jarvisScreenInset
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,6 +110,7 @@ fun SettingsScreen(
 ) {
     val strings = LocalAppStrings.current
     val accents = LocalJarvisAccents.current
+    val screenInset = jarvisScreenInset()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val health by vm.healthStatus.collectAsStateWithLifecycle()
@@ -127,16 +130,9 @@ fun SettingsScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        JarvisOrb(size = 28.dp, activity = OrbActivity.IDLE)
+                        JarvisOrb(size = 30.dp, activity = OrbActivity.IDLE)
                         Spacer(Modifier.width(10.dp))
-                        Column {
-                            Text(strings.settingsTitle, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "JARVIS CONTROL CENTER",
-                                style = HudTextStyle,
-                                color = LocalJarvisAccents.current.orbGlow,
-                            )
-                        }
+                        Text(strings.settingsTitle, style = MaterialTheme.typography.titleLarge)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -154,8 +150,8 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(pad)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = screenInset, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SystemControlCenterCard(
                 versionName = BuildConfig.VERSION_NAME,
@@ -167,7 +163,6 @@ fun SettingsScreen(
                 onCheckHealth = vm::checkHealth,
             )
 
-            SettingsSectionLabel("PREFERENCIAS")
             SettingsCard(
                 title = strings.languageSection,
                 icon = { HudLanguageIcon(tint = accents.orbGlow) },
@@ -448,7 +443,6 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSectionLabel("SISTEMA E IA")
             SettingsCard(
                 title = strings.usageSection,
                 icon = { HudUsageIcon(tint = accents.orbGlow) },
@@ -628,7 +622,6 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSectionLabel("CONECTIVIDAD")
             SettingsCard(
                 title = strings.connectionSection,
                 icon = { HudConnectionIcon(tint = accents.orbGlow) },
@@ -856,7 +849,6 @@ private fun SystemControlCenterCard(
     health: String?,
     onCheckHealth: () -> Unit,
 ) {
-    val accents = LocalJarvisAccents.current
     val gatewayHost = gatewayBaseUrl
         .substringAfter("://", gatewayBaseUrl)
         .substringBefore("/")
@@ -866,19 +858,9 @@ private fun SystemControlCenterCard(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        color = Color(0xE6101A2C),
-        border = BorderStroke(
-            1.dp,
-            Brush.horizontalGradient(
-                listOf(
-                    JarvisCyan.copy(alpha = 0.60f),
-                    Color(0x558B5CF6),
-                    accents.orbGlow.copy(alpha = 0.32f),
-                ),
-            ),
-        ),
-        shadowElevation = 6.dp,
+        shape = RoundedCornerShape(JarvisUiTokens.cardShape),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)),
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -954,8 +936,7 @@ private fun SystemControlCenterCard(
             Spacer(Modifier.height(10.dp))
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xA608101E),
-                border = BorderStroke(1.dp, Color(0x2922D3EE)),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
@@ -1002,8 +983,7 @@ private fun SettingsMetric(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),
-        color = Color(0x80101B2E),
-        border = BorderStroke(1.dp, Color(0x2022D3EE)),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 9.dp),
@@ -1027,7 +1007,6 @@ private fun SettingsStatusPill(text: String, color: Color) {
     Surface(
         shape = RoundedCornerShape(50),
         color = color.copy(alpha = 0.12f),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.42f)),
     ) {
         Text(
             text,
@@ -1042,12 +1021,9 @@ private fun SettingsStatusPill(text: String, color: Color) {
 private fun SettingsSectionLabel(text: String) {
     Text(
         text,
-        style = HudTextStyle.copy(
-            letterSpacing = 1.4.sp,
-            fontWeight = FontWeight.Bold,
-        ),
-        color = Color(0xFF66809F),
-        modifier = Modifier.padding(start = 4.dp, top = 3.dp, bottom = 1.dp),
+        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
     )
 }
 
@@ -1059,39 +1035,13 @@ private fun SettingsCard(
     icon: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    val accents = LocalJarvisAccents.current
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = Color(0xD10E182A),
-        border = BorderStroke(
-            1.dp,
-            Brush.horizontalGradient(
-                listOf(
-                    accents.orbGlow.copy(alpha = 0.28f),
-                    Color(0x228B5CF6),
-                    accents.orbGlow.copy(alpha = 0.18f),
-                ),
-            ),
-        ),
-        shadowElevation = 4.dp,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                accents.orbGlow.copy(alpha = 0.8f),
-                                Color(0x338B5CF6),
-                                Color.Transparent,
-                            ),
-                        ),
-                    ),
-            )
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 13.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1101,9 +1051,9 @@ private fun SettingsCard(
                         if (icon != null) {
                             Box(
                                 modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(accents.orbGlow.copy(alpha = 0.12f)),
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 icon()
@@ -1111,30 +1061,28 @@ private fun SettingsCard(
                             Spacer(Modifier.width(10.dp))
                         }
                         Text(
-                            title.uppercase(),
-                            style = HudTextStyle.copy(letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold),
-                            color = accents.orbGlow,
+                            title,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
 
                     if (badgeText != null) {
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(50),
                             color = badgeColor.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.4f)),
                         ) {
                             Text(
                                 badgeText.uppercase(),
-                                style = HudTextStyle,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = badgeColor,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                             )
                         }
                     }
                 }
-                Spacer(Modifier.height(10.dp))
-                content()
-            }
+            Spacer(Modifier.height(12.dp))
+            content()
         }
     }
 }

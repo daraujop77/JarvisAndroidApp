@@ -5,30 +5,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.MenuBook
@@ -39,25 +21,20 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -69,7 +46,6 @@ import androidx.navigation.compose.rememberNavController
 import com.jarvis.android.JarvisApp
 import com.jarvis.android.data.repo.SessionPhase
 import com.jarvis.android.ui.components.AmbientBackdrop
-import com.jarvis.android.ui.components.HolographicHudIcon
 import com.jarvis.android.ui.i18n.AppStrings
 import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.i18n.resolveAppStrings
@@ -168,6 +144,7 @@ fun JarvisRoot(
     }
 
     val currentStrings = resolveAppStrings(settings.appLanguage)
+    val shellTransitionMs = if (settings.reducedMotion) 0 else 180
 
     CompositionLocalProvider(
         LocalReducedMotion provides settings.reducedMotion,
@@ -176,8 +153,10 @@ fun JarvisRoot(
         AnimatedContent(
             targetState = shell,
             transitionSpec = {
-                (fadeIn(tween(420)) + scaleIn(tween(420), initialScale = 0.96f))
-                    .togetherWith(fadeOut(tween(360)))
+                (fadeIn(tween(shellTransitionMs)) + scaleIn(
+                    tween(shellTransitionMs),
+                    initialScale = if (settings.reducedMotion) 1f else 0.99f,
+                )).togetherWith(fadeOut(tween(shellTransitionMs)))
             },
             label = "shell",
         ) { target ->
@@ -194,9 +173,9 @@ fun JarvisRoot(
                 Shell.PAIRING -> PairingScreen(
                     vm = vm,
                     lockedReason = when (snapshot.phase) {
-                        SessionPhase.REVOKED -> "This device was revoked on the Jarvis PC. Pair again to restore access."
-                        SessionPhase.AUTH_EXPIRED -> "This device session expired and cannot be renewed. Pair again to restore access."
-                        SessionPhase.MISMATCH -> "This app is out of date for the Jarvis PC protocol. Update, then pair again."
+                        SessionPhase.REVOKED -> currentStrings.revokedReason
+                        SessionPhase.AUTH_EXPIRED -> currentStrings.expiredSessionReason
+                        SessionPhase.MISMATCH -> currentStrings.protocolMismatchReason
                         else -> null
                     },
                 )
@@ -220,6 +199,7 @@ private fun MainShell(
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val isOwner = settings.isOwner
+    val screenTransitionMs = if (settings.reducedMotion) 0 else 160
     val imeVisible = WindowInsets.isImeVisible
     val openConversationNonce by (openConversationRequest
         ?: kotlinx.coroutines.flow.MutableStateFlow(0L)).collectAsStateWithLifecycle()
@@ -251,97 +231,47 @@ private fun MainShell(
             topBar = { ConnectionBanner(snapshot, onReconnect = vm::reconnect) },
             bottomBar = {
                 if (!imeVisible) {
-                        Surface(
-                            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
-                            color = Color(0xF00D1626),
-                            border = BorderStroke(
-                                1.dp,
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color(0x5522D3EE),
-                                        Color(0x338B5CF6),
-                                        Color(0x5522D3EE),
-                                    )
-                                )
-                            ),
-                            shadowElevation = 12.dp,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 4.dp, top = 6.dp, end = 4.dp)
-                                    .navigationBarsPadding()
-                                    .padding(bottom = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                TopLevelDestination.all.forEach { dest ->
-                                    val badge = when (dest) {
-                                        TopLevelDestination.Approvals -> pendingApprovals
-                                        TopLevelDestination.Tasks -> runningTasks
-                                        else -> 0
-                                    }
-                                    val destinationLabel = dest.localizedLabel(strings)
-                                    val isSelected = currentDestination?.hierarchy?.any { it.route == dest.route } == true
-                                    val tint = if (isSelected) JarvisCyanBright else JarvisCyan.copy(alpha = 0.66f)
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(16.dp))
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = {
-                                                    navController.navigate(dest.route) {
-                                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                                        launchSingleTop = true
-                                                        restoreState = true
-                                                    }
-                                                },
-                                            )
-                                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                                    ) {
-                                        BadgedBox(badge = {
-                                            if (badge > 0) Badge(
-                                                containerColor = Color(0xFF22D3EE),
-                                                contentColor = Color(0xFF041018),
-                                            ) { Text(badge.toString()) }
-                                        }) {
-                                            HolographicHudIcon(
-                                                imageVector = dest.icon,
-                                                contentDescription = destinationLabel,
-                                                selected = isSelected,
-                                                activeColor = JarvisCyanBright,
-                                                inactiveColor = JarvisCyan.copy(alpha = 0.72f),
-                                            )
-                                        }
-                                        Text(
-                                            destinationLabel,
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                fontSize = 10.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                letterSpacing = 0.1.sp,
-                                            ),
-                                            color = tint,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(top = 3.dp)
-                                                .size(width = if (isSelected) 22.dp else 8.dp, height = 2.dp)
-                                                .clip(RoundedCornerShape(50))
-                                                .background(
-                                                    if (isSelected) JarvisCyanBright.copy(alpha = 0.92f)
-                                                    else Color.Transparent,
-                                                ),
-                                        )
-                                    }
-                                }
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        tonalElevation = 0.dp,
+                    ) {
+                        TopLevelDestination.all.forEach { dest ->
+                            val badge = when (dest) {
+                                TopLevelDestination.Approvals -> pendingApprovals
+                                TopLevelDestination.Tasks -> runningTasks
+                                else -> 0
                             }
+                            val destinationLabel = dest.localizedLabel(strings)
+                            val isSelected = currentDestination?.hierarchy?.any { it.route == dest.route } == true
+                            NavigationBarItem(
+                                selected = isSelected,
+                                onClick = {
+                                    navController.navigate(dest.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                icon = {
+                                    BadgedBox(badge = {
+                                        if (badge > 0) Badge { Text(badge.toString()) }
+                                    }) {
+                                        Icon(dest.icon, contentDescription = null)
+                                    }
+                                },
+                                label = { Text(destinationLabel, maxLines = 1) },
+                                alwaysShowLabel = true,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = JarvisCyanBright,
+                                    selectedTextColor = JarvisCyanBright,
+                                    indicatorColor = JarvisCyan.copy(alpha = 0.15f),
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                            )
                         }
+                    }
                 }
             },
         ) { innerPadding ->
@@ -349,8 +279,8 @@ private fun MainShell(
                 navController = navController,
                 startDestination = TopLevelDestination.Conversations.route,
                 modifier = Modifier.padding(innerPadding),
-                enterTransition = { fadeIn(tween(220)) },
-                exitTransition = { fadeOut(tween(160)) },
+                enterTransition = { fadeIn(tween(screenTransitionMs)) },
+                exitTransition = { fadeOut(tween(screenTransitionMs)) },
             ) {
                 composable(TopLevelDestination.Conversations.route) {
                     ConversationsScreen(vm, openConversationRequest = openConversationNonce)

@@ -11,10 +11,35 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+
+/** Shared spacing and shape values for the compact, content-first UI. */
+object JarvisUiTokens {
+    val space1 = 4.dp
+    val space2 = 8.dp
+    val space3 = 12.dp
+    val space4 = 16.dp
+    val space5 = 24.dp
+    val space6 = 32.dp
+    val controlShape = 12.dp
+    val cardShape = 16.dp
+    val dialogShape = 24.dp
+    val compactScreenInset = 16.dp
+    val wideScreenInset = 24.dp
+}
+
+@Composable
+fun jarvisScreenInset(): Dp = if (LocalConfiguration.current.screenWidthDp >= 600) {
+    JarvisUiTokens.wideScreenInset
+} else {
+    JarvisUiTokens.compactScreenInset
+}
 
 /** Core accent used by the orb, glows and active states. */
 val JarvisCyan = Color(0xFF22D3EE)
@@ -69,7 +94,7 @@ data class JarvisAccents(
 private val DarkAccents = JarvisAccents(
     backdrop = Brush.verticalGradient(listOf(Color(0xFF081020), DeepSpace, Color(0xFF0A1424))),
     orbGlow = JarvisCyan,
-    userBubble = Brush.linearGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9), Color(0xFF0891B2))),
+    userBubble = Brush.linearGradient(listOf(Color(0xFF0E5A70), Color(0xFF155E75))),
     assistantBubble = Color(0xF0121D30), // dark glassmorphic fill so on-surface text stays crisp
     online = JarvisGreen,
     degraded = JarvisAmber,
@@ -92,24 +117,21 @@ private val JarvisTypography = Typography().let { base ->
         titleLarge = base.titleLarge.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.1.sp).hud(),
         titleMedium = base.titleMedium.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.05.sp).hud(),
         titleSmall = base.titleSmall.hud(),
-        bodyLarge = base.bodyLarge.copy(lineHeight = 26.sp).hud(),
-        bodyMedium = base.bodyMedium.copy(lineHeight = 22.sp).hud(),
-        bodySmall = base.bodySmall.copy(lineHeight = 18.sp).hud(HudMuted),
+        bodyLarge = base.bodyLarge.copy(fontSize = 16.sp, lineHeight = 24.sp).hud(),
+        bodyMedium = base.bodyMedium.copy(fontSize = 16.sp, lineHeight = 24.sp).hud(),
+        bodySmall = base.bodySmall.copy(fontSize = 14.sp, lineHeight = 20.sp).hud(HudMuted),
         labelLarge = base.labelLarge.copy(letterSpacing = 0.4.sp).hud(),
         labelMedium = base.labelMedium.hud(HudMuted),
-        labelSmall = base.labelSmall.copy(
-            fontFamily = FontFamily.Monospace,
-            letterSpacing = 0.6.sp,
-        ).hud(HudMuted),
+        labelSmall = base.labelSmall.copy(fontSize = 12.sp, letterSpacing = 0.1.sp).hud(HudMuted),
     )
 }
 
-/** Monospaced, wide-tracked style for HUD-style readouts. */
+/** Compact readout style; code and identifiers opt into monospace where needed. */
 val HudTextStyle = TextStyle(
-    fontFamily = FontFamily.Monospace,
+    fontFamily = FontFamily.Default,
     fontWeight = FontWeight.Medium,
-    letterSpacing = 1.1.sp,
-    fontSize = 11.sp,
+    letterSpacing = 0.3.sp,
+    fontSize = 12.sp,
     color = HudMuted,
 )
 

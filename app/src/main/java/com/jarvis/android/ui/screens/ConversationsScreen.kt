@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -58,19 +60,24 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconButton
@@ -88,6 +95,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -118,6 +126,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
@@ -142,11 +151,15 @@ import com.jarvis.android.ui.components.ScanLine
 import com.jarvis.android.ui.components.TypingDots
 import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.i18n.LocalAppStrings
+import com.jarvis.android.ui.i18n.EnAppStrings
 import com.jarvis.android.ui.shared.OwnerAvatar
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.LocalReducedMotion
+import com.jarvis.android.ui.theme.JarvisTheme
+import com.jarvis.android.ui.theme.JarvisUiTokens
+import com.jarvis.android.ui.theme.jarvisScreenInset
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
 @Composable
@@ -200,6 +213,8 @@ private fun ConversationListView(
     onNew: () -> Unit,
 ) {
     val strings = LocalAppStrings.current
+    val reducedMotion = LocalReducedMotion.current
+    val screenInset = jarvisScreenInset()
     val listState by vm.conversationListState.collectAsStateWithLifecycle()
     val items = (listState as? com.jarvis.android.data.repo.ConversationListState.Ready)?.conversations
         ?: emptyList()
@@ -271,77 +286,48 @@ private fun ConversationListView(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(24.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    val quickPrompts = listOf(strings.quickPromptDraft, strings.quickPromptBrainstorm, strings.quickPromptStatus)
-                    quickPrompts.forEach { prompt ->
-                        Surface(
-                            onClick = onNew,
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color(0x3316223A),
-                            border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.22f)),
-                        ) {
-                            Text(
-                                prompt,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = accents.orbGlow,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                            )
-                        }
-                    }
+                Button(onClick = onNew, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(strings.newChat)
                 }
             }
         } else {
             LazyColumn(
                 Modifier.fillMaxSize().padding(pad),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(horizontal = screenInset, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                itemsIndexed(items, key = { _, c -> c.conversationId }) { index, c ->
+                items(items, key = { c -> c.conversationId }) { c ->
                     val isActive = c.conversationId in activeConversationIds
+                    var menuExpanded by remember(c.conversationId) { mutableStateOf(false) }
                     Surface(
                         onClick = { onOpen(c.conversationId) },
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xCC0E182A),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
                         border = BorderStroke(
                             1.dp,
-                            Brush.horizontalGradient(
-                                if (isActive) {
-                                    listOf(
-                                        accents.orbGlow.copy(alpha = 0.72f),
-                                        Color(0x558B5CF6),
-                                        accents.orbGlow.copy(alpha = 0.42f),
-                                    )
-                                } else {
-                                    listOf(
-                                        accents.orbGlow.copy(alpha = 0.22f),
-                                        Color(0x188B5CF6),
-                                        accents.orbGlow.copy(alpha = 0.12f),
-                                    )
-                                }
-                            ),
+                            if (isActive) accents.orbGlow.copy(alpha = 0.5f)
+                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
                         ),
-                        shadowElevation = 2.dp,
-                        modifier = Modifier.fillMaxWidth().animateItem(),
+                        modifier = Modifier.fillMaxWidth().then(
+                            if (reducedMotion) Modifier else Modifier.animateItem(),
+                        ),
                     ) {
                         Row(
-                            Modifier.padding(16.dp),
+                            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Box(
-                                Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(accents.orbGlow.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                JarvisOrb(size = 30.dp, activity = if (isActive) OrbActivity.THINKING else OrbActivity.IDLE)
-                            }
-                            Spacer(Modifier.size(14.dp))
+                            Icon(
+                                Icons.Outlined.ChatBubbleOutline,
+                                contentDescription = null,
+                                tint = if (isActive) accents.orbGlow else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(c.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                                Spacer(Modifier.height(2.dp))
+                                Spacer(Modifier.height(3.dp))
                                 Text(
                                     com.jarvis.android.ui.chat.ConversationTime.label(
                                         c.updatedAtMs,
@@ -353,28 +339,39 @@ private fun ConversationListView(
                             }
                             if (isActive) {
                                 Text(
-                                    "LIVE",
-                                    style = HudTextStyle,
+                                    strings.activeCount(1),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = accents.orbGlow,
                                     modifier = Modifier.padding(start = 8.dp),
                                 )
                             }
-                            IconButton(
-                                onClick = { pendingDelete = c },
-                                enabled = !isActive && deletingConversationId == null,
-                            ) {
-                                if (deletingConversationId == c.conversationId) {
-                                    CircularProgressIndicator(
-                                        Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = accents.orbGlow,
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Filled.Delete,
-                                        contentDescription = strings.deleteConversation,
-                                        tint = if (isActive) MaterialTheme.colorScheme.onSurfaceVariant
-                                        else MaterialTheme.colorScheme.error,
+                            Box {
+                                IconButton(
+                                    onClick = { menuExpanded = true },
+                                    enabled = !isActive && deletingConversationId == null,
+                                ) {
+                                    if (deletingConversationId == c.conversationId) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = accents.orbGlow,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Filled.MoreVert,
+                                            contentDescription = strings.conversationOptions,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = menuExpanded,
+                                    onDismissRequest = { menuExpanded = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(strings.deleteConversation) },
+                                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                                        onClick = { menuExpanded = false; pendingDelete = c },
                                     )
                                 }
                             }
@@ -440,6 +437,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val accents = LocalJarvisAccents.current
+    val reducedMotion = LocalReducedMotion.current
+    val screenInset = jarvisScreenInset()
     val context = LocalContext.current
 
     imageStudioAttachmentId?.let { attachmentId ->
@@ -534,9 +533,9 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length, messages.lastOrNull()?.status) {
+    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length, messages.lastOrNull()?.status, reducedMotion) {
         if (AutoFollow.shouldScroll(following, messages.isNotEmpty())) {
-            listState.animateScrollToItem(messages.lastIndex)
+            listState.scrollToChatItem(messages.lastIndex, reducedMotion)
         }
     }
 
@@ -548,12 +547,14 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     LaunchedEffect(bubbleActivity) { vm.updateBubble(bubbleActivity) }
 
     val imeVisible = WindowInsets.isImeVisible
-    LaunchedEffect(imeVisible) {
+    LaunchedEffect(imeVisible, reducedMotion) {
         if (following && messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
-            delay(220)
-            if (following && messages.isNotEmpty()) {
+            if (reducedMotion) {
                 listState.scrollToItem(messages.lastIndex)
+            } else {
+                listState.animateScrollToItem(messages.lastIndex)
+                delay(220)
+                if (following && messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
             }
         }
     }
@@ -628,7 +629,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = screenInset, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
@@ -652,21 +653,21 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 // so following silently is never a dead end.
                 androidx.compose.animation.AnimatedVisibility(
                     visible = !following && messages.isNotEmpty(),
-                    enter = fadeIn() + scaleIn(initialScale = 0.9f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.9f),
+                    enter = if (reducedMotion) fadeIn(tween(0)) else fadeIn() + scaleIn(initialScale = 0.9f),
+                    exit = if (reducedMotion) fadeOut(tween(0)) else fadeOut() + scaleOut(targetScale = 0.9f),
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
                 ) {
                     JumpToLatest(
                         streaming = chatStreaming,
-                        onClick = { scope.launch { listState.animateScrollToItem(messages.lastIndex) } },
+                        onClick = { scope.launch { listState.scrollToChatItem(messages.lastIndex, reducedMotion) } },
                     )
                 }
             }
 
             AnimatedVisibility(
                 visible = pendingAttachments.isNotEmpty(),
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut(),
+                enter = if (reducedMotion) fadeIn(tween(0)) else fadeIn() + slideInVertically { it / 2 },
+                exit = if (reducedMotion) fadeOut(tween(0)) else fadeOut(),
             ) {
                 PendingAttachmentStrip(
                     attachments = pendingAttachments,
@@ -751,10 +752,10 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     input = ""
                     vm.sendWithAttachments(textToSend)
                     scope.launch {
-                        listState.animateScrollToItem(messages.lastIndex.coerceAtLeast(0))
+                        listState.scrollToChatItem(messages.lastIndex.coerceAtLeast(0), reducedMotion)
                         delay(120)
                         if (messages.isNotEmpty()) {
-                            listState.animateScrollToItem(messages.lastIndex)
+                            listState.scrollToChatItem(messages.lastIndex, reducedMotion)
                         }
                         delay(180)
                         if (messages.isNotEmpty()) {
@@ -823,6 +824,11 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
             },
         )
     }
+}
+
+private suspend fun LazyListState.scrollToChatItem(index: Int, reducedMotion: Boolean) {
+    if (index < 0) return
+    if (reducedMotion) scrollToItem(index) else animateScrollToItem(index)
 }
 
 @Composable
@@ -1041,17 +1047,18 @@ private fun ProfileChipRow(vm: JarvisViewModel) {
                 shape = RoundedCornerShape(50),
                 color = if (active) accents.orbGlow.copy(alpha = 0.22f)
                 else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
-                border = androidx.compose.foundation.BorderStroke(
+                border = BorderStroke(
                     1.dp,
-                    if (active) accents.orbGlow.copy(alpha = 0.8f)
-                    else Color(0xFF2A3A52),
+                    if (active) accents.orbGlow.copy(alpha = 0.55f)
+                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
                 ),
+                modifier = Modifier.heightIn(min = 48.dp),
             ) {
                 Text(
                     entry.label.ifBlank { entry.profile },
                     style = HudTextStyle,
                     color = if (active) accents.orbGlow else Color(0xFFB7C7DC),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
         }
@@ -1090,108 +1097,66 @@ private fun Composer(
         }
     }
 
-    val pillShape = RoundedCornerShape(30.dp)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .shadow(8.dp, pillShape)
-            .background(Color(0xD90E1728), pillShape)
-            .border(
-                1.dp,
-                Brush.horizontalGradient(
-                    listOf(
-                        accents.orbGlow.copy(alpha = 0.22f),
-                        Color(0x228B5CF6),
-                        accents.orbGlow.copy(alpha = 0.22f),
-                    )
-                ),
-                pillShape,
-            )
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    var attachmentMenuOpen by rememberSaveable { mutableStateOf(false) }
+    Surface(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
     ) {
-        Surface(
-            shape = CircleShape,
-            color = if (canPickPhoto) accents.orbGlow.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
-            border = BorderStroke(1.dp, if (canPickPhoto) accents.orbGlow.copy(alpha = 0.35f) else Color(0xFF1E2E48)),
-            modifier = Modifier.size(40.dp),
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            IconButton(
-                onClick = onPickPhoto,
-                enabled = canPickPhoto,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                Icon(
-                    Icons.Filled.AddPhotoAlternate,
-                    contentDescription = if (canPickPhoto) "Attach photo" else "Image input unavailable",
-                    tint = if (canPickPhoto) accents.orbGlow
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                    modifier = Modifier.size(19.dp),
-                )
-            }
-        }
-
-        Surface(
-            shape = CircleShape,
-            color = if (canPickDocument) accents.orbGlow.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
-            border = BorderStroke(1.dp, if (canPickDocument) accents.orbGlow.copy(alpha = 0.35f) else Color(0xFF1E2E48)),
-            modifier = Modifier.size(40.dp),
-        ) {
-            IconButton(
-                onClick = onPickDocument,
-                enabled = canPickDocument,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                Icon(
-                    Icons.Filled.Description,
-                    contentDescription = if (canPickDocument) "Attach document" else "Document input unavailable",
-                    tint = if (canPickDocument) accents.orbGlow
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                    modifier = Modifier.size(19.dp),
-                )
-            }
-        }
-
-        Surface(
-            shape = CircleShape,
-            color = if (canGenerateImage) accents.orbGlow.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
-            border = BorderStroke(1.dp, if (canGenerateImage) accents.orbGlow.copy(alpha = 0.35f) else Color(0xFF1E2E48)),
-            modifier = Modifier.size(40.dp),
-        ) {
-            IconButton(
-                onClick = onGenerateImage,
-                enabled = canGenerateImage,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                val strings = LocalAppStrings.current
-                if (generatingImage) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = accents.orbGlow,
-                    )
-                } else {
+            Box {
+                IconButton(
+                    onClick = { attachmentMenuOpen = true },
+                    modifier = Modifier.size(48.dp),
+                ) {
                     Icon(
-                        Icons.Filled.Image,
-                        contentDescription = if (canGenerateImage) strings.generateImage else strings.imageGenerationUnavailable,
-                        tint = if (canGenerateImage) accents.orbGlow
-                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                        modifier = Modifier.size(19.dp),
+                        Icons.Filled.Add,
+                        contentDescription = strings.attachmentOptions,
+                        tint = if (canPickPhoto || canPickDocument || canGenerateImage) accents.orbGlow
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(
+                    expanded = attachmentMenuOpen,
+                    onDismissRequest = { attachmentMenuOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(strings.attachPhoto) },
+                        leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null) },
+                        enabled = canPickPhoto,
+                        onClick = { attachmentMenuOpen = false; onPickPhoto() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(strings.attachDocument) },
+                        leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null) },
+                        enabled = canPickDocument,
+                        onClick = { attachmentMenuOpen = false; onPickDocument() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(strings.generateImage) },
+                        leadingIcon = {
+                            if (generatingImage) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else Icon(Icons.Filled.Image, contentDescription = null)
+                        },
+                        enabled = canGenerateImage,
+                        onClick = { attachmentMenuOpen = false; onGenerateImage() },
                     )
                 }
             }
-        }
 
-        OutlinedTextField(
+            OutlinedTextField(
                 value = input,
                 onValueChange = onInput,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).widthIn(min = 0.dp),
                 placeholder = {
                     Text(
                         if (connected) strings.messagePlaceholder else strings.messagePlaceholderOffline,
-                        color = Color(0xFF8FA5C2),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 },
@@ -1199,51 +1164,62 @@ private fun Composer(
                     imeAction = ImeAction.Send,
                     capitalization = KeyboardCapitalization.Sentences,
                 ),
-                keyboardActions = KeyboardActions(
-                    onSend = { handleSend() },
-                ),
-                trailingIcon = if (input.isNotBlank()) {
-                    {
-                        IconButton(onClick = { onInput("") }, modifier = Modifier.size(24.dp)) {
-                            Icon(
-                                Icons.Filled.Close,
-                                contentDescription = "Clear input",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                } else null,
+                keyboardActions = KeyboardActions(onSend = { handleSend() }),
                 maxLines = 4,
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(JarvisUiTokens.controlShape),
                 colors = jarvisTextFieldColors(),
             )
 
-            // Stop replaces Send while a reply is streaming, so the primary action
-            // is always the one the user actually needs.
-            androidx.compose.animation.AnimatedContent(
-                targetState = streaming,
-                transitionSpec = { (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut()) },
-                label = "sendStop",
-            ) { isStreaming ->
-                if (isStreaming) {
-                    FilledIconButton(
-                        onClick = onStop,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                        ),
-                    ) { Icon(Icons.Filled.Stop, contentDescription = strings.stop) }
-                } else {
-                    HolographicSendButton(
-                        enabled = canSend,
-                        contentDescription = strings.send,
-                        accent = accents.orbGlow,
-                        onClick = handleSend,
-                    )
-                }
+            if (streaming) {
+                FilledIconButton(
+                    onClick = onStop,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                    ),
+                    modifier = Modifier.size(48.dp),
+                ) { Icon(Icons.Filled.Stop, contentDescription = strings.stop) }
+            } else {
+                HolographicSendButton(
+                    enabled = canSend,
+                    contentDescription = strings.send,
+                    accent = accents.orbGlow,
+                    onClick = handleSend,
+                )
             }
+        }
     }
 }
+
+@Preview(name = "JARVIS chat composer", showBackground = true, backgroundColor = 0xFF060B16)
+@Composable
+private fun ChatComposerDesignPreview() {
+    JarvisTheme {
+        CompositionLocalProvider(
+            LocalAppStrings provides EnAppStrings,
+            LocalReducedMotion provides true,
+        ) {
+            Surface(Modifier.padding(12.dp)) {
+                Composer(
+                    input = "Help me plan my next chapter",
+                    onInput = {},
+                    connected = true,
+                    streaming = false,
+                    generatingImage = false,
+                    canSend = true,
+                    canPickPhoto = true,
+                    canPickDocument = true,
+                    canGenerateImage = true,
+                    onPickPhoto = {},
+                    onPickDocument = {},
+                    onGenerateImage = {},
+                    onStop = {},
+                    onSend = {},
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun EmptyChatState(
     onSelectPrompt: (String) -> Unit,
@@ -1260,15 +1236,11 @@ private fun EmptyChatState(
     ) {
         JarvisBrain(size = 96.dp, activity = OrbActivity.IDLE)
         Spacer(Modifier.height(18.dp))
-        Text(
-            "JARVIS CO-PILOT",
-            style = MaterialTheme.typography.titleMedium.copy(letterSpacing = 1.4.sp),
-            color = accents.orbGlow,
-        )
+        Text(strings.readyWhenYouAre, style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Neural link active. Select an operational directive or enter instructions.",
-            style = MaterialTheme.typography.bodySmall,
+            strings.startConversationSubtitle,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
@@ -1281,54 +1253,24 @@ private fun EmptyChatState(
         )
         Spacer(Modifier.height(22.dp))
 
-        val prompts = listOf(
-            Triple("⚡ SYSTEM SITREP", "Report full system status, active transports, and health.", Icons.Filled.Bolt),
-            Triple("🛡 PENDING GATES", "Check pending approvals and security operations.", Icons.Filled.Shield),
-            Triple("📝 STORY MATRIX", "Brainstorm character motivations for the current scene.", Icons.Filled.AutoAwesome),
-            Triple("🔍 LORE DOSSIER", "Summarize primary characters and active factions in the lore.", Icons.Filled.Terminal),
-        )
+        val prompts = listOf(strings.quickPromptDraft, strings.quickPromptBrainstorm, strings.quickPromptStatus)
 
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            prompts.forEach { (label, prompt, icon) ->
+            prompts.forEach { prompt ->
                 Surface(
                     onClick = { onSelectPrompt(prompt) },
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                    border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.2f)),
-                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(accents.orbGlow.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                icon,
-                                contentDescription = null,
-                                tint = accents.orbGlow,
-                                modifier = Modifier.size(15.dp),
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(label, style = HudTextStyle, color = accents.orbGlow)
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                prompt,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFE8EEF8),
-                                maxLines = 1,
-                            )
-                        }
+                        Text(prompt, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -1543,6 +1485,7 @@ private fun MessageBubble(
     modifier: Modifier = Modifier,
 ) {
     val accents = LocalJarvisAccents.current
+    val strings = LocalAppStrings.current
     val isUser = msg.role == "user"
     val isStreaming = msg.status == RequestStatus.Streaming
     val awaiting = !isUser && msg.text.isEmpty() &&
@@ -1558,30 +1501,25 @@ private fun MessageBubble(
     ) {
         if (!isUser) {
             Box(Modifier.padding(end = 8.dp, bottom = 2.dp)) {
-                JarvisOrb(size = 28.dp, activity = if (isStreaming || awaiting) OrbActivity.THINKING else OrbActivity.IDLE)
+                JarvisOrb(size = 24.dp, activity = if (isStreaming || awaiting) OrbActivity.THINKING else OrbActivity.IDLE)
             }
         }
         Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
             Box(Modifier.widthIn(max = 360.dp)) {
                 val bubbleShape = RoundedCornerShape(
-                    topStart = 22.dp,
-                    topEnd = if (isUser) 8.dp else 22.dp,
-                    bottomStart = if (isUser) 22.dp else 8.dp,
-                    bottomEnd = 22.dp,
+                    topStart = 18.dp,
+                    topEnd = if (isUser) 6.dp else 18.dp,
+                    bottomStart = if (isUser) 18.dp else 6.dp,
+                    bottomEnd = 18.dp,
                 )
                 Surface(
                     color = if (isUser) Color.Transparent else accents.assistantBubble,
                     contentColor = if (isUser) Color.White else Color(0xFFE8EEF8),
                     shape = bubbleShape,
                     border = if (isUser) {
-                        BorderStroke(1.dp, Color(0x3867E8F9))
+                        BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.28f))
                     } else {
-                        BorderStroke(
-                            1.dp,
-                            Brush.verticalGradient(
-                                listOf(accents.orbGlow.copy(alpha = 0.28f), Color(0x182A3B57))
-                            )
-                        )
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                     },
                     modifier = if (isUser) {
                         Modifier.background(
@@ -1624,7 +1562,7 @@ private fun MessageBubble(
                     Spacer(Modifier.height(4.dp))
                     Text(
                         label,
-                        style = HudTextStyle.copy(fontSize = 9.sp),
+                    style = MaterialTheme.typography.labelSmall,
                         color = accents.orbGlow.copy(alpha = 0.78f),
                         modifier = Modifier.padding(horizontal = 6.dp),
                     )
@@ -1639,32 +1577,25 @@ private fun MessageBubble(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable {
+                    TextButton(
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        onClick = {
                                 clipboardManager.setText(AnnotatedString(msg.text))
                                 messageCopied = true
                                 scope.launch {
                                     delay(2000)
                                     messageCopied = false
                                 }
-                            }
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        },
                     ) {
                         Icon(
                             if (messageCopied) Icons.Filled.Check else Icons.Filled.ContentCopy,
-                            contentDescription = "Copy message",
-                            tint = if (messageCopied) accents.online else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(12.dp),
+                            contentDescription = null,
+                            tint = if (messageCopied) accents.online else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
                         )
-                        Text(
-                            if (messageCopied) "COPIED" else "COPY",
-                            style = HudTextStyle,
-                            color = if (messageCopied) accents.online else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (messageCopied) strings.messageCopied else strings.copyMessage)
                     }
 
                     if (msg.createdAtMs > 0L) {
@@ -1691,18 +1622,18 @@ private fun MessageBubble(
             val footer: (@Composable () -> Unit)? = when {
                 isUser -> null
                 msg.status == RequestStatus.Cancelling -> ({
-                    Text("stopping…", style = HudTextStyle, color = accents.degraded)
+                    Text(strings.messageStopping, style = MaterialTheme.typography.bodySmall, color = accents.degraded)
                 })
                 msg.status == RequestStatus.Cancelled -> ({
-                    Text("CANCELLED", style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(strings.messageCancelled, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 })
                 msg.status is RequestStatus.Failed -> ({
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("FAILED", style = HudTextStyle, color = MaterialTheme.colorScheme.error)
+                        Text(strings.messageFailed, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         if ((msg.status as RequestStatus.Failed).retryable) {
-                            TextButton(onClick = onRetry) {
+                            TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
                                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Text(" Retry")
+                                Text(strings.retry)
                             }
                         }
                     }

@@ -4,13 +4,17 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.Button
@@ -33,9 +37,10 @@ import androidx.fragment.app.FragmentActivity
 import com.jarvis.android.ui.components.AmbientBackdrop
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.OrbActivity
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.shared.authenticateDeviceOwner
-import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.LocalReducedMotion
 import kotlinx.coroutines.launch
 
 /**
@@ -48,6 +53,8 @@ fun LockScreen(onUnlocked: () -> Unit) {
     val context = LocalContext.current
     val activity = context as? FragmentActivity
     val accents = LocalJarvisAccents.current
+    val strings = LocalAppStrings.current
+    val reducedMotion = LocalReducedMotion.current
     val scope = rememberCoroutineScope()
     var denied by remember { mutableStateOf(false) }
     var prompting by remember { mutableStateOf(false) }
@@ -68,8 +75,8 @@ fun LockScreen(onUnlocked: () -> Unit) {
         scope.launch {
             val ok = authenticateDeviceOwner(
                 activity = host,
-                title = "Unlock JARVIS",
-                subtitle = "Confirm it's you to open your assistant",
+                title = strings.unlockAction,
+                subtitle = strings.lockedDescription,
             )
             prompting = false
             if (ok) onUnlocked() else denied = true
@@ -80,23 +87,27 @@ fun LockScreen(onUnlocked: () -> Unit) {
 
     AmbientBackdrop {
         Column(
-            modifier = Modifier.fillMaxSize().padding(32.dp),
+            modifier = Modifier
+                .widthIn(max = 420.dp)
+                .fillMaxWidth()
+                .align(Alignment.Center)
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
             JarvisBrain(size = 132.dp, activity = if (denied) OrbActivity.OFFLINE else OrbActivity.LISTENING)
 
             Spacer(Modifier.height(30.dp))
-            Text("LOCKED", style = HudTextStyle, color = accents.orbGlow)
+            Text(strings.sessionLocked, style = MaterialTheme.typography.labelLarge, color = accents.orbGlow)
             Spacer(Modifier.height(10.dp))
             Text(
-                "JARVIS is locked",
+                strings.lockedTitle,
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Authenticate to continue.",
+                strings.lockedDescription,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -104,15 +115,19 @@ fun LockScreen(onUnlocked: () -> Unit) {
 
             Spacer(Modifier.height(28.dp))
 
-            Button(onClick = { denied = false; prompt() }) {
+            Button(
+                onClick = { denied = false; prompt() },
+                enabled = !prompting,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            ) {
                 Icon(Icons.Filled.Fingerprint, contentDescription = null)
-                Spacer(Modifier.height(0.dp))
-                Text("  Unlock")
+                Spacer(Modifier.width(8.dp))
+                Text(strings.unlockAction)
             }
 
-            AnimatedVisibility(visible = denied, enter = fadeIn()) {
+            AnimatedVisibility(visible = denied, enter = fadeIn(tween(if (reducedMotion) 0 else 180))) {
                 Text(
-                    "Authentication failed or cancelled.",
+                    strings.authenticationFailed,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 16.dp),

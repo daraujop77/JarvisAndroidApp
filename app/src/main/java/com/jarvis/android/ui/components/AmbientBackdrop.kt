@@ -35,14 +35,18 @@ fun AmbientBackdrop(
 ) {
     val accents = LocalJarvisAccents.current
     val reduced = LocalReducedMotion.current
-    val transition = rememberInfiniteTransition(label = "backdrop")
-    val drift by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(tween(26_000, easing = LinearEasing), RepeatMode.Restart),
-        label = "drift",
-    )
-    val phase = if (reduced) 0f else drift
+    val phase = if (reduced) {
+        0f
+    } else {
+        val transition = rememberInfiniteTransition(label = "backdrop")
+        val drift by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = (2 * Math.PI).toFloat(),
+            animationSpec = infiniteRepeatable(tween(32_000, easing = LinearEasing), RepeatMode.Restart),
+            label = "drift",
+        )
+        drift
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -67,19 +71,19 @@ fun AmbientBackdrop(
                     w * (0.22f + 0.10f * cos(phase)),
                     h * (0.16f + 0.05f * sin(phase)),
                     w * 0.75f,
-                    accents.orbGlow.copy(alpha = 0.10f),
+                    accents.orbGlow.copy(alpha = 0.055f),
                 )
                 bloom(
                     w * (0.82f + 0.08f * sin(phase * 0.8f)),
                     h * (0.80f + 0.06f * cos(phase * 0.6f)),
                     w * 0.62f,
-                    accents.orbGlow.copy(alpha = 0.06f),
+                    accents.orbGlow.copy(alpha = 0.035f),
                 )
                 bloom(
                     w * (0.15f + 0.08f * sin(phase * 0.6f)),
                     h * (0.52f + 0.06f * cos(phase * 0.7f)),
                     w * 0.70f,
-                    Color(0xFF8B5CF6).copy(alpha = 0.05f),
+                    Color(0xFF8B5CF6).copy(alpha = 0.02f),
                 )
             },
         content = content,

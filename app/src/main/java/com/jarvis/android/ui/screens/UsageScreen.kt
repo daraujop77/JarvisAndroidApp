@@ -24,11 +24,13 @@ import com.jarvis.android.transport.live.JarvisAppSession
 import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.jarvisScreenInset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UsageScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val strings = LocalAppStrings.current
+    val screenInset = jarvisScreenInset()
     val state by vm.providerUsage.collectAsStateWithLifecycle()
     var period by remember { mutableStateOf("7d") }
 
@@ -62,13 +64,13 @@ fun UsageScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     ) { pad ->
         Column(
             modifier = Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = screenInset, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = Color(0x18101B2E),
-                border = BorderStroke(1.dp, Color(0x3322D3EE)),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
@@ -118,9 +120,9 @@ private fun ProviderUsageCard(provider: JarvisAppSession.ProviderUsage, period: 
     val counter = provider.periods[period] ?: JarvisAppSession.UsageCounter()
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = Color(0xCC0D1626),
-        border = BorderStroke(1.dp, accents.orbGlow.copy(alpha = 0.38f)),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

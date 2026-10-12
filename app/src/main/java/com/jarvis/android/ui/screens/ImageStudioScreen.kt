@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -187,7 +188,7 @@ fun ImageStudioScreen(
                         )
                         Text(
                             "EDICIÓN CON REFERENCIA · JARVIS",
-                            style = HudTextStyle.copy(fontSize = 10.sp),
+                            style = HudTextStyle,
                             color = accents.orbGlow,
                         )
                     }
@@ -334,7 +335,7 @@ fun ImageStudioScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(10.dp))
-                    Text("ATAJOS", style = HudTextStyle.copy(fontSize = 10.sp), color = Color(0xFF94A3B8))
+                    Text("ATAJOS", style = HudTextStyle, color = Color(0xFF94A3B8))
                     Spacer(Modifier.height(6.dp))
                     Row(
                         Modifier
@@ -449,7 +450,7 @@ fun ImageStudioScreen(
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 "Formato detectado: " + aspectRatio.uppercase(),
-                                style = HudTextStyle.copy(fontSize = 10.sp),
+                                style = HudTextStyle,
                                 color = Color(0xFFB7C7DC),
                             )
                         }
@@ -483,7 +484,7 @@ fun ImageStudioScreen(
                         "ÚLTIMA EDICIÓN · " +
                             details.model.ifBlank { details.provider } +
                             " · " + details.durationMs + " ms" + fallback,
-                        style = HudTextStyle.copy(fontSize = 10.sp),
+                        style = HudTextStyle,
                         color = accents.orbGlow,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -628,12 +629,12 @@ private fun StudioCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = Color(0xCC0E182A),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.32f)),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
     ) {
         Column(Modifier.padding(14.dp)) {
-            Text(title, style = HudTextStyle, color = accent)
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(9.dp))
             content()
         }
@@ -647,9 +648,8 @@ private fun StudioPromptChip(
 ) {
     Surface(
         shape = RoundedCornerShape(50),
-        color = Color(0x6610233D),
-        border = BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.32f)),
-        modifier = Modifier.clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.clickable(onClick = onClick).heightIn(min = 48.dp),
     ) {
         Text(
             label,
@@ -670,7 +670,7 @@ private fun StudioPill(text: String, color: Color) {
         Text(
             text,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            style = HudTextStyle.copy(fontSize = 9.sp),
+            style = HudTextStyle,
             color = color,
         )
     }

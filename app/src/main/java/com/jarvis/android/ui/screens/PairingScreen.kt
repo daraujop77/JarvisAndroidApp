@@ -1,17 +1,18 @@
 package com.jarvis.android.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
@@ -19,7 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,8 +42,9 @@ import com.jarvis.android.ui.JarvisViewModel
 import com.jarvis.android.ui.components.AmbientBackdrop
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.OrbActivity
-import com.jarvis.android.ui.theme.HudTextStyle
+import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.LocalReducedMotion
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -63,12 +65,16 @@ fun PairingScreen(
     var user by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val accents = LocalJarvisAccents.current
+    val strings = LocalAppStrings.current
+    val reducedMotion = LocalReducedMotion.current
     val liveAuth by vm.liveAuth.collectAsStateWithLifecycle()
 
     AmbientBackdrop(modifier) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .widthIn(max = 480.dp)
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .imePadding()
                 .navigationBarsPadding()
@@ -85,21 +91,21 @@ fun PairingScreen(
             Spacer(Modifier.height(28.dp))
 
             Text(
-                if (lockedReason != null) "SIGN IN AGAIN" else "JARVIS",
-                style = HudTextStyle,
+                if (lockedReason != null) strings.loginAgain else strings.privateConnection,
+                style = MaterialTheme.typography.labelLarge,
                 color = if (lockedReason != null) MaterialTheme.colorScheme.error else accents.orbGlow,
             )
             Spacer(Modifier.height(10.dp))
             Text(
-                "Sign in to JARVIS",
+                strings.signInTitle,
                 style = MaterialTheme.typography.headlineSmall,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Your private JARVIS connection is configured automatically.",
-                style = MaterialTheme.typography.bodySmall,
+                strings.signInDescription,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
@@ -124,7 +130,7 @@ fun PairingScreen(
             OutlinedTextField(
                 value = user,
                 onValueChange = { user = it },
-                label = { Text("Username") },
+                label = { Text(strings.username) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().scrollIntoViewOnFocus(),
                 shape = RoundedCornerShape(16.dp),
@@ -134,7 +140,7 @@ fun PairingScreen(
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password") },
+                label = { Text(strings.password) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -143,22 +149,25 @@ fun PairingScreen(
                 colors = jarvisTextFieldColors(),
             )
             Spacer(Modifier.height(20.dp))
-            OutlinedButton(
+            Button(
                 onClick = { vm.liveLogin(user, password) },
                 enabled = liveAuth !is JarvisViewModel.LiveAuthState.Busy &&
                     user.isNotBlank() && password.isNotBlank(),
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
             ) {
                 Text(
                     when (liveAuth) {
-                        JarvisViewModel.LiveAuthState.Busy -> "Signing in…"
-                        else -> "Sign in"
+                        JarvisViewModel.LiveAuthState.Busy -> strings.signingIn
+                        else -> strings.signIn
                     },
                 )
             }
 
-            AnimatedVisibility(visible = liveAuth is JarvisViewModel.LiveAuthState.Error) {
+            AnimatedVisibility(
+                visible = liveAuth is JarvisViewModel.LiveAuthState.Error,
+                enter = androidx.compose.animation.fadeIn(tween(if (reducedMotion) 0 else 180)),
+            ) {
                 Text(
                     (liveAuth as? JarvisViewModel.LiveAuthState.Error)?.message.orEmpty(),
                     style = MaterialTheme.typography.bodySmall,
@@ -168,12 +177,6 @@ fun PairingScreen(
                 )
             }
 
-            Spacer(Modifier.height(24.dp))
-            Text(
-                "PRIVATE JARVIS CONNECTION",
-                style = HudTextStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            )
             Spacer(Modifier.height(24.dp))
         }
     }

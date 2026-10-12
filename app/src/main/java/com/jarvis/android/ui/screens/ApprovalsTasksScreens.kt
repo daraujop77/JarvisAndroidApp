@@ -70,6 +70,8 @@ import com.jarvis.android.ui.shared.rememberBiometricGate
 import com.jarvis.android.ui.shared.requiresBiometric
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import com.jarvis.android.ui.theme.JarvisMotion
+import com.jarvis.android.ui.theme.LocalReducedMotion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -192,14 +194,12 @@ private fun ApprovalCard(
     }
 
     Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color(0xCC0E182A).copy(alpha = if (resolved) 0.6f else 0.8f),
-        border = BorderStroke(1.dp, topBarAccent.copy(alpha = if (resolved) 0.18f else 0.35f)),
-        shadowElevation = 3.dp,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = if (resolved) 0.75f else 0.96f),
+        border = BorderStroke(1.dp, topBarAccent.copy(alpha = if (resolved) 0.24f else 0.38f)),
         modifier = modifier.fillMaxWidth(),
     ) {
         Column {
-            Box(Modifier.fillMaxWidth().height(3.dp).background(topBarAccent.copy(alpha = 0.9f)))
             Column(Modifier.padding(16.dp)) {
                 // Header badge row
                 Row(
@@ -452,6 +452,7 @@ private fun ApprovalCard(
 @Composable
 fun TasksScreen(vm: JarvisViewModel) {
     val strings = LocalAppStrings.current
+    val reducedMotion = LocalReducedMotion.current
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val tasks = snapshot.session.tasks.values.sortedByDescending { it.updatedAtMs }
 
@@ -495,17 +496,18 @@ fun TasksScreen(vm: JarvisViewModel) {
                     }
                     val progress by animateFloatAsState(
                         targetValue = t.progress?.coerceIn(0f, 1f) ?: 0f,
+                        animationSpec = JarvisMotion.standard(180),
                         label = "taskProgress",
                     )
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xCC0E182A),
-                        border = BorderStroke(1.dp, tint.copy(alpha = 0.25f)),
-                        shadowElevation = 2.dp,
-                        modifier = Modifier.fillMaxWidth().animateItem(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                        border = BorderStroke(1.dp, tint.copy(alpha = 0.32f)),
+                        modifier = Modifier.fillMaxWidth().then(
+                            if (reducedMotion) Modifier else Modifier.animateItem(),
+                        ),
                     ) {
                         Column {
-                            Box(Modifier.fillMaxWidth().height(2.dp).background(tint.copy(alpha = 0.8f)))
                             Column(Modifier.padding(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (running) {
@@ -519,9 +521,8 @@ fun TasksScreen(vm: JarvisViewModel) {
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
+                                        shape = RoundedCornerShape(50),
                                         color = tint.copy(alpha = 0.12f),
-                                        border = BorderStroke(1.dp, tint.copy(alpha = 0.4f)),
                                     ) {
                                         Text(
                                             t.status.name,
@@ -537,7 +538,7 @@ fun TasksScreen(vm: JarvisViewModel) {
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                     ) {
-                                        Text("EXECUTION PROGRESS", style = HudTextStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(strings.taskProgressLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text("${(progress * 100).toInt()}%", style = HudTextStyle, color = tint)
                                     }
                                     Spacer(Modifier.height(4.dp))

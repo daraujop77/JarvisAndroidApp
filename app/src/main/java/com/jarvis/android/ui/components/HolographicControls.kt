@@ -165,31 +165,39 @@ fun HolographicSendButton(
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalReducedMotion.current
-    val transition = rememberInfiniteTransition(label = "holoSend")
-    val orbit by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8_500, easing = LinearEasing),
-        ),
-        label = "holoSendOrbit",
-    )
-    val breathe by transition.animateFloat(
-        initialValue = 0.76f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1_900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "holoSendBreathe",
-    )
+    val animate = enabled && !reduceMotion
+    val orbit = if (animate) {
+        val transition = rememberInfiniteTransition(label = "holoSendOrbit")
+        val value by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 8_500, easing = LinearEasing),
+            ),
+            label = "holoSendOrbit",
+        )
+        value
+    } else 18f
+    val breathe = if (animate) {
+        val transition = rememberInfiniteTransition(label = "holoSendBreathe")
+        val value by transition.animateFloat(
+            initialValue = 0.76f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1_900, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "holoSendBreathe",
+        )
+        value
+    } else 0.92f
 
     val alpha = when {
         !enabled -> 0.34f
         reduceMotion -> 0.92f
         else -> breathe
     }
-    val angle = if (enabled && !reduceMotion) orbit else 18f
+    val angle = if (animate) orbit else 18f
 
     Box(
         modifier = modifier

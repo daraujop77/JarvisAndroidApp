@@ -50,6 +50,8 @@ jobs:
 
       - name: Unit tests and Kotlin compilation (no APK)
         run: ./gradlew :app:testDebugUnitTest --stacktrace
+      - name: Android lint (no APK)
+        run: ./gradlew :app:lintDebug --stacktrace
       - name: Build debug APK (manual only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_apk }}
         run: ./gradlew :app:assembleDebug --stacktrace

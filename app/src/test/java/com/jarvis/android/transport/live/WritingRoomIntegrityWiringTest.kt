@@ -151,7 +151,8 @@ class WritingRoomIntegrityWiringTest {
         assertFalse(projects.contains("vm.createProject("))
         assertFalse(projects.contains("vm.renameProject("))
         assertFalse(projects.contains("vm.deleteProject("))
-        assertTrue(projects.contains("contrato seguro de provisión"))
+        assertTrue(projects.contains("strings.projectMutationsUnavailable"))
+        assertFalse(projects.contains("contrato seguro de provisión"))
     }
 
     @Test
