@@ -316,6 +316,28 @@ class JarvisAppSession(
      * It persists across process death but never reuses another account's ID.
      * Server access checks still decide whether this principal may view history.
      */
+    /** Explicit per-conversation, per-account project binding for Chat Global.
+     * An empty value disables the adaptive project route. Authorization stays
+     * authoritative on the VPS for every request. */
+    fun chatAgentProjectFor(conversationId: String): String? {
+        val principal = userId.trim()
+        if (principal.isBlank() || conversationId.isBlank()) return null
+        return store.get("chat.agent.project." + principal + ":" + conversationId)
+            ?.takeIf { it.isNotBlank() && it.length <= 160 }
+    }
+
+    fun setChatAgentProjectFor(conversationId: String, projectId: String?) {
+        val principal = userId.trim()
+        require(principal.isNotBlank() && conversationId.isNotBlank())
+        require(conversationId.length <= 160)
+        val clean = projectId?.trim()?.takeIf { it.isNotEmpty() }
+        require(clean == null || (clean.length <= 160 &&
+                    clean.matches(Regex("[A-Za-z0-9_:-]{1,160}"))))
+        store.put(mapOf(
+            "chat.agent.project." + principal + ":" + conversationId to clean,
+        ))
+    }
+
     fun writingRoomConversationId(projectId: String): String {
         val principal = userId.trim()
         require(principal.isNotBlank() && projectId.isNotBlank())
