@@ -162,6 +162,33 @@ class AgentStreamFallbackTest {
             assertTrue(body.contains("wrc_ab"))
         }
 
+    @Test fun projectAgentReadinessRequiresAuthorizedReadOnlyCapability() =
+        runBlocking(Dispatchers.IO) {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    if (request.path == "/api/app/chat/agent/project/capability") {
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.chat.agent.capability.v1","enabled":true,"project_id":"prj_story","effect":"READ_ONLY","supports_attachments":false}"""
+                        )
+                    } else MockResponse().setResponseCode(500)
+            }
+            val result = session.chatGlobalProjectAgentCapability("prj_story")
+                .getOrThrow()
+            assertTrue(result.enabled)
+            assertEquals("prj_story", result.project_id)
+            assertEquals("READ_ONLY", result.effect)
+            assertEquals(false, result.supports_attachments)
+            val request = server.takeRequest()
+            assertEquals("/api/app/chat/agent/project/capability", request.path)
+            val body = kotlinx.serialization.json.Json.parseToJsonElement(
+                request.body.readUtf8()).jsonObject
+            assertEquals(
+                kotlinx.serialization.json.JsonPrimitive("prj_story"),
+                body["project_id"],
+            )
+            assertEquals(1, server.requestCount)
+        }
+
     @Test fun globalProjectAgentUsesExplicitProjectAndExistingChatScope() =
         runBlocking(Dispatchers.IO) {
             server.dispatcher = object : Dispatcher() {
