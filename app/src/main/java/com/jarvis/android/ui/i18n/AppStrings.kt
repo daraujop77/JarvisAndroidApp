@@ -41,7 +41,31 @@ interface AppStrings {
     val send: String
     val stop: String
     val generateImage: String
+    val attachmentOptions: String
+    val attachPhoto: String
+    val attachDocument: String
+    val copyMessage: String
+    val messageCopied: String
+    val messageStopping: String
+    val messageCancelled: String
+    val messageFailed: String
+    val projectAll: String
+    val projectWriting: String
+    val projectActive: String
+    val projectArchived: String
+    val projectsEmptyBody: String
+    val projectStudio: String
+    val activeWorkspace: String
+    val archivedWorkspace: String
+    val noProjectConversations: String
+    val renameProject: String
+    val deleteProject: String
+    val refreshProjects: String
+    val newProject: String
+    fun projectCount(count: Int): String
+    fun noProjectsForFilter(filter: String): String
     val imageGenerationUnavailable: String
+    val conversationOptions: String
     val deleteConversation: String
     val deleteConversationTitle: String
     val deleteConversationBody: String
@@ -55,9 +79,44 @@ interface AppStrings {
     val thinking: String
     val back: String
 
+    // Welcome & secure access
+    val bootInitializing: String
+    val bootLoading: String
+    val bootRestoring: String
+    val bootConnecting: String
+    val appDescriptor: String
+    fun welcomeBack(ownerName: String?): String
+    val allSystemsReady: String
+    fun secureClientVersion(version: Number): String
+    val loginAgain: String
+    val signInTitle: String
+    val signInDescription: String
+    val username: String
+    val password: String
+    val signIn: String
+    val signingIn: String
+    val privateConnection: String
+    val diagnosticsTitle: String
+    val hideDetails: String
+    fun showDetails(count: Int): String
+    val lockedTitle: String
+    val lockedDescription: String
+    val unlockAction: String
+    val authenticationFailed: String
+    val sessionLocked: String
+    val sessionExpired: String
+    val reauthDescription: String
+    val renewingSession: String
+    val pairAgain: String
+    val authenticationUnavailable: String
+    val revokedReason: String
+    val expiredSessionReason: String
+    val protocolMismatchReason: String
+
     // Approvals & Tasks
     val approvalsTitle: String
     val tasksTitle: String
+    val taskProgressLabel: String
     val ownerOnlyTitle: String
     val ownerOnlyBody: String
     val nothingToApproveTitle: String
@@ -168,6 +227,13 @@ interface AppStrings {
     val workspaceOverview: String
     val workspaceWrite: String
     val workspaceChat: String
+    val workspaceCanon: String
+    val workspaceVisual: String
+    val visualStudioTitle: String
+    val visualCharacters: String
+    val visualLocations: String
+    val visualScenes: String
+    val visualMap: String
     val writingRoomAnalyzing: String
     val writingRoomResponding: String
     val workspacePlan: String
@@ -228,7 +294,31 @@ object EnAppStrings : AppStrings {
     override val send = "Send"
     override val stop = "Stop"
     override val generateImage = "Generate image"
+    override val attachmentOptions = "Attachment options"
+    override val attachPhoto = "Photo"
+    override val attachDocument = "Document"
+    override val copyMessage = "Copy"
+    override val messageCopied = "Copied"
+    override val messageStopping = "Stopping…"
+    override val messageCancelled = "Cancelled"
+    override val messageFailed = "Failed"
+    override val projectAll = "All"
+    override val projectWriting = "Writing rooms"
+    override val projectActive = "Active"
+    override val projectArchived = "Archived"
+    override val projectsEmptyBody = "Projects appear here when they are available to this account."
+    override val projectStudio = "STUDIO"
+    override val activeWorkspace = "ACTIVE WORKSPACE"
+    override val archivedWorkspace = "ARCHIVED"
+    override val noProjectConversations = "No conversations are linked to this project yet."
+    override val renameProject = "Rename project"
+    override val deleteProject = "Delete project"
+    override val refreshProjects = "Refresh projects"
+    override val newProject = "New project"
+    override fun projectCount(count: Int) = if (count == 1) "1 project" else "$count projects"
+    override fun noProjectsForFilter(filter: String) = "No projects match $filter."
     override val imageGenerationUnavailable = "Image generation unavailable"
+    override val conversationOptions = "Conversation options"
     override val deleteConversation = "Delete"
     override val deleteConversationTitle = "Delete this conversation?"
     override val deleteConversationBody = "This removes its messages and attachments from Jarvis and this device. This action can't be undone."
@@ -242,8 +332,43 @@ object EnAppStrings : AppStrings {
     override val thinking = "Thinking…"
     override val back = "Back"
 
+    override val bootInitializing = "Starting the core"
+    override val bootLoading = "Loading capabilities"
+    override val bootRestoring = "Restoring your workspace"
+    override val bootConnecting = "Connecting to JARVIS"
+    override val appDescriptor = "Your personal assistant"
+    override fun welcomeBack(ownerName: String?) =
+        if (ownerName.isNullOrBlank()) "Welcome back" else "Welcome back, $ownerName"
+    override val allSystemsReady = "JARVIS is ready to help."
+    override fun secureClientVersion(version: Number) = "Secure JARVIS app · version $version"
+    override val loginAgain = "Sign in again"
+    override val signInTitle = "Sign in to JARVIS"
+    override val signInDescription = "Your private JARVIS connection is configured automatically."
+    override val username = "Username"
+    override val password = "Password"
+    override val signIn = "Sign in"
+    override val signingIn = "Signing in…"
+    override val privateConnection = "Private connection"
+    override val diagnosticsTitle = "Diagnostics"
+    override val hideDetails = "Hide details"
+    override fun showDetails(count: Int) = "Show details ($count)"
+    override val lockedTitle = "JARVIS is locked"
+    override val lockedDescription = "Authenticate to continue."
+    override val unlockAction = "Unlock JARVIS"
+    override val authenticationFailed = "Authentication failed or was cancelled."
+    override val sessionLocked = "Session locked"
+    override val sessionExpired = "Your JARVIS session expired"
+    override val reauthDescription = "Use your fingerprint, face, or device unlock. No JARVIS password is needed."
+    override val renewingSession = "Renewing secure session…"
+    override val pairAgain = "Sign in again"
+    override val authenticationUnavailable = "Authentication was cancelled or is unavailable on this device."
+    override val revokedReason = "This device was revoked on the Jarvis PC. Sign in again to restore access."
+    override val expiredSessionReason = "This device session expired and cannot be renewed. Sign in again to restore access."
+    override val protocolMismatchReason = "This app is out of date for the Jarvis PC protocol. Update it, then sign in again."
+
     override val approvalsTitle = "Approvals"
     override val tasksTitle = "Tasks"
+    override val taskProgressLabel = "Progress"
     override val ownerOnlyTitle = "Owner only"
     override val ownerOnlyBody = "PC-action approvals are visible only to the OWNER of this Jarvis installation. This device is signed in as a guest."
     override val nothingToApproveTitle = "Nothing to approve"
@@ -262,13 +387,13 @@ object EnAppStrings : AppStrings {
     override val noTasksBody = "Background work dispatched to your PC appears here."
 
     override val settingsTitle = "Settings"
-    override val languageSection = "LANGUAGE / IDIOMA"
+    override val languageSection = "Language"
     override val languageSubtitle = "Select interface language / Seleccionar idioma de la interfaz"
     override val langSystem = "System default / Predeterminado del sistema"
     override val langEnglish = "English (United States)"
     override val langSpanish = "Español (Latinoamérica)"
 
-    override val usageSection = "AI USAGE & LIMITS"
+    override val usageSection = "Usage & limits"
     override val usageSettingsDescription = "View JARVIS-observed use for ChatGPT/Codex, Grok, Gemini, Nous and FreeLLMAPI."
     override val openUsage = "View usage"
     override val usageTitle = "Usage & limits"
@@ -289,7 +414,7 @@ object EnAppStrings : AppStrings {
     override fun quotaResets(value: String) = "Resets $value"
     override val noUsageYet = "No observed usage in this period"
 
-    override val identitySection = "IDENTITY"
+    override val identitySection = "Identity"
     override val profilePhotoSet = "Profile photo set"
     override val noProfilePhoto = "No profile photo"
     override val photoDescription = "Shown next to your messages. Stored only on this phone."
@@ -298,26 +423,26 @@ object EnAppStrings : AppStrings {
     override val deviceIsOwner = "This device is the OWNER"
     override val deviceIsOwnerSubtitle = "Only the owner can see and resolve PC-action approvals"
 
-    override val securitySection = "SECURITY"
+    override val securitySection = "Security"
     override val requireUnlock = "Require unlock"
     override val requireUnlockSubtitle = "Ask for biometrics or device PIN each time the app opens"
     override val deviceKeyNotice = "The private key stays in the Android Keystore and is never exported."
     override val revokeAndRepair = "Revoke & re-pair"
 
-    override val floatingBrainSection = "FLOATING BRAIN"
+    override val floatingBrainSection = "Floating brain"
     override val floatingBubble = "Floating bubble"
     override val floatingBubbleGrantedSubtitle = "Keep the brain on screen over other apps, and open the conversation from it"
     override val floatingBubbleNeedsPermissionSubtitle = "Needs permission to draw over other apps. You grant it once in system Settings."
     override val screenVisionOn = "Screen vision is on. It only reads or taps when you approve an action."
     override val screenVisionOff = "Screen vision is off. Enable it under Settings, Accessibility, if you want JARVIS to see and act on this screen — always with your approval first."
 
-    override val appearanceSection = "APPEARANCE"
+    override val appearanceSection = "Appearance"
     override val reduceMotion = "Reduce motion"
     override val reduceMotionSubtitle = "Turn off ambient glow, pulses and the boot animation"
     override val greetingName = "Greeting name"
     override val saveName = "Save name"
 
-    override val appUpdateSection = "APP UPDATE"
+    override val appUpdateSection = "App update"
     override fun installedVersion(name: String, code: Number) = "Installed $name ($code)"
     override val updatesDeliveredNotice = "Updates are delivered directly from the official JARVIS GitHub release."
     override val checkForUpdate = "Check for update"
@@ -336,7 +461,7 @@ object EnAppStrings : AppStrings {
     override fun installerOpenedNotice(version: String) = "Android installer opened for $version. Confirm Update to keep your data."
     override val tryAgain = "Try again"
 
-    override val connectionSection = "CONNECTION"
+    override val connectionSection = "Connection"
     override val useFakeGateway = "Use Fake Gateway"
     override val useFakeGatewaySubtitle = "Deterministic local scenarios — no network. Off = HTTP /api/v1"
     override val restartAppNotice = "Restart the app to apply a transport change."
@@ -344,7 +469,7 @@ object EnAppStrings : AppStrings {
     override val saveUrl = "Save URL"
     override val checkHealth = "Check health"
 
-    override val simulationSection = "SIMULATION"
+    override val simulationSection = "Simulation"
     override val simulationSubtitle = "Drives the deterministic scenario matrix without a live backend."
     override val scenario = "Scenario"
     override val runScenarioNow = "Run scenario now"
@@ -352,6 +477,13 @@ object EnAppStrings : AppStrings {
     override val workspaceOverview = "Overview"
     override val workspaceWrite = "Write"
     override val workspaceChat = "Copilot"
+    override val workspaceCanon = "Canon"
+    override val workspaceVisual = "Visual"
+    override val visualStudioTitle = "Visual studio"
+    override val visualCharacters = "Characters"
+    override val visualLocations = "Locations"
+    override val visualScenes = "Scenes"
+    override val visualMap = "Map"
     override val writingRoomAnalyzing = "ANALYZING CANON"
     override val writingRoomResponding = "WRITING RESPONSE"
     override val workspacePlan = "Plans"
@@ -412,7 +544,31 @@ object EsAppStrings : AppStrings {
     override val send = "Enviar"
     override val stop = "Detener"
     override val generateImage = "Generar imagen"
+    override val attachmentOptions = "Opciones de adjuntos"
+    override val attachPhoto = "Foto"
+    override val attachDocument = "Documento"
+    override val copyMessage = "Copiar"
+    override val messageCopied = "Copiado"
+    override val messageStopping = "Deteniendo…"
+    override val messageCancelled = "Cancelado"
+    override val messageFailed = "Falló"
+    override val projectAll = "Todos"
+    override val projectWriting = "Espacios de escritura"
+    override val projectActive = "Activos"
+    override val projectArchived = "Archivados"
+    override val projectsEmptyBody = "Los proyectos disponibles para esta cuenta aparecerán aquí."
+    override val projectStudio = "ESTUDIO"
+    override val activeWorkspace = "ESPACIO ACTIVO"
+    override val archivedWorkspace = "ARCHIVADO"
+    override val noProjectConversations = "Este proyecto aún no tiene conversaciones vinculadas."
+    override val renameProject = "Cambiar nombre del proyecto"
+    override val deleteProject = "Eliminar proyecto"
+    override val refreshProjects = "Actualizar proyectos"
+    override val newProject = "Nuevo proyecto"
+    override fun projectCount(count: Int) = if (count == 1) "1 proyecto" else "$count proyectos"
+    override fun noProjectsForFilter(filter: String) = "No hay proyectos en «$filter»."
     override val imageGenerationUnavailable = "Generación de imagen no disponible"
+    override val conversationOptions = "Opciones de conversación"
     override val deleteConversation = "Eliminar"
     override val deleteConversationTitle = "¿Eliminar esta conversación?"
     override val deleteConversationBody = "Se eliminarán sus mensajes y archivos adjuntos de Jarvis y de este dispositivo. Esta acción no se puede deshacer."
@@ -426,8 +582,43 @@ object EsAppStrings : AppStrings {
     override val thinking = "Pensando…"
     override val back = "Atrás"
 
+    override val bootInitializing = "Iniciando el núcleo"
+    override val bootLoading = "Cargando capacidades"
+    override val bootRestoring = "Restaurando tu espacio de trabajo"
+    override val bootConnecting = "Conectando con JARVIS"
+    override val appDescriptor = "Tu asistente personal"
+    override fun welcomeBack(ownerName: String?) =
+        if (ownerName.isNullOrBlank()) "Qué bueno tenerte de vuelta" else "Qué bueno tenerte de vuelta, $ownerName"
+    override val allSystemsReady = "JARVIS está listo para ayudarte."
+    override fun secureClientVersion(version: Number) = "App segura de JARVIS · versión $version"
+    override val loginAgain = "Iniciar sesión de nuevo"
+    override val signInTitle = "Inicia sesión en JARVIS"
+    override val signInDescription = "Tu conexión privada con JARVIS se configura automáticamente."
+    override val username = "Usuario"
+    override val password = "Contraseña"
+    override val signIn = "Iniciar sesión"
+    override val signingIn = "Iniciando sesión…"
+    override val privateConnection = "Conexión privada"
+    override val diagnosticsTitle = "Diagnóstico"
+    override val hideDetails = "Ocultar detalles"
+    override fun showDetails(count: Int) = "Ver detalles ($count)"
+    override val lockedTitle = "JARVIS está bloqueado"
+    override val lockedDescription = "Autentícate para continuar."
+    override val unlockAction = "Desbloquear JARVIS"
+    override val authenticationFailed = "La autenticación falló o se canceló."
+    override val sessionLocked = "Sesión bloqueada"
+    override val sessionExpired = "Tu sesión de JARVIS venció"
+    override val reauthDescription = "Usa tu huella, rostro o el desbloqueo del dispositivo. No necesitas la contraseña de JARVIS."
+    override val renewingSession = "Renovando la sesión segura…"
+    override val pairAgain = "Iniciar sesión de nuevo"
+    override val authenticationUnavailable = "La autenticación se canceló o no está disponible en este dispositivo."
+    override val revokedReason = "Este dispositivo fue revocado en la PC de Jarvis. Inicia sesión de nuevo para recuperar el acceso."
+    override val expiredSessionReason = "La sesión de este dispositivo venció y no se puede renovar. Inicia sesión de nuevo para recuperar el acceso."
+    override val protocolMismatchReason = "Esta app no es compatible con el protocolo de la PC de Jarvis. Actualízala y vuelve a iniciar sesión."
+
     override val approvalsTitle = "Aprobaciones"
     override val tasksTitle = "Tareas"
+    override val taskProgressLabel = "Progreso"
     override val ownerOnlyTitle = "Solo propietario"
     override val ownerOnlyBody = "Las aprobaciones de acciones de PC solo son visibles para el PROPIETARIO de esta instalación de Jarvis. Este dispositivo ha iniciado sesión como invitado."
     override val nothingToApproveTitle = "Nada que aprobar"
@@ -446,13 +637,13 @@ object EsAppStrings : AppStrings {
     override val noTasksBody = "El trabajo en segundo plano enviado a tu PC aparecerá aquí."
 
     override val settingsTitle = "Ajustes"
-    override val languageSection = "LANGUAGE / IDIOMA"
+    override val languageSection = "Idioma"
     override val languageSubtitle = "Seleccionar idioma de la interfaz / Select interface language"
     override val langSystem = "Predeterminado del sistema / System default"
     override val langEnglish = "English (United States)"
     override val langSpanish = "Español (Latinoamérica)"
 
-    override val usageSection = "USO Y LÍMITES DE IA"
+    override val usageSection = "Uso y límites"
     override val usageSettingsDescription = "Consulta el uso observado por JARVIS para ChatGPT/Codex, Grok, Gemini, Nous y FreeLLMAPI."
     override val openUsage = "Ver uso"
     override val usageTitle = "Uso y límites"
@@ -473,7 +664,7 @@ object EsAppStrings : AppStrings {
     override fun quotaResets(value: String) = "Se restablece $value"
     override val noUsageYet = "Sin uso observado en este periodo"
 
-    override val identitySection = "IDENTIDAD"
+    override val identitySection = "Identidad"
     override val profilePhotoSet = "Foto de perfil configurada"
     override val noProfilePhoto = "Sin foto de perfil"
     override val photoDescription = "Se muestra junto a tus mensajes. Almacenada solo en este teléfono."
@@ -482,26 +673,26 @@ object EsAppStrings : AppStrings {
     override val deviceIsOwner = "Este dispositivo es el PROPIETARIO"
     override val deviceIsOwnerSubtitle = "Solo el propietario puede ver y resolver aprobaciones de acciones de PC"
 
-    override val securitySection = "SEGURIDAD"
+    override val securitySection = "Seguridad"
     override val requireUnlock = "Requerir desbloqueo"
     override val requireUnlockSubtitle = "Solicitar biometría o PIN cada vez que se abre la app"
     override val deviceKeyNotice = "La clave privada permanece en Android Keystore y nunca se exporta."
     override val revokeAndRepair = "Revocar y revincular"
 
-    override val floatingBrainSection = "CEREBRO FLOTANTE"
+    override val floatingBrainSection = "Cerebro flotante"
     override val floatingBubble = "Burbuja flotante"
     override val floatingBubbleGrantedSubtitle = "Mantén el cerebro en pantalla sobre otras apps y abre la conversación desde allí"
     override val floatingBubbleNeedsPermissionSubtitle = "Requiere permiso para mostrarse sobre otras apps. Se otorga en Ajustes del sistema."
     override val screenVisionOn = "Visión de pantalla activada. Solo lee o presiona cuando apruebas una acción."
     override val screenVisionOff = "Visión de pantalla desactivada. Actívala en Ajustes, Accesibilidad, si deseas que JARVIS vea y actúe en esta pantalla — siempre con tu previa aprobación."
 
-    override val appearanceSection = "APARIENCIA"
+    override val appearanceSection = "Apariencia"
     override val reduceMotion = "Reducir movimiento"
     override val reduceMotionSubtitle = "Desactiva el brillo ambiental, pulsos y animación de inicio"
     override val greetingName = "Nombre de saludo"
     override val saveName = "Guardar nombre"
 
-    override val appUpdateSection = "ACTUALIZACIÓN DE LA APP"
+    override val appUpdateSection = "Actualización de la app"
     override fun installedVersion(name: String, code: Number) = "Instalado $name ($code)"
     override val updatesDeliveredNotice = "Las actualizaciones se descargan directamente desde la release oficial de JARVIS en GitHub."
     override val checkForUpdate = "Buscar actualizaciones"
@@ -520,7 +711,7 @@ object EsAppStrings : AppStrings {
     override fun installerOpenedNotice(version: String) = "Instalador de Android abierto para $version. Confirma Actualizar para mantener tus datos."
     override val tryAgain = "Reintentar"
 
-    override val connectionSection = "CONEXIÓN"
+    override val connectionSection = "Conexión"
     override val useFakeGateway = "Usar pasarela simulada"
     override val useFakeGatewaySubtitle = "Escenarios locales deterministas — sin red. Desactivado = HTTP /api/v1"
     override val restartAppNotice = "Reinicia la aplicación para aplicar un cambio de transporte."
@@ -528,7 +719,7 @@ object EsAppStrings : AppStrings {
     override val saveUrl = "Guardar URL"
     override val checkHealth = "Verificar estado"
 
-    override val simulationSection = "SIMULACIÓN"
+    override val simulationSection = "Simulación"
     override val simulationSubtitle = "Controla la matriz de escenarios deterministas sin backend en vivo."
     override val scenario = "Escenario"
     override val runScenarioNow = "Ejecutar escenario ahora"
@@ -536,6 +727,13 @@ object EsAppStrings : AppStrings {
     override val workspaceOverview = "Resumen"
     override val workspaceWrite = "Escribir"
     override val workspaceChat = "Copiloto"
+    override val workspaceCanon = "Canon"
+    override val workspaceVisual = "Visual"
+    override val visualStudioTitle = "Estudio visual"
+    override val visualCharacters = "Personajes"
+    override val visualLocations = "Lugares"
+    override val visualScenes = "Escenas"
+    override val visualMap = "Mapa"
     override val writingRoomAnalyzing = "ANALIZANDO CANON"
     override val writingRoomResponding = "REDACTANDO RESPUESTA"
     override val workspacePlan = "Planes"
