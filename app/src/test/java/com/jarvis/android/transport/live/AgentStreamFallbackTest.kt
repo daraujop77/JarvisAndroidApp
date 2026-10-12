@@ -182,9 +182,10 @@ class AgentStreamFallbackTest {
             val request = server.takeRequest()
             assertEquals("/api/app/chat/agent/project/turn", request.path)
             val body = request.body.readUtf8()
-            assertTrue(body.contains("\\"project_id\\":\\"prj_story\\""))
-            assertTrue(body.contains("\\"conversation_id\\":\\"chat-project-a\\""))
-            assertTrue(body.contains("\\"mode\\":\\"local_only\\""))
+            val payload = kotlinx.serialization.json.Json.parseToJsonElement(body).jsonObject
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("prj_story"), payload["project_id"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("chat-project-a"), payload["conversation_id"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("local_only"), payload["mode"])
         }
 
     @Test fun projectAgentBindingIsExplicitPerAccountAndConversation() {
