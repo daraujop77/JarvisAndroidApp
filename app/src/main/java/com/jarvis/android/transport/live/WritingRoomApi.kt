@@ -1546,34 +1546,87 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     }
 }
 
-/** Read-only task recovery is scoped by VPS to the authenticated project principal. */
+/** Read-only recovery is scoped by VPS to the authenticated principal+conversation. */
 suspend fun JarvisAppSession.writingRoomCopilotTaskLatest(
     projectId: String,
-): Result<CopilotTaskState> =
-    writingPost(
+): Result<CopilotTaskState> {
+    val conversationId = runCatching { writingRoomConversationId(projectId) }.getOrNull()
+    if (conversationId != null) {
+        val adaptive: Result<CopilotTaskState> = writingPost(
+            "/api/app/writing-room/agent/latest",
+            buildJsonObject {
+                put("project_id", projectId)
+                put("conversation_id", conversationId)
+            },
+        )
+        if (adaptive.isSuccess && adaptive.getOrNull()?.task_id?.isNotBlank() == true) {
+            return adaptive
+        }
+        // Fall back only for feature flag OFF / deployment older than the app.
+        if (adaptive.isFailure && adaptive.exceptionOrNull()?.message != "Agent HTTP 404" &&
+            adaptive.exceptionOrNull()?.message != "HTTP 404"
+        ) return adaptive
+    }
+    return writingPost(
         "/api/app/writing-room/copilot/tasks/latest",
         buildJsonObject { put("project_id", projectId) },
     )
+}
 
 suspend fun JarvisAppSession.writingRoomCopilotTaskStatus(
     projectId: String,
     taskId: String,
-): Result<CopilotTaskState> =
-    writingPost(
+    conversationId: String = "",
+): Result<CopilotTaskState> {
+    if (taskId.startsWith("ar_")) {
+        if (conversationId.isBlank()) {
+            return Result.failure(TransportException("Missing agent conversation"))
+        }
+        return writingPost(
+            "/api/app/writing-room/agent/status",
+            buildJsonObject {
+                put("project_id", projectId)
+                put("conversation_id", conversationId)
+                put("task_id", taskId)
+            },
+        )
+    }
+    return writingPost(
         "/api/app/writing-room/copilot/tasks/status",
         buildJsonObject {
             put("project_id", projectId)
             put("task_id", taskId)
         },
     )
+}
 
-/** Runs only a stored allowlisted plan; proposal writes require explicit confirmation. */
+/** One frozen operation, hash-bound; no generic confirmed=true for agent runs. */
 suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
     projectId: String,
     taskId: String,
     confirmed: Boolean,
-): Result<CopilotTaskState> =
-    writingPost(
+    conversationId: String = "",
+    actionHash: String = "",
+    mode: String = "auto",
+): Result<CopilotTaskState> {
+    if (taskId.startsWith("ar_")) {
+        if (!confirmed || conversationId.isBlank() ||
+            !Regex("^[a-f0-9]{64}$").matches(actionHash)
+        ) return Result.failure(TransportException("Invalid agent approval"))
+        return writingPost(
+            "/api/app/writing-room/agent/confirm",
+            buildJsonObject {
+                put("project_id", projectId)
+                put("conversation_id", conversationId)
+                put("task_id", taskId)
+                put("action_hash", actionHash)
+                put("mode", mode)
+                put("confirmed", true)
+            },
+            timeoutMillis = 120_000L,
+        )
+    }
+    return writingPost(
         "/api/app/writing-room/copilot/tasks/run",
         buildJsonObject {
             put("project_id", projectId)
@@ -1582,6 +1635,7 @@ suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
         },
         timeoutMillis = 120_000L,
     )
+}
 
 suspend fun JarvisAppSession.writingRoomWikiHome(
     projectId: String,
