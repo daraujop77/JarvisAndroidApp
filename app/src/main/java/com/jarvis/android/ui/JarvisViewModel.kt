@@ -2037,13 +2037,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             ) return@launch
             val current = _writingWorkspace.value
             if (response.isSuccess && response.getOrNull()?.requested == true) {
+                val cancelled = response.getOrNull()?.state == "CANCELED"
                 _writingWorkspace.value = current.copy(
                     copilotAgentBusy = false,
                     copilotAgentTask = task.copy(
-                        state = "CANCEL_REQUESTED",
-                        agent_run_state = "CANCEL_REQUESTED",
+                        state = if (cancelled) "CANCELED" else "CANCEL_REQUESTED",
+                        agent_run_state = if (cancelled) "CANCELED" else "CANCEL_REQUESTED",
                         requires_confirmation = false,
-                        summary = "Cancelación solicitada. Las operaciones en curso se registrarán.",
+                        summary = if (cancelled) "Tarea cancelada antes de ejecutar la acción."
+                                  else "Cancelación solicitada. Las operaciones en curso se registrarán.",
                     ),
                 )
             } else {
