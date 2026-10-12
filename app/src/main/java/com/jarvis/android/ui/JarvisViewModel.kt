@@ -2014,6 +2014,48 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /** Stop future adaptive steps; a running tool may still finish remotely. */
+    fun cancelWritingCopilotTask(projectId: String) {
+        val task = _writingWorkspace.value.copilotAgentTask ?: return
+        if (_writingWorkspace.value.chatProjectId != projectId ||
+            task.project_id != projectId ||
+            !Regex("^ar_[a-f0-9]{24}$").matches(task.task_id) ||
+            task.conversation_id.isBlank() ||
+            task.agent_run_state !in setOf(
+                "RUNNING", "WAITING_CONFIRMATION", "DISPATCHING",
+            ) || _writingWorkspace.value.copilotAgentBusy
+        ) return
+        val epoch = copilotRecoveryEpoch
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            copilotAgentBusy = true, copilotAgentError = null,
+        )
+        viewModelScope.launch {
+            val scope = AgentConversationScope(projectId, task.conversation_id)
+            val response = container.liveSession.agentCancel(scope, task.task_id)
+            if (copilotRecoveryEpoch != epoch ||
+                _writingWorkspace.value.chatProjectId != projectId
+            ) return@launch
+            val current = _writingWorkspace.value
+            if (response.isSuccess && response.getOrNull()?.requested == true) {
+                _writingWorkspace.value = current.copy(
+                    copilotAgentBusy = false,
+                    copilotAgentTask = task.copy(
+                        state = "CANCEL_REQUESTED",
+                        agent_run_state = "CANCEL_REQUESTED",
+                        requires_confirmation = false,
+                        summary = "Cancelación solicitada. Las operaciones en curso se registrarán.",
+                    ),
+                )
+            } else {
+                _writingWorkspace.value = current.copy(
+                    copilotAgentBusy = false,
+                    copilotAgentError = response.exceptionOrNull()?.message
+                        ?: "No fue posible confirmar la cancelación; consulta el estado.",
+                )
+            }
+        }
+    }
+
     private fun markCopilotApprovedVisualUnavailable(projectId: String, epoch: Long, assetId: String) {
         if (copilotRecoveryEpoch != epoch || _writingWorkspace.value.chatProjectId != projectId) return
         val current = _writingWorkspace.value
