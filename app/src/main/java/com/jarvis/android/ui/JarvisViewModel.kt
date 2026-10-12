@@ -2188,6 +2188,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 toolMode = toolMode,
                 recentMessages = recent,
                 approvedVisualAssetIds = visibleApprovedIds,
+                onProgress = { phase ->
+                    val current = _writingWorkspace.value
+                    if (current.chatProjectId == projectId && current.busy) {
+                        val label = when (phase) {
+                            "thinking" -> "JARVIS · RAZONANDO"
+                            "using_tool" -> "JARVIS · CONSULTANDO HERRAMIENTAS"
+                            "approval_required" -> "JARVIS · ESPERANDO TU APROBACIÓN"
+                            "completed" -> "JARVIS · FINALIZANDO RESPUESTA"
+                            else -> "JARVIS · PROCESANDO"
+                        }
+                        _writingWorkspace.value = current.copy(busyLabel = label)
+                    }
+                },
                 onDelta = { delta ->
                     val state = _writingWorkspace.value
                     if (state.chatProjectId == projectId) {
