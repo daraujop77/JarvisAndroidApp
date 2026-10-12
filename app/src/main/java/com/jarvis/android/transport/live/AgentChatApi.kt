@@ -115,7 +115,7 @@ suspend fun JarvisAppSession.agentTurn(
     mode: String = "auto",
 ): Result<WritingRoomAutoChat> {
     if (requestId.isBlank() || requestId.length > 160 ||
-        prompt.isBlank() || prompt.length > 4000
+        prompt.isBlank() || prompt.length > 6000
     ) return Result.failure(TransportException("invalid agent request"))
     return agentPost(
         "/api/app/writing-room/agent/turn",
