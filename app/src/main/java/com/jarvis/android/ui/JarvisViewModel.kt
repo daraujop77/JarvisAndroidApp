@@ -62,6 +62,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _conversationId = MutableStateFlow<String?>(null)
     val conversationId: StateFlow<String?> = _conversationId
 
+    private val _globalChatAgentProject = MutableStateFlow<String?>(null)
+    val globalChatAgentProject: StateFlow<String?> = _globalChatAgentProject
+
+    fun selectGlobalChatAgentProject(projectId: String?) {
+        val id = _conversationId.value ?: return
+        container.liveSession.setChatAgentProjectFor(id, projectId)
+        _globalChatAgentProject.value = container.liveSession.chatAgentProjectFor(id)
+    }
+
     val snapshot: StateFlow<SessionSnapshot> = session.snapshot
 
     val conversationList: StateFlow<List<ConversationSummary>> =
@@ -116,6 +125,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun openConversation(id: String) {
         _conversationId.value = id
+        _globalChatAgentProject.value = container.liveSession.chatAgentProjectFor(id)
     }
 
     suspend fun deleteConversation(id: String): Boolean {
@@ -6450,6 +6460,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun startNewConversation(onReady: (String) -> Unit = {}) {
         conversations.newConversation { id ->
             _conversationId.value = id
+            _globalChatAgentProject.value = null
             onReady(id)
         }
     }
@@ -6460,6 +6471,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val id = _conversationId.value ?: run {
             conversations.newConversation { newId ->
                 _conversationId.value = newId
+                _globalChatAgentProject.value = null
                 conversations.send(newId, trimmed)
             }
             return
