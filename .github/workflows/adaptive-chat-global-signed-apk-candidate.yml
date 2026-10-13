@@ -42,10 +42,10 @@ jobs:
       - name: Assemble release signed with existing keystore
         shell: bash
         env:
-          RELEASE_KEYSTORE_BASE64: \${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_STORE_PASSWORD: \${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: \${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: \${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           set -Eeuo pipefail
           umask 077
@@ -60,7 +60,7 @@ jobs:
           ./gradlew :app:assembleRelease -PjarvisVersionCode=66 -PjarvisVersionName=0.1.66-chat-global-candidate --stacktrace
           apk=app/build/outputs/apk/release/app-release.apk
           test -s "$apk"
-          build_tools="$(find "\${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          build_tools="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           test -x "$build_tools/apksigner"
           "$build_tools/apksigner" verify "$apk"
           mkdir -p "$RUNNER_TEMP/jarvis-chat-artifact"
@@ -74,7 +74,7 @@ jobs:
         if: success()
         with:
           name: JARVIS-chat-global-v66-signed-candidate
-          path: \${{ runner.temp }}/jarvis-chat-artifact/JARVIS-chat-global-v66-candidate.apk
+          path: ${{ runner.temp }}/jarvis-chat-artifact/JARVIS-chat-global-v66-candidate.apk
           if-no-files-found: error
           retention-days: 14
       - name: Upload test reports
