@@ -39,6 +39,13 @@ class CopilotStreamRequestRecoveryTest {
     private fun json(request: RecordedRequest) =
         Json.parseToJsonElement(request.body.readUtf8()).jsonObject
 
+    /** SSE data must be one line; additional raw JSON lines are ignored
+     * by the production event parser. Compact multiline test fixtures here.
+     */
+    private fun completedSse(json: String) = MockResponse()
+        .setHeader("Content-Type", "text/event-stream")
+        .setBody("event: complete\ndata: ${json.replace("\n", "").replace("\r", "")}\n\n")
+
     @Test fun completedAgentStreamPinsOriginalRequestIdForPostApprovalRefresh() =
         runBlocking(Dispatchers.IO) {
             var originalId = ""
@@ -56,8 +63,7 @@ class CopilotStreamRequestRecoveryTest {
                         "project_id":"prj_story","conversation_id":"$conversationId",
                         "state":"READY","agent_run_state":"WAITING_CONFIRMATION",
                         "requires_confirmation":true}}"""
-                    return MockResponse().setHeader("Content-Type", "text/event-stream")
-                        .setBody("event: complete\ndata: $completed\n\n")
+                    return completedSse(completed)
                 }
             }
             val chat = session.writingRoomAutoChatStream(
@@ -71,13 +77,13 @@ class CopilotStreamRequestRecoveryTest {
 
     @Test fun mismatchedConversationCannotPinRequestIdFromSuccessfulStream() =
         runBlocking(Dispatchers.IO) {
-            server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream")
-                .setBody("event: complete\ndata: " +
+            server.enqueue(completedSse(
                     """{"schema":"jarvis.writing-room.chat.v1",
                        "turn":{"project_id":"prj_story","response":{"text":"Ready"}},
                        "copilot_task":{"task_id":"ar_0123456789abcdef01234567",
                          "project_id":"prj_story","conversation_id":"other-chat",
-                         "state":"READY"}}""" + "\n\n"))
+                         "state":"READY"}}""",
+            ))
             // Unexpected retry/recovery must fail promptly, not wait forever
             // on an unqueued MockWebServer response in the CI runner.
             server.enqueue(MockResponse().setResponseCode(503))
