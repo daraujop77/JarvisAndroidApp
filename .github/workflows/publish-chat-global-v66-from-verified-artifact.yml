@@ -75,7 +75,7 @@ jobs:
           import os,pathlib,re
           text=(pathlib.Path(os.environ["RUNNER_TEMP"])/"apk-signature.txt").read_text().splitlines()
           found=[m.group(1).lower() for line in text if "certificate sha-256 digest" in line.casefold()
-                 for m in [re.search(r"([A-Fa-f0-9]{64})\\s*$",line)] if m]
+                 for m in [re.search(r"([A-Fa-f0-9]{64})\s*$",line)] if m]
           if found != [os.environ["ORIGINAL_CERT_SHA256"]]:
               raise SystemExit("BLOCKED: signing identity differs from installed JARVIS")
           print("ORIGINAL_INSTALL_SIGNATURE=PASS")
