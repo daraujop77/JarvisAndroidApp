@@ -49,7 +49,7 @@ class CopilotStreamRequestRecoveryTest {
                         "/api/app/writing-room/agent/stream" -> {
                             originalId = body["request_id"]!!.jsonPrimitive.content
                             MockResponse().setHeader("Content-Type", "text/event-stream")
-                                .setBody("event: ready\\ndata: {}\\n\\n")
+                                .setBody("event: ready\ndata: {}\n\n")
                         }
                         "/api/app/writing-room/agent/request-status" -> {
                             assertEquals(originalId, body["request_id"]!!.jsonPrimitive.content)
@@ -89,7 +89,7 @@ class CopilotStreamRequestRecoveryTest {
                         "/api/app/writing-room/agent/stream" -> {
                             originalId = body["request_id"]!!.jsonPrimitive.content
                             MockResponse().setHeader("Content-Type", "text/event-stream")
-                                .setBody("event: ready\\ndata: {}\\n\\n")
+                                .setBody("event: ready\ndata: {}\n\n")
                         }
                         "/api/app/writing-room/agent/request-status" -> MockResponse().setBody(
                             """{"schema":"jarvis.writing-room.copilot.task.v1",
@@ -115,7 +115,7 @@ class CopilotStreamRequestRecoveryTest {
     @Test fun unavailableRecoveryFailsWithoutSecondAgentDispatch() =
         runBlocking(Dispatchers.IO) {
             server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream")
-                .setBody("event: ready\\ndata: {}\\n\\n"))
+                .setBody("event: ready\ndata: {}\n\n"))
             server.enqueue(MockResponse().setResponseCode(404))
             val outcome = session.writingRoomAutoChatStream(
                 "prj_story", "Alexander", "Crea una escena", onDelta = {},
