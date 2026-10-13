@@ -18,6 +18,7 @@ import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.transport.live.*
 import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
 import com.jarvis.android.ui.writing.shouldProbeAdaptiveCopilotTool
+import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
@@ -1967,7 +1968,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     projectId, task.task_id, conversationId = task.conversation_id,
                 ).getOrNull() ?: return@repeat
                 if (next.project_id != projectId || next.task_id != task.task_id) return@launch
+                // The task may produce approved references AFTER the initial
+                // chat reply. Harvest only newly completed, hash-bound results
+                // from this exact project/task; never infer images from another
+                // conversation or download a candidate during polling.
+                val newVisuals = newApprovedCopilotTaskVisuals(
+                    projectId, _writingWorkspace.value.copilotAgentTask, next,
+                )
                 _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = next)
+                if (newVisuals.isNotEmpty()) loadApprovedCopilotVisuals(projectId, newVisuals)
                 val preview = next.live_progress.firstOrNull {
                     it.tool in setOf("start_scene_generation", "generate_story_scene") &&
                         it.status == "READY_FOR_REVIEW" &&

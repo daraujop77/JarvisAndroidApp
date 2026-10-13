@@ -1,0 +1,94 @@
+package com.jarvis.android.ui.writing
+
+import com.jarvis.android.transport.live.CopilotApprovedVisualAsset
+import com.jarvis.android.transport.live.CopilotTaskResult
+import com.jarvis.android.transport.live.CopilotTaskState
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class CopilotTaskVisualRecoveryTest {
+    private val approved = CopilotApprovedVisualAsset(
+        asset_id = "va_0123456789abcdef01234567",
+        sha256 = "a".repeat(64),
+        status = "APPROVED",
+        storage_state = "stored",
+        kind = "PRIMARY_REFERENCE",
+        character_ids = listOf("character:alexander"),
+    )
+    private fun task(
+        project: String = "prj_story",
+        taskId: String = "ar_123",
+        assets: List<CopilotApprovedVisualAsset> = emptyList(),
+    ) = CopilotTaskState(
+        project_id = project,
+        task_id = taskId,
+        results = if (assets.isEmpty()) emptyList()
+                  else listOf(CopilotTaskResult(
+                      tool = "get_approved_visual_references",
+                      visual_assets = assets,
+                  )),
+    )
+
+    @Test fun newApprovedAssetArrivingDuringPollingIsDownloadedOnce() {
+        val initial = task()
+        val completed = task(assets = listOf(approved))
+        assertEquals(listOf(approved),
+            newApprovedCopilotTaskVisuals("prj_story", initial, completed))
+        assertTrue(newApprovedCopilotTaskVisuals(
+            "prj_story", completed, completed,
+        ).isEmpty())
+    }
+
+    @Test fun candidateBecomingApprovedTriggersOnlyAfterApproval() {
+        val candidate = approved.copy(status = "CANDIDATE")
+        val before = task(assets = listOf(candidate))
+        val after = task(assets = listOf(approved))
+        assertTrue(newApprovedCopilotTaskVisuals(
+            "prj_story", task(), before,
+        ).isEmpty())
+        assertEquals(listOf(approved),
+            newApprovedCopilotTaskVisuals("prj_story", before, after))
+    }
+
+    @Test fun mismatchedProjectOrMissingTaskNeverLeaksVisuals() {
+        val crossProject = task(project = "prj_private", assets = listOf(approved))
+        assertTrue(newApprovedCopilotTaskVisuals(
+            "prj_story", task(), crossProject,
+        ).isEmpty())
+        assertTrue(newApprovedCopilotTaskVisuals(
+            "prj_story", null, task(taskId = "", assets = listOf(approved)),
+        ).isEmpty())
+    }
+
+    @Test fun invalidHashAndStorageStateAreNeverDownloaded() {
+        val badDigest = approved.copy(sha256 = "xyz")
+        val pending = approved.copy(storage_state = "pending")
+        val otherId = approved.copy(asset_id = "not-a-visual")
+        val next = task(assets = listOf(badDigest, pending, otherId))
+        assertTrue(newApprovedCopilotTaskVisuals(
+            "prj_story", null, next,
+        ).isEmpty())
+    }
+
+    @Test fun duplicateAndChangedHashForSeenIdAreNotReFetched() {
+        val before = task(assets = listOf(approved))
+        val later = task(assets = listOf(
+            approved.copy(sha256 = "b".repeat(64)),
+            approved,
+        ))
+        assertTrue(newApprovedCopilotTaskVisuals(
+            "prj_story", before, later,
+        ).isEmpty())
+        assertEquals(1, newApprovedCopilotTaskVisuals(
+            "prj_story", task(), later,
+        ).size)
+    }
+
+    @Test fun laterTaskDoesNotInheritEarlierTasksSeenAssets() {
+        val previous = task(taskId = "ar_previous", assets = listOf(approved))
+        val fresh = task(taskId = "ar_new", assets = listOf(approved))
+        assertEquals(listOf(approved),
+            newApprovedCopilotTaskVisuals("prj_story", previous, fresh))
+    }
+}
