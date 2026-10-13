@@ -323,10 +323,10 @@ class LiveAppGatewayTransport(
         }
 
         val payload = chatPayload(req, traceId, deviceId, sessionId)
-        // Same authenticated SSE contract; legacy stream remains for images,
-        // documents and old VPS deployments. No hidden model/tool classifier.
+        // The adaptive general agent now accepts bounded inline images and
+        // one document. Existing backend parses them with the same JARVIS
+        // validators; older deployments continue on legacy streaming.
         val generalAgent = session.generalChatAgentEnabled &&
-            req.attachmentIds.isEmpty() &&
             session.chatAgentProjectFor(req.conversationId) == null
         val endpoint = if (generalAgent) "/api/app/chat/agent/general/stream"
                        else "/api/app/chat/stream"
