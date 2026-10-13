@@ -1574,7 +1574,23 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         }
         if (status !in 200..299) throw TransportException("HTTP $status")
         streamError?.let { throw TransportException(it) }
-        completed ?: throw TransportException("Writing Room stream ended without completion")
+        val response = completed
+            ?: throw TransportException("Writing Room stream ended without completion")
+        // Ordinary successful agent streams also need their stable request
+        // ID: after a user confirms a proposed action, Android must recover
+        // the final text by request ID instead of showing a stale proposal.
+        // Pin it only to the exact authenticated project/conversation and
+        // server-issued agent task. Legacy responses are never augmented.
+        val agentTask = response.copilot_task
+        if (usingAdaptive && agentTask != null &&
+            agentTask.task_id.startsWith("ar_") &&
+            agentTask.project_id == projectId &&
+            agentTask.conversation_id == stableConversationId &&
+            (agentTask.request_id.isBlank() ||
+                agentTask.request_id == stableRequestId)
+        ) {
+            response.copy(copilot_task = agentTask.copy(request_id = stableRequestId))
+        } else response
     }
     if (streamResult.isSuccess || !usingAdaptive || !adaptiveStreamAccepted) {
         return@withContext streamResult

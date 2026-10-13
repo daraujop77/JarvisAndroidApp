@@ -38,6 +38,52 @@ class CopilotStreamRequestRecoveryTest {
     private fun json(request: RecordedRequest) =
         Json.parseToJsonElement(request.body.readUtf8()).jsonObject
 
+    @Test fun completedAgentStreamPinsOriginalRequestIdForPostApprovalRefresh() =
+        runBlocking(Dispatchers.IO) {
+            var originalId = ""
+            val conversationId = session.writingRoomConversationId("prj_story")
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.path != "/api/app/writing-room/agent/stream")
+                        return MockResponse().setResponseCode(500)
+                    originalId = json(request)["request_id"]!!.jsonPrimitive.content
+                    val completed = """{"schema":"jarvis.writing-room.chat.v1",
+                      "turn":{"schema":"jarvis.writing-room.turn.v1",
+                        "project_id":"prj_story","response":{"text":"Confirma la acción"}},
+                      "copilot_task":{"schema":"jarvis.writing-room.copilot.task.v1",
+                        "task_id":"ar_0123456789abcdef01234567",
+                        "project_id":"prj_story","conversation_id":"$conversationId",
+                        "state":"READY","agent_run_state":"WAITING_CONFIRMATION",
+                        "requires_confirmation":true}}"""
+                    return MockResponse().setHeader("Content-Type", "text/event-stream")
+                        .setBody("event: complete\ndata: $completed\n\n")
+                }
+            }
+            val chat = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Guarda una idea", onDelta = {},
+            ).getOrThrow()
+            assertFalse(chat.recovered_from_interruption)
+            assertEquals(originalId, chat.copilot_task!!.request_id)
+            assertEquals("READY", chat.copilot_task!!.state)
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun mismatchedConversationCannotPinRequestIdFromSuccessfulStream() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream")
+                .setBody("event: complete\ndata: " +
+                    """{"schema":"jarvis.writing-room.chat.v1",
+                       "turn":{"project_id":"prj_story","response":{"text":"Ready"}},
+                       "copilot_task":{"task_id":"ar_0123456789abcdef01234567",
+                         "project_id":"prj_story","conversation_id":"other-chat",
+                         "state":"READY"}}""" + "\n\n"))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Consulta", onDelta = {},
+            ).getOrThrow()
+            assertEquals("", result.copilot_task!!.request_id)
+            assertEquals(1, server.requestCount)
+        }
+
     @Test fun lostCompletionRecoversExactFullAnswerWithoutResendingPrompt() =
         runBlocking(Dispatchers.IO) {
             var originalId = ""

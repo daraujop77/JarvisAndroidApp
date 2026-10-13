@@ -1998,7 +1998,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
 
-    /** Recover completed text for an interrupted SSE turn, without re-running it. */
+    /** Recover the final reply after a lost SSE stream OR explicit approval.
+     * This is always read-only; it never repeats a confirmed tool call.
+     */
     private suspend fun restoreInterruptedCopilotReply(
         projectId: String,
         task: CopilotTaskState,
@@ -2018,8 +2020,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         ) return
         val state = _writingWorkspace.value
         val index = state.chatHistory.indexOfLast {
-            it.response?.copilot_task?.task_id == task.task_id &&
-                it.response?.recovered_from_interruption == true
+            it.response?.copilot_task?.task_id == task.task_id
         }
         if (index < 0) return
         val history = state.chatHistory.toMutableList()
@@ -2083,10 +2084,21 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 if (copilotRecoveryEpoch == epoch &&
                     _writingWorkspace.value.chatProjectId == projectId
                 ) {
-                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = updated)
+                    val scopedUpdated = if (task.request_id.isNotBlank())
+                        updated.copy(request_id = task.request_id) else updated
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAgentTask = scopedUpdated,
+                    )
                     val approved = updated.results.flatMap { it.visual_assets }
                     if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
-                    followCopilotTaskProgress(projectId, updated)
+                    followCopilotTaskProgress(projectId, scopedUpdated)
+                    // A confirmed action can complete synchronously without
+                    // starting a background poll. Read the authoritative reply
+                    // by the original request ID, never by project-latest.
+                    if (task.request_id.isNotBlank() &&
+                        !copilotTaskHasActiveRemoteWork(scopedUpdated)) {
+                        restoreInterruptedCopilotReply(projectId, scopedUpdated, epoch)
+                    }
                 }
             } catch (error: Exception) {
                 if (copilotRecoveryEpoch == epoch &&
