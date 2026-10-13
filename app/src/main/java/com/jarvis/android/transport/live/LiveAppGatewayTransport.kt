@@ -323,9 +323,16 @@ class LiveAppGatewayTransport(
         }
 
         val payload = chatPayload(req, traceId, deviceId, sessionId)
+        // Same authenticated SSE contract; legacy stream remains for images,
+        // documents and old VPS deployments. No hidden model/tool classifier.
+        val generalAgent = session.generalChatAgentEnabled &&
+            req.attachmentIds.isEmpty() &&
+            session.chatAgentProjectFor(req.conversationId) == null
+        val endpoint = if (generalAgent) "/api/app/chat/agent/general/stream"
+                       else "/api/app/chat/stream"
 
         val request = Request.Builder()
-            .url(session.baseUrl + "/api/app/chat/stream")
+            .url(session.baseUrl + endpoint)
             .header("Accept", "text/event-stream")
             .header("Authorization", session.authHeader() ?: throw TransportException("no token"))
             .post(payload.toRequestBody(JarvisAppSession.JSON_MEDIA))

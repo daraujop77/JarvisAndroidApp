@@ -81,6 +81,11 @@ class JarvisAppSession(
     private val json = Json { ignoreUnknownKeys = true }
     private val refreshMutex = Mutex()
 
+    /** Server-advertised opt-in. False until authenticated status proves availability. */
+    @Volatile
+    var generalChatAgentEnabled: Boolean = false
+        private set
+
     @Serializable
     data class AppUser(val id: String = "", val username: String = "", val role: String = "")
 
@@ -453,6 +458,8 @@ class JarvisAppSession(
             }
             val ownerSel = chat["access"]?.jsonObject
                 ?.get("owner_model_selection")?.jsonPrimitive?.booleanOrNull ?: false
+            generalChatAgentEnabled = chat["general_agent"]?.jsonObject
+                ?.get("enabled")?.jsonPrimitive?.booleanOrNull ?: false
             val capabilities = root["capabilities"]?.jsonObject
             val capabilityStates = capabilities
                 ?.mapValues { (_, value) ->
