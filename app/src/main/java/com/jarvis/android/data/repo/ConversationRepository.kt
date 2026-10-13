@@ -246,6 +246,25 @@ class ConversationRepository(
         }
     }
 
+    /** Add an agent-generated draft as an assistant attachment without duplicating the user's prompt. */
+    fun recordAgentGeneratedImage(conversationId: String, requestId: String, attachmentId: String) {
+        val now = clock()
+        scope.launch {
+            ensureConversation(conversationId, "Generated image", now)
+            dao.insertMessage(
+                MessageEntity(
+                    conversationId = conversationId,
+                    clientRequestId = "agentimg_" + requestId,
+                    role = "assistant",
+                    text = "",
+                    status = RequestStatus.Completed.dbName,
+                    createdAtMs = now,
+                    attachmentIds = attachmentId,
+                ),
+            )
+        }
+    }
+
     /** Persist one generated image as a normal user/assistant pair in the current conversation. */
     fun recordGeneratedImage(conversationId: String, prompt: String, attachmentId: String) {
         val requestId = "img_" + UUID.randomUUID().toString()

@@ -6795,6 +6795,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val chatProfile: StateFlow<String> = _chatProfile
 
     init {
+        container.liveSession.onAgentImageReady = { conversationId, requestId, attachmentId ->
+            conversations.recordAgentGeneratedImage(conversationId, requestId, attachmentId)
+        }
+        container.liveSession.onAgentImageError = { message ->
+            _imageGenerationState.value = ImageGenerationState.Error(message)
+        }
         viewModelScope.launch {
             _conversationId.collect { id ->
                 _chatProfile.value = container.liveSession.chatProfileFor(id ?: "")

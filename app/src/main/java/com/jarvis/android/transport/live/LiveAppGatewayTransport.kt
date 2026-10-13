@@ -34,6 +34,7 @@ import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.Call
@@ -364,7 +365,8 @@ class LiveAppGatewayTransport(
                 when {
                     line.isEmpty() -> {
                         if (eventName.isNotEmpty() || dataLines.isNotEmpty()) {
-                            completed = handleSFrame(eventName, dataLines.toString(), req.clientRequestId, seq)
+                            completed = handleSFrame(eventName, dataLines.toString(), req.clientRequestId, seq,
+                                req.conversationId)
                                 .let { completed || it }
                             if (eventName == "delta") seq++
                             eventName = ""
@@ -527,7 +529,9 @@ class LiveAppGatewayTransport(
     }
 
     /** Returns true when this frame is the terminal `complete`. */
-    private suspend fun handleSFrame(event: String, data: String, requestId: String, seq: Int): Boolean {
+    private suspend fun handleSFrame(
+        event: String, data: String, requestId: String, seq: Int, conversationId: String,
+    ): Boolean {
         if (data.isBlank()) return false
         when (event) {
             "ready" -> Unit // accepted already emitted when the turn started
@@ -566,6 +570,24 @@ class LiveAppGatewayTransport(
                     status = TaskStatus.COMPLETED,
                 )))
                 val completed = parseCompletedTurn(data)
+                val image = runCatching {
+                    val root = json.parseToJsonElement(data).jsonObject
+                    root["media"]?.jsonObject?.get("generated_images")?.jsonArray
+                        ?.firstOrNull()?.jsonObject?.get("asset_id")?.jsonPrimitive?.content
+                }.getOrNull()
+                if (!image.isNullOrBlank()) {
+                    try {
+                        val raw = session.downloadAgentImage(image)
+                        val staged = attachmentStore?.stageGeneratedBase64(
+                            Base64.getEncoder().encodeToString(raw))
+                            ?: throw TransportException("Image attachment storage unavailable")
+                        session.onAgentImageReady?.invoke(
+                            conversationId, requestId, staged.attachmentId)
+                    } catch (failure: Exception) {
+                        session.onAgentImageError?.invoke(
+                            failure.message ?: "Generated image could not be retrieved")
+                    }
+                }
                 if (completed != null) {
                     emit(completed.toEvent(requestId))
                 } else {

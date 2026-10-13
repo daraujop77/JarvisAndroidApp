@@ -86,6 +86,34 @@ class JarvisAppSession(
     var generalChatAgentEnabled: Boolean = false
         private set
 
+    /** Private callback from transport to the presentation's conversation repository. */
+    @Volatile
+    var onAgentImageReady: ((conversationId: String, requestId: String, attachmentId: String) -> Unit)? = null
+    @Volatile
+    var onAgentImageError: ((String) -> Unit)? = null
+
+    suspend fun downloadAgentImage(assetId: String): ByteArray = withContext(Dispatchers.IO) {
+        require(Regex("^[A-Za-z0-9_-]{30,64}$").matches(assetId)) { "Invalid image asset" }
+        val token = authHeader() ?: throw TransportException("no token")
+        val request = Request.Builder()
+            .url(baseUrl + "/api/app/chat/agent/general/image/" + assetId)
+            .header("Authorization", token)
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code !in 200..299)
+                throw TransportException("Generated image is unavailable")
+            val mime = response.header("Content-Type")?.substringBefore(';')?.trim()
+            if (mime !in setOf("image/png", "image/jpeg", "image/webp"))
+                throw TransportException("Unsupported generated image type")
+            val bytes = response.body?.bytes()
+                ?: throw TransportException("Empty generated image")
+            if (bytes.isEmpty() || bytes.size > 12 * 1024 * 1024)
+                throw TransportException("Generated image exceeded size limit")
+            bytes
+        }
+    }
+
     @Serializable
     data class AppUser(val id: String = "", val username: String = "", val role: String = "")
 
