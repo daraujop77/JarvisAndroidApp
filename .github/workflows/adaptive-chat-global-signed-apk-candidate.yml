@@ -1,0 +1,89 @@
+name: JARVIS Android — Signed Chat Global Candidate
+
+# One-shot preview from the draft branch; never publishes a GitHub Release.
+on:
+  push:
+    branches: [feature/adaptive-agent-client-20261012]
+    paths:
+      - .github/workflows/adaptive-chat-global-signed-apk-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jarvis-chat-global-signed-candidate
+  cancel-in-progress: false
+
+jobs:
+  signed-candidate:
+    if: github.repository == 'daraujop77/JarvisAndroidApp' && github.ref == 'refs/heads/feature/adaptive-agent-client-20261012'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout without storing credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Make Gradle executable
+        run: chmod +x gradlew
+      - name: Unit tests and lint
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ./gradlew :app:testDebugUnitTest :app:lintDebug --stacktrace
+          echo "SIGNED_CANDIDATE_OFFLINE_TESTS=PASS"
+      - name: Assemble release signed with existing keystore
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: \${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: \${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: \${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: \${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test -n "$RELEASE_KEYSTORE_BASE64" || { echo "SIGNING_NOT_CONFIGURED"; exit 1; }
+          test -n "$RELEASE_STORE_PASSWORD" && test -n "$RELEASE_KEY_ALIAS" && test -n "$RELEASE_KEY_PASSWORD" ||
+            { echo "SIGNING_NOT_CONFIGURED"; exit 1; }
+          secret_dir="$(mktemp -d "$RUNNER_TEMP/jarvis-chat-candidate.XXXXXXXX")"
+          cleanup() { rm -rf -- "$secret_dir"; }
+          trap cleanup EXIT
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$secret_dir/release.jks"
+          export RELEASE_STORE_FILE="$secret_dir/release.jks"
+          ./gradlew :app:assembleRelease -PjarvisVersionCode=66 -PjarvisVersionName=0.1.66-chat-global-candidate --stacktrace
+          apk=app/build/outputs/apk/release/app-release.apk
+          test -s "$apk"
+          build_tools="$(find "\${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          test -x "$build_tools/apksigner"
+          "$build_tools/apksigner" verify "$apk"
+          mkdir -p "$RUNNER_TEMP/jarvis-chat-artifact"
+          cp "$apk" "$RUNNER_TEMP/jarvis-chat-artifact/JARVIS-chat-global-v66-candidate.apk"
+          sha256sum "$RUNNER_TEMP/jarvis-chat-artifact/JARVIS-chat-global-v66-candidate.apk" |
+            awk '{print "SIGNED_CANDIDATE_APK_SHA256=" $1}'
+          echo "SIGNED_CANDIDATE_SHA=$GITHUB_SHA"
+          echo "SIGNED_CANDIDATE_APK=PASS"
+      - name: Upload candidate APK (never publish release)
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: JARVIS-chat-global-v66-signed-candidate
+          path: \${{ runner.temp }}/jarvis-chat-artifact/JARVIS-chat-global-v66-candidate.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-chat-global-candidate-tests
+          path: |
+            app/build/test-results/testDebugUnitTest/**
+            app/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: ignore
+          retention-days: 7
