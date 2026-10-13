@@ -91,4 +91,49 @@ class CopilotTaskVisualRecoveryTest {
         assertEquals(listOf(approved),
             newApprovedCopilotTaskVisuals("prj_story", previous, fresh))
     }
+
+    @Test fun adaptiveAgentWithoutLegacyWorkerRowsMustStillPoll() {
+        assertTrue(copilotTaskHasActiveRemoteWork(
+            task().copy(agent_run_state = "RUNNING", state = "RUNNING"),
+        ))
+        assertTrue(copilotTaskHasActiveRemoteWork(
+            task().copy(agent_run_state = "DISPATCHING", state = "DISPATCHING"),
+        ))
+    }
+
+    @Test fun waitingApprovalOrTerminalOutcomeCannotTriggerAutomaticPolling() {
+        assertTrue(!copilotTaskHasActiveRemoteWork(
+            task().copy(agent_run_state = "WAITING_CONFIRMATION", state = "READY"),
+        ))
+        assertTrue(!copilotTaskHasActiveRemoteWork(
+            task().copy(agent_run_state = "OUTCOME_UNKNOWN", state = "OUTCOME_UNKNOWN"),
+        ))
+        assertTrue(!copilotTaskHasActiveRemoteWork(
+            task().copy(agent_run_state = "SUCCEEDED", state = "DONE"),
+        ))
+    }
+
+    @Test fun oldStyleBackgroundWorkerStillRequiresPollingUntilFinished() {
+        val progress = com.jarvis.android.transport.live.CopilotTaskLiveProgress(
+            tool = "generate_story_scene",
+            status = "RUNNING",
+        )
+        assertTrue(copilotTaskHasActiveRemoteWork(
+            task().copy(live_progress = listOf(progress)),
+        ))
+        assertTrue(!copilotTaskHasActiveRemoteWork(
+            task().copy(live_progress = listOf(progress.copy(status = "READY_FOR_REVIEW"))),
+        ))
+    }
+
+    @Test fun completedAdaptivePollMakesJustFinishedApprovedReferenceAvailable() {
+        val active = task().copy(agent_run_state = "RUNNING", state = "RUNNING")
+        val done = task(assets = listOf(approved))
+            .copy(agent_run_state = "SUCCEEDED", state = "DONE")
+        assertTrue(copilotTaskHasActiveRemoteWork(active))
+        assertEquals(listOf(approved),
+            newApprovedCopilotTaskVisuals("prj_story", active, done))
+        assertTrue(!copilotTaskHasActiveRemoteWork(done))
+    }
+
 }

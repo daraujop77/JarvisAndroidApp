@@ -42,3 +42,29 @@ internal fun newApprovedCopilotTaskVisuals(
         .take(6)
         .toList()
 }
+
+/**
+ * The adaptive agent has an authoritative run state even without legacy
+ * worker progress rows. Do not end polling merely because live_progress
+ * is empty while the model is still reasoning or dispatching tools.
+ *
+ * Never poll after WAITING_CONFIRMATION: it requires the user's explicit
+ * action, not an automatic retry. Failures/unknown outcomes also stop.
+ */
+internal fun copilotTaskHasActiveRemoteWork(task: CopilotTaskState): Boolean {
+    val active = setOf("RUNNING", "DISPATCHING")
+    if (task.agent_run_state in active || task.state in active) return true
+    if (task.agent_run_state in setOf(
+            "WAITING_CONFIRMATION", "OUTCOME_UNKNOWN", "CANCEL_REQUESTED",
+            "FAILED", "CANCELED", "SUCCEEDED", "PARTIAL",
+        ) || task.state in setOf(
+            "READY", "DONE", "BLOCKED", "OUTCOME_UNKNOWN",
+            "CANCEL_REQUESTED", "CANCELED",
+        )
+    ) return false
+    return task.live_progress.any {
+        it.status in setOf(
+            "QUEUED", "RUNNING", "WORKING", "PENDING", "PENDING_CANON_DIFF",
+        )
+    }
+}

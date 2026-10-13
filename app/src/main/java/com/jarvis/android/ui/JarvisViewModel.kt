@@ -19,6 +19,7 @@ import com.jarvis.android.transport.live.*
 import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
 import com.jarvis.android.ui.writing.shouldProbeAdaptiveCopilotTool
 import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
+import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
@@ -1939,10 +1940,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             loadCopilotSceneCandidate(projectId, scene.final_asset_id, scene.job_id)
         }
         recoverCopilotTurnaroundBatch(projectId, task)
-        val pending = task.live_progress.any {
-            it.status in setOf("QUEUED", "RUNNING", "WORKING",
-                               "PENDING", "PENDING_CANON_DIFF")
-        }
+        val pending = copilotTaskHasActiveRemoteWork(task)
         if (!pending) {
             if (copilotTaskPollId == task.task_id) {
                 copilotTaskPollJob?.cancel()
@@ -1986,10 +1984,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     loadCopilotSceneCandidate(projectId, preview.final_asset_id, preview.job_id)
                 }
                 recoverCopilotTurnaroundBatch(projectId, next)
-                if (next.live_progress.none {
-                    it.status in setOf("QUEUED", "RUNNING", "WORKING",
-                                       "PENDING", "PENDING_CANON_DIFF")
-                }) return@launch
+                if (!copilotTaskHasActiveRemoteWork(next)) return@launch
             }
         }
     }
