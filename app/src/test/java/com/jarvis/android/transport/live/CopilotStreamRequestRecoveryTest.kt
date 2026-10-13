@@ -126,6 +126,17 @@ class CopilotStreamRequestRecoveryTest {
             assertEquals(2, server.requestCount)
         }
 
+    @Test fun preExecutionHttp429DoesNotQueryRecoveryOrLegacyStream() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(MockResponse().setResponseCode(429))
+            val outcome = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Genera una imagen", onDelta = {},
+            )
+            assertTrue(outcome.isFailure)
+            assertEquals("/api/app/writing-room/agent/stream", server.takeRequest().path)
+            assertEquals(1, server.requestCount)
+        }
+
     @Test fun mismatchedRecoveredScopeIsNeverPresentedAsSuccessfulReply() {
         val card = CopilotTaskState(
             project_id = "prj_private", conversation_id = "chat-a",

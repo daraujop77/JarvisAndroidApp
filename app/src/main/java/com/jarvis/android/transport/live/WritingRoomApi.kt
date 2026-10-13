@@ -1479,6 +1479,10 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     val stableRequestId = java.util.UUID.randomUUID().toString()
     val stableConversationId = writingRoomConversationId(projectId)
     var usingAdaptive = true
+    // Only an accepted adaptive SSE stream may need exact-request recovery.
+    // A pre-execution HTTP rejection (503/429/400) never triggers another
+    // request or falls back to the legacy stream.
+    var adaptiveStreamAccepted = false
     val body = buildJsonObject {
         put("project_id", projectId)
         put("project_title", projectTitle)
@@ -1511,6 +1515,9 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         var completed: WritingRoomAutoChat? = null
         var streamError: String? = null
         val onEvent: (String, String) -> Unit = { event, data ->
+            // The connection may drop after headers but before postSse
+            // returns. An adaptive SSE event establishes acceptance.
+            if (usingAdaptive) adaptiveStreamAccepted = true
             when (event) {
                 "progress" -> {
                     val obj = runCatching {
@@ -1537,6 +1544,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         // 404 BEFORE accepting any task: then retain the v64 legacy route.
         var endpoint = "/api/app/writing-room/agent/stream"
         var status = postSse(baseUrl, endpoint, body, auth, onEvent)
+        if (status in 200..299) adaptiveStreamAccepted = true
         if (status == 404) {
             usingAdaptive = false
             endpoint = "/api/app/writing-room/chat/stream"
@@ -1551,6 +1559,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
             }
             auth = authHeader() ?: throw TransportException("no live session")
             status = postSse(baseUrl, endpoint, body, auth, onEvent)
+            if (usingAdaptive && status in 200..299) adaptiveStreamAccepted = true
             if (status == 404 && endpoint == "/api/app/writing-room/agent/stream") {
                 // A refreshed bearer against an older VPS is not evidence of
                 // accepted work; keep the original idempotency key and fallback.
@@ -1567,7 +1576,9 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         streamError?.let { throw TransportException(it) }
         completed ?: throw TransportException("Writing Room stream ended without completion")
     }
-    if (streamResult.isSuccess || !usingAdaptive) return@withContext streamResult
+    if (streamResult.isSuccess || !usingAdaptive || !adaptiveStreamAccepted) {
+        return@withContext streamResult
+    }
 
     // A 200/SSE stream may have disconnected after the agent accepted work.
     // Never send the original instruction again: read its exact, authorized
