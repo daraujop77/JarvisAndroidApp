@@ -1,0 +1,120 @@
+name: JARVIS Android — Signed Adaptive v65 Test Candidate
+
+# One-shot test build from the reviewed adaptive client branch.
+# Signed APK artifact only: never publish to GitHub Releases or Play.
+on:
+  push:
+    branches:
+      - feature/adaptive-agent-client-20261012
+    paths:
+      - .github/workflows/android-adaptive-signed-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-adaptive-v65-signed-candidate
+  cancel-in-progress: false
+
+jobs:
+  build-signed-test-candidate:
+    if: github.repository == 'daraujop77/JarvisAndroidApp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PREVIOUS_CERT_SHA256: 46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a
+      RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+    steps:
+      - name: Checkout exact feature branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify this is the authorized feature branch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${GITHUB_REF_NAME}" = "feature/adaptive-agent-client-20261012"
+          test -n "$RELEASE_KEYSTORE_BASE64"
+          test -n "$RELEASE_STORE_PASSWORD"
+          test -n "$RELEASE_KEY_PASSWORD"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Kotlin unit tests and lint before APK
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:testDebugUnitTest :app:lintDebug --stacktrace
+      - name: Recover exact installed JARVIS signing identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/jarvis-private-signing"
+          chmod 700 "$RUNNER_TEMP/jarvis-private-signing"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/jarvis-private-signing/release.jks"
+          chmod 600 "$RUNNER_TEMP/jarvis-private-signing/release.jks"
+          keytool -list -v -keystore "$RUNNER_TEMP/jarvis-private-signing/release.jks" -storepass "$RELEASE_STORE_PASSWORD" > "$RUNNER_TEMP/jarvis-private-signing/certs.txt"
+          python3 - "$RUNNER_TEMP/jarvis-private-signing/certs.txt" "$GITHUB_ENV" <<'PY'
+          import os, re, sys
+          content=open(sys.argv[1],encoding="utf-8").read()
+          records=re.split(r"(?m)^Alias name:\s*",content)[1:]
+          aliases=[]
+          for block in records:
+              if not block.splitlines(): continue
+              match=re.search(r"(?m)^\s*SHA256:\s*([0-9a-fA-F:]+)\s*$",block)
+              if match and match.group(1).replace(":","").lower()==os.environ["PREVIOUS_CERT_SHA256"]:
+                  aliases.append(block.splitlines()[0].strip())
+          if len(aliases)!=1 or not aliases[0] or any(x in aliases[0] for x in "\r\n="):
+              raise SystemExit("BLOCKED: signed candidate must match installed official certificate")
+          with open(sys.argv[2],"a",encoding="utf-8") as out:
+              out.write("RELEASE_STORE_FILE="+os.environ["RUNNER_TEMP"]+"/jarvis-private-signing/release.jks\n")
+              out.write("RELEASE_KEY_ALIAS="+aliases[0]+"\n")
+          print("Official JARVIS signer located; no key details emitted")
+          PY
+      - name: Build signed non-debuggable v65 candidate once
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ./gradlew :app:assembleRelease -PjarvisVersionCode=65 -PjarvisVersionName=0.1.65-adaptive-preview --stacktrace
+          test -s app/build/outputs/apk/release/app-release.apk
+      - name: Verify APK package version signature and no debug flag
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          TOOLS_DIR="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$TOOLS_DIR/aapt" dump badging "$APK" > "$RUNNER_TEMP/adaptive-badging.txt"
+          head -n 1 "$RUNNER_TEMP/adaptive-badging.txt"
+          grep -q "name='com.jarvis.android'" "$RUNNER_TEMP/adaptive-badging.txt"
+          grep -q "versionCode='65'" "$RUNNER_TEMP/adaptive-badging.txt"
+          grep -q "versionName='0.1.65-adaptive-preview'" "$RUNNER_TEMP/adaptive-badging.txt"
+          ! grep -q "application-debuggable" "$RUNNER_TEMP/adaptive-badging.txt"
+          "$TOOLS_DIR/apksigner" verify --print-certs "$APK" > "$RUNNER_TEMP/adaptive-certificate.txt"
+          python3 - "$RUNNER_TEMP/adaptive-certificate.txt" <<'PY'
+          import os, re, sys
+          lines=open(sys.argv[1],encoding="utf-8").read().splitlines()
+          signatures=[m.group(1).lower() for line in lines
+            if "certificate sha-256 digest" in line.lower()
+            for m in [re.search(r"([0-9a-fA-F]{64})\s*$",line)] if m]
+          if signatures != [os.environ["PREVIOUS_CERT_SHA256"]]:
+              raise SystemExit("BLOCKED: APK signed with wrong certificate")
+          print("APK identity and signing match installed JARVIS")
+          PY
+          mkdir -p "$RUNNER_TEMP/jarvis-candidate"
+          cp "$APK" "$RUNNER_TEMP/jarvis-candidate/JARVIS-v65-adaptive-preview.apk"
+          sha256sum "$RUNNER_TEMP/jarvis-candidate/JARVIS-v65-adaptive-preview.apk" > "$RUNNER_TEMP/jarvis-candidate/SHA256SUMS"
+      - name: Upload installable signed test APK (not published)
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-v65-adaptive-preview-signed
+          path: |
+            ${{ runner.temp }}/jarvis-candidate/JARVIS-v65-adaptive-preview.apk
+            ${{ runner.temp }}/jarvis-candidate/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
