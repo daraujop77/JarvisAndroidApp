@@ -2,6 +2,7 @@ package com.jarvis.android.transport.live
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -77,6 +78,9 @@ class CopilotStreamRequestRecoveryTest {
                        "copilot_task":{"task_id":"ar_0123456789abcdef01234567",
                          "project_id":"prj_story","conversation_id":"other-chat",
                          "state":"READY"}}""" + "\n\n"))
+            // Unexpected retry/recovery must fail promptly, not wait forever
+            // on an unqueued MockWebServer response in the CI runner.
+            server.enqueue(MockResponse().setResponseCode(503))
             val result = session.writingRoomAutoChatStream(
                 "prj_story", "Alexander", "Consulta", onDelta = {},
             ).getOrThrow()
@@ -163,12 +167,13 @@ class CopilotStreamRequestRecoveryTest {
             server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream")
                 .setBody("event: ready\ndata: {}\n\n"))
             server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(MockResponse().setResponseCode(503))
             val outcome = session.writingRoomAutoChatStream(
                 "prj_story", "Alexander", "Crea una escena", onDelta = {},
             )
             assertTrue(outcome.isFailure)
-            assertEquals("/api/app/writing-room/agent/stream", server.takeRequest().path)
-            assertEquals("/api/app/writing-room/agent/request-status", server.takeRequest().path)
+            assertEquals("/api/app/writing-room/agent/stream", server.takeRequest(5, TimeUnit.SECONDS)?.path)
+            assertEquals("/api/app/writing-room/agent/request-status", server.takeRequest(5, TimeUnit.SECONDS)?.path)
             assertEquals(2, server.requestCount)
         }
 
@@ -179,7 +184,7 @@ class CopilotStreamRequestRecoveryTest {
                 "prj_story", "Alexander", "Genera una imagen", onDelta = {},
             )
             assertTrue(outcome.isFailure)
-            assertEquals("/api/app/writing-room/agent/stream", server.takeRequest().path)
+            assertEquals("/api/app/writing-room/agent/stream", server.takeRequest(5, TimeUnit.SECONDS)?.path)
             assertEquals(1, server.requestCount)
         }
 

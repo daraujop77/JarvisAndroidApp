@@ -56,7 +56,10 @@ class CopilotAgentWiringTest {
         assertTrue(vm.contains("fun loadCopilotSceneCandidate("))
         assertTrue(vm.contains("fun approveCopilotSceneCandidate("))
         assertTrue(vm.contains("fun reviseCopilotSceneCandidate("))
-        assertTrue(vm.contains("followCopilotTaskProgress(projectId, updated)"))
+        // Agent confirmations retain the original idempotency key when polling.
+        assertTrue(vm.contains("updated.copy(request_id = task.request_id)"))
+        assertTrue(vm.contains("followCopilotTaskProgress(projectId, scopedUpdated)"))
+        assertTrue(vm.contains("restoreInterruptedCopilotReply(projectId, scopedUpdated, epoch)"))
         assertTrue(vm.contains("stageVisualAssetBase64("))
         assertTrue(vm.contains("selectCopilotSceneReviewAsset("))
         assertTrue(vm.contains("visualAssetApproveExact("))
