@@ -38,6 +38,7 @@ class LiveAppGatewayTransportTest {
     private lateinit var server: MockWebServer
     private lateinit var scope: CoroutineScope
     private lateinit var job: Job
+    private var advertiseGeneralAgent = false
     private val cancelCalls = AtomicInteger(0)
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
@@ -83,6 +84,12 @@ class LiveAppGatewayTransportTest {
                     request.path == "/api/app/session" -> MockResponse().setBody(
                         """{"schema":"jarvis.app.session.v1","authenticated":true,"user":{"id":"u1","username":"alex","role":"owner"}}""",
                     )
+                    request.path == "/api/app/chat/agent/general/stream" && auth != "Bearer test-token" ->
+                        MockResponse().setResponseCode(401)
+                    request.path == "/api/app/chat/agent/general/stream" -> {
+                        postedBodies += "POST /api/app/chat/agent/general/stream\\n" + request.body.readUtf8()
+                        streamResponder()
+                    }
                     request.path == "/api/app/chat/stream" && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
                     request.path == "/api/app/chat/stream" -> {
@@ -158,6 +165,7 @@ class LiveAppGatewayTransportTest {
                           "user": {"id":"u1","username":"alex","role":"owner"},
                           "chat": {
                             "mode": "local",
+                            "general_agent": {"enabled": $advertiseGeneralAgent},
                             "access": {"owner_model_selection": true},
                             "models": [
                               {"profile":"fast","label":"Fast","model":"qwen3.5:4b","state":"installed"},
@@ -465,6 +473,28 @@ class LiveAppGatewayTransportTest {
         // exactly one stream attempt; recovery used GET /requests/{id}, no re-run
         assertEquals(1, streamCalls.get())
         assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-broken"))
+    }
+
+    @Test
+    fun serverAdvertisedGeneralAgentUsesAuthenticatedSseWithoutChangingLegacyDefault() {
+        advertiseGeneralAgent = true
+        val session = JarvisAppSession(seededStore())
+        val access = runBlocking(Dispatchers.IO) { session.fetchChatAccess() }
+        assertTrue(access != null)
+        assertTrue(session.generalChatAgentEnabled)
+
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val turn = repo.send("general-agent-conv", "Necesito buscar información")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+                     repo.snapshot.value.session.requests[turn]?.status)
+        assertTrue(postedBodies.any { it.startsWith(
+            "POST /api/app/chat/agent/general/stream\\n"
+        ) })
+        assertTrue(postedBodies.none { it.startsWith("POST /api/app/chat/stream\\n") })
     }
 
     @Test
