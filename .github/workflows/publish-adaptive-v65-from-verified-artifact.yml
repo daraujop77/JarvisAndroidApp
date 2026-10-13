@@ -1,0 +1,154 @@
+name: Publish JARVIS v65 Signed Adaptive Preview to App Updater
+
+# Publishes exactly the already-tested and already-signed APK from CI.
+# No new build, no signing, and no edits to the installed backend.
+on:
+  push:
+    branches:
+      - feature/adaptive-agent-client-20261012
+    paths:
+      - .github/workflows/publish-adaptive-v65-from-verified-artifact.yml
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: jarvis-android-official-signed-updater
+  cancel-in-progress: false
+
+jobs:
+  promote-existing-signed-apk:
+    if: github.repository == 'daraujop77/JarvisAndroidApp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: 52f125737d861184de36209b7ca7181adb7d1954
+      SOURCE_RUN: "38381776277"
+      SOURCE_ARTIFACT: "11804780697"
+      VERSION_CODE: "65"
+      VERSION_NAME: "0.1.65-adaptive-preview"
+      APK_PACKAGE: "com.jarvis.android"
+      ORIGINAL_CERT_SHA256: "46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a"
+    steps:
+      - name: Checkout promotion workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify source branch, stable channel and signed build provenance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF_NAME" = "feature/adaptive-agent-client-20261012"
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .conclusion)" = "success"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT" --jq .name)" = "JARVIS-v65-adaptive-preview-signed"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT" --jq .workflow_run.head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "android-v64"
+          if gh release view android-v65 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "BLOCKED: android-v65 already exists. Never overwrite release artifacts."
+            exit 1
+          fi
+          echo "RELEASE_PREREQUISITES=PASS"
+
+      - name: Download the exact signed APK artifact (no recompilation)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/jarvis-v65-source"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name JARVIS-v65-adaptive-preview-signed \
+            --dir "$RUNNER_TEMP/jarvis-v65-source"
+          test -s "$RUNNER_TEMP/jarvis-v65-source/JARVIS-v65-adaptive-preview.apk"
+          test -s "$RUNNER_TEMP/jarvis-v65-source/SHA256SUMS"
+          python3 - <<'PY'
+          import hashlib, os, pathlib, re
+          folder=pathlib.Path(os.environ["RUNNER_TEMP"])/"jarvis-v65-source"
+          apk=folder/"JARVIS-v65-adaptive-preview.apk"
+          line=(folder/"SHA256SUMS").read_text().strip()
+          match=re.fullmatch(r"([0-9a-f]{64})\s+(\*?)(.+)",line)
+          if not match or not match.group(3).endswith("JARVIS-v65-adaptive-preview.apk"):
+              raise SystemExit("BLOCKED: invalid build SHA256SUMS")
+          if hashlib.sha256(apk.read_bytes()).hexdigest()!=match.group(1):
+              raise SystemExit("BLOCKED: build artifact SHA256 mismatch")
+          print("CI_SIGNED_ARTIFACT_SHA256=VERIFIED")
+          PY
+
+      - name: Recheck signature, package and version before publishing
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          APK="$RUNNER_TEMP/jarvis-v65-source/JARVIS-v65-adaptive-preview.apk"
+          TOOLS_DIR="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$TOOLS_DIR/aapt" dump badging "$APK" > "$RUNNER_TEMP/v65-package.txt"
+          grep -q "name='com.jarvis.android'" "$RUNNER_TEMP/v65-package.txt"
+          grep -q "versionCode='65'" "$RUNNER_TEMP/v65-package.txt"
+          grep -q "versionName='0.1.65-adaptive-preview'" "$RUNNER_TEMP/v65-package.txt"
+          ! grep -q 'application-debuggable' "$RUNNER_TEMP/v65-package.txt"
+          "$TOOLS_DIR/apksigner" verify --print-certs "$APK" > "$RUNNER_TEMP/v65-signature.txt"
+          python3 - <<'PY'
+          import os, pathlib, re
+          lines=(pathlib.Path(os.environ["RUNNER_TEMP"])/"v65-signature.txt").read_text().splitlines()
+          found=[m.group(1).lower() for line in lines
+                 if "certificate sha-256 digest" in line.casefold()
+                 for m in [re.search(r"([A-Fa-f0-9]{64})\s*$",line)] if m]
+          if found != [os.environ["ORIGINAL_CERT_SHA256"]]:
+              raise SystemExit("BLOCKED: original JARVIS signing identity mismatch")
+          print("ORIGINAL_SIGNING_CERTIFICATE=VERIFIED")
+          PY
+
+      - name: Create original updater-compatible v65 release and manifest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "android-v64"
+          if gh release view android-v65 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "BLOCKED: android-v65 already present"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/jarvis-v65-publish"
+          cp "$RUNNER_TEMP/jarvis-v65-source/JARVIS-v65-adaptive-preview.apk" \
+             "$RUNNER_TEMP/jarvis-v65-publish/JARVIS-release.apk"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          folder=pathlib.Path(os.environ["RUNNER_TEMP"])/"jarvis-v65-publish"
+          apk=folder/"JARVIS-release.apk"
+          payload={
+              "schema":"jarvis.android.signed-release.v1",
+              "version_code":int(os.environ["VERSION_CODE"]),
+              "version_name":os.environ["VERSION_NAME"],
+              "package_name":os.environ["APK_PACKAGE"],
+              "sha256":hashlib.sha256(apk.read_bytes()).hexdigest(),
+              "size_bytes":apk.stat().st_size,
+              "source_sha":os.environ["SOURCE_SHA"],
+          }
+          (folder/"JARVIS-release.json").write_text(json.dumps(payload,indent=2)+"\n")
+          print("UPDATER_MANIFEST_V65=VALID")
+          PY
+          gh release create android-v65 \
+            "$RUNNER_TEMP/jarvis-v65-publish/JARVIS-release.apk" \
+            "$RUNNER_TEMP/jarvis-v65-publish/JARVIS-release.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "JARVIS Android v65 · Adaptive Preview" \
+            --notes "Signed in-app update v65 for supervised JARVIS Haiku + Writing Room visual testing. Same official signing identity. Backend must be enabled. Includes safety checks and experimental features; report failures before production signoff." \
+            --latest
+          echo "RELEASE_V65_PUBLISHED=TRUE"
+
+      - name: Verify latest updater sees exact signed release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "android-v65"
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.assets[].name' | sort \
+            > "$RUNNER_TEMP/v65-assets.txt"
+          printf '%s\n' JARVIS-release.apk JARVIS-release.json | sort \
+            > "$RUNNER_TEMP/v65-required-assets.txt"
+          cmp -s "$RUNNER_TEMP/v65-assets.txt" "$RUNNER_TEMP/v65-required-assets.txt"
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.target_commitish')"
+          test "$actual" = "$SOURCE_SHA"
+          echo "APP_UPDATER_LATEST=ANDROID_V65"
