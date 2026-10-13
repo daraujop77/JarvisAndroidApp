@@ -126,6 +126,19 @@ class CopilotTaskVisualRecoveryTest {
         ))
     }
 
+    @Test fun terminalTaskWithQueuedLegacyVisualJobStillPolls() {
+        val queued = com.jarvis.android.transport.live.CopilotTaskLiveProgress(
+            tool = "complete_character_views", status = "QUEUED",
+        )
+        assertTrue(copilotTaskHasActiveRemoteWork(
+            task().copy(state = "DONE", live_progress = listOf(queued)),
+        ))
+        assertTrue(copilotTaskHasActiveRemoteWork(
+            task().copy(agent_run_state = "SUCCEEDED", state = "DONE",
+                live_progress = listOf(queued)),
+        ))
+    }
+
     @Test fun completedAdaptivePollMakesJustFinishedApprovedReferenceAvailable() {
         val active = task().copy(agent_run_state = "RUNNING", state = "RUNNING")
         val done = task(assets = listOf(approved))

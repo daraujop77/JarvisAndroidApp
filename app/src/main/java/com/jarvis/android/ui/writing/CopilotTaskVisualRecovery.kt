@@ -56,12 +56,14 @@ internal fun copilotTaskHasActiveRemoteWork(task: CopilotTaskState): Boolean {
     if (task.agent_run_state in active || task.state in active) return true
     if (task.agent_run_state in setOf(
             "WAITING_CONFIRMATION", "OUTCOME_UNKNOWN", "CANCEL_REQUESTED",
-            "FAILED", "CANCELED", "SUCCEEDED", "PARTIAL",
+            "FAILED", "CANCELED", "PARTIAL",
         ) || task.state in setOf(
-            "READY", "DONE", "BLOCKED", "OUTCOME_UNKNOWN",
+            "READY", "BLOCKED", "OUTCOME_UNKNOWN",
             "CANCEL_REQUESTED", "CANCELED",
         )
     ) return false
+    // A legacy task may already be DONE while its asynchronous visual job
+    // continues. Preserve polling for its pending live_progress entries.
     return task.live_progress.any {
         it.status in setOf(
             "QUEUED", "RUNNING", "WORKING", "PENDING", "PENDING_CANON_DIFF",
