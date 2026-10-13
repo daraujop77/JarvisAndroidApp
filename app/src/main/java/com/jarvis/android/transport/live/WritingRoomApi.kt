@@ -163,6 +163,10 @@ data class CopilotTaskState(
     val action_hash: String = "",
     val approval_id: String = "",
     val approval_expires_at: String = "",
+    // Only exact-request recovery exposes these fields. Ordinary status
+    // remains a compact task projection and does not include a full reply.
+    val request_id: String = "",
+    val reply_text: String = "",
     val state: String = "",
     val summary: String = "",
     val requires_confirmation: Boolean = false,
@@ -200,6 +204,7 @@ data class WritingRoomAutoChat(
     val turn: JarvisAppSession.WritingRoomTurn = JarvisAppSession.WritingRoomTurn(),
     val copilot_task: CopilotTaskState? = null,
     val visual_assets: List<CopilotApprovedVisualAsset> = emptyList(),
+    val recovered_from_interruption: Boolean = false,
 )
 
 @Serializable
@@ -1471,6 +1476,9 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     }
     var auth = authHeader()
         ?: return@withContext Result.failure(TransportException("no live session"))
+    val stableRequestId = java.util.UUID.randomUUID().toString()
+    val stableConversationId = writingRoomConversationId(projectId)
+    var usingAdaptive = true
     val body = buildJsonObject {
         put("project_id", projectId)
         put("project_title", projectTitle)
@@ -1494,12 +1502,12 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 }
             }
         })
-        put("request_id", java.util.UUID.randomUUID().toString())
-        put("conversation_id", writingRoomConversationId(projectId))
+        put("request_id", stableRequestId)
+        put("conversation_id", stableConversationId)
         put("mode", "auto")
     }.toString()
 
-    runCatching {
+    val streamResult = runCatching {
         var completed: WritingRoomAutoChat? = null
         var streamError: String? = null
         val onEvent: (String, String) -> Unit = { event, data ->
@@ -1530,6 +1538,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         var endpoint = "/api/app/writing-room/agent/stream"
         var status = postSse(baseUrl, endpoint, body, auth, onEvent)
         if (status == 404) {
+            usingAdaptive = false
             endpoint = "/api/app/writing-room/chat/stream"
             status = postSse(baseUrl, endpoint, body, auth, onEvent)
         }
@@ -1545,6 +1554,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
             if (status == 404 && endpoint == "/api/app/writing-room/agent/stream") {
                 // A refreshed bearer against an older VPS is not evidence of
                 // accepted work; keep the original idempotency key and fallback.
+                usingAdaptive = false
                 endpoint = "/api/app/writing-room/chat/stream"
                 status = postSse(baseUrl, endpoint, body, auth, onEvent)
             }
@@ -1557,6 +1567,36 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         streamError?.let { throw TransportException(it) }
         completed ?: throw TransportException("Writing Room stream ended without completion")
     }
+    if (streamResult.isSuccess || !usingAdaptive) return@withContext streamResult
+
+    // A 200/SSE stream may have disconnected after the agent accepted work.
+    // Never send the original instruction again: read its exact, authorized
+    // durable request ID and recover what is already saved.
+    val recovered = writingRoomAgentRequestStatus(
+        projectId, stableConversationId, stableRequestId,
+    ).getOrNull()?.let { task ->
+        recoveredCopilotChat(projectId, stableConversationId, stableRequestId, task)
+    }
+    recovered?.let { Result.success(it) } ?: streamResult
+}
+
+/** Read the status of one exact interrupted agent request; never re-executes. */
+suspend fun JarvisAppSession.writingRoomAgentRequestStatus(
+    projectId: String,
+    conversationId: String,
+    requestId: String,
+): Result<CopilotTaskState> {
+    if (conversationId.isBlank() || requestId.isBlank()) {
+        return Result.failure(TransportException("Missing agent recovery scope"))
+    }
+    return writingPost(
+        "/api/app/writing-room/agent/request-status",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("conversation_id", conversationId)
+            put("request_id", requestId)
+        },
+    )
 }
 
 /** Capability probe for migrating legacy appearance commands to model tools.

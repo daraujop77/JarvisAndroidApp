@@ -20,6 +20,7 @@ import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
 import com.jarvis.android.ui.writing.shouldProbeAdaptiveCopilotTool
 import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
 import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
+import com.jarvis.android.transport.live.recoveredCopilotChat
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
@@ -1973,7 +1974,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val newVisuals = newApprovedCopilotTaskVisuals(
                     projectId, _writingWorkspace.value.copilotAgentTask, next,
                 )
-                _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = next)
+                val scopedNext = if (task.request_id.isNotBlank())
+                    next.copy(request_id = task.request_id) else next
+                _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = scopedNext)
                 if (newVisuals.isNotEmpty()) loadApprovedCopilotVisuals(projectId, newVisuals)
                 val preview = next.live_progress.firstOrNull {
                     it.tool in setOf("start_scene_generation", "generate_story_scene") &&
@@ -1984,8 +1987,51 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     loadCopilotSceneCandidate(projectId, preview.final_asset_id, preview.job_id)
                 }
                 recoverCopilotTurnaroundBatch(projectId, next)
-                if (!copilotTaskHasActiveRemoteWork(next)) return@launch
+                if (!copilotTaskHasActiveRemoteWork(next)) {
+                    if (task.request_id.isNotBlank()) {
+                        restoreInterruptedCopilotReply(projectId, task, epoch)
+                    }
+                    return@launch
+                }
             }
+        }
+    }
+
+
+    /** Recover completed text for an interrupted SSE turn, without re-running it. */
+    private suspend fun restoreInterruptedCopilotReply(
+        projectId: String,
+        task: CopilotTaskState,
+        epoch: Long,
+    ) {
+        val snapshot = container.liveSession.writingRoomAgentRequestStatus(
+            projectId, task.conversation_id, task.request_id,
+        ).getOrNull() ?: return
+        val recovered = recoveredCopilotChat(
+            projectId, task.conversation_id, task.request_id, snapshot,
+        ) ?: return
+        if (snapshot.task_id != task.task_id ||
+            snapshot.reply_text.isBlank() ||
+            snapshot.agent_run_state in setOf("RUNNING", "DISPATCHING") ||
+            copilotRecoveryEpoch != epoch ||
+            _writingWorkspace.value.chatProjectId != projectId
+        ) return
+        val state = _writingWorkspace.value
+        val index = state.chatHistory.indexOfLast {
+            it.response?.copilot_task?.task_id == task.task_id &&
+                it.response?.recovered_from_interruption == true
+        }
+        if (index < 0) return
+        val history = state.chatHistory.toMutableList()
+        history[index] = history[index].copy(response = recovered)
+        _writingWorkspace.value = state.copy(
+            chatHistory = history,
+            chat = if (state.chat?.copilot_task?.task_id == task.task_id)
+                recovered else state.chat,
+            copilotAgentTask = snapshot,
+        )
+        if (recovered.visual_assets.isNotEmpty()) {
+            loadApprovedCopilotVisuals(projectId, recovered.visual_assets)
         }
     }
 
