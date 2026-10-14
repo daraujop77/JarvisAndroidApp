@@ -74,6 +74,24 @@ internal fun copilotTaskHasActiveRemoteWork(task: CopilotTaskState): Boolean {
 }
 
 
+/** The server is the source of a missing chat bubble after process death.
+ * A latest-task response is NOT authority to show another project's transcript.
+ * Recovery never invokes a model, provider, or visual generation.
+ */
+internal fun canRebuildCopilotTurn(
+    projectId: String, original: CopilotTaskState, recovered: CopilotTaskState,
+): Boolean = projectId.isNotBlank() &&
+    original.project_id == projectId && recovered.project_id == projectId &&
+    original.task_id.isNotBlank() && original.task_id == recovered.task_id &&
+    original.request_id.isNotBlank() &&
+    original.request_id == recovered.request_id &&
+    original.conversation_id.isNotBlank() &&
+    original.conversation_id == recovered.conversation_id &&
+    recovered.request_text.isNotBlank() &&
+    recovered.reply_text.isNotBlank() &&
+    recovered.agent_run_state !in setOf("RUNNING", "DISPATCHING", "NEW")
+
+
 /** A completed character-master draft is an unapproved visual candidate.
  * Use only the immutable ID/hash from this exact project and task. This
  * projection NEVER starts a new paid provider operation.
