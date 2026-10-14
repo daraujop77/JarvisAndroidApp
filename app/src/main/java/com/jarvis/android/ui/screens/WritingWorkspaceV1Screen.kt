@@ -1915,7 +1915,7 @@ private fun CopilotAssistantMessage(
                         Spacer(Modifier.height(9.dp))
                         Image(
                             bitmap = image.asImageBitmap(),
-                            contentDescription = "Retrato candidato generado por GPT Image 2 Medium",
+                            contentDescription = "Imagen visual del turno actual",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxWidth().height(290.dp)
                                 .clip(RoundedCornerShape(16.dp)),
@@ -1930,6 +1930,9 @@ private fun CopilotAssistantMessage(
                         color = if (turn.candidateStatus == "APPROVED") JarvisGreen else JarvisAmber,
                     )
                     if (turn.candidateStatus == "CANDIDATE" &&
+                        turn.candidateKind == "PRIMARY_REFERENCE" &&
+                        turn.candidatePerspective == "front" &&
+                        !turn.candidateCharacterId.isNullOrBlank() &&
                         turn.candidateStorageState == "stored" &&
                         !turn.candidateSha256.isNullOrBlank() &&
                         !turn.generatedPreviewAttachmentId.isNullOrBlank()
@@ -1963,7 +1966,10 @@ private fun CopilotAssistantMessage(
                         )
                         val characterId = turn.candidateCharacterId
                         val candidateSha256 = turn.candidateSha256
-                        if (!characterId.isNullOrBlank() && !candidateSha256.isNullOrBlank()) {
+                        if (turn.candidateKind == "PRIMARY_REFERENCE" &&
+                            turn.candidatePerspective == "front" &&
+                            !characterId.isNullOrBlank() &&
+                            !candidateSha256.isNullOrBlank()) {
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = {
