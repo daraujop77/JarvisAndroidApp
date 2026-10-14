@@ -290,6 +290,43 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun sseDeliversAuthenticatedTypedCitationToOriginalTurn() {
+        streamResponder = {
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    "event: ready\\ndata: {}\\n\\n" +
+                    "event: complete\\ndata: " +
+                    """{"schema":"jarvis.chat.turn.v1","response":{"text":"Research"},""" +
+                    """"content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Research"}],""" +
+                    """"sources":[{"ref":"web:d92dac30efd5eb76088d","title":"Report","url":"https://example.org/report"}]}}""" +
+                    "\\n\\n"
+                )
+        }
+        val appSession = JarvisAppSession(seededStore())
+        val delivered = mutableListOf<Triple<String, String, String>>()
+        appSession.onAgentSourcesReady = { conversation, request, sources ->
+            delivered += Triple(conversation, request, sources)
+        }
+        val transport = LiveAppGatewayTransport(appSession, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val requestId = repo.send("c1", "Cita tu investigación")
+        await { repo.snapshot.value.session.requests[requestId]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+            repo.snapshot.value.session.requests[requestId]!!.status)
+        assertEquals(1, delivered.size)
+        assertEquals("c1", delivered.single().first)
+        assertEquals(requestId, delivered.single().second)
+        assertEquals("https://example.org/report",
+            com.jarvis.android.data.repo.ChatSourcesCodec.decode(
+                delivered.single().third).single().url)
+        assertEquals(1, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
     fun loginPersistsOnlyTheShortLivedToken() = runBlocking(Dispatchers.IO) {
         val store = JarvisAppSession.MemoryStore()
         val session = JarvisAppSession(store)
