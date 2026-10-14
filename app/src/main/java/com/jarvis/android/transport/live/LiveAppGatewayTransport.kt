@@ -441,7 +441,9 @@ class LiveAppGatewayTransport(
             try {
                 val raw = session.downloadAgentImage(assetId)
                 val staged = attachmentStore?.stageGeneratedBase64(
-                    Base64.getEncoder().encodeToString(raw))
+                    Base64.getEncoder().encodeToString(raw),
+                    stableReceiptKey = "$conversationId:$requestId:$assetId",
+                )
                     ?: throw TransportException("Image attachment storage unavailable")
                 session.onAgentImageReady?.invoke(
                     conversationId, requestId, staged.attachmentId)
