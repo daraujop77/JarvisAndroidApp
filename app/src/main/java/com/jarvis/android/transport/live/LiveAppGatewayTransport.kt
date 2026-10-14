@@ -216,14 +216,14 @@ class LiveAppGatewayTransport(
                             postJsonTurn(req, traceId, deviceId, sessionId)
                         }.getOrNull()
                         if (completed != null) {
-                            emit(completed.toEvent(turnId))
+                            emitCompletedWithMedia(completed, turnId, req.conversationId)
                             session.forgetTurn(turnId)
                         } else {
                             emit(
                                 GatewayEvent.MessageFailed(
                                     turnId, "msg_$turnId",
                                     ErrorEnvelope("live_error", "stream unavailable"),
-                                    retryable = true,
+                                    retryable = false,
                                 ),
                             )
                         }
@@ -237,14 +237,14 @@ class LiveAppGatewayTransport(
                     t is StreamInterrupted || (t is IOException && !ctl.cancelRequested) -> {
                         val cached = runCatching { fetchCachedTurn(turnId) }.getOrNull()
                         if (cached != null) {
-                            emit(cached.toEvent(turnId))
+                            emitCompletedWithMedia(cached, turnId, req.conversationId)
                             session.forgetTurn(turnId)
                         } else {
                             emit(
                                 GatewayEvent.MessageFailed(
                                     turnId, "msg_$turnId",
                                     ErrorEnvelope("stream_interrupted", t.message ?: "stream ended early"),
-                                    retryable = true,
+                                    retryable = false,
                                 ),
                             )
                         }
@@ -255,7 +255,7 @@ class LiveAppGatewayTransport(
                             turnId,
                             "msg_$turnId",
                             ErrorEnvelope("live_error", t.message ?: "stream failed"),
-                            retryable = true,
+                            retryable = false,
                         ),
                     )
                 }
@@ -388,10 +388,12 @@ class LiveAppGatewayTransport(
 
     private data class CompletedTurn(
         val text: String,
+        val sourcesJson: String = "",
         val provider: String = "",
         val model: String = "",
         val route: String = "",
         val destination: String = "",
+        val generatedImageAssetIds: List<String> = emptyList(),
     ) {
         fun toEvent(requestId: String) = GatewayEvent.MessageCompleted(
             requestId = requestId,
@@ -409,7 +411,24 @@ class LiveAppGatewayTransport(
         val response = obj["response"]?.jsonObject ?: return@runCatching null
         val request = obj["request"]?.jsonObject
         val text = response["text"]?.jsonPrimitive?.content.orEmpty()
-        if (text.isBlank()) return@runCatching null
+        val wireImages = obj["media"]?.jsonObject?.get("generated_images")?.jsonArray
+            ?.mapNotNull { item ->
+                runCatching { item.jsonObject["asset_id"]?.jsonPrimitive?.content }
+                    .getOrNull()
+            }.orEmpty()
+        val contentImages = obj["content"]?.jsonObject?.get("blocks")?.jsonArray
+            ?.mapNotNull { item ->
+                val entry = runCatching { item.jsonObject }.getOrNull()
+                    ?: return@mapNotNull null
+                if (entry["type"]?.jsonPrimitive?.content != "image") {
+                    return@mapNotNull null
+                }
+                entry["asset_id"]?.jsonPrimitive?.content
+            }.orEmpty()
+        val assets = (wireImages + contentImages)
+            .filter { it.matches(Regex("^[A-Za-z0-9_-]{30,64}$")) }
+            .distinct().take(3)
+        if (text.isBlank() && assets.isEmpty()) return@runCatching null
         CompletedTurn(
             text = text,
             provider = response["provider"]?.jsonPrimitive?.content
@@ -418,8 +437,40 @@ class LiveAppGatewayTransport(
                 ?: request?.get("resolved_model")?.jsonPrimitive?.content.orEmpty(),
             route = obj["route"]?.jsonPrimitive?.content.orEmpty(),
             destination = request?.get("resolved_destination")?.jsonPrimitive?.content.orEmpty(),
+            generatedImageAssetIds = assets,
+            sourcesJson = com.jarvis.android.data.repo.ChatSourcesCodec.encodeValidated(
+                obj["content"]?.let { runCatching { it.jsonObject }.getOrNull() }),
         )
     }.getOrNull()
+
+    /** A cached turn must restore the exact same media as its SSE completion.
+     * The request-scoped asset ID is only a download reference, never a new
+     * generation. Repeated delivery is keyed by requestId in the ViewModel.
+     */
+    private suspend fun emitCompletedWithMedia(
+        completed: CompletedTurn, requestId: String, conversationId: String,
+    ) {
+        if (completed.sourcesJson.isNotBlank() && completed.sourcesJson != "[]") {
+            session.onAgentSourcesReady?.invoke(
+                conversationId, requestId, completed.sourcesJson)
+        }
+        completed.generatedImageAssetIds.forEach { assetId ->
+            try {
+                val raw = session.downloadAgentImage(assetId)
+                val staged = attachmentStore?.stageGeneratedBase64(
+                    Base64.getEncoder().encodeToString(raw),
+                    stableReceiptKey = "$conversationId:$requestId:$assetId",
+                )
+                    ?: throw TransportException("Image attachment storage unavailable")
+                session.onAgentImageReady?.invoke(
+                    conversationId, requestId, staged.attachmentId)
+            } catch (failure: Exception) {
+                session.onAgentImageError?.invoke(
+                    failure.message ?: "Generated image could not be retrieved")
+            }
+        }
+        emit(completed.toEvent(requestId))
+    }
 
     /** Bounded JSON smoke path when the SSE route is absent on this PC-A build. */
     private suspend fun postJsonTurn(
@@ -445,7 +496,7 @@ class LiveAppGatewayTransport(
         deviceId: String,
         sessionId: String,
     ): String {
-        val inlineImages = mutableListOf<String>()
+        val inlineImages = mutableListOf<Pair<String, String>>()
         val inlineDocuments = mutableListOf<Triple<String, String, String>>()
         req.attachmentIds.forEach { attachmentId ->
             val store = attachmentStore
@@ -458,7 +509,12 @@ class LiveAppGatewayTransport(
                 if (bytes.isEmpty() || bytes.size > MAX_INLINE_IMAGE_BYTES) {
                     throw TransportException("image attachment is too large for this JARVIS version")
                 }
-                inlineImages += Base64.getEncoder().encodeToString(bytes)
+                val mime = when (extension) {
+                    "png" -> "image/png"
+                    "webp" -> "image/webp"
+                    else -> "image/jpeg"
+                }
+                inlineImages += mime to Base64.getEncoder().encodeToString(bytes)
             } else {
                 if (bytes.isEmpty() || bytes.size > MAX_INLINE_DOCUMENT_BYTES) {
                     throw TransportException("document is too large for this JARVIS version")
@@ -506,9 +562,9 @@ class LiveAppGatewayTransport(
             })
             if (inlineImages.isNotEmpty()) {
                 put("images", buildJsonArray {
-                    inlineImages.forEach { imageBase64 ->
+                    inlineImages.forEach { (mime, imageBase64) ->
                         addJsonObject {
-                            put("mime_type", "image/jpeg")
+                            put("mime_type", mime)
                             put("data_base64", imageBase64)
                         }
                     }
@@ -570,26 +626,8 @@ class LiveAppGatewayTransport(
                     status = TaskStatus.COMPLETED,
                 )))
                 val completed = parseCompletedTurn(data)
-                val image = runCatching {
-                    val root = json.parseToJsonElement(data).jsonObject
-                    root["media"]?.jsonObject?.get("generated_images")?.jsonArray
-                        ?.firstOrNull()?.jsonObject?.get("asset_id")?.jsonPrimitive?.content
-                }.getOrNull()
-                if (!image.isNullOrBlank()) {
-                    try {
-                        val raw = session.downloadAgentImage(image)
-                        val staged = attachmentStore?.stageGeneratedBase64(
-                            Base64.getEncoder().encodeToString(raw))
-                            ?: throw TransportException("Image attachment storage unavailable")
-                        session.onAgentImageReady?.invoke(
-                            conversationId, requestId, staged.attachmentId)
-                    } catch (failure: Exception) {
-                        session.onAgentImageError?.invoke(
-                            failure.message ?: "Generated image could not be retrieved")
-                    }
-                }
                 if (completed != null) {
-                    emit(completed.toEvent(requestId))
+                    emitCompletedWithMedia(completed, requestId, conversationId)
                 } else {
                     emit(GatewayEvent.MessageCompleted(requestId, "msg_$requestId"))
                 }
@@ -691,7 +729,7 @@ class LiveAppGatewayTransport(
     override suspend fun recoverCompletedTurn(clientRequestId: String, conversationId: String): Boolean {
         val completed = fetchCachedTurn(clientRequestId) ?: return false
         emit(GatewayEvent.MessageAccepted(clientRequestId, conversationId, "msg_$clientRequestId"))
-        emit(completed.toEvent(clientRequestId))
+        emitCompletedWithMedia(completed, clientRequestId, conversationId)
         session.forgetTurn(clientRequestId)
         return true
     }

@@ -1,5 +1,6 @@
 package com.jarvis.android.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Entity
@@ -48,6 +49,8 @@ data class MessageEntity(
     val status: String, // RequestStatus name — drives pending/streaming/failed bubble
     val createdAtMs: Long,
     val attachmentIds: String = "", // comma-joined
+    @ColumnInfo(defaultValue = "''")
+    val sourcesJson: String = "", // verified, bounded sources on the same assistant turn
 )
 
 /**
@@ -97,6 +100,90 @@ interface JarvisDao {
 
     @Query("SELECT * FROM messages WHERE clientRequestId = :rid AND role = 'user' LIMIT 1")
     suspend fun userMessage(rid: String): MessageEntity?
+
+    /** One assistant bubble per request. Atomic with media attachment updates,
+     * regardless of whether the image or the text arrives first.
+     */
+    @Transaction
+    suspend fun finalizeAssistant(
+        conversationId: String, requestId: String, text: String,
+        status: String, createdAtMs: Long,
+    ) {
+        val existing = assistantMessage(requestId)
+        if (existing != null) {
+            if (existing.conversationId != conversationId) return
+            updateAssistantMessage(requestId, text, status)
+            return
+        }
+        insertMessage(MessageEntity(
+            conversationId = conversationId,
+            clientRequestId = requestId,
+            role = "assistant",
+            text = text,
+            status = status,
+            createdAtMs = createdAtMs,
+        ))
+    }
+
+    @Transaction
+    suspend fun attachGeneratedImageToAssistant(
+        conversationId: String, requestId: String,
+        attachmentId: String, createdAtMs: Long,
+    ): Boolean {
+        if (!attachmentId.matches(Regex("^[A-Za-z0-9_-]{1,80}$"))) return false
+        val user = userMessage(requestId) ?: return false
+        if (user.conversationId != conversationId) return false
+        val existing = assistantMessage(requestId)
+        if (existing == null) {
+            insertMessage(MessageEntity(
+                conversationId = conversationId,
+                clientRequestId = requestId,
+                role = "assistant",
+                text = "",
+                status = "Pending",
+                createdAtMs = createdAtMs,
+                attachmentIds = attachmentId,
+            ))
+        } else {
+            if (existing.conversationId != conversationId) return false
+            val ids = existing.attachmentIds.split(",").filter { it.isNotBlank() }
+            if (attachmentId !in ids) {
+                upsertMessage(existing.copy(
+                    attachmentIds = (ids + attachmentId).take(6).joinToString(","),
+                ))
+            }
+        }
+        return true
+    }
+
+
+
+    /** Typed sources belong to the exact persisted turn, not guessed
+     * text headings. Replay and SSE may deliver the same source list twice.
+     */
+    @Transaction
+    suspend fun attachVerifiedSources(
+        conversationId: String, requestId: String,
+        sourcesJson: String, createdAtMs: Long,
+    ): Boolean {
+        if (sourcesJson.length > 12000) return false
+        val user = userMessage(requestId) ?: return false
+        if (user.conversationId != conversationId) return false
+        val existing = assistantMessage(requestId)
+        if (existing == null) {
+            insertMessage(MessageEntity(
+                conversationId = conversationId, clientRequestId = requestId,
+                role = "assistant", text = "", status = "Pending",
+                createdAtMs = createdAtMs, sourcesJson = sourcesJson,
+            ))
+        } else {
+            if (existing.conversationId != conversationId) return false
+            if (existing.sourcesJson != sourcesJson) {
+                upsertMessage(existing.copy(sourcesJson = sourcesJson))
+            }
+        }
+        return true
+    }
 
     @Query("DELETE FROM messages WHERE clientRequestId = :rid AND role = 'assistant'")
     suspend fun deleteAssistantMessage(rid: String)

@@ -136,6 +136,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.jarvis.android.data.repo.ChatCitation
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
@@ -144,6 +145,7 @@ import com.jarvis.android.ui.chat.ConversationActivity
 import com.jarvis.android.ui.components.MarkdownBlock
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.HolographicSendButton
+import com.jarvis.android.ui.components.SharedChatMarkdown
 import com.jarvis.android.ui.components.markdownBlocks
 import com.jarvis.android.ui.components.renderInlineMarkdown
 import com.jarvis.android.ui.components.JarvisOrb
@@ -1432,61 +1434,24 @@ private fun CodeBlockView(code: String, language: String?) {
  * styling. Streaming replies never reach here — their markers are incomplete.
  */
 @Composable
-private fun MarkdownBody(text: String) {
-    val accents = LocalJarvisAccents.current
+private fun MarkdownBody(text: String, verifiedSources: List<ChatCitation> = emptyList()) {
     val uriHandler = LocalUriHandler.current
+    // Server-verified citations are authoritative. The legacy text splitter
+    // remains a compatibility path for older servers without typed content.
     val presentation = remember(text) { splitChatSources(text) }
-    var sourcesExpanded by remember(text) { mutableStateOf(false) }
+    val sources = if (verifiedSources.isNotEmpty()) verifiedSources
+                  else presentation.sources.map {
+                      ChatCitation(ref = "", title = it.title, url = it.url)
+                  }
+    var sourcesExpanded by remember(text, sources) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (block in markdownBlocks(presentation.body)) {
-            when (block) {
-                is MarkdownBlock.Heading -> Text(
-                    block.text,
-                    style = if (block.level == 1) MaterialTheme.typography.titleMedium
-                    else MaterialTheme.typography.titleSmall,
-                    color = accents.orbGlow,
-                )
-                is MarkdownBlock.Bullet -> Text(
-                    "•  " + renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                is MarkdownBlock.Numbered -> Text(
-                    "${block.number}. " + renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                is MarkdownBlock.Blockquote -> {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .height(20.dp)
-                                .background(accents.orbGlow.copy(alpha = 0.8f), RoundedCornerShape(2.dp))
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            renderInlineMarkdown(block.text, accents.orbGlow),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                is MarkdownBlock.Code -> CodeBlockView(code = block.text, language = block.language)
-                is MarkdownBlock.Paragraph -> Text(
-                    renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        }
-        if (presentation.sources.isNotEmpty()) {
+        SharedChatMarkdown(presentation.body)
+        if (sources.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Fuentes", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                presentation.sources.take(4).forEachIndexed { index, source ->
+                sources.take(4).forEachIndexed { index, source ->
                     TextButton(onClick = { uriHandler.openUri(source.url) },
                         modifier = Modifier.heightIn(min = 32.dp)) {
                         Text("[${index + 1}]", style = MaterialTheme.typography.labelSmall)
@@ -1498,7 +1463,7 @@ private fun MarkdownBody(text: String) {
                 }
             }
             if (sourcesExpanded) {
-                presentation.sources.forEachIndexed { index, source ->
+                sources.forEachIndexed { index, source ->
                     TextButton(onClick = { uriHandler.openUri(source.url) },
                         modifier = Modifier.fillMaxWidth()) {
                         Text("${index + 1}. ${source.title}",
@@ -1630,8 +1595,8 @@ private fun MessageBubble(
                                         attachmentId = id,
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
-                                        generated = !isUser && isGeneratedImageMessage(msg.clientRequestId),
-                                        onOpen = if (!isUser && isGeneratedImageMessage(msg.clientRequestId)) {
+                                        generated = !isUser && id.startsWith("gen_"),
+                                        onOpen = if (!isUser && id.startsWith("gen_")) {
                                             { onOpenGeneratedImage(id) }
                                         } else null,
                                     )
@@ -1645,7 +1610,7 @@ private fun MessageBubble(
                                 streamingText(msg.text, streaming = true),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            msg.text.isNotBlank() -> MarkdownBody(msg.text)
+                            msg.text.isNotBlank() -> MarkdownBody(msg.text, msg.sources)
                         }
                     }
                 }

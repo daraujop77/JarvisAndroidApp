@@ -1,5 +1,6 @@
 package com.jarvis.android.transport.live
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -32,7 +33,9 @@ class CopilotAgentWiringTest {
         assertTrue(vm.contains("task.state != \"READY\" || !task.requires_confirmation"))
         assertTrue(vm.contains("copilotAgentTask = response.copilot_task ?: state.copilotAgentTask"))
         assertTrue(vm.contains("copilotRecoveryEpoch == epoch"))
-        assertTrue(screen.contains("Agente con herramientas"))
+        assertTrue(screen.contains("vm.runWritingRoomAutoChat("))
+        assertTrue(screen.contains("referenceAttachmentId = state.copilotPendingReferenceId"))
+        assertFalse(screen.contains("Agente con herramientas"))
         assertTrue(screen.contains("Confirmar y guardar propuesta"))
         assertTrue(screen.contains("Actualizar estado desde el VPS"))
         assertTrue(screen.contains("task.requires_confirmation"))
@@ -78,15 +81,15 @@ class CopilotAgentWiringTest {
         assertTrue(visualApi.contains("/api/app/images/copilot-scene-edits"))
         assertTrue(visualApi.contains("if (candidateEdit) put(\"scene_job_id\", sceneJobId.orEmpty())"))
         assertTrue(visualApi.contains("(!candidateEdit && parentAsset.status != \"APPROVED\")"))
-        assertTrue(screen.contains("looksLikeCopilotSceneImageRequest(clean)"))
+        assertFalse(screen.contains("looksLikeCopilotSceneImageRequest(clean)"))
         assertTrue(screen.contains("generate_story_scene"))
         assertTrue(vm.contains("card.status !in setOf(\"CANDIDATE\", \"APPROVED\")"))
         assertTrue(visualApi.contains("if (candidateEdit) \"/api/app/images/copilot-scene-edits\""))
-        assertTrue(screen.contains("looksLikeCopilotChapterWriteRequest(clean)"))
-        assertTrue(screen.contains("looksLikeCopilotCharacterViewsRequest(clean)"))
+        assertFalse(screen.contains("looksLikeCopilotChapterWriteRequest(clean)"))
+        assertFalse(screen.contains("looksLikeCopilotCharacterViewsRequest(clean)"))
         // Integrated pre-APK package: only verified official chapters are exported.
-        assertTrue(screen.contains("looksLikeCopilotOfficialExportRequest(clean)"))
-        assertTrue(screen.contains("looksLikeCopilotCanonReadRequest(clean)"))
+        assertFalse(screen.contains("looksLikeCopilotOfficialExportRequest(clean)"))
+        assertFalse(screen.contains("looksLikeCopilotCanonReadRequest(clean)"))
         assertTrue(screen.contains("resolveCopilotOfficialExport(output.result)"))
         assertTrue(screen.contains("prepared.sourceSha256"))
         assertTrue(screen.contains("vm.savePendingWritingExport(uri)"))
@@ -97,7 +100,7 @@ class CopilotAgentWiringTest {
         assertTrue(api.contains("expected_source_sha256"))
         assertTrue(vm.contains("expectedSourceSha256"))
         assertTrue(vm.contains("writingRoomLibraryExport("))
-        assertTrue(screen.contains("looksLikeCopilotVisualDirectionChangeRequest(clean)"))
+        assertFalse(screen.contains("looksLikeCopilotVisualDirectionChangeRequest(clean)"))
         assertTrue(screen.contains("update_project_visual_style"))
         assertTrue(screen.contains("update_character_visual_direction"))
         assertTrue(screen.contains("Guardar cambio visual"))

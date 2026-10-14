@@ -1,0 +1,62 @@
+name: JARVIS v68 isolated debug APK smoke build
+
+# Build-only checkpoint for PR #80. This workflow cannot sign or publish the
+# official package; its debug suffix allows a separate test installation.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - .github/workflows/repair-v68-debug-apk.yml
+      - app/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-apk:
+    if: github.repository == 'daraujop77/JarvisAndroidApp' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 80)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Assemble debug package only
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+      - name: Validate actual APK identity and integrity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$apk"
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -d "$sdk/build-tools"
+          aapt="$(find "$sdk/build-tools" -mindepth 2 -maxdepth 2 -type f -name aapt | sort -V | tail -n1)"
+          test -x "$aapt"
+          "$aapt" dump badging "$apk" > "$RUNNER_TEMP/apk-badging.txt"
+          python3 - "$RUNNER_TEMP/apk-badging.txt" <<'PY'
+          import pathlib, re, sys
+          first = pathlib.Path(sys.argv[1]).read_text().splitlines()[0]
+          if not first.startswith("package:"):
+              raise SystemExit("Missing APK package metadata")
+          for field, expected in (("name", "com.jarvis.android.debug"),
+                                  ("versionCode", "68")):
+              match = re.search(field + r"='([^']+)'", first)
+              if not match or match.group(1) != expected:
+                  raise SystemExit("Unexpected APK " + field)
+          print("ISOLATED_DEBUG_APK_IDENTITY=PASS")
+          PY
+          sha256sum "$apk"
+      - name: Upload isolated debug APK (never a production update)
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-v68-debug-test-only
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

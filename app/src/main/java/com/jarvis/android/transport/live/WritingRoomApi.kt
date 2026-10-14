@@ -166,6 +166,7 @@ data class CopilotTaskState(
     // Only exact-request recovery exposes these fields. Ordinary status
     // remains a compact task projection and does not include a full reply.
     val request_id: String = "",
+    val request_text: String = "",
     val reply_text: String = "",
     val state: String = "",
     val summary: String = "",
@@ -196,6 +197,34 @@ data class CopilotRecentMessage(
     val content: String = "",
 )
 
+/** Versioned conversation content. Legacy .turn.response.text still renders
+ * until the shared rich renderer is enabled; no approved-canon authority here.
+ */
+@Serializable
+data class JarvisChatContentBlock(
+    val type: String = "",
+    val text: String = "",
+    val asset_id: String = "",
+    val sha256: String = "",
+    val mime_type: String = "",
+    val status: String = "",
+    val storage_state: String = "",
+)
+
+@Serializable
+data class JarvisChatContentSource(
+    val ref: String = "",
+    val title: String = "",
+    val url: String = "",
+)
+
+@Serializable
+data class JarvisChatContent(
+    val schema: String = "",
+    val blocks: List<JarvisChatContentBlock> = emptyList(),
+    val sources: List<JarvisChatContentSource> = emptyList(),
+)
+
 @Serializable
 data class WritingRoomAutoChat(
     val schema: String = "",
@@ -204,6 +233,7 @@ data class WritingRoomAutoChat(
     val turn: JarvisAppSession.WritingRoomTurn = JarvisAppSession.WritingRoomTurn(),
     val copilot_task: CopilotTaskState? = null,
     val visual_assets: List<CopilotApprovedVisualAsset> = emptyList(),
+    val content: JarvisChatContent? = null,
     val recovered_from_interruption: Boolean = false,
 )
 
@@ -1458,12 +1488,21 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     toolMode: Boolean = false,
     recentMessages: List<CopilotRecentMessage> = emptyList(),
     approvedVisualAssetIds: List<String> = emptyList(),
+    attachedImageBase64: String? = null,
     onProgress: (String) -> Unit = {},
     onDelta: (String) -> Unit,
 ): Result<WritingRoomAutoChat> = withContext(Dispatchers.IO) {
     val clean = prompt.trim()
     if (clean.isEmpty()) return@withContext Result.failure(TransportException("Writing Room prompt is empty"))
     if (clean.length > 6000) return@withContext Result.failure(TransportException("Writing Room prompt is too long"))
+    // Same-turn data, never an untrusted URL/asset name. Bound to the VPS
+    // vision provider limit; the backend independently verifies real MIME.
+    if (attachedImageBase64 != null && (attachedImageBase64.isBlank() ||
+        attachedImageBase64.length > 5 * 1024 * 1024)) {
+        return@withContext Result.failure(
+            TransportException("Copilot image is missing or exceeds 5 MB base64"),
+        )
+    }
     if (expired || authHeader() == null) {
         // Local expiry is not a server 401. A competing request may have
         // already rotated the token; reuse its fresh bearer under refreshMutex.
@@ -1488,6 +1527,14 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         put("project_title", projectTitle)
         put("room", room)
         put("prompt", clean)
+        if (attachedImageBase64 != null) {
+            put("images", kotlinx.serialization.json.buildJsonArray {
+                add(buildJsonObject {
+                    put("mime_type", "image/jpeg")
+                    put("data_base64", attachedImageBase64)
+                })
+            })
+        }
         if (toolMode) put("tool_mode", "plan")
         // These are untrusted hints: the VPS re-checks project scope, owner,
         // APPROVED status and immutable bytes before any vision call.
@@ -1545,7 +1592,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         var endpoint = "/api/app/writing-room/agent/stream"
         var status = postSse(baseUrl, endpoint, body, auth, onEvent)
         if (status in 200..299) adaptiveStreamAccepted = true
-        if (status == 404) {
+        if (status == 404 && attachedImageBase64 == null) {
             usingAdaptive = false
             endpoint = "/api/app/writing-room/chat/stream"
             status = postSse(baseUrl, endpoint, body, auth, onEvent)
@@ -1560,7 +1607,8 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
             auth = authHeader() ?: throw TransportException("no live session")
             status = postSse(baseUrl, endpoint, body, auth, onEvent)
             if (usingAdaptive && status in 200..299) adaptiveStreamAccepted = true
-            if (status == 404 && endpoint == "/api/app/writing-room/agent/stream") {
+            if (status == 404 && attachedImageBase64 == null &&
+                endpoint == "/api/app/writing-room/agent/stream") {
                 // A refreshed bearer against an older VPS is not evidence of
                 // accepted work; keep the original idempotency key and fallback.
                 usingAdaptive = false

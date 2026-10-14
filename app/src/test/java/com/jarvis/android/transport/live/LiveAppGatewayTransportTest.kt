@@ -43,6 +43,7 @@ class LiveAppGatewayTransportTest {
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
     private val jsonChatCalls = AtomicInteger(0)
+    private val recoveredImageDownloads = AtomicInteger(0)
     private val postedBodies = java.util.Collections.synchronizedList(mutableListOf<String>())
 
     /** Per-test SSE behavior; default = full happy stream. */
@@ -97,14 +98,28 @@ class LiveAppGatewayTransportTest {
                         postedBodies += "POST /api/app/chat/stream\n" + request.body.readUtf8()
                         streamResponder()
                     }
+                    request.path?.startsWith("/api/app/chat/agent/general/image/") == true &&
+                        auth == "Bearer test-token" -> {
+                        recoveredImageDownloads.incrementAndGet()
+                        MockResponse().setHeader("Content-Type", "image/png")
+                            .setBody("fixture-image-bytes")
+                    }
                     request.path?.startsWith("/api/app/chat/requests/") == true && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
                     request.path?.startsWith("/api/app/chat/requests/") == true -> {
                         val rid = request.path!!.substringAfterLast('/')
-                        if (rid == "req-lost" || rid == "req-broken") {
+                        if (rid in setOf("req-lost", "req-broken", "req-media", "req-content", "req-sources")) {
+                            val media = if (rid == "req-media") {
+                                ""","media":{"generated_images":[{"asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"""
+                            } else ""
+                            val content = if (rid == "req-sources") {
+                                ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Sources"}],"sources":[{"ref":"web:d92dac30efd5eb76088d","title":"Verified report","url":"https://example.org/report"}]}"""
+                            } else if (rid in setOf("req-media", "req-content")) {
+                                ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"sources":[]}"""
+                            } else ""
                             MockResponse().setBody(
                                 """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
-                                    """"response":{"text":"Recovered answer"}}""",
+                                    """"response":{"text":"Recovered answer"}""" + media + content + "}",
                             )
                         } else {
                             MockResponse().setResponseCode(404)
@@ -275,6 +290,43 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun sseDeliversAuthenticatedTypedCitationToOriginalTurn() {
+        streamResponder = {
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    "event: ready\ndata: {}\n\n" +
+                    "event: complete\ndata: " +
+                    """{"schema":"jarvis.chat.turn.v1","response":{"text":"Research"},""" +
+                    """"content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Research"}],""" +
+                    """"sources":[{"ref":"web:d92dac30efd5eb76088d","title":"Report","url":"https://example.org/report"}]}}""" +
+                    "\n\n"
+                )
+        }
+        val appSession = JarvisAppSession(seededStore())
+        val delivered = mutableListOf<Triple<String, String, String>>()
+        appSession.onAgentSourcesReady = { conversation, request, sources ->
+            delivered += Triple(conversation, request, sources)
+        }
+        val transport = LiveAppGatewayTransport(appSession, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val requestId = repo.send("c1", "Cita tu investigación")
+        await { repo.snapshot.value.session.requests[requestId]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+            repo.snapshot.value.session.requests[requestId]!!.status)
+        assertEquals(1, delivered.size)
+        assertEquals("c1", delivered.single().first)
+        assertEquals(requestId, delivered.single().second)
+        assertEquals("https://example.org/report",
+            com.jarvis.android.data.repo.ChatSourcesCodec.decode(
+                delivered.single().third).single().url)
+        assertEquals(1, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
     fun loginPersistsOnlyTheShortLivedToken() = runBlocking(Dispatchers.IO) {
         val store = JarvisAppSession.MemoryStore()
         val session = JarvisAppSession(store)
@@ -422,6 +474,80 @@ class LiveAppGatewayTransportTest {
         assertTrue(frames.any { it.contains("message.completed") && it.contains("req-lost") })
         assertEquals(0, streamCalls.get())
         assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-lost"))
+    }
+
+    @Test
+    fun cachedTurnRestoresImageReceiptWithoutPostingNewGeneration() {
+        val store = seededStore()
+        store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-media"))
+        store.put(mapOf(
+            JarvisAppSession.KEY_TURN_PREFIX + "req-media" to
+                listOf("c1", "trace-media", ANDROID_DEVICE, APP_SESSION).joinToString("\u001f"),
+        ))
+        val appSession = JarvisAppSession(store)
+        val missingStaging = AtomicInteger(0)
+        appSession.onAgentImageError = { missingStaging.incrementAndGet() }
+        val transport = LiveAppGatewayTransport(appSession, scope)
+        runBlocking(Dispatchers.IO) {
+            assertTrue(transport.recoverCompletedTurn("req-media", "c1"))
+        }
+        assertEquals(1, recoveredImageDownloads.get())
+        // This fixture has no AttachmentStore. The recovery nevertheless
+        // attempts the authenticated download instead of dropping its media.
+        assertEquals(1, missingStaging.get())
+        assertEquals(0, jsonChatCalls.get())
+        assertEquals(0, streamCalls.get())
+    }
+
+    @Test
+    fun typedContentOnlyImageRestoresWithoutLegacyMediaOrSecondInference() {
+        val store = seededStore()
+        store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-content"))
+        store.put(mapOf(
+            JarvisAppSession.KEY_TURN_PREFIX + "req-content" to
+                listOf("c1", "trace-content", ANDROID_DEVICE, APP_SESSION)
+                    .joinToString("\u001f"),
+        ))
+        val appSession = JarvisAppSession(store)
+        val imageEvents = AtomicInteger(0)
+        appSession.onAgentImageError = { imageEvents.incrementAndGet() }
+        val transport = LiveAppGatewayTransport(appSession, scope)
+        runBlocking(Dispatchers.IO) {
+            assertTrue(transport.recoverCompletedTurn("req-content", "c1"))
+        }
+        assertEquals(1, recoveredImageDownloads.get())
+        assertEquals(1, imageEvents.get())
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
+    fun cachedTurnDeliversTypedSourcesUnderOriginalRequestWithoutNewInference() {
+        val store = seededStore()
+        store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-sources"))
+        store.put(mapOf(
+            JarvisAppSession.KEY_TURN_PREFIX + "req-sources" to
+                listOf("c1", "trace-citations", ANDROID_DEVICE, APP_SESSION)
+                    .joinToString("\u001f"),
+        ))
+        val appSession = JarvisAppSession(store)
+        val received = mutableListOf<Triple<String, String, String>>()
+        appSession.onAgentSourcesReady = { conversationId, requestId, sources ->
+            received += Triple(conversationId, requestId, sources)
+        }
+        val transport = LiveAppGatewayTransport(appSession, scope)
+        runBlocking(Dispatchers.IO) {
+            assertTrue(transport.recoverCompletedTurn("req-sources", "c1"))
+        }
+        assertEquals(1, received.size)
+        assertEquals("c1", received.single().first)
+        assertEquals("req-sources", received.single().second)
+        val sources = com.jarvis.android.data.repo.ChatSourcesCodec.decode(
+            received.single().third)
+        assertEquals("https://example.org/report", sources.single().url)
+        assertEquals(0, recoveredImageDownloads.get())
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
     }
 
     @Test

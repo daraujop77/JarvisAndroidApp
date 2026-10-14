@@ -26,6 +26,7 @@ data class ChatMessage(
     val status: RequestStatus,
     val createdAtMs: Long,
     val attachmentIds: List<String> = emptyList(),
+    val sources: List<ChatCitation> = emptyList(),
     val routeProvider: String = "",
     val routeModel: String = "",
     val routeKind: String = "",
@@ -126,6 +127,7 @@ class ConversationRepository(
                 status = requestStatusFromName(it.status),
                 createdAtMs = it.createdAtMs,
                 attachmentIds = it.attachmentIds.split(',').filter { a -> a.isNotBlank() },
+                sources = ChatSourcesCodec.decode(it.sourcesJson),
             )
         }.toMutableList()
         if (live != null) {
@@ -137,6 +139,7 @@ class ConversationRepository(
                 status = if (live.status.isTerminal && i >= 0) persisted[i].status else live.status,
                 createdAtMs = if (i >= 0) persisted[i].createdAtMs else live.startedAtMs,
                 attachmentIds = if (i >= 0) persisted[i].attachmentIds else emptyList(),
+                sources = if (i >= 0) persisted[i].sources else emptyList(),
                 routeProvider = live.routeProvider,
                 routeModel = live.routeModel,
                 routeKind = live.routeKind,
@@ -246,22 +249,34 @@ class ConversationRepository(
         }
     }
 
-    /** Add an agent-generated draft as an assistant attachment without duplicating the user's prompt. */
+    /** Attach generated media to the SAME assistant bubble as its answer.
+     * A cached response can fire this callback twice; the DAO deduplicates
+     * stable attachment IDs and rejects another conversation's request.
+     */
     fun recordAgentGeneratedImage(conversationId: String, requestId: String, attachmentId: String) {
-        val now = clock()
         scope.launch {
-            ensureConversation(conversationId, "Generated image", now)
-            dao.insertMessage(
-                MessageEntity(
-                    conversationId = conversationId,
-                    clientRequestId = "agentimg_" + requestId,
-                    role = "assistant",
-                    text = "",
-                    status = RequestStatus.Completed.dbName,
-                    createdAtMs = now,
-                    attachmentIds = attachmentId,
-                ),
-            )
+            // The optimistic user row is normally stored before network send.
+            // If delivery races that initial insert, only wait locally; never
+            // reissue the model/image operation to recover the attachment.
+            repeat(5) {
+                if (dao.attachGeneratedImageToAssistant(
+                        conversationId, requestId, attachmentId, clock())) return@launch
+                kotlinx.coroutines.delay(80)
+            }
+        }
+    }
+
+    /** Source metadata is persisted on the original signed request, never
+     * guessed from assistant prose or another chat.
+     */
+    fun recordAgentSources(conversationId: String, requestId: String, sourcesJson: String) {
+        if (ChatSourcesCodec.decode(sourcesJson).isEmpty()) return
+        scope.launch {
+            repeat(5) {
+                if (dao.attachVerifiedSources(conversationId, requestId,
+                        sourcesJson, clock())) return@launch
+                kotlinx.coroutines.delay(80)
+            }
         }
     }
 
@@ -391,23 +406,13 @@ class ConversationRepository(
 
     private suspend fun finalize(req: RequestState, snap: SessionSnapshot) {
         dao.deletePending(req.clientRequestId)
-        val existing = dao.assistantMessage(req.clientRequestId)
-        val status = req.status.dbName
-        val text = assistantText(req)
-        if (existing == null) {
-            dao.insertMessage(
-                MessageEntity(
-                    conversationId = req.conversationId,
-                    clientRequestId = req.clientRequestId,
-                    role = "assistant",
-                    text = text,
-                    status = status,
-                    createdAtMs = req.startedAtMs + 1,
-                )
-            )
-        } else {
-            dao.updateAssistantMessage(req.clientRequestId, text, status)
-        }
+        dao.finalizeAssistant(
+            conversationId = req.conversationId,
+            requestId = req.clientRequestId,
+            text = assistantText(req),
+            status = req.status.dbName,
+            createdAtMs = req.startedAtMs + 1,
+        )
         // Keep the original title/creation time; only bump activity + replay cursor.
         val existingConversation = dao.conversation(req.conversationId)
         dao.upsertConversation(

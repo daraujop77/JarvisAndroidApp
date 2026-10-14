@@ -100,6 +100,103 @@ class ProcessDeathReconciliationTest {
     }
 
     @Test
+    fun generatedImageAndTextUseOneAssistantMessageInEitherArrivalOrder() {
+        runBlockingShort {
+            dao.upsertConversation(ConversationEntity("c-media", "image", 1, 1))
+            dao.insertMessage(MessageEntity(
+                conversationId = "c-media", clientRequestId = "req-media",
+                role = "user", text = "Draw Doom", status = "Completed",
+                createdAtMs = 1,
+            ))
+            // SSE media can precede text finalization.
+            assertTrue(dao.attachGeneratedImageToAssistant(
+                "c-media", "req-media", "gen_stable1", 2))
+            dao.finalizeAssistant("c-media", "req-media",
+                "Aquí está Doom", "Completed", 2)
+            assertTrue(dao.attachGeneratedImageToAssistant(
+                "c-media", "req-media", "gen_stable1", 2))
+            assertTrue(dao.attachGeneratedImageToAssistant(
+                "c-media", "req-media", "gen_stable2", 2))
+            val rows = dao.messages("c-media").filter { it.role == "assistant" }
+            assertEquals(1, rows.size)
+            assertEquals("Aquí está Doom", rows.single().text)
+            assertEquals("gen_stable1,gen_stable2", rows.single().attachmentIds)
+
+            // Text can also arrive before media after a cached turn.
+            dao.insertMessage(MessageEntity(
+                conversationId = "c-media", clientRequestId = "req-second",
+                role = "user", text = "Another", status = "Completed",
+                createdAtMs = 4,
+            ))
+            dao.finalizeAssistant("c-media", "req-second",
+                "Otra imagen", "Completed", 5)
+            assertTrue(dao.attachGeneratedImageToAssistant(
+                "c-media", "req-second", "gen_stable3", 5))
+            val second = dao.assistantMessage("req-second")!!
+            assertEquals("Otra imagen", second.text)
+            assertEquals("gen_stable3", second.attachmentIds)
+            assertEquals(2, dao.messages("c-media").count { it.role == "assistant" })
+        }
+    }
+
+    @Test
+    fun typedSourcesAndImagePersistTogetherWithoutChangingAssistantText() {
+        runBlockingShort {
+            dao.upsertConversation(ConversationEntity("c-sources", "sources", 1, 1))
+            dao.upsertConversation(ConversationEntity("other", "private", 1, 1))
+            dao.insertMessage(MessageEntity(
+                conversationId = "c-sources", clientRequestId = "req-sources",
+                role = "user", text = "Investigate", status = "Completed",
+                createdAtMs = 1,
+            ))
+            val json = """[{"ref":"web:d92dac30efd5eb76088d",
+                "title":"Verified report","url":"https://example.org/report"}]"""
+            assertTrue(dao.attachGeneratedImageToAssistant(
+                "c-sources", "req-sources", "gen_stable", 2))
+            assertTrue(dao.attachVerifiedSources(
+                "c-sources", "req-sources", json, 2))
+            dao.finalizeAssistant("c-sources", "req-sources",
+                "Respuesta con fuentes", "Completed", 2)
+            val restored = dao.assistantMessage("req-sources")!!
+            assertEquals("gen_stable", restored.attachmentIds)
+            assertEquals(json, restored.sourcesJson)
+            assertEquals("Respuesta con fuentes", restored.text)
+            assertTrue(dao.attachVerifiedSources(
+                "c-sources", "req-sources", json, 2))
+            assertEquals(1, dao.messages("c-sources").count { it.role == "assistant" })
+            val reader = ConversationRepository(
+                dao, JarvisSessionRepository(
+                    FakeGateway(scope, FakeConfig(replyWords = emptyList())), scope),
+                scope,
+            )
+            val restoredTurn = reader.observeMessages("c-sources").first()
+                .single { it.role == "assistant" }
+            assertEquals("Verified report", restoredTurn.sources.single().title)
+            assertEquals("gen_stable", restoredTurn.attachmentIds.single())
+            assertTrue(!dao.attachVerifiedSources("other", "req-sources", json, 2))
+            assertTrue(dao.messages("other").isEmpty())
+        }
+    }
+
+    @Test
+    fun generatedImageCannotAttachToOtherConversationOrUnknownRequest() {
+        runBlockingShort {
+            dao.upsertConversation(ConversationEntity("cA", "one", 1, 1))
+            dao.upsertConversation(ConversationEntity("cB", "two", 1, 1))
+            dao.insertMessage(MessageEntity(
+                conversationId = "cA", clientRequestId = "req-one",
+                role = "user", text = "Image", status = "Pending", createdAtMs = 1,
+            ))
+            assertTrue(!dao.attachGeneratedImageToAssistant(
+                "cB", "req-one", "gen_wrong", 2))
+            assertTrue(!dao.attachGeneratedImageToAssistant(
+                "cA", "missing", "gen_unknown", 2))
+            assertTrue(dao.messages("cB").isEmpty())
+            assertTrue(dao.messages("cA").none { it.role == "assistant" })
+        }
+    }
+
+    @Test
     fun retryAfterProcessDeathResendsTheStoredMessage() {
         runBlockingShort {
             dao.upsertConversation(ConversationEntity("cR", "old", 1L, 1L))
@@ -271,7 +368,8 @@ private class FakeDao : JarvisDao {
     }
 
     override suspend fun upsertMessage(message: MessageEntity) {
-        insertMessage(message)
+        val row = if (message.id == 0L) message.copy(id = nextId++) else message
+        messages.update { before -> before.filterNot { it.id == row.id } + row }
     }
 
     override suspend fun updateAssistantMessage(rid: String, text: String, status: String) {

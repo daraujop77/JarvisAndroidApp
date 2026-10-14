@@ -18,9 +18,26 @@ class CopilotApprovedVisualRevisionWiringTest {
         assertTrue(api.contains("approvedVisualAssetIds.filter"))
         assertTrue(api.contains(".distinct().take(6)"))
         assertTrue(vm.contains("existingHistory.asReversed()"))
-        assertTrue(vm.contains("asset.status == \"APPROVED\""))
-        assertTrue(vm.contains("asset.storage_state == \"stored\""))
+        val helper = code("app/src/main/java/com/jarvis/android/ui/writing/CopilotTaskVisualRecovery.kt")
+        assertTrue(vm.contains("approvedVisualIdsForCopilotContext("))
+        assertTrue(helper.contains("it.status == \"APPROVED\""))
+        assertTrue(helper.contains("it.storage_state == \"stored\""))
+        assertTrue(helper.contains(".distinct()"))
+        assertTrue(helper.contains(".take(6)"))
         assertTrue(vm.contains("approvedVisualAssetIds = visibleApprovedIds"))
+    }
+
+    @Test fun candidateApprovalRequiresDecodedVisiblePreview() {
+        val screen = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
+        // An attachment ID alone is not evidence that an image loaded.
+        assertTrue(screen.contains("val candidatePreviewBitmap = remember(turn.generatedPreviewAttachmentId)"))
+        assertTrue(screen.contains("val image = candidatePreviewBitmap"))
+        assertTrue(screen.contains("turn.candidatePerspective == \"front\""))
+        assertTrue(screen.contains("candidatePreviewBitmap != null"))
+        assertTrue(screen.contains("!turn.candidateCharacterId.isNullOrBlank()"))
+        assertTrue(screen.contains("isApprovableProjectReference("))
+        assertTrue(screen.contains("turn.candidateStorageState, turn.candidateCharacterId,\n                            candidatePreviewBitmap != null"))
+        assertTrue(!screen.contains("!turn.generatedPreviewAttachmentId.isNullOrBlank()"))
     }
 
     @Test fun paidInspectionCardNeverClaimsToSaveCanon() {

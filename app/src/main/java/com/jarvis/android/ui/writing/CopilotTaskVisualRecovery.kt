@@ -6,6 +6,27 @@ import kotlinx.serialization.json.JsonPrimitive
 
 
 /**
+ * Visual references in a multi-turn Copilot request must be selected from the
+ * SAME already-scoped project history, newest first. A recent CANDIDATE
+ * cannot hide an older APPROVED image. IDs are just hints: the VPS must
+ * reauthorize project, owner, approval state and immutable bytes.
+ */
+internal fun approvedVisualIdsForCopilotContext(
+    visualAssetsNewestFirst: List<List<CopilotApprovedVisualAsset>>,
+): List<String> = visualAssetsNewestFirst.asSequence()
+    .flatMap { it.asSequence() }
+    .filter { it.status == "APPROVED" && it.storage_state == "stored" }
+    .filter {
+        Regex("^va_[A-Za-z0-9_]{6,80}$").matches(it.asset_id) &&
+            Regex("^[a-fA-F0-9]{64}$").matches(it.sha256)
+    }
+    .map { it.asset_id }
+    .distinct()
+    .take(6)
+    .toList()
+
+
+/**
  * Returns only newly revealed, immutable APPROVED files for the exact task.
  *
  * The initial chat often contains no images when the backend is still
@@ -55,23 +76,61 @@ internal fun newApprovedCopilotTaskVisuals(
  */
 internal fun copilotTaskHasActiveRemoteWork(task: CopilotTaskState): Boolean {
     val active = setOf("RUNNING", "DISPATCHING")
-    if (task.agent_run_state in active || task.state in active) return true
-    if (task.agent_run_state in setOf(
-            "WAITING_CONFIRMATION", "OUTCOME_UNKNOWN", "CANCEL_REQUESTED",
-            "FAILED", "CANCELED", "PARTIAL",
-        ) || task.state in setOf(
-            "READY", "BLOCKED", "OUTCOME_UNKNOWN",
-            "CANCEL_REQUESTED", "CANCELED",
-        )
+    if (task.agent_run_state == "WAITING_CONFIRMATION" ||
+        (task.state == "READY" && task.requires_confirmation)
     ) return false
-    // A legacy task may already be DONE while its asynchronous visual job
-    // continues. Preserve polling for its pending live_progress entries.
-    return task.live_progress.any {
-        it.status in setOf(
-            "QUEUED", "RUNNING", "WORKING", "PENDING", "PENDING_CANON_DIFF",
-        )
-    }
+    if (task.agent_run_state in active || task.state in active) return true
+    // An accepted, owner-scoped worker can outlive the agent's final reply.
+    // Poll its EXISTING job only, including after a PARTIAL/FAILED text run;
+    // never resubmit a provider operation or treat acceptance as completion.
+    if (task.live_progress.any {
+            it.status in setOf(
+                "QUEUED", "RUNNING", "WORKING", "PENDING", "PENDING_CANON_DIFF",
+            )
+        }) return true
+    return false
 }
+
+
+/** An already-recorded image is independently recoverable even if the text
+ * generation or final model reply failed. This is only scoped metadata:
+ * subsequent authenticated fetch must still verify actual pixels and SHA.
+ * Neither a prompt nor a bare asset identifier authorizes an image.
+ */
+internal fun hasRecoverableCopilotVisualReceipt(
+    projectId: String,
+    task: CopilotTaskState,
+): Boolean {
+    if (projectId.isBlank() || task.project_id != projectId ||
+        task.task_id.isBlank()) return false
+    if (completedCopilotGeneratedMaster(projectId, task) != null) return true
+    return task.results.asSequence()
+        .flatMap { it.visual_assets.asSequence() }
+        .any {
+            it.status == "APPROVED" && it.storage_state == "stored" &&
+                Regex("^va_[A-Za-z0-9_]{6,80}$").matches(it.asset_id) &&
+                Regex("^[a-fA-F0-9]{64}$").matches(it.sha256)
+        }
+}
+
+
+/** The server is the source of a missing chat bubble after process death.
+ * A latest-task response is NOT authority to show another project's transcript.
+ * Recovery never invokes a model, provider, or visual generation.
+ */
+internal fun canRebuildCopilotTurn(
+    projectId: String, original: CopilotTaskState, recovered: CopilotTaskState,
+): Boolean = projectId.isNotBlank() &&
+    original.project_id == projectId && recovered.project_id == projectId &&
+    original.task_id.isNotBlank() && original.task_id == recovered.task_id &&
+    original.request_id.isNotBlank() &&
+    original.request_id == recovered.request_id &&
+    original.conversation_id.isNotBlank() &&
+    original.conversation_id == recovered.conversation_id &&
+    recovered.request_text.isNotBlank() &&
+    (recovered.reply_text.isNotBlank() ||
+        hasRecoverableCopilotVisualReceipt(projectId, recovered)) &&
+    recovered.agent_run_state !in setOf("RUNNING", "DISPATCHING", "NEW")
 
 
 /** A completed character-master draft is an unapproved visual candidate.
@@ -84,29 +143,95 @@ internal data class CopilotGeneratedMaster(
     val characterId: String,
     val status: String,
     val storageState: String,
+    val kind: String = "",
+    val perspective: String = "",
 )
 
 internal fun completedCopilotGeneratedMaster(
     projectId: String, task: CopilotTaskState,
 ): CopilotGeneratedMaster? {
+    // An image receipt is independent of the model's final text/run state.
+    // Even after an uncertain final turn, a hash-bound candidate belonging to
+    // this exact task can be inspected without approving or regenerating it.
     if (projectId.isBlank() || task.project_id != projectId ||
-        task.task_id.isBlank() || task.agent_run_state in
-        setOf("OUTCOME_UNKNOWN", "BLOCKED", "FAILED", "RUNNING", "DISPATCHING") ||
-        task.state in setOf("OUTCOME_UNKNOWN", "BLOCKED", "RUNNING", "READY")
+        task.task_id.isBlank()
     ) return null
-    val results = task.results.filter { it.tool == "generate_character_master" }
-    if (results.size != 1) return null
-    val data = results.single().result
-    fun field(name: String): String = (data[name] as? JsonPrimitive)?.content.orEmpty()
-    val id = field("asset_id")
-    val sha = field("sha256")
-    val character = field("character_id")
-    val status = field("status")
-    val storage = field("storage_state")
+    // The adaptive agent can show an existing asset, then make a new
+    // candidate based on it. Only the last exact visual receipt in this run
+    // is displayed; unrelated tool results cannot select an image.
+    // An invalid/later result must not hide an earlier verified receipt in
+    // this exact task. Never fall back to another task or project.
+    for (receipt in task.results.asReversed()) {
+        if (receipt.tool !in setOf(
+                "generate_character_master", "get_visual_asset_for_chat",
+                "edit_visual_candidate", "import_attached_image_reference",
+            )) continue
+        val data = receipt.result
+        fun field(name: String): String = (data[name] as? JsonPrimitive)?.content.orEmpty()
+        val id = field("asset_id")
+        val sha = field("sha256")
+        val character = field("character_id")
+        val status = field("status")
+        val storage = field("storage_state")
+        val kind = field("kind").ifBlank {
+            if (receipt.tool == "generate_character_master")
+                "PRIMARY_REFERENCE" else ""
+        }
+        val perspective = field("perspective").ifBlank {
+            if (kind == "PRIMARY_REFERENCE") "front" else ""
+        }
+        if (!Regex("^va_[A-Za-z0-9_]{6,80}$").matches(id) ||
+            !Regex("^[a-fA-F0-9]{64}$").matches(sha) ||
+            (character.isNotBlank() && !character.startsWith("character:")) ||
+            (character.isBlank() && kind !in setOf(
+                "SCENE_ART", "REFERENCE", "LOCATION_REFERENCE")) ||
+            status !in setOf("CANDIDATE", "APPROVED") ||
+            storage !in setOf("stored", "pending")
+        ) continue
+        return CopilotGeneratedMaster(id, sha, character, status, storage,
+            kind = kind, perspective = perspective)
+    }
+    return null
+}
+
+
+/** Owner explicitly approving a project REFERENCE may update its visual
+ * registry status; it must not be mistaken for the character's master,
+ * official wiki link, scene canon, or a turnaround approval.
+ */
+internal fun isApprovableProjectReference(
+    assetId: String?, sha256: String?, kind: String?,
+    status: String?, storageState: String?, characterId: String?,
+    verifiedPreviewPresent: Boolean,
+): Boolean = verifiedPreviewPresent &&
+    kind == "REFERENCE" && status == "CANDIDATE" &&
+    storageState == "stored" && characterId.isNullOrBlank() &&
+    Regex("^va_[A-Za-z0-9_]{6,80}$").matches(assetId.orEmpty()) &&
+    Regex("^[a-fA-F0-9]{64}$").matches(sha256.orEmpty())
+
+/**
+ * Returns an immutable owner-scoped visual source for the chat editor only
+ * after Android has a verified local preview for THIS exact asset. The caller
+ * supplies that preview from the authenticated/hash-checked visual fetch or
+ * the original generated candidate receipt; server reauthorizes the edit.
+ */
+internal fun editableCopilotVisualSource(
+    assetId: String?,
+    sha256: String?,
+    status: String?,
+    storageState: String?,
+    displayedAttachmentId: String?,
+    verifiedAttachmentId: String?,
+): Pair<String, String>? {
+    if (displayedAttachmentId.isNullOrBlank() ||
+        displayedAttachmentId != verifiedAttachmentId ||
+        storageState != "stored" ||
+        status !in setOf("CANDIDATE", "APPROVED")
+    ) return null
+    val id = assetId ?: return null
+    val hash = sha256 ?: return null
     if (!Regex("^va_[A-Za-z0-9_]{6,80}$").matches(id) ||
-        !Regex("^[a-fA-F0-9]{64}$").matches(sha) ||
-        !character.startsWith("character:") ||
-        status !in setOf("CANDIDATE", "APPROVED") || storage != "stored"
+        !Regex("^[a-fA-F0-9]{64}$").matches(hash)
     ) return null
-    return CopilotGeneratedMaster(id, sha, character, status, storage)
+    return id to hash
 }
