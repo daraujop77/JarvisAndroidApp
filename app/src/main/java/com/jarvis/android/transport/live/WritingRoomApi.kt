@@ -197,6 +197,34 @@ data class CopilotRecentMessage(
     val content: String = "",
 )
 
+/** Versioned conversation content. Legacy .turn.response.text still renders
+ * until the shared rich renderer is enabled; no approved-canon authority here.
+ */
+@Serializable
+data class JarvisChatContentBlock(
+    val type: String = "",
+    val text: String = "",
+    val asset_id: String = "",
+    val sha256: String = "",
+    val mime_type: String = "",
+    val status: String = "",
+    val storage_state: String = "",
+)
+
+@Serializable
+data class JarvisChatContentSource(
+    val ref: String = "",
+    val title: String = "",
+    val url: String = "",
+)
+
+@Serializable
+data class JarvisChatContent(
+    val schema: String = "",
+    val blocks: List<JarvisChatContentBlock> = emptyList(),
+    val sources: List<JarvisChatContentSource> = emptyList(),
+)
+
 @Serializable
 data class WritingRoomAutoChat(
     val schema: String = "",
@@ -205,6 +233,7 @@ data class WritingRoomAutoChat(
     val turn: JarvisAppSession.WritingRoomTurn = JarvisAppSession.WritingRoomTurn(),
     val copilot_task: CopilotTaskState? = null,
     val visual_assets: List<CopilotApprovedVisualAsset> = emptyList(),
+    val content: JarvisChatContent? = null,
     val recovered_from_interruption: Boolean = false,
 )
 
