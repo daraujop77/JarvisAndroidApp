@@ -656,11 +656,10 @@ private fun ChatSection(
             !state.busy && !state.copilotAppearanceBusy && !state.copilotAgentBusy) {
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
-            if (state.copilotPendingReferenceId != null) {
-                vm.importWritingCopilotReference(projectId, title, clean)
-            } else {
-                vm.runWritingRoomAutoChat(projectId, title, clean)
-            }
+            vm.runWritingRoomAutoChat(
+                projectId, title, clean,
+                referenceAttachmentId = state.copilotPendingReferenceId,
+            )
             prompt = ""
         }
     }
@@ -1632,7 +1631,7 @@ private fun ChatSection(
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Referencia pendiente · se guardará como candidata, sin generar imagen",
+                            "Imagen adjunta a este mensaje · Copilot decidirá si necesita inspeccionarla",
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f),
                         )

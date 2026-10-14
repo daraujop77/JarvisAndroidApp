@@ -874,11 +874,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (_writingWorkspace.value.busy) return
         viewModelScope.launch {
             val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
-            val valid = staged != null && staged.sizeBytes in 1L..(5L * 1024 * 1024)
+            val valid = staged != null && staged.sizeBytes in 1L..(3L * 1024 * 1024)
             if (!valid) {
                 staged?.let { withContext(Dispatchers.IO) { container.attachmentStore.delete(it.attachmentId) } }
                 _writingWorkspace.value = _writingWorkspace.value.copy(
-                    copilotReferenceError = "La referencia debe ser una imagen JPEG de hasta 5 MB.",
+                    copilotReferenceError = "Adjunta una imagen JPEG de máximo 3 MB.",
                 )
                 return@launch
             }
@@ -2298,15 +2298,21 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         prompt: String,
         room: String = "chat",
         toolMode: Boolean = false,
+        referenceAttachmentId: String? = null,
     ) {
-        val clean = prompt.trim()
+        val clean = prompt.trim().ifEmpty {
+            if (referenceAttachmentId != null) "¿Qué muestra esta imagen?" else ""
+        }
         if (clean.isEmpty()) return
         // All conversational intent goes to the shared model-first AdaptiveAgent.
         // The transport probes the authenticated agent stream itself and uses
         // legacy chat only on an explicit pre-execution 404. Android must not
         // guess intent with keyword/regex handlers or add a preflight roundtrip.
         val current = _writingWorkspace.value
-        val existingHistory = if (current.chatProjectId == projectId) current.chatHistory else emptyList()
+        if (current.busy || current.chatProjectId != projectId ||
+            (referenceAttachmentId != null &&
+                current.copilotPendingReferenceId != referenceAttachmentId)) return
+        val existingHistory = current.chatHistory
         val recent = existingHistory.takeLast(6).flatMap { previous ->
             buildList {
                 if (previous.prompt.isNotBlank()) add(CopilotRecentMessage(
@@ -2328,12 +2334,40 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             busyLabel = "JARVIS is routing the Writing Room task",
             chatProjectId = projectId,
             chat = null,
-            chatHistory = existingHistory + WritingWorkspaceChatTurn(prompt = clean),
+            chatHistory = existingHistory + WritingWorkspaceChatTurn(
+                prompt = clean, referenceAttachmentId = referenceAttachmentId,
+            ),
+            copilotPendingReferenceId = null,
+            copilotReferenceError = null,
             streamingText = "",
             error = null,
         )
 
         viewModelScope.launch {
+            val imageBase64 = if (referenceAttachmentId != null) {
+                withContext(Dispatchers.IO) {
+                    val file = container.attachmentStore.resolve(referenceAttachmentId)
+                    val bytes = if (file != null &&
+                        file.length() in 1L..(3L * 1024 * 1024)) file.readBytes() else null
+                    if (bytes != null && bytes.size >= 3 &&
+                        bytes[0] == 0xFF.toByte() &&
+                        bytes[1] == 0xD8.toByte() &&
+                        bytes[2] == 0xFF.toByte())
+                        Base64.encodeToString(bytes, Base64.NO_WRAP) else null
+                }
+            } else null
+            if (referenceAttachmentId != null && imageBase64 == null) {
+                val state = _writingWorkspace.value
+                if (state.chatProjectId == projectId) {
+                    _writingWorkspace.value = state.copy(
+                        busy = false, busyLabel = "",
+                        chatHistory = existingHistory,
+                        copilotPendingReferenceId = referenceAttachmentId,
+                        copilotReferenceError = "No se pudo verificar la imagen adjunta.",
+                    )
+                }
+                return@launch
+            }
             val result = container.liveSession.writingRoomAutoChatStream(
                 projectId = projectId,
                 projectTitle = projectTitle,
@@ -2342,6 +2376,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 toolMode = toolMode,
                 recentMessages = recent,
                 approvedVisualAssetIds = visibleApprovedIds,
+                attachedImageBase64 = imageBase64,
                 onProgress = { phase ->
                     val current = _writingWorkspace.value
                     if (current.chatProjectId == projectId && current.busy) {

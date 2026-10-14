@@ -46,6 +46,55 @@ class CopilotStreamRequestRecoveryTest {
         .setHeader("Content-Type", "text/event-stream")
         .setBody("event: complete\ndata: ${json.replace("\n", "").replace("\r", "")}\n\n")
 
+    @Test fun attachedImageAndTextUseOneAuthenticatedAgentRequest() =
+        runBlocking(Dispatchers.IO) {
+            val pixels = java.util.Base64.getEncoder()
+                .encodeToString(byteArrayOf(0xFF.toByte(), 0xD8.toByte(),
+                    0xFF.toByte(), 0x12, 0x34))
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "turn":{"project_id":"prj_story",
+                            "response":{"text":"He recibido la imagen"}}}""",
+            ))
+            val answer = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Revisa esta imagen",
+                attachedImageBase64 = pixels, onDelta = {},
+            ).getOrThrow()
+            assertEquals("He recibido la imagen", answer.turn.response.text)
+            val request = server.takeRequest(5, TimeUnit.SECONDS)!!
+            assertEquals("/api/app/writing-room/agent/stream", request.path)
+            val images = json(request)["images"]!!.toString()
+            assertTrue(images.contains(pixels))
+            assertTrue(images.contains("image/jpeg"))
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun oldVpsWithoutAdaptiveAgentCannotSilentlyIgnoreAttachedImage() =
+        runBlocking(Dispatchers.IO) {
+            val pixels = java.util.Base64.getEncoder()
+                .encodeToString(byteArrayOf(0xFF.toByte(), 0xD8.toByte(),
+                    0xFF.toByte(), 0x12, 0x34))
+            server.enqueue(MockResponse().setResponseCode(404))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Edita esta imagen",
+                attachedImageBase64 = pixels, onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            assertEquals("/api/app/writing-room/agent/stream",
+                server.takeRequest(5, TimeUnit.SECONDS)!!.path)
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun oversizedImageStopsBeforeAnyHttpDispatch() =
+        runBlocking(Dispatchers.IO) {
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Mira", onDelta = {},
+                attachedImageBase64 = "x".repeat(5 * 1024 * 1024 + 1),
+            )
+            assertTrue(result.isFailure)
+            assertEquals(0, server.requestCount)
+        }
+
     @Test fun completedAgentStreamPinsOriginalRequestIdForPostApprovalRefresh() =
         runBlocking(Dispatchers.IO) {
             var originalId = ""
