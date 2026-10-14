@@ -68,7 +68,7 @@ jobs:
           tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/package-badging.txt"
           grep -q "name='com.jarvis.android'" "$RUNNER_TEMP/package-badging.txt"
-          grep -q "versionCode='66'" "$RUNNER_TEMP/package-badging.txt"
+          grep -q "versionCode='67'" "$RUNNER_TEMP/package-badging.txt"
           grep -q "versionName='0.1.67-chat-copilot-repair'" "$RUNNER_TEMP/package-badging.txt"
           ! grep -q 'application-debuggable' "$RUNNER_TEMP/package-badging.txt"
           "$tools/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/apk-signature.txt"
