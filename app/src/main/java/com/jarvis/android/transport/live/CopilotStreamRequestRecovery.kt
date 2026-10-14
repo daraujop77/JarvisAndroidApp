@@ -3,7 +3,7 @@ package com.jarvis.android.transport.live
 import com.jarvis.android.data.repo.ChatSourcesCodec
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 
 /**
@@ -18,8 +18,8 @@ internal fun recoveredCopilotPublicSources(task: CopilotTaskState): List<JarvisC
         task.results.forEach { receipt ->
             if (receipt.tool !in setOf("web_search", "web_extract") ||
                 receipt.status != "SUCCEEDED" ||
-                receipt.result["authority"]?.jsonPrimitive?.content != "EXTERNAL_UNTRUSTED" ||
-                receipt.result["status"]?.jsonPrimitive?.content != "READY"
+                (receipt.result["authority"] as? JsonPrimitive)?.content != "EXTERNAL_UNTRUSTED" ||
+                (receipt.result["status"] as? JsonPrimitive)?.content != "READY"
             ) return@forEach
             val sources = receipt.result["sources"] as? JsonArray ?: return@forEach
             sources.take(5).filterIsInstance<JsonObject>().forEach { add(it) }
