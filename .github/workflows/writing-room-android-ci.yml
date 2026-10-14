@@ -163,7 +163,7 @@ jobs:
           PACKAGE_NAME="${APK_IDENTITY[0]}"
           VERSION_CODE="${APK_IDENTITY[1]}"
           VERSION_NAME="${APK_IDENTITY[2]}"
-          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] && [ "$VERSION_CODE" -ge 65 ] && [ -n "$VERSION_NAME" ] || {
+          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] && [ "$VERSION_CODE" -ge 68 ] && [ -n "$VERSION_NAME" ] || {
             echo "APK release identity invalid or stale" >&2; exit 1;
           }
           TAG="android-v${VERSION_CODE}"
@@ -206,57 +206,7 @@ jobs:
           else
             gh release create "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" \
               --target "$GITHUB_SHA" \
-              --title "JARVIS Android $VERSION_NAME" \
-              --notes "Signed production APK for JARVIS Android $VERSION_NAME (versionCode $VERSION_CODE)."
-          fi
-
-          echo "published_tag=$TAG"
-          echo "published_package=$PACKAGE_NAME"
-          echo "published_sha256=$SHA256"
-\t' read -r PACKAGE_NAME VERSION_CODE VERSION_NAME <<< "$PACKAGE_INFO"
-          [ -n "$VERSION_NAME" ] && [ "$VERSION_CODE" -ge 65 ] || {
-            echo "APK release identity invalid or stale" >&2; exit 1;
-          }
-          TAG="android-v${VERSION_CODE}"
-
-          RELEASE_APK="$RUNNER_TEMP/JARVIS-release.apk"
-          RELEASE_MANIFEST="$RUNNER_TEMP/JARVIS-release.json"
-          cp "$APK" "$RELEASE_APK"
-          SHA256="$(sha256sum "$RELEASE_APK" | awk '{print $1}')"
-          SIZE_BYTES="$(stat -c '%s' "$RELEASE_APK")"
-
-          python3 - "$RELEASE_MANIFEST" "$VERSION_CODE" "$VERSION_NAME" "$PACKAGE_NAME" "$SHA256" "$SIZE_BYTES" "$GITHUB_SHA" <<'PY'
-          import json, sys
-          path, version_code, version_name, package_name, sha256, size_bytes, source_sha = sys.argv[1:]
-          with open(path, "w", encoding="utf-8") as fh:
-              json.dump({
-                  "schema": "jarvis.android.signed-release.v1",
-                  "version_code": int(version_code),
-                  "version_name": version_name,
-                  "package_name": package_name,
-                  "sha256": sha256,
-                  "size_bytes": int(size_bytes),
-                  "source_sha": source_sha,
-              }, fh, indent=2)
-              fh.write("\n")
-          PY
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            # A versionCode is a permanent release identity. Never replace an
-            # earlier APK with a different build under the same tag.
-            EXISTING_DIR="$RUNNER_TEMP/existing-release"
-            mkdir -p "$EXISTING_DIR"
-            gh release download "$TAG" --pattern "JARVIS-release.json" --dir "$EXISTING_DIR"
-            EXISTING_TARGET="$(gh release view "$TAG" --json targetCommitish --jq '.targetCommitish')"
-            if [ "$EXISTING_TARGET" != "$GITHUB_SHA" ] || \
-               ! cmp -s "$EXISTING_DIR/JARVIS-release.json" "$RELEASE_MANIFEST"; then
-              echo "Release $TAG already belongs to another commit or artifact. Bump versionCode and versionName." >&2
-              exit 1
-            fi
-            echo "Release $TAG already contains this exact build; leaving it unchanged."
-          else
-            gh release create "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" \
-              --target "$GITHUB_SHA" \
+              --latest \
               --title "JARVIS Android $VERSION_NAME" \
               --notes "Signed production APK for JARVIS Android $VERSION_NAME (versionCode $VERSION_CODE)."
           fi
