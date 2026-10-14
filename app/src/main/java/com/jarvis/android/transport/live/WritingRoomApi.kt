@@ -166,6 +166,7 @@ data class CopilotTaskState(
     // Only exact-request recovery exposes these fields. Ordinary status
     // remains a compact task projection and does not include a full reply.
     val request_id: String = "",
+    val request_text: String = "",
     val reply_text: String = "",
     val state: String = "",
     val summary: String = "",
