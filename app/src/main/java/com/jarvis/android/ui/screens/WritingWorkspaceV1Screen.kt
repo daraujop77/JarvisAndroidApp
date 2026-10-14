@@ -1557,6 +1557,9 @@ private fun ChatSection(
                         response, turn, projectId, vm, state.busy,
                         state.approvedVisualAttachments,
                         state.approvedVisualErrors,
+                        onEditVisual = { assetId ->
+                            prompt = "Edita esta imagen utilizando la referencia visual exacta $assetId. "
+                        },
                     )
                     }
                 }
@@ -1761,6 +1764,7 @@ private fun CopilotAssistantMessage(
     busy: Boolean,
     approvedVisualAttachments: Map<String, String>,
     approvedVisualErrors: Set<String>,
+    onEditVisual: (String) -> Unit,
 ) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
@@ -1789,11 +1793,9 @@ private fun CopilotAssistantMessage(
                 dismissButton = {
                     TextButton(onClick = {
                         expandedVisual = null
-                        clipboardManager.setText(AnnotatedString(
-                            "Quiero modificar la imagen de este turno. Usa la referencia visual exacta y conserva su identidad."
-                        ))
+                        onEditVisual(imageId)
                     }) {
-                        Text("Copiar instrucción para editar")
+                        Text("Editar en Copilot")
                     }
                 },
             )
