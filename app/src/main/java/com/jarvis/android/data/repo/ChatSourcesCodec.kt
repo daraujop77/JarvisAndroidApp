@@ -22,8 +22,17 @@ object ChatSourcesCodec {
     private fun verified(url: String, ref: String): Boolean {
         if (url.length !in 1..2048 || !refPattern.matches(ref)) return false
         val uri = try { URI(url) } catch (_: Exception) { return false }
-        if (uri.scheme != "https" || uri.host.isNullOrBlank() ||
-            uri.rawUserInfo != null || uri.rawFragment != null) return false
+        val host = uri.host?.lowercase().orEmpty()
+        if (uri.scheme != "https" || host.isBlank() ||
+            uri.rawUserInfo != null || uri.port !in setOf(-1, 443) ||
+            host == "localhost" || host.endsWith(".local") ||
+            host.endsWith(".internal") || host.endsWith(".test") ||
+            host.endsWith(".invalid") ||
+            host.matches(Regex("^127\\.[0-9.]+$")) ||
+            host.matches(Regex("^10\\.[0-9.]+$")) ||
+            host.matches(Regex("^192\\.168\\.[0-9.]+$")) ||
+            host.matches(Regex("^172\\.(1[6-9]|2[0-9]|3[01])\\.[0-9.]+$")) ||
+            host == "::1" || host == "[::1]") return false
         val calculated = MessageDigest.getInstance("SHA-256")
             .digest(url.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }.take(20)
