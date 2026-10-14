@@ -219,6 +219,36 @@ class CopilotTaskVisualRecoveryTest {
         assertTrue(parsed.visual_assets.isEmpty())
     }
 
+    @Test fun existingAndEditedVisualAppearInsideOriginalCopilotTurn() {
+        val source = CopilotTaskResult(tool = "get_visual_asset_for_chat",
+            result = buildJsonObject {
+                put("asset_id", "va_gen_" + "a".repeat(32))
+                put("sha256", "b".repeat(64))
+                put("character_id", "character:doom")
+                put("status", "CANDIDATE")
+                put("storage_state", "pending")
+            })
+        val updated = source.copy(tool = "edit_visual_candidate",
+            result = buildJsonObject {
+                put("asset_id", "va_gen_" + "c".repeat(32))
+                put("sha256", "d".repeat(64))
+                put("character_id", "character:doom")
+                put("status", "CANDIDATE")
+                put("storage_state", "pending")
+            })
+        val linked = task().copy(results = listOf(source, updated),
+            state = "BLOCKED", agent_run_state = "PARTIAL")
+        val candidate = completedCopilotGeneratedMaster("prj_story", linked)
+        assertEquals("va_gen_" + "c".repeat(32), candidate?.assetId)
+        assertEquals("pending", candidate?.storageState)
+        assertEquals("character:doom", candidate?.characterId)
+        assertEquals("va_gen_" + "a".repeat(32),
+            completedCopilotGeneratedMaster(
+                "prj_story", linked.copy(results = listOf(source)))?.assetId)
+        assertTrue(completedCopilotGeneratedMaster(
+            "other-project", linked) == null)
+    }
+
     @Test fun completedCharacterMasterIsRecoveredWithoutRepeatGeneration() {
         val result = CopilotTaskResult(tool = "generate_character_master",
             result = buildJsonObject {
