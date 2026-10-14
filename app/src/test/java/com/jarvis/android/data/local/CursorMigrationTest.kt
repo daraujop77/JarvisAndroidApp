@@ -121,6 +121,42 @@ class CursorMigrationTest {
         }
     }
 
+    @Test
+    fun migration3to4PreservesMessagesImagesAndCreatesTypedSourceColumn() {
+        memoryDb().use { conn ->
+            conn.createV1Tables()
+            exec(conn) { JarvisDatabase.applyMigration1to2(it) }
+            exec(conn) { JarvisDatabase.applyMigration2to3(it) }
+            conn.createStatement().use { st ->
+                st.execute("INSERT INTO conversations VALUES ('cA','Chat A',1,2,'cursor123')")
+                st.execute("INSERT INTO messages VALUES (1,'cA','reqA','user','Doom','Completed',1,'')")
+                st.execute("INSERT INTO messages VALUES (2,'cA','reqA','assistant','Aquí está','Completed',2,'gen_abc')")
+                st.execute("INSERT INTO pending_outbound VALUES ('reqB','cA','Question',3,2,'')")
+            }
+            exec(conn) { JarvisDatabase.applyMigration3to4(it) }
+            assertTrue("sourcesJson" in columns(conn, "messages"))
+            conn.createStatement().use { st ->
+                val old = st.executeQuery(
+                    "SELECT text, attachmentIds, sourcesJson FROM messages WHERE id=2")
+                assertTrue(old.next())
+                assertEquals("Aquí está", old.getString(1))
+                assertEquals("gen_abc", old.getString(2))
+                assertEquals("", old.getString(3))
+                old.close()
+                st.execute("UPDATE messages SET sourcesJson='[]' WHERE id=2")
+                val citation = st.executeQuery(
+                    "SELECT sourcesJson FROM messages WHERE id=2")
+                assertTrue(citation.next())
+                assertEquals("[]", citation.getString(1))
+                citation.close()
+                val outbound = st.executeQuery("SELECT attempts FROM pending_outbound")
+                assertTrue(outbound.next())
+                assertEquals(2, outbound.getInt(1))
+                outbound.close()
+            }
+        }
+    }
+
     /**
      * Lane C: the entire v1 -> v2 -> v3 chain. v1 is reconstructed from the
      * first-shipped schema (pending_outbound without attachmentIds). Nothing is
