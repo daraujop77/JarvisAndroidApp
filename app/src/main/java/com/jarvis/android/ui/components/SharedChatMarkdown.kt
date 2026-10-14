@@ -15,7 +15,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -32,6 +35,7 @@ import com.jarvis.android.ui.theme.LocalJarvisAccents
 @Composable
 fun SharedChatMarkdown(text: String, modifier: Modifier = Modifier) {
     val accent = LocalJarvisAccents.current.orbGlow
+    val clipboard = LocalClipboardManager.current
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         markdownBlocks(text.replace("\r\n", "\n")).forEach { block ->
             when (block) {
@@ -69,14 +73,22 @@ fun SharedChatMarkdown(text: String, modifier: Modifier = Modifier) {
                         RoundedCornerShape(10.dp))
                         .padding(12.dp),
                 ) {
-                    block.language?.let {
-                        Text(it, style = MaterialTheme.typography.labelSmall,
+                    Row(horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(block.language ?: "CODE",
+                             style = MaterialTheme.typography.labelSmall,
                              color = accent)
-                        Spacer(Modifier.height(5.dp))
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(block.text))
+                        }) {
+                            Text("Copiar código",
+                                style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                     Text(block.text, fontFamily = FontFamily.Monospace,
                          style = MaterialTheme.typography.bodySmall,
-                         color = MaterialTheme.colorScheme.onSurface)
+                         color = MaterialTheme.colorScheme.onSurface,
+                         modifier = Modifier.horizontalScroll(rememberScrollState()))
                 }
                 is MarkdownBlock.Paragraph -> Text(
                     renderInlineMarkdown(block.text, accent),
