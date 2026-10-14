@@ -108,13 +108,16 @@ class LiveAppGatewayTransportTest {
                         MockResponse().setResponseCode(401)
                     request.path?.startsWith("/api/app/chat/requests/") == true -> {
                         val rid = request.path!!.substringAfterLast('/')
-                        if (rid == "req-lost" || rid == "req-broken" || rid == "req-media") {
+                        if (rid in setOf("req-lost", "req-broken", "req-media", "req-content")) {
                             val media = if (rid == "req-media") {
                                 ""","media":{"generated_images":[{"asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"""
                             } else ""
+                            val content = if (rid in setOf("req-media", "req-content")) {
+                                ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"sources":[]}"""
+                            } else ""
                             MockResponse().setBody(
                                 """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
-                                    """"response":{"text":"Recovered answer"}""" + media + "}",
+                                    """"response":{"text":"Recovered answer"}""" + media + content + "}",
                             )
                         } else {
                             MockResponse().setResponseCode(404)
@@ -455,6 +458,28 @@ class LiveAppGatewayTransportTest {
         assertEquals(1, missingStaging.get())
         assertEquals(0, jsonChatCalls.get())
         assertEquals(0, streamCalls.get())
+    }
+
+    @Test
+    fun typedContentOnlyImageRestoresWithoutLegacyMediaOrSecondInference() {
+        val store = seededStore()
+        store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-content"))
+        store.put(mapOf(
+            JarvisAppSession.KEY_TURN_PREFIX + "req-content" to
+                listOf("c1", "trace-content", ANDROID_DEVICE, APP_SESSION)
+                    .joinToString("\u001f"),
+        ))
+        val appSession = JarvisAppSession(store)
+        val imageEvents = AtomicInteger(0)
+        appSession.onAgentImageError = { imageEvents.incrementAndGet() }
+        val transport = LiveAppGatewayTransport(appSession, scope)
+        runBlocking(Dispatchers.IO) {
+            assertTrue(transport.recoverCompletedTurn("req-content", "c1"))
+        }
+        assertEquals(1, recoveredImageDownloads.get())
+        assertEquals(1, imageEvents.get())
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
     }
 
     @Test
