@@ -2072,15 +2072,30 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val index = state.chatHistory.indexOfLast {
             it.response?.copilot_task?.task_id == task.task_id
         }
-        if (index < 0) return
+        // A process death can discard the in-memory question and its bubble.
+        // Reconstruct ONLY the original, server-scoped request, not another
+        // project's latest message or the text of an unrelated local draft.
+        if (index < 0 && (snapshot.request_text.isBlank() ||
+                snapshot.request_id != task.request_id ||
+                snapshot.conversation_id != task.conversation_id)
+        ) return
         val history = state.chatHistory.toMutableList()
-        history[index] = history[index].copy(response = recovered)
+        if (index >= 0) {
+            history[index] = history[index].copy(response = recovered)
+        } else {
+            history += WritingWorkspaceChatTurn(
+                prompt = snapshot.request_text,
+                response = recovered,
+            )
+        }
         _writingWorkspace.value = state.copy(
             chatHistory = history,
-            chat = if (state.chat?.copilot_task?.task_id == task.task_id)
+            chat = if (state.chat == null ||
+                state.chat?.copilot_task?.task_id == task.task_id)
                 recovered else state.chat,
             copilotAgentTask = snapshot,
         )
+        recoverCopilotGeneratedMaster(projectId, snapshot)
         if (recovered.visual_assets.isNotEmpty()) {
             loadApprovedCopilotVisuals(projectId, recovered.visual_assets)
         }
@@ -2100,6 +2115,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val approved = response.results.flatMap { it.visual_assets }
                 if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
                 followCopilotTaskProgress(projectId, response)
+                // A terminal latest run may have no legacy progress row. Still
+                // restore its transcript/media from the exact request once.
+                if (response.request_id.isNotBlank() &&
+                    response.conversation_id.isNotBlank() &&
+                    !copilotTaskHasActiveRemoteWork(response)
+                ) {
+                    restoreInterruptedCopilotReply(projectId, response, epoch)
+                }
             }
         }
     }
