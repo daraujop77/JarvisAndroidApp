@@ -295,12 +295,12 @@ class LiveAppGatewayTransportTest {
             MockResponse()
                 .setHeader("Content-Type", "text/event-stream")
                 .setBody(
-                    "event: ready\\ndata: {}\\n\\n" +
-                    "event: complete\\ndata: " +
+                    "event: ready\ndata: {}\n\n" +
+                    "event: complete\ndata: " +
                     """{"schema":"jarvis.chat.turn.v1","response":{"text":"Research"},""" +
                     """"content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Research"}],""" +
                     """"sources":[{"ref":"web:d92dac30efd5eb76088d","title":"Report","url":"https://example.org/report"}]}}""" +
-                    "\\n\\n"
+                    "\n\n"
                 )
         }
         val appSession = JarvisAppSession(seededStore())
