@@ -121,17 +121,17 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           [ -f "$APK" ] || { echo "Signed release APK missing"; exit 1; }
           # Gradle release signing must have produced a valid signature.
-          APKSIGNER="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT}}/build-tools" -mindepth 2 -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/build-tools" ] || {
+            echo "Android SDK build-tools not found." >&2; exit 1;
+          }
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -mindepth 2 -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)"
           [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ] || { echo "apksigner unavailable" >&2; exit 1; }
           "$APKSIGNER" verify "$APK"
 
           # Resolve identity from the APK actually compiled, not from Gradle
           # source text. The Gradle properties provide defaults/overrides, so
           # grep/sed of "versionName = jarvisVersionName.get()" is incorrect.
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/build-tools" ] || {
-            echo "Android SDK build-tools not found." >&2; exit 1;
-          }
           AAPT="$(find "$SDK_ROOT/build-tools" -mindepth 2 -maxdepth 2 -name aapt -type f | sort -V | tail -n 1)"
           [ -n "$AAPT" ] && [ -x "$AAPT" ] || {
             echo "aapt not found in Android SDK build-tools." >&2; exit 1;
