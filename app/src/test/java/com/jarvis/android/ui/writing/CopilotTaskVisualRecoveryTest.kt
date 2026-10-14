@@ -222,6 +222,73 @@ class CopilotTaskVisualRecoveryTest {
         assertTrue(!copilotTaskHasActiveRemoteWork(done))
     }
 
+    @Test fun interruptedFinalTextStillRebuildsExactVisualCandidate() {
+        val pending = CopilotTaskResult(
+            tool = "generate_character_master",
+            result = buildJsonObject {
+                put("asset_id", "va_gen_" + "a".repeat(32))
+                put("sha256", "b".repeat(64))
+                put("character_id", "character:doom")
+                put("status", "CANDIDATE")
+                put("storage_state", "pending")
+            },
+        )
+        val original = task(taskId = "ar_saved_image").copy(
+            request_id = "req-original", conversation_id = "chat-original",
+            request_text = "Genera retrato de Doom",
+        )
+        val noText = original.copy(
+            state = "BLOCKED", agent_run_state = "PARTIAL",
+            reply_text = "", results = listOf(pending),
+        )
+        assertTrue(hasRecoverableCopilotVisualReceipt("prj_story", noText))
+        assertTrue(canRebuildCopilotTurn("prj_story", original, noText))
+        assertEquals("va_gen_" + "a".repeat(32),
+            completedCopilotGeneratedMaster("prj_story", noText)?.assetId)
+
+        // The recovery predicate NEVER accepts a bare target ID, another
+        // project, an invalid digest or an unrelated final text response.
+        assertTrue(!hasRecoverableCopilotVisualReceipt(
+            "another_project", noText))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, noText.copy(request_id = "other-request")))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, noText.copy(conversation_id = "other-chat")))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, noText.copy(agent_run_state = "RUNNING")))
+        val bad = pending.copy(result = buildJsonObject {
+            put("asset_id", "va_gen_" + "a".repeat(32))
+            put("sha256", "bad")
+            put("character_id", "character:doom")
+            put("status", "CANDIDATE")
+            put("storage_state", "stored")
+        })
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, noText.copy(results = listOf(bad))))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, noText.copy(results = emptyList())))
+    }
+
+    @Test fun approvedImageMetadataCanRebuildTurnWithMissingModelText() {
+        val original = task(taskId = "ar_approved").copy(
+            request_id = "req-view", conversation_id = "chat-original",
+        )
+        val snapshot = original.copy(
+            request_text = "Enséñame la referencia aprobada",
+            agent_run_state = "PARTIAL", reply_text = "",
+            results = listOf(CopilotTaskResult(
+                tool = "get_approved_visual_references",
+                visual_assets = listOf(approved),
+            )),
+        )
+        assertTrue(canRebuildCopilotTurn("prj_story", original, snapshot))
+        assertTrue(!hasRecoverableCopilotVisualReceipt(
+            "prj_story", snapshot.copy(results = listOf(CopilotTaskResult(
+                tool = "get_approved_visual_references",
+                visual_assets = listOf(approved.copy(storage_state = "pending")),
+            )))))
+    }
+
     @Test fun missingChatBubbleCanBeRebuiltOnlyForItsOriginalScopedTurn() {
         val original = task(taskId = "ar_original").copy(
             conversation_id = "conversation-1", request_id = "request-1",

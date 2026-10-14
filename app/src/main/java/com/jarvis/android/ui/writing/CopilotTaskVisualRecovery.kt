@@ -92,6 +92,28 @@ internal fun copilotTaskHasActiveRemoteWork(task: CopilotTaskState): Boolean {
 }
 
 
+/** An already-recorded image is independently recoverable even if the text
+ * generation or final model reply failed. This is only scoped metadata:
+ * subsequent authenticated fetch must still verify actual pixels and SHA.
+ * Neither a prompt nor a bare asset identifier authorizes an image.
+ */
+internal fun hasRecoverableCopilotVisualReceipt(
+    projectId: String,
+    task: CopilotTaskState,
+): Boolean {
+    if (projectId.isBlank() || task.project_id != projectId ||
+        task.task_id.isBlank()) return false
+    if (completedCopilotGeneratedMaster(projectId, task) != null) return true
+    return task.results.asSequence()
+        .flatMap { it.visual_assets.asSequence() }
+        .any {
+            it.status == "APPROVED" && it.storage_state == "stored" &&
+                Regex("^va_[A-Za-z0-9_]{6,80}$").matches(it.asset_id) &&
+                Regex("^[a-fA-F0-9]{64}$").matches(it.sha256)
+        }
+}
+
+
 /** The server is the source of a missing chat bubble after process death.
  * A latest-task response is NOT authority to show another project's transcript.
  * Recovery never invokes a model, provider, or visual generation.
@@ -106,7 +128,8 @@ internal fun canRebuildCopilotTurn(
     original.conversation_id.isNotBlank() &&
     original.conversation_id == recovered.conversation_id &&
     recovered.request_text.isNotBlank() &&
-    recovered.reply_text.isNotBlank() &&
+    (recovered.reply_text.isNotBlank() ||
+        hasRecoverableCopilotVisualReceipt(projectId, recovered)) &&
     recovered.agent_run_state !in setOf("RUNNING", "DISPATCHING", "NEW")
 
 

@@ -19,6 +19,7 @@ import com.jarvis.android.transport.live.*
 import com.jarvis.android.ui.writing.approvedVisualIdsForCopilotContext
 import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
 import com.jarvis.android.ui.writing.completedCopilotGeneratedMaster
+import com.jarvis.android.ui.writing.hasRecoverableCopilotVisualReceipt
 import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
 import com.jarvis.android.ui.writing.canRebuildCopilotTurn
 import com.jarvis.android.transport.live.recoveredCopilotChat
@@ -2063,8 +2064,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             projectId, task.conversation_id, task.request_id, snapshot,
         ) ?: return
         if (snapshot.task_id != task.task_id ||
-            snapshot.reply_text.isBlank() ||
-            snapshot.agent_run_state in setOf("RUNNING", "DISPATCHING") ||
+            (snapshot.reply_text.isBlank() &&
+                !hasRecoverableCopilotVisualReceipt(projectId, snapshot)) ||
+            snapshot.agent_run_state in setOf("RUNNING", "DISPATCHING", "NEW") ||
             copilotRecoveryEpoch != epoch ||
             _writingWorkspace.value.chatProjectId != projectId
         ) return
