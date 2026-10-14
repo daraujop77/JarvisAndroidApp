@@ -135,7 +135,7 @@ class LiveAppGatewayTransportTest {
                         }
                     }
                     request.path == "/api/app/chat/agent/project/turn" -> {
-                        postedBodies += "POST /api/app/chat/agent/project/turn\\n" + request.body.readUtf8()
+                        postedBodies += "POST /api/app/chat/agent/project/turn\n" + request.body.readUtf8()
                         MockResponse().setBody(
                             """{"schema":"jarvis.chat.turn.v1","response":{"text":"Scoped image read","provider":"jarvis-adaptive"}}"""
                         )
