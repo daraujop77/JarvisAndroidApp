@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -261,6 +262,8 @@ suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
     requestId: String,
     prompt: String,
     mode: String = "auto",
+    images: JsonArray? = null,
+    documents: JsonArray? = null,
 ): Result<ChatGlobalProjectAgentReply> {
     if (projectId.isBlank() || conversationId.isBlank() ||
         requestId.isBlank() || prompt.isBlank() ||
@@ -277,6 +280,8 @@ suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
         put("device_id", deviceId)
         put("session_id", appSessionId)
         put("mode", mode)
+        if (images != null && images.isNotEmpty()) put("images", images)
+        if (documents != null && documents.isNotEmpty()) put("documents", documents)
         put("messages", buildJsonArray {
             addJsonObject {
                 put("role", "user")
