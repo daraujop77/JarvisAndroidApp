@@ -193,3 +193,18 @@ internal fun completedCopilotGeneratedMaster(
     }
     return null
 }
+
+
+/** Owner explicitly approving a project REFERENCE may update its visual
+ * registry status; it must not be mistaken for the character's master,
+ * official wiki link, scene canon, or a turnaround approval.
+ */
+internal fun isApprovableProjectReference(
+    assetId: String?, sha256: String?, kind: String?,
+    status: String?, storageState: String?, characterId: String?,
+    verifiedPreviewPresent: Boolean,
+): Boolean = verifiedPreviewPresent &&
+    kind == "REFERENCE" && status == "CANDIDATE" &&
+    storageState == "stored" && characterId.isNullOrBlank() &&
+    Regex("^va_[A-Za-z0-9_]{6,80}$").matches(assetId.orEmpty()) &&
+    Regex("^[a-fA-F0-9]{64}$").matches(sha256.orEmpty())
