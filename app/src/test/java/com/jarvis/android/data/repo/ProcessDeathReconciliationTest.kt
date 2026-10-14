@@ -140,6 +140,36 @@ class ProcessDeathReconciliationTest {
     }
 
     @Test
+    fun typedSourcesAndImagePersistTogetherWithoutChangingAssistantText() {
+        runBlockingShort {
+            dao.upsertConversation(ConversationEntity("c-sources", "sources", 1, 1))
+            dao.upsertConversation(ConversationEntity("other", "private", 1, 1))
+            dao.insertMessage(MessageEntity(
+                conversationId = "c-sources", clientRequestId = "req-sources",
+                role = "user", text = "Investigate", status = "Completed",
+                createdAtMs = 1,
+            ))
+            val json = """[{"ref":"web:aaaaaaaaaaaaaaaaaaaa",
+                "title":"Example","url":"https://example.org"}]"""
+            assertTrue(dao.attachGeneratedImageToAssistant(
+                "c-sources", "req-sources", "gen_stable", 2))
+            assertTrue(dao.attachVerifiedSources(
+                "c-sources", "req-sources", json, 2))
+            dao.finalizeAssistant("c-sources", "req-sources",
+                "Respuesta con fuentes", "Completed", 2)
+            val restored = dao.assistantMessage("req-sources")!!
+            assertEquals("gen_stable", restored.attachmentIds)
+            assertEquals(json, restored.sourcesJson)
+            assertEquals("Respuesta con fuentes", restored.text)
+            assertTrue(dao.attachVerifiedSources(
+                "c-sources", "req-sources", json, 2))
+            assertEquals(1, dao.messages("c-sources").count { it.role == "assistant" })
+            assertTrue(!dao.attachVerifiedSources("other", "req-sources", json, 2))
+            assertTrue(dao.messages("other").isEmpty())
+        }
+    }
+
+    @Test
     fun generatedImageCannotAttachToOtherConversationOrUnknownRequest() {
         runBlockingShort {
             dao.upsertConversation(ConversationEntity("cA", "one", 1, 1))
