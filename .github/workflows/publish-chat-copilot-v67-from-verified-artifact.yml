@@ -1,0 +1,126 @@
+name: Publish JARVIS v67 Signed Chat Global and Copilot Repair to App Updater
+on:
+  push:
+    branches: [feature/adaptive-agent-client-20261012]
+    paths: [.github/workflows/publish-chat-copilot-v67-from-verified-artifact.yml]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: jarvis-android-official-signed-updater
+  cancel-in-progress: false
+jobs:
+  promote-exact-signed-candidate:
+    if: github.repository == 'daraujop77/JarvisAndroidApp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: 4543f17cf5a79b1f47a3933e1df97014e532a516
+      SOURCE_RUN: "38491099870"
+      SOURCE_ARTIFACT: "11861563424"
+      ANDROID_CI_RUN: "38491106748"
+      EXPECTED_APK_SHA256: e012f2b5f3ff988220fc804e60fed7e272463a8cc41f0f81f2a34779a7bc58d3
+      ORIGINAL_CERT_SHA256: 46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a
+      VERSION_CODE: "67"
+      VERSION_NAME: "0.1.67-chat-copilot-repair"
+      APK_PACKAGE: "com.jarvis.android"
+    steps:
+      - name: Checkout promotion-only branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact immutable CI artifacts and published predecessor
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF_NAME" = feature/adaptive-agent-client-20261012
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" "$GITHUB_SHA")" = ".github/workflows/publish-chat-copilot-v67-from-verified-artifact.yml"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .conclusion)" = success
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ANDROID_CI_RUN" --jq .head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ANDROID_CI_RUN" --jq .conclusion)" = success
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT" --jq .name)" = JARVIS-v67-chat-copilot-repair-signed-candidate
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT" --jq .workflow_run.head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT" --jq .expired)" = false
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = android-v66
+          if gh release view android-v67 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "BLOCKED: android-v67 already exists; will not overwrite"
+            exit 1
+          fi
+          echo "EXACT_SOURCE_AND_PREDECESSOR=PASS"
+      - name: Download signed APK only; do not rebuild
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/v67-candidate"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name JARVIS-v67-chat-copilot-repair-signed-candidate --dir "$RUNNER_TEMP/v67-candidate"
+          test -s "$RUNNER_TEMP/v67-candidate/JARVIS-v67-chat-copilot-repair.apk"
+          echo "$EXPECTED_APK_SHA256  $RUNNER_TEMP/v67-candidate/JARVIS-v67-chat-copilot-repair.apk" | sha256sum --check
+          echo "EXACT_SIGNED_APK_SHA256=PASS"
+      - name: Verify same signing certificate, correct package and version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          apk="$RUNNER_TEMP/v67-candidate/JARVIS-v67-chat-copilot-repair.apk"
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/package-badging.txt"
+          grep -q "name='com.jarvis.android'" "$RUNNER_TEMP/package-badging.txt"
+          grep -q "versionCode='66'" "$RUNNER_TEMP/package-badging.txt"
+          grep -q "versionName='0.1.67-chat-copilot-repair'" "$RUNNER_TEMP/package-badging.txt"
+          ! grep -q 'application-debuggable' "$RUNNER_TEMP/package-badging.txt"
+          "$tools/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/apk-signature.txt"
+          python3 - <<'PY'
+          import os,pathlib,re
+          text=(pathlib.Path(os.environ["RUNNER_TEMP"])/"apk-signature.txt").read_text().splitlines()
+          found=[m.group(1).lower() for line in text if "certificate sha-256 digest" in line.casefold()
+                 for m in [re.search(r"([A-Fa-f0-9]{64})\s*$",line)] if m]
+          if found != [os.environ["ORIGINAL_CERT_SHA256"]]:
+              raise SystemExit("BLOCKED: signing identity differs from installed JARVIS")
+          print("ORIGINAL_INSTALL_SIGNATURE=PASS")
+          PY
+      - name: Publish exact APK and updater-compatible manifest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = android-v66
+          if gh release view android-v67 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "BLOCKED: v67 release was created concurrently"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/v67-release"
+          cp "$RUNNER_TEMP/v67-candidate/JARVIS-v67-chat-copilot-repair.apk" "$RUNNER_TEMP/v67-release/JARVIS-release.apk"
+          python3 - <<'PY'
+          import json,os,pathlib,hashlib
+          folder=pathlib.Path(os.environ["RUNNER_TEMP"])/"v67-release"
+          apk=folder/"JARVIS-release.apk"
+          digest=hashlib.sha256(apk.read_bytes()).hexdigest()
+          if digest != os.environ["EXPECTED_APK_SHA256"]:
+              raise SystemExit("BLOCKED: release changed from signed CI artifact")
+          manifest={"schema":"jarvis.android.signed-release.v1",
+                    "version_code":int(os.environ["VERSION_CODE"]),
+                    "version_name":os.environ["VERSION_NAME"],
+                    "package_name":os.environ["APK_PACKAGE"],
+                    "sha256":digest, "size_bytes":apk.stat().st_size,
+                    "source_sha":os.environ["SOURCE_SHA"]}
+          (folder/"JARVIS-release.json").write_text(json.dumps(manifest,indent=2)+"\n")
+          print("ORIGINAL_APP_UPDATER_MANIFEST=PASS")
+          PY
+          gh release create android-v67 "$RUNNER_TEMP/v67-release/JARVIS-release.apk" "$RUNNER_TEMP/v67-release/JARVIS-release.json" \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+            --title "JARVIS Android v67 · Chat Global and Writing Room Copilot Repair Preview" \
+            --notes "Signed in-app JARVIS v67 testing preview. Exact CI-verified artifact; no rebuild or signing changes. Includes compact web sources, restored generated image preview, Writing Room Copilot draft recovery and safer uncertain-job status. Compatible VPS preview must be available. Test candidate: no claim of full end-to-end acceptance." \
+            --latest
+          echo "V67_SIGNED_TEST_PREVIEW_RELEASE=PASS"
+      - name: Verify app updater points to v67
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = android-v67
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .target_commitish)" = "$SOURCE_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.assets[].name' | sort > "$RUNNER_TEMP/v67-assets.txt"
+          printf '%s\n' JARVIS-release.apk JARVIS-release.json | sort > "$RUNNER_TEMP/v67-required.txt"
+          cmp -s "$RUNNER_TEMP/v67-assets.txt" "$RUNNER_TEMP/v67-required.txt"
+          echo "APP_UPDATER_LATEST=ANDROID_V67"
