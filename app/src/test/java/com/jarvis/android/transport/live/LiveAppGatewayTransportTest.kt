@@ -108,11 +108,13 @@ class LiveAppGatewayTransportTest {
                         MockResponse().setResponseCode(401)
                     request.path?.startsWith("/api/app/chat/requests/") == true -> {
                         val rid = request.path!!.substringAfterLast('/')
-                        if (rid in setOf("req-lost", "req-broken", "req-media", "req-content")) {
+                        if (rid in setOf("req-lost", "req-broken", "req-media", "req-content", "req-sources")) {
                             val media = if (rid == "req-media") {
                                 ""","media":{"generated_images":[{"asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"""
                             } else ""
-                            val content = if (rid in setOf("req-media", "req-content")) {
+                            val content = if (rid == "req-sources") {
+                                ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Sources"}],"sources":[{"ref":"web:d92dac30efd5eb76088d","title":"Verified report","url":"https://example.org/report"}]}"""
+                            } else if (rid in setOf("req-media", "req-content")) {
                                 ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"sources":[]}"""
                             } else ""
                             MockResponse().setBody(
@@ -478,6 +480,35 @@ class LiveAppGatewayTransportTest {
         }
         assertEquals(1, recoveredImageDownloads.get())
         assertEquals(1, imageEvents.get())
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
+    fun cachedTurnDeliversTypedSourcesUnderOriginalRequestWithoutNewInference() {
+        val store = seededStore()
+        store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-sources"))
+        store.put(mapOf(
+            JarvisAppSession.KEY_TURN_PREFIX + "req-sources" to
+                listOf("c1", "trace-citations", ANDROID_DEVICE, APP_SESSION)
+                    .joinToString("\u001f"),
+        ))
+        val appSession = JarvisAppSession(store)
+        val received = mutableListOf<Triple<String, String, String>>()
+        appSession.onAgentSourcesReady = { conversationId, requestId, sources ->
+            received += Triple(conversationId, requestId, sources)
+        }
+        val transport = LiveAppGatewayTransport(appSession, scope)
+        runBlocking(Dispatchers.IO) {
+            assertTrue(transport.recoverCompletedTurn("req-sources", "c1"))
+        }
+        assertEquals(1, received.size)
+        assertEquals("c1", received.single().first)
+        assertEquals("req-sources", received.single().second)
+        val sources = com.jarvis.android.data.repo.ChatSourcesCodec.decode(
+            received.single().third)
+        assertEquals("https://example.org/report", sources.single().url)
+        assertEquals(0, recoveredImageDownloads.get())
         assertEquals(0, streamCalls.get())
         assertEquals(0, jsonChatCalls.get())
     }
