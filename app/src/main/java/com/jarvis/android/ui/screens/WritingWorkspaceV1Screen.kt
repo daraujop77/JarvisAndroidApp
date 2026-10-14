@@ -1796,6 +1796,31 @@ private fun CopilotAssistantMessage(
 ) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
+    var expandedVisual by remember { mutableStateOf<String?>(null) }
+    expandedVisual?.let { imageId ->
+        val fullImage = remember(imageId) {
+            vm.attachmentStore.decodeThumbnail(imageId, maxSize = 1600)
+        }
+        if (fullImage != null) {
+            AlertDialog(
+                onDismissRequest = { expandedVisual = null },
+                title = { Text("Referencia visual del chat") },
+                text = {
+                    Image(
+                        bitmap = fullImage.asImageBitmap(),
+                        contentDescription = "Imagen ampliada",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth().height(450.dp),
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { expandedVisual = null }) {
+                        Text("Cerrar")
+                    }
+                },
+            )
+        }
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1891,7 +1916,8 @@ private fun CopilotAssistantMessage(
                                 contentDescription = approved.alt.ifBlank { "Imagen aprobada" },
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxWidth().height(240.dp)
-                                    .clip(RoundedCornerShape(12.dp)),
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { expandedVisual = thumbnailId },
                             )
                         } else {
                             Text(
@@ -1917,8 +1943,9 @@ private fun CopilotAssistantMessage(
                             bitmap = image.asImageBitmap(),
                             contentDescription = "Imagen visual del turno actual",
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxWidth().height(290.dp)
-                                .clip(RoundedCornerShape(16.dp)),
+                            modifier = Modifier.fillMaxWidth().height(350.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { expandedVisual = attachmentId },
                         )
                     }
                 }
