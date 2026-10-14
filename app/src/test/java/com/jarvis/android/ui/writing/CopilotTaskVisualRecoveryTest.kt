@@ -424,6 +424,28 @@ class CopilotTaskVisualRecoveryTest {
             "prj_story", task.copy(results = listOf(fake))) == null)
     }
 
+    @Test fun projectReferenceApprovalNeverConfusesCanonMasterOrScene() {
+        val id = "va_ref_" + "a".repeat(32)
+        val sha = "b".repeat(64)
+        assertTrue(isApprovableProjectReference(
+            id, sha, "REFERENCE", "CANDIDATE", "stored", "", true))
+        for (kind in listOf("PRIMARY_REFERENCE", "SCENE_ART", ""))
+            assertTrue(!isApprovableProjectReference(
+                id, sha, kind, "CANDIDATE", "stored", "", true))
+        assertTrue(!isApprovableProjectReference(
+            id, sha, "REFERENCE", "APPROVED", "stored", "", true))
+        assertTrue(!isApprovableProjectReference(
+            id, sha, "REFERENCE", "CANDIDATE", "pending", "", true))
+        assertTrue(!isApprovableProjectReference(
+            id, sha, "REFERENCE", "CANDIDATE", "stored", "character:doom", true))
+        assertTrue(!isApprovableProjectReference(
+            id, sha, "REFERENCE", "CANDIDATE", "stored", "", false))
+        assertTrue(!isApprovableProjectReference(
+            "../wrong", sha, "REFERENCE", "CANDIDATE", "stored", "", true))
+        assertTrue(!isApprovableProjectReference(
+            id, "wrong", "REFERENCE", "CANDIDATE", "stored", "", true))
+    }
+
     @Test fun completedCharacterMasterIsRecoveredWithoutRepeatGeneration() {
         val result = CopilotTaskResult(tool = "generate_character_master",
             result = buildJsonObject {
