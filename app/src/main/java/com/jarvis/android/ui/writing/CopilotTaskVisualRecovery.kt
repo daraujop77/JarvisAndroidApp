@@ -99,6 +99,8 @@ internal data class CopilotGeneratedMaster(
     val characterId: String,
     val status: String,
     val storageState: String,
+    val kind: String = "",
+    val perspective: String = "",
 )
 
 internal fun completedCopilotGeneratedMaster(
@@ -125,11 +127,20 @@ internal fun completedCopilotGeneratedMaster(
     val character = field("character_id")
     val status = field("status")
     val storage = field("storage_state")
+    val kind = field("kind").ifBlank {
+        if (task.results.lastOrNull { it.tool == "generate_character_master" } != null)
+            "PRIMARY_REFERENCE" else ""
+    }
+    val perspective = field("perspective").ifBlank {
+        if (kind == "PRIMARY_REFERENCE") "front" else ""
+    }
     if (!Regex("^va_[A-Za-z0-9_]{6,80}$").matches(id) ||
         !Regex("^[a-fA-F0-9]{64}$").matches(sha) ||
-        !character.startsWith("character:") ||
+        (character.isNotBlank() && !character.startsWith("character:")) ||
+        (character.isBlank() && kind !in setOf("SCENE_ART", "REFERENCE", "LOCATION_REFERENCE")) ||
         status !in setOf("CANDIDATE", "APPROVED") ||
         storage !in setOf("stored", "pending")
     ) return null
-    return CopilotGeneratedMaster(id, sha, character, status, storage)
+    return CopilotGeneratedMaster(id, sha, character, status, storage,
+        kind = kind, perspective = perspective)
 }
