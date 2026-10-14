@@ -144,6 +144,7 @@ import com.jarvis.android.ui.chat.ConversationActivity
 import com.jarvis.android.ui.components.MarkdownBlock
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.HolographicSendButton
+import com.jarvis.android.ui.components.SharedChatMarkdown
 import com.jarvis.android.ui.components.markdownBlocks
 import com.jarvis.android.ui.components.renderInlineMarkdown
 import com.jarvis.android.ui.components.JarvisOrb
@@ -1438,49 +1439,7 @@ private fun MarkdownBody(text: String) {
     val presentation = remember(text) { splitChatSources(text) }
     var sourcesExpanded by remember(text) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (block in markdownBlocks(presentation.body)) {
-            when (block) {
-                is MarkdownBlock.Heading -> Text(
-                    block.text,
-                    style = if (block.level == 1) MaterialTheme.typography.titleMedium
-                    else MaterialTheme.typography.titleSmall,
-                    color = accents.orbGlow,
-                )
-                is MarkdownBlock.Bullet -> Text(
-                    "•  " + renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                is MarkdownBlock.Numbered -> Text(
-                    "${block.number}. " + renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                is MarkdownBlock.Blockquote -> {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .height(20.dp)
-                                .background(accents.orbGlow.copy(alpha = 0.8f), RoundedCornerShape(2.dp))
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            renderInlineMarkdown(block.text, accents.orbGlow),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                is MarkdownBlock.Code -> CodeBlockView(code = block.text, language = block.language)
-                is MarkdownBlock.Paragraph -> Text(
-                    renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        }
+        SharedChatMarkdown(presentation.body)
         if (presentation.sources.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
