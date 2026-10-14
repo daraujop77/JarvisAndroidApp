@@ -268,6 +268,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val candidateAssetId: String? = null,
         val candidateSha256: String? = null,
         val candidateCharacterId: String? = null,
+        val candidateKind: String? = null,
+        val candidatePerspective: String? = null,
         val candidateStatus: String? = null,
         val candidateStorageState: String? = null,
     )
@@ -1970,6 +1972,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 candidateAssetId = candidate.assetId,
                 candidateSha256 = candidate.sha256,
                 candidateCharacterId = candidate.characterId,
+                candidateKind = candidate.kind,
+                candidatePerspective = candidate.perspective,
                 candidateStatus = candidate.status,
                 candidateStorageState = candidate.storageState,
             )
