@@ -388,6 +388,7 @@ class LiveAppGatewayTransport(
 
     private data class CompletedTurn(
         val text: String,
+        val sourcesJson: String = "",
         val provider: String = "",
         val model: String = "",
         val route: String = "",
@@ -437,6 +438,8 @@ class LiveAppGatewayTransport(
             route = obj["route"]?.jsonPrimitive?.content.orEmpty(),
             destination = request?.get("resolved_destination")?.jsonPrimitive?.content.orEmpty(),
             generatedImageAssetIds = assets,
+            sourcesJson = com.jarvis.android.data.repo.ChatSourcesCodec.encodeValidated(
+                obj["content"]?.let { runCatching { it.jsonObject }.getOrNull() }),
         )
     }.getOrNull()
 
@@ -447,6 +450,10 @@ class LiveAppGatewayTransport(
     private suspend fun emitCompletedWithMedia(
         completed: CompletedTurn, requestId: String, conversationId: String,
     ) {
+        if (completed.sourcesJson.isNotBlank() && completed.sourcesJson != "[]") {
+            session.onAgentSourcesReady?.invoke(
+                conversationId, requestId, completed.sourcesJson)
+        }
         completed.generatedImageAssetIds.forEach { assetId ->
             try {
                 val raw = session.downloadAgentImage(assetId)
