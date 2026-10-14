@@ -1558,7 +1558,7 @@ private fun ChatSection(
                         state.approvedVisualAttachments,
                         state.approvedVisualErrors,
                         onEditVisual = { assetId ->
-                            prompt = "Edita esta imagen utilizando la referencia visual exacta $assetId. "
+                            prompt = "Quiero editar la imagen de este turno (asset $assetId). Conserva la identidad y las referencias aprobadas. Cambio solicitado: "
                         },
                     )
                     }
