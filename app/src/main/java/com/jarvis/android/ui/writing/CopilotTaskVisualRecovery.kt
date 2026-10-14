@@ -89,10 +89,11 @@ internal data class CopilotGeneratedMaster(
 internal fun completedCopilotGeneratedMaster(
     projectId: String, task: CopilotTaskState,
 ): CopilotGeneratedMaster? {
+    // An image receipt is independent of the model's final text/run state.
+    // Even after an uncertain final turn, a hash-bound candidate belonging to
+    // this exact task can be inspected without approving or regenerating it.
     if (projectId.isBlank() || task.project_id != projectId ||
-        task.task_id.isBlank() || task.agent_run_state in
-        setOf("OUTCOME_UNKNOWN", "BLOCKED", "FAILED", "RUNNING", "DISPATCHING") ||
-        task.state in setOf("OUTCOME_UNKNOWN", "BLOCKED", "RUNNING", "READY")
+        task.task_id.isBlank()
     ) return null
     val results = task.results.filter { it.tool == "generate_character_master" }
     if (results.size != 1) return null
@@ -106,7 +107,8 @@ internal fun completedCopilotGeneratedMaster(
     if (!Regex("^va_[A-Za-z0-9_]{6,80}$").matches(id) ||
         !Regex("^[a-fA-F0-9]{64}$").matches(sha) ||
         !character.startsWith("character:") ||
-        status !in setOf("CANDIDATE", "APPROVED") || storage != "stored"
+        status !in setOf("CANDIDATE", "APPROVED") ||
+        storage !in setOf("stored", "pending")
     ) return null
     return CopilotGeneratedMaster(id, sha, character, status, storage)
 }
