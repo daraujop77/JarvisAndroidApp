@@ -34,6 +34,23 @@ class ChatSourcesCodecTest {
         assertTrue(ChatSourcesCodec.decode("[{\"ref\":\"garbage\",\"url\":\"file:///etc/passwd\"}]").isEmpty())
     }
 
+    @Test fun privateOrCredentialedCitationIsNeverClickable() {
+        for (url in listOf(
+            "https://127.0.0.1/private",
+            "https://192.168.1.2/admin",
+            "https://localhost/login",
+            "https://attacker:secret@example.org/report",
+            "https://example.internal/private",
+        )) {
+            val raw = Json.parseToJsonElement(
+                """{"schema":"jarvis.chat.content.v1","sources":[
+                    {"ref":"${receipt(url)}","title":"untrusted","url":"$url"}]}"""
+            ).jsonObject
+            assertTrue(ChatSourcesCodec.decode(
+                ChatSourcesCodec.encodeValidated(raw)).isEmpty())
+        }
+    }
+
     @Test fun missingSchemaOrUntrustedTypedDataNeverBecomesLink() {
         val untyped = Json.parseToJsonElement(
             """{"sources":[{"ref":"web:aaaaaaaaaaaaaaaaaaaa","url":"https://example.org"}]}"""
