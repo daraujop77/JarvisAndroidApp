@@ -144,7 +144,7 @@ jobs:
               raise SystemExit("APK package metadata missing")
           fields = {}
           for field in ("name", "versionCode", "versionName"):
-              m = re.search(r"\\b" + field + r"=\x27([^\x27]*)\x27", first)
+              m = re.search(field + r"=\x27([^\x27]*)\x27", first)
               if not m or not m.group(1):
                   raise SystemExit("APK identity field missing: " + field)
               fields[field] = m.group(1)
@@ -152,9 +152,22 @@ jobs:
               raise SystemExit("Unexpected APK applicationId: " + fields["name"])
           if not fields["versionCode"].isdigit():
               raise SystemExit("APK versionCode must be numeric")
-          print("\\t".join(fields[k] for k in ("name", "versionCode", "versionName")))
+          print(fields["name"])
+          print(fields["versionCode"])
+          print(fields["versionName"])
           ')"
-          IFS=
+          mapfile -t APK_IDENTITY <<< "$PACKAGE_INFO"
+          [ "${#APK_IDENTITY[@]}" -eq 3 ] || {
+            echo "Expected exactly three APK identity fields" >&2; exit 1;
+          }
+          PACKAGE_NAME="${APK_IDENTITY[0]}"
+          VERSION_CODE="${APK_IDENTITY[1]}"
+          VERSION_NAME="${APK_IDENTITY[2]}"
+          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] && [ "$VERSION_CODE" -ge 65 ] && [ -n "$VERSION_NAME" ] || {
+            echo "APK release identity invalid or stale" >&2; exit 1;
+          }
+          TAG="android-v${VERSION_CODE}"
+
           RELEASE_APK="$RUNNER_TEMP/JARVIS-release.apk"
           RELEASE_MANIFEST="$RUNNER_TEMP/JARVIS-release.json"
           cp "$APK" "$RELEASE_APK"
