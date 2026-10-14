@@ -393,7 +393,7 @@ class LiveAppGatewayTransport(
         val model: String = "",
         val route: String = "",
         val destination: String = "",
-        val generatedImageAssetIds: List<String> = emptyList(),
+        val generatedImages: List<GlobalImageReceipt> = emptyList(),
     ) {
         fun toEvent(requestId: String) = GatewayEvent.MessageCompleted(
             requestId = requestId,
@@ -411,23 +411,7 @@ class LiveAppGatewayTransport(
         val response = obj["response"]?.jsonObject ?: return@runCatching null
         val request = obj["request"]?.jsonObject
         val text = response["text"]?.jsonPrimitive?.content.orEmpty()
-        val wireImages = obj["media"]?.jsonObject?.get("generated_images")?.jsonArray
-            ?.mapNotNull { item ->
-                runCatching { item.jsonObject["asset_id"]?.jsonPrimitive?.content }
-                    .getOrNull()
-            }.orEmpty()
-        val contentImages = obj["content"]?.jsonObject?.get("blocks")?.jsonArray
-            ?.mapNotNull { item ->
-                val entry = runCatching { item.jsonObject }.getOrNull()
-                    ?: return@mapNotNull null
-                if (entry["type"]?.jsonPrimitive?.content != "image") {
-                    return@mapNotNull null
-                }
-                entry["asset_id"]?.jsonPrimitive?.content
-            }.orEmpty()
-        val assets = (wireImages + contentImages)
-            .filter { it.matches(Regex("^[A-Za-z0-9_-]{30,64}$")) }
-            .distinct().take(3)
+        val assets = parseGlobalImageReceipts(obj)
         if (text.isBlank() && assets.isEmpty()) return@runCatching null
         CompletedTurn(
             text = text,
@@ -437,7 +421,7 @@ class LiveAppGatewayTransport(
                 ?: request?.get("resolved_model")?.jsonPrimitive?.content.orEmpty(),
             route = obj["route"]?.jsonPrimitive?.content.orEmpty(),
             destination = request?.get("resolved_destination")?.jsonPrimitive?.content.orEmpty(),
-            generatedImageAssetIds = assets,
+            generatedImages = assets,
             sourcesJson = com.jarvis.android.data.repo.ChatSourcesCodec.encodeValidated(
                 obj["content"]?.let { runCatching { it.jsonObject }.getOrNull() }),
         )
@@ -454,14 +438,20 @@ class LiveAppGatewayTransport(
             session.onAgentSourcesReady?.invoke(
                 conversationId, requestId, completed.sourcesJson)
         }
-        completed.generatedImageAssetIds.forEach { assetId ->
+        completed.generatedImages.forEach { receipt ->
             try {
-                val raw = session.downloadAgentImage(assetId)
-                val staged = attachmentStore?.stageGeneratedBase64(
+                val raw = session.downloadAgentImage(receipt.assetId)
+                if (!verifiedGlobalImageBytes(receipt, raw)) {
+                    throw TransportException("Generated image receipt hash or MIME mismatch")
+                }
+                // Keep original PNG/JPEG/WebP bytes for exact later editing.
+                // Thumbnail decoding is independent of the immutable source.
+                val staged = attachmentStore?.stageVerifiedGeneratedBase64(
                     Base64.getEncoder().encodeToString(raw),
-                    stableReceiptKey = "$conversationId:$requestId:$assetId",
-                )
-                    ?: throw TransportException("Image attachment storage unavailable")
+                    expectedSha256 = receipt.sha256,
+                    expectedMimeType = receipt.mimeType,
+                    stableReceiptKey = "$conversationId:$requestId:${receipt.assetId}",
+                ) ?: throw TransportException("Verified image storage unavailable")
                 session.onAgentImageReady?.invoke(
                     conversationId, requestId, staged.attachmentId)
             } catch (failure: Exception) {
