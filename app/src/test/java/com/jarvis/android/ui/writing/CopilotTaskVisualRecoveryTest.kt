@@ -3,6 +3,8 @@ package com.jarvis.android.ui.writing
 import com.jarvis.android.transport.live.CopilotApprovedVisualAsset
 import com.jarvis.android.transport.live.CopilotTaskResult
 import com.jarvis.android.transport.live.CopilotTaskState
+import com.jarvis.android.transport.live.WritingRoomAutoChat
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -194,6 +196,27 @@ class CopilotTaskVisualRecoveryTest {
             "prj_story", original, recovered.copy(agent_run_state = "RUNNING")))
         assertTrue(!canRebuildCopilotTurn(
             "prj_story", original.copy(request_id = ""), recovered))
+    }
+
+    @Test fun writingRoomAcceptsTypedCandidateContentWithoutApprovingIt() {
+        val wire = """{
+            "schema": "jarvis.writing-room.chat.v1",
+            "content": {
+                "schema": "jarvis.chat.content.v1",
+                "blocks": [
+                    {"type":"text","text":"Aquí está el draft"},
+                    {"type":"image","asset_id":"va_gen_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                     "sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                     "status":"CANDIDATE","storage_state":"pending"}
+                ], "sources": []
+            }
+        }"""
+        val parsed = Json { ignoreUnknownKeys = true }
+            .decodeFromString<WritingRoomAutoChat>(wire)
+        assertEquals("jarvis.chat.content.v1", parsed.content?.schema)
+        assertEquals("CANDIDATE", parsed.content?.blocks?.get(1)?.status)
+        assertEquals("pending", parsed.content?.blocks?.get(1)?.storage_state)
+        assertTrue(parsed.visual_assets.isEmpty())
     }
 
     @Test fun completedCharacterMasterIsRecoveredWithoutRepeatGeneration() {
