@@ -1786,6 +1786,16 @@ private fun CopilotAssistantMessage(
                         Text("Cerrar")
                     }
                 },
+                dismissButton = {
+                    TextButton(onClick = {
+                        expandedVisual = null
+                        clipboardManager.setText(AnnotatedString(
+                            "Quiero modificar la imagen de este turno. Usa la referencia visual exacta y conserva su identidad."
+                        ))
+                    }) {
+                        Text("Copiar instrucción para editar")
+                    }
+                },
             )
         }
     }
