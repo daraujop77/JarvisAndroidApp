@@ -1557,8 +1557,8 @@ private fun ChatSection(
                         response, turn, projectId, vm, state.busy,
                         state.approvedVisualAttachments,
                         state.approvedVisualErrors,
-                        onEditVisual = { assetId ->
-                            prompt = "Quiero editar la imagen de este turno (asset $assetId). Conserva la identidad y las referencias aprobadas. Cambio solicitado: "
+                        onEditVisual = { assetId, sha256 ->
+                            prompt = "Edita el asset visual $assetId (SHA-256 $sha256) del proyecto actual, conservando identidad y referencias aprobadas. Cambio solicitado: "
                         },
                     )
                     }
@@ -1764,7 +1764,7 @@ private fun CopilotAssistantMessage(
     busy: Boolean,
     approvedVisualAttachments: Map<String, String>,
     approvedVisualErrors: Set<String>,
-    onEditVisual: (String) -> Unit,
+    onEditVisual: (String, String) -> Unit,
 ) {
     val clipboardManager = LocalClipboardManager.current
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
@@ -1793,7 +1793,11 @@ private fun CopilotAssistantMessage(
                 dismissButton = {
                     TextButton(onClick = {
                         expandedVisual = null
-                        onEditVisual(imageId)
+                        turn.candidateAssetId?.takeIf { turn.candidateStorageState == "stored" }?.let { assetId ->
+                            turn.candidateSha256?.takeIf { it.isNotBlank() }?.let { sha ->
+                                onEditVisual(assetId, sha)
+                            }
+                        }
                     }) {
                         Text("Editar en Copilot")
                     }
