@@ -208,3 +208,30 @@ internal fun isApprovableProjectReference(
     storageState == "stored" && characterId.isNullOrBlank() &&
     Regex("^va_[A-Za-z0-9_]{6,80}$").matches(assetId.orEmpty()) &&
     Regex("^[a-fA-F0-9]{64}$").matches(sha256.orEmpty())
+
+/**
+ * Returns an immutable owner-scoped visual source for the chat editor only
+ * after Android has a verified local preview for THIS exact asset. The caller
+ * supplies that preview from the authenticated/hash-checked visual fetch or
+ * the original generated candidate receipt; server reauthorizes the edit.
+ */
+internal fun editableCopilotVisualSource(
+    assetId: String?,
+    sha256: String?,
+    status: String?,
+    storageState: String?,
+    displayedAttachmentId: String?,
+    verifiedAttachmentId: String?,
+): Pair<String, String>? {
+    if (displayedAttachmentId.isNullOrBlank() ||
+        displayedAttachmentId != verifiedAttachmentId ||
+        storageState != "stored" ||
+        status !in setOf("CANDIDATE", "APPROVED")
+    ) return null
+    val id = assetId ?: return null
+    val hash = sha256 ?: return null
+    if (!Regex("^va_[A-Za-z0-9_]{6,80}$").matches(id) ||
+        !Regex("^[a-fA-F0-9]{64}$").matches(hash)
+    ) return null
+    return id to hash
+}
