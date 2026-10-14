@@ -34,6 +34,29 @@ class CopilotTaskVisualRecoveryTest {
                   )),
     )
 
+    @Test fun editActionSupportsVerifiedApprovedAndCandidateSources() {
+        val id = approved.asset_id
+        val hash = approved.sha256
+        fun target(
+            status: String = "APPROVED",
+            storage: String = "stored",
+            shown: String? = "verified-image",
+            verified: String? = "verified-image",
+            assetId: String = id,
+            sha: String = hash,
+        ) = editableCopilotVisualSource(
+            assetId, sha, status, storage, shown, verified,
+        )
+        assertEquals(id to hash, target())
+        assertEquals(id to hash, target(status = "CANDIDATE"))
+        assertEquals(null, target(storage = "pending"))
+        assertEquals(null, target(status = "REJECTED"))
+        assertEquals(null, target(shown = "other-image"))
+        assertEquals(null, target(verified = null))
+        assertEquals(null, target(assetId = "../unsafe"))
+        assertEquals(null, target(sha = "broken"))
+    }
+
     @Test fun approvedHistorySurvivesMoreRecentCandidateOnlyTurn() {
         val earlier = approved
         val newestCandidate = approved.copy(
