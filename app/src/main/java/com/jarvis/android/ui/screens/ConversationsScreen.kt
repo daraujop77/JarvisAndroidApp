@@ -118,6 +118,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -698,7 +699,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
                             MessageBubble(
                                 msg = msg,
-                                showRouteDetails = chatAccess?.isOwner == true,
+                                showRouteDetails = false, // model selector provides route; avoid per-message metadata
                                 onRetry = { vm.retry(msg.clientRequestId) },
                                 attachmentState = { id -> snapshot.session.attachments[id] },
                                 attachmentStore = vm.attachmentStore,
@@ -1433,8 +1434,11 @@ private fun CodeBlockView(code: String, language: String?) {
 @Composable
 private fun MarkdownBody(text: String) {
     val accents = LocalJarvisAccents.current
+    val uriHandler = LocalUriHandler.current
+    val presentation = remember(text) { splitChatSources(text) }
+    var sourcesExpanded by remember(text) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (block in markdownBlocks(text)) {
+        for (block in markdownBlocks(presentation.body)) {
             when (block) {
                 is MarkdownBlock.Heading -> Text(
                     block.text,
@@ -1475,6 +1479,32 @@ private fun MarkdownBody(text: String) {
                     renderInlineMarkdown(block.text, accents.orbGlow),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+            }
+        }
+        if (presentation.sources.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Fuentes", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                presentation.sources.take(4).forEachIndexed { index, source ->
+                    TextButton(onClick = { uriHandler.openUri(source.url) },
+                        modifier = Modifier.heightIn(min = 32.dp)) {
+                        Text("[${index + 1}]", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                TextButton(onClick = { sourcesExpanded = !sourcesExpanded },
+                    modifier = Modifier.heightIn(min = 32.dp)) {
+                    Text(if (sourcesExpanded) "Ocultar" else "Ver", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (sourcesExpanded) {
+                presentation.sources.forEachIndexed { index, source ->
+                    TextButton(onClick = { uriHandler.openUri(source.url) },
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("${index + 1}. ${source.title}",
+                            style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                    }
+                }
             }
         }
     }
@@ -1562,7 +1592,8 @@ private fun MessageBubble(
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (!isUser) {
+        // Idle avatar is in the header; the message orb is only a live activity indicator.
+        if (!isUser && (isStreaming || awaiting)) {
             Box(Modifier.padding(end = 8.dp, bottom = 2.dp)) {
                 JarvisOrb(size = 24.dp, activity = if (isStreaming || awaiting) OrbActivity.THINKING else OrbActivity.IDLE)
             }
@@ -1599,8 +1630,8 @@ private fun MessageBubble(
                                         attachmentId = id,
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
-                                        generated = !isUser && msg.clientRequestId.startsWith("img_"),
-                                        onOpen = if (!isUser && msg.clientRequestId.startsWith("img_")) {
+                                        generated = !isUser && isGeneratedImageMessage(msg.clientRequestId),
+                                        onOpen = if (!isUser && isGeneratedImageMessage(msg.clientRequestId)) {
                                             { onOpenGeneratedImage(id) }
                                         } else null,
                                     )
@@ -1739,7 +1770,7 @@ private fun AttachmentChip(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
-                .size(if (generated) 220.dp else 92.dp)
+                .then(if (generated) Modifier.fillMaxWidth().height(296.dp) else Modifier.size(92.dp))
                 .clip(RoundedCornerShape(if (generated) 20.dp else 14.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .then(if (generated && onOpen != null) Modifier.clickable { onOpen() } else Modifier),
@@ -1751,7 +1782,7 @@ private fun AttachmentChip(
                     bitmap = bitmap.asImageBitmap(),
                     contentDescription = "Attachment",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
+                    contentScale = if (generated) ContentScale.Fit else ContentScale.Crop,
                 )
             } else {
                 Icon(
@@ -1763,15 +1794,18 @@ private fun AttachmentChip(
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             }
         }
-        Spacer(Modifier.height(3.dp))
-        Text(
-            statusText,
+        // A generated draft is stored locally, not an unuploaded STAGED attachment.
+        if (!generated || state?.uploading == true || (state != null && !state.ready)) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                statusText,
             style = HudTextStyle,
             color = if (state == null || state.ready || state.uploading)
                 MaterialTheme.colorScheme.onSurfaceVariant
             else MaterialTheme.colorScheme.error,
             modifier = if (generated) Modifier.padding(top = 2.dp) else Modifier,
-        )
+            )
+        }
     }
 }
 
