@@ -27,6 +27,6 @@ class ChatReplyPresentationTest {
         val raw = "Respuesta\n\nFuentes consultadas:\n- [bad](http://localhost/admin)"
         assertEquals(raw, splitChatSources(raw).body)
         assertTrue(splitChatSources(raw).sources.isEmpty())
-        assertEquals(raw, splitChatSources("Respuesta").let { if (it.sources.isEmpty()) raw else "" })
+        assertEquals("Respuesta", splitChatSources("Respuesta").body)
     }
 }

@@ -1517,10 +1517,21 @@ private fun ChatSection(
                                         }
                                     )
                                 }
-                            } else if (task.state == "OUTCOME_UNKNOWN" || task.state == "RUNNING") {
+                            } else if (task.state == "OUTCOME_UNKNOWN" ||
+                                task.agent_run_state == "OUTCOME_UNKNOWN") {
                                 Text(
-                                    "El resultado no es seguro. No se repetirá una operación de escritura.",
+                                    "No se pudo confirmar si la generación quedó guardada. " +
+                                        "Pulsa «Actualizar estado desde el VPS» o revisa los " +
+                                        "retratos recuperados. JARVIS no repetirá ni cobrará " +
+                                        "otra generación automáticamente.",
                                     style = MaterialTheme.typography.bodySmall, color = JarvisAmber,
+                                )
+                            } else if (task.state == "RUNNING" ||
+                                task.agent_run_state in setOf("RUNNING", "DISPATCHING")) {
+                                Text(
+                                    "JARVIS sigue trabajando. Puedes consultar el estado " +
+                                        "sin volver a ejecutar la acción.",
+                                    style = MaterialTheme.typography.bodySmall, color = JarvisCyan,
                                 )
                             } else if (task.state == "UNSUPPORTED") {
                                 Text(
