@@ -44,6 +44,11 @@ class LiveAppGatewayTransportTest {
     private val streamCalls = AtomicInteger(0)
     private val jsonChatCalls = AtomicInteger(0)
     private val recoveredImageDownloads = AtomicInteger(0)
+    private val receiptImage = byteArrayOf(
+        0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3,
+    )
+    private val receiptSha = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(receiptImage).joinToString("") { "%02x".format(it) }
     private val postedBodies = java.util.Collections.synchronizedList(mutableListOf<String>())
 
     /** Per-test SSE behavior; default = full happy stream. */
@@ -102,7 +107,7 @@ class LiveAppGatewayTransportTest {
                         auth == "Bearer test-token" -> {
                         recoveredImageDownloads.incrementAndGet()
                         MockResponse().setHeader("Content-Type", "image/png")
-                            .setBody("fixture-image-bytes")
+                            .setBody(okio.Buffer().write(receiptImage))
                     }
                     request.path?.startsWith("/api/app/chat/requests/") == true && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
@@ -110,12 +115,12 @@ class LiveAppGatewayTransportTest {
                         val rid = request.path!!.substringAfterLast('/')
                         if (rid in setOf("req-lost", "req-broken", "req-media", "req-content", "req-sources")) {
                             val media = if (rid == "req-media") {
-                                ""","media":{"generated_images":[{"asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"""
+                                ""","media":{"generated_images":[{"asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sha256":"$receiptSha","mime_type":"image/png"}]}"""
                             } else ""
                             val content = if (rid == "req-sources") {
                                 ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Sources"}],"sources":[{"ref":"web:d92dac30efd5eb76088d","title":"Verified report","url":"https://example.org/report"}]}"""
                             } else if (rid in setOf("req-media", "req-content")) {
-                                ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"sources":[]}"""
+                                ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sha256":"$receiptSha","mime_type":"image/png"}],"sources":[]}"""
                             } else ""
                             MockResponse().setBody(
                                 """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
