@@ -91,6 +91,8 @@ class JarvisAppSession(
     var onAgentImageReady: ((conversationId: String, requestId: String, attachmentId: String) -> Unit)? = null
     @Volatile
     var onAgentImageError: ((String) -> Unit)? = null
+    @Volatile
+    var onAgentSourcesReady: ((conversationId: String, requestId: String, sourcesJson: String) -> Unit)? = null
 
     suspend fun downloadAgentImage(assetId: String): ByteArray = withContext(Dispatchers.IO) {
         require(Regex("^[A-Za-z0-9_-]{30,64}$").matches(assetId)) { "Invalid image asset" }
