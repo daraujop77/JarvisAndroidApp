@@ -283,15 +283,6 @@ class LiveAppGatewayTransport(
         // Writing Room, but only for text-only, read-only requests. All other
         // conversations (and attachments) retain legacy stream/recovery.
         val projectAgent = session.chatAgentProjectFor(req.conversationId)
-        if (projectAgent != null && req.attachmentIds.isNotEmpty()) {
-            // Until the project-agent media contract is implemented and
-            // authenticated end-to-end, fail closed rather than sending a
-            // project attachment to the unscoped general-chat endpoint.
-            throw TransportException(
-                "Project-agent attachments are not supported yet; " +
-                    "remove the attachment or explicitly switch to General Chat."
-            )
-        }
         if (projectAgent != null) {
             emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
                 taskId = "chat_${req.clientRequestId}",
@@ -299,11 +290,26 @@ class LiveAppGatewayTransport(
                 status = TaskStatus.RUNNING,
                 label = "Consultando herramientas del proyecto",
             )))
+            // Serialize attachments with the SAME bounded inline-media
+            // contract as regular Chat Global. Never discard project_id.
+            val projectMedia = if (req.attachmentIds.isNotEmpty()) {
+                json.parseToJsonElement(
+                    chatPayload(req, traceId, deviceId, sessionId)).jsonObject
+            } else null
+            val images = projectMedia?.get("images")?.jsonArray
+            val documents = projectMedia?.get("documents")?.jsonArray
+            if ((images?.size ?: 0) > 1 || (documents?.size ?: 0) > 1 ||
+                (!images.isNullOrEmpty() && !documents.isNullOrEmpty())
+            ) throw TransportException(
+                "Project chat supports one image or one document per message"
+            )
             val reply = session.chatGlobalProjectAgentTurn(
                 projectId = projectAgent,
                 conversationId = req.conversationId,
                 requestId = req.clientRequestId,
                 prompt = req.text,
+                images = images,
+                documents = documents,
             ).getOrThrow()
             if (ctl.cancelRequested || !currentCoroutineContext().isActive) {
                 throw CancellationException("Project agent turn cancelled")
