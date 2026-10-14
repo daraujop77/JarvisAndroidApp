@@ -43,6 +43,7 @@ class LiveAppGatewayTransportTest {
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
     private val jsonChatCalls = AtomicInteger(0)
+    private val recoveredImageDownloads = AtomicInteger(0)
     private val postedBodies = java.util.Collections.synchronizedList(mutableListOf<String>())
 
     /** Per-test SSE behavior; default = full happy stream. */
@@ -97,14 +98,23 @@ class LiveAppGatewayTransportTest {
                         postedBodies += "POST /api/app/chat/stream\n" + request.body.readUtf8()
                         streamResponder()
                     }
+                    request.path?.startsWith("/api/app/chat/agent/general/image/") == true &&
+                        auth == "Bearer test-token" -> {
+                        recoveredImageDownloads.incrementAndGet()
+                        MockResponse().setHeader("Content-Type", "image/png")
+                            .setBody("fixture-image-bytes")
+                    }
                     request.path?.startsWith("/api/app/chat/requests/") == true && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
                     request.path?.startsWith("/api/app/chat/requests/") == true -> {
                         val rid = request.path!!.substringAfterLast('/')
-                        if (rid == "req-lost" || rid == "req-broken") {
+                        if (rid == "req-lost" || rid == "req-broken" || rid == "req-media") {
+                            val media = if (rid == "req-media") {
+                                ""","media":{"generated_images":[{"asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"""
+                            } else ""
                             MockResponse().setBody(
                                 """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
-                                    """"response":{"text":"Recovered answer"}}""",
+                                    """"response":{"text":"Recovered answer"}""" + media + "}",
                             )
                         } else {
                             MockResponse().setResponseCode(404)
@@ -422,6 +432,29 @@ class LiveAppGatewayTransportTest {
         assertTrue(frames.any { it.contains("message.completed") && it.contains("req-lost") })
         assertEquals(0, streamCalls.get())
         assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-lost"))
+    }
+
+    @Test
+    fun cachedTurnRestoresImageReceiptWithoutPostingNewGeneration() {
+        val store = seededStore()
+        store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-media"))
+        store.put(mapOf(
+            JarvisAppSession.KEY_TURN_PREFIX + "req-media" to
+                listOf("c1", "trace-media", ANDROID_DEVICE, APP_SESSION).joinToString("\\u001f"),
+        ))
+        val appSession = JarvisAppSession(store)
+        val missingStaging = AtomicInteger(0)
+        appSession.onAgentImageError = { missingStaging.incrementAndGet() }
+        val transport = LiveAppGatewayTransport(appSession, scope)
+        runBlocking(Dispatchers.IO) {
+            assertTrue(transport.recoverCompletedTurn("req-media", "c1"))
+        }
+        assertEquals(1, recoveredImageDownloads.get())
+        // This fixture has no AttachmentStore. The recovery nevertheless
+        // attempts the authenticated download instead of dropping its media.
+        assertEquals(1, missingStaging.get())
+        assertEquals(0, jsonChatCalls.get())
+        assertEquals(0, streamCalls.get())
     }
 
     @Test
