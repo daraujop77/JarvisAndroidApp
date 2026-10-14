@@ -156,20 +156,25 @@ class WritingRoomIntegrityWiringTest {
     }
 
     @Test
-    fun portraitIntentDoesNotImmediatelyDispatchCloudGeneration() {
+    fun modelFirstPortraitIntentNeverDispatchesCloudGenerationInAndroid() {
         val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
         val screen = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
-        val commandStart = vm.indexOf("if (!toolMode && looksLikeCopilotPortraitCommand(clean))")
-        val commandEnd = vm.indexOf("val current = _writingWorkspace.value", commandStart)
-        assertTrue(commandStart >= 0 && commandEnd > commandStart)
-        val handler = vm.substring(commandStart, commandEnd)
-        assertTrue(handler.contains("pendingPortrait = CopilotPendingPortrait("))
-        assertFalse(handler.contains("generateCopilotPortrait("))
+        val api = code("app/src/main/java/com/jarvis/android/transport/live/WritingRoomApi.kt")
+        val autoChat = vm.substringAfter("fun runWritingRoomAutoChat(")
+            .substringBefore("        _writingWorkspace.value = current.copy(")
+        // Android sends the user's request once, not a locally detected paid
+        // operation. The authenticated backend owns policy, tools and receipts.
+        assertFalse(autoChat.contains("looksLikeCopilotPortraitCommand(clean)"))
+        assertFalse(autoChat.contains("looksLikeCopilotAppearanceCommand(clean)"))
+        assertFalse(autoChat.contains("generateCopilotPortrait("))
+        assertTrue(screen.contains("vm.runWritingRoomAutoChat(projectId, title, clean)"))
+        assertTrue(api.contains("/api/app/writing-room/agent/stream"))
+        assertTrue(api.contains("if (status == 404)"))
+        assertTrue(api.contains("stableRequestId"))
+        // Explicit visual-studio confirmation buttons remain available for
+        // existing saved drafts and older flows; they are not text routers.
         assertTrue(vm.contains("fun confirmWritingCopilotPortrait(projectId: String)"))
         assertTrue(vm.contains("fun cancelWritingCopilotPortrait(projectId: String)"))
         assertTrue(screen.contains("state.pendingPortrait?.let { request ->"))
-        assertTrue(screen.contains("vm.confirmWritingCopilotPortrait(projectId)"))
-        assertTrue(screen.contains("vm.cancelWritingCopilotPortrait(projectId)"))
-        assertTrue(screen.contains("puede consumir créditos"))
     }
 }
