@@ -21,6 +21,7 @@ import com.jarvis.android.ui.writing.shouldProbeAdaptiveCopilotTool
 import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
 import com.jarvis.android.ui.writing.completedCopilotGeneratedMaster
 import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
+import com.jarvis.android.ui.writing.canRebuildCopilotTurn
 import com.jarvis.android.transport.live.recoveredCopilotChat
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
@@ -2075,10 +2076,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         // A process death can discard the in-memory question and its bubble.
         // Reconstruct ONLY the original, server-scoped request, not another
         // project's latest message or the text of an unrelated local draft.
-        if (index < 0 && (snapshot.request_text.isBlank() ||
-                snapshot.request_id != task.request_id ||
-                snapshot.conversation_id != task.conversation_id)
-        ) return
+        if (index < 0 && !canRebuildCopilotTurn(projectId, task, snapshot)) return
         val history = state.chatHistory.toMutableList()
         if (index >= 0) {
             history[index] = history[index].copy(response = recovered)
