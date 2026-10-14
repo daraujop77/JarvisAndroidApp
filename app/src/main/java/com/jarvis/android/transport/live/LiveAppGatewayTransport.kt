@@ -282,9 +282,16 @@ class LiveAppGatewayTransport(
         // An explicit project selection uses the same adaptive backend as
         // Writing Room, but only for text-only, read-only requests. All other
         // conversations (and attachments) retain legacy stream/recovery.
-        val projectAgent = if (req.attachmentIds.isEmpty()) {
-            session.chatAgentProjectFor(req.conversationId)
-        } else null
+        val projectAgent = session.chatAgentProjectFor(req.conversationId)
+        if (projectAgent != null && req.attachmentIds.isNotEmpty()) {
+            // Until the project-agent media contract is implemented and
+            // authenticated end-to-end, fail closed rather than sending a
+            // project attachment to the unscoped general-chat endpoint.
+            throw TransportException(
+                "Project-agent attachments are not supported yet; " +
+                    "remove the attachment or explicitly switch to General Chat."
+            )
+        }
         if (projectAgent != null) {
             emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
                 taskId = "chat_${req.clientRequestId}",
