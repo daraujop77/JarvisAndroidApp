@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MessageEntity::class,
         PendingOutboundEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class JarvisDatabase : RoomDatabase() {
@@ -111,6 +111,20 @@ abstract class JarvisDatabase : RoomDatabase() {
             )
         }
 
+        /** v3 → v4: citations are durable metadata of the assistant's
+         * original message. Preserve existing rows, attachments and requests.
+         * The SQL default matches MessageEntity's Room @ColumnInfo.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                applyMigration3to4(db::execSQL)
+            }
+        }
+
+        fun applyMigration3to4(execSql: (String) -> Unit) {
+            execSql("ALTER TABLE `messages` ADD COLUMN `sourcesJson` TEXT NOT NULL DEFAULT ''")
+        }
+
         fun get(context: Context): JarvisDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -118,7 +132,7 @@ abstract class JarvisDatabase : RoomDatabase() {
                     JarvisDatabase::class.java,
                     "jarvis.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
