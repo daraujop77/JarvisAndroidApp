@@ -136,6 +136,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.jarvis.android.data.repo.ChatCitation
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
@@ -1433,19 +1434,24 @@ private fun CodeBlockView(code: String, language: String?) {
  * styling. Streaming replies never reach here — their markers are incomplete.
  */
 @Composable
-private fun MarkdownBody(text: String) {
-    val accents = LocalJarvisAccents.current
+private fun MarkdownBody(text: String, verifiedSources: List<ChatCitation> = emptyList()) {
     val uriHandler = LocalUriHandler.current
+    // Server-verified citations are authoritative. The legacy text splitter
+    // remains a compatibility path for older servers without typed content.
     val presentation = remember(text) { splitChatSources(text) }
-    var sourcesExpanded by remember(text) { mutableStateOf(false) }
+    val sources = if (verifiedSources.isNotEmpty()) verifiedSources
+                  else presentation.sources.map {
+                      ChatCitation(ref = "", title = it.title, url = it.url)
+                  }
+    var sourcesExpanded by remember(text, sources) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SharedChatMarkdown(presentation.body)
-        if (presentation.sources.isNotEmpty()) {
+        if (sources.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Fuentes", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                presentation.sources.take(4).forEachIndexed { index, source ->
+                sources.take(4).forEachIndexed { index, source ->
                     TextButton(onClick = { uriHandler.openUri(source.url) },
                         modifier = Modifier.heightIn(min = 32.dp)) {
                         Text("[${index + 1}]", style = MaterialTheme.typography.labelSmall)
@@ -1457,7 +1463,7 @@ private fun MarkdownBody(text: String) {
                 }
             }
             if (sourcesExpanded) {
-                presentation.sources.forEachIndexed { index, source ->
+                sources.forEachIndexed { index, source ->
                     TextButton(onClick = { uriHandler.openUri(source.url) },
                         modifier = Modifier.fillMaxWidth()) {
                         Text("${index + 1}. ${source.title}",
@@ -1604,7 +1610,7 @@ private fun MessageBubble(
                                 streamingText(msg.text, streaming = true),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            msg.text.isNotBlank() -> MarkdownBody(msg.text)
+                            msg.text.isNotBlank() -> MarkdownBody(msg.text, msg.sources)
                         }
                     }
                 }
