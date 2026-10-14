@@ -1162,6 +1162,89 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    /** Explicit project visual approval, not a character master or canon write.
+     * The VPS reauthorizes the asset, SHA and revision on its exact endpoint.
+     * No image model is called and an ambiguous/unknown result is NOT retried.
+     */
+    fun approveCopilotProjectReference(
+        projectId: String, assetId: String, expectedSha256: String,
+    ) {
+        val current = _writingWorkspace.value
+        if (current.busy || current.chatProjectId != projectId ||
+            !settings.value.isOwner) return
+        val selected = current.chatHistory.firstOrNull { turn ->
+            turn.candidateAssetId == assetId &&
+                turn.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
+                com.jarvis.android.ui.writing.isApprovableProjectReference(
+                    turn.candidateAssetId, turn.candidateSha256,
+                    turn.candidateKind, turn.candidateStatus,
+                    turn.candidateStorageState, turn.candidateCharacterId,
+                    !turn.generatedPreviewAttachmentId.isNullOrBlank(),
+                )
+        } ?: return
+        val epoch = copilotRecoveryEpoch
+        _writingWorkspace.value = current.copy(
+            busy = true, busyLabel = "Aprobando referencia visual del proyecto",
+            error = null,
+        )
+        viewModelScope.launch {
+            try {
+                val registry = container.liveSession.visualAssetList(
+                    projectId = projectId, characterId = "",
+                ).getOrThrow()
+                if (registry.project_id != projectId) {
+                    throw IllegalStateException("El registro pertenece a otro proyecto.")
+                }
+                val exact = registry.assets.singleOrNull {
+                    it.asset_id == assetId &&
+                        it.sha256.equals(expectedSha256, ignoreCase = true)
+                } ?: throw IllegalStateException("Referencia original no disponible.")
+                if (exact.project_id != projectId ||
+                    exact.kind != "REFERENCE" ||
+                    exact.status != "CANDIDATE" ||
+                    exact.storage.state != "stored") {
+                    throw IllegalStateException("La referencia cambió de estado.")
+                }
+                val confirmed = container.liveSession.visualAssetApproveExact(
+                    projectId = projectId, assetId = assetId,
+                    assetSha256 = expectedSha256,
+                    visualRevision = exact.visual_revision,
+                ).getOrThrow().asset
+                if (confirmed.project_id != projectId ||
+                    confirmed.asset_id != assetId ||
+                    !confirmed.sha256.equals(expectedSha256, ignoreCase = true) ||
+                    confirmed.kind != "REFERENCE" ||
+                    confirmed.status != "APPROVED") {
+                    throw IllegalStateException(
+                        "La aprobación no coincide con la referencia original.")
+                }
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId) {
+                    val state = _writingWorkspace.value
+                    _writingWorkspace.value = state.copy(
+                        busy = false, busyLabel = "",
+                        chatHistory = state.chatHistory.map { turn ->
+                            if (turn.candidateAssetId == selected.candidateAssetId &&
+                                turn.candidateSha256.equals(expectedSha256, ignoreCase = true))
+                                turn.copy(candidateStatus = "APPROVED")
+                            else turn
+                        },
+                        error = null,
+                    )
+                }
+            } catch (error: Exception) {
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false, busyLabel = "",
+                        error = (error.message ?: "No se pudo verificar la aprobación") +
+                            ". Consulta Visual Studio antes de reintentar.",
+                    )
+                }
+            }
+        }
+    }
+
     /** Exact owner action: approve one stored candidate by server-verified SHA. */
     fun approveCopilotPortrait(projectId: String, assetId: String, expectedSha256: String) {
         val current = _writingWorkspace.value
