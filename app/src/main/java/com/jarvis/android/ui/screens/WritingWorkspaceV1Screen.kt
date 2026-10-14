@@ -1,5 +1,7 @@
 package com.jarvis.android.ui.screens
 
+import com.jarvis.android.ui.components.SharedChatMarkdown
+
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -65,13 +67,6 @@ import androidx.compose.material.icons.filled.Tune
 import com.jarvis.android.data.story.CharacterChapterActivity
 import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
-import com.jarvis.android.ui.writing.looksLikeCopilotApprovedVisualInspectionRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotCharacterViewsRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotVisualDirectionChangeRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotOfficialExportRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotCanonReadRequest
 import com.jarvis.android.ui.writing.resolveCopilotOfficialExport
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
@@ -108,6 +103,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -143,6 +139,7 @@ import com.jarvis.android.ui.theme.JarvisUiTokens
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisScreenInset
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.ui.writing.verifiedCopilotPublicSources
 import com.jarvis.android.ui.writing.VisualStudioScreen
 import com.jarvis.android.ui.writing.DraftReviewScreen
 import com.jarvis.android.ui.writing.findStructuredCharacterByReference
@@ -619,7 +616,6 @@ private fun ChatSection(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     var prompt by rememberSaveable(projectId) { mutableStateOf("") }
-    var toolMode by rememberSaveable(projectId) { mutableStateOf(false) }
     var sceneCorrection by rememberSaveable(projectId) { mutableStateOf("") }
     val referencePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -662,20 +658,10 @@ private fun ChatSection(
             !state.busy && !state.copilotAppearanceBusy && !state.copilotAgentBusy) {
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
-            if (state.copilotPendingReferenceId != null) {
-                vm.importWritingCopilotReference(projectId, title, clean)
-            } else {
-                vm.runWritingRoomAutoChat(
-                    projectId, title, clean,
-                    toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean) ||
-                        looksLikeCopilotChapterWriteRequest(clean) ||
-                        looksLikeCopilotCharacterViewsRequest(clean) ||
-                        looksLikeCopilotVisualDirectionChangeRequest(clean) ||
-                        looksLikeCopilotOfficialExportRequest(clean) ||
-                        looksLikeCopilotCanonReadRequest(clean) ||
-                        looksLikeCopilotApprovedVisualInspectionRequest(clean),
-                )
-            }
+            vm.runWritingRoomAutoChat(
+                projectId, title, clean,
+                referenceAttachmentId = state.copilotPendingReferenceId,
+            )
             prompt = ""
         }
     }
@@ -1178,6 +1164,8 @@ private fun ChatSection(
                                         "get_approved_visual_references" -> "Mostrar imágenes aprobadas"
                                         "inspect_approved_character_image" -> "Inspeccionar master aprobado con modelo visual"
                                         "get_character_master_readiness" -> "Consultar masters y pendientes visuales"
+                                        "inspect_attached_image" -> "Inspeccionar imagen adjunta"
+                                        "import_attached_image_reference" -> "Guardar referencia de imagen adjunta"
                                         "complete_character_views" -> "Completar vistas del personaje"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
                                         "get_chapter_approval_packet" -> "Paquete de aprobación y CanonDiff del capítulo"
@@ -1517,16 +1505,37 @@ private fun ChatSection(
                                         }
                                     )
                                 }
-                            } else if (task.state == "OUTCOME_UNKNOWN" || task.state == "RUNNING") {
+                            } else if (task.state == "OUTCOME_UNKNOWN" ||
+                                task.agent_run_state == "OUTCOME_UNKNOWN") {
                                 Text(
-                                    "El resultado no es seguro. No se repetirá una operación de escritura.",
+                                    "No se pudo confirmar si la generación quedó guardada. " +
+                                        "Pulsa «Actualizar estado desde el VPS» o revisa los " +
+                                        "retratos recuperados. JARVIS no repetirá ni cobrará " +
+                                        "otra generación automáticamente.",
                                     style = MaterialTheme.typography.bodySmall, color = JarvisAmber,
+                                )
+                            } else if (task.state == "RUNNING" ||
+                                task.agent_run_state in setOf("RUNNING", "DISPATCHING")) {
+                                Text(
+                                    "JARVIS sigue trabajando. Puedes consultar el estado " +
+                                        "sin volver a ejecutar la acción.",
+                                    style = MaterialTheme.typography.bodySmall, color = JarvisCyan,
                                 )
                             } else if (task.state == "UNSUPPORTED") {
                                 Text(
                                     "Esta acción todavía no está conectada. No se simuló la ejecución.",
                                     style = MaterialTheme.typography.bodySmall, color = JarvisAmber,
                                 )
+                            }
+                            if (task.task_id.startsWith("ar_") &&
+                                task.agent_run_state in setOf(
+                                    "RUNNING", "WAITING_CONFIRMATION", "DISPATCHING",
+                                )
+                            ) {
+                                TextButton(
+                                    onClick = { vm.cancelWritingCopilotTask(projectId) },
+                                    enabled = !state.copilotAgentBusy,
+                                ) { Text("Cancelar siguientes pasos") }
                             }
                             TextButton(
                                 onClick = { vm.updateWritingCopilotTask(projectId) },
@@ -1550,6 +1559,9 @@ private fun ChatSection(
                         response, turn, projectId, vm, state.busy,
                         state.approvedVisualAttachments,
                         state.approvedVisualErrors,
+                        onEditVisual = { assetId, sha256 ->
+                            prompt = "Edita el asset visual $assetId (SHA-256 $sha256) del proyecto actual, conservando identidad y referencias aprobadas. Cambio solicitado: "
+                        },
                     )
                     }
                 }
@@ -1626,7 +1638,7 @@ private fun ChatSection(
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Referencia pendiente · se guardará como candidata, sin generar imagen",
+                            "Imagen adjunta a este mensaje · Copilot decidirá si necesita inspeccionarla",
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f),
                         )
@@ -1634,24 +1646,6 @@ private fun ChatSection(
                             Icon(Icons.Filled.Close, contentDescription = "Quitar referencia")
                         }
                     }
-                }
-                FilterChip(
-                    selected = toolMode,
-                    onClick = { toolMode = !toolMode },
-                    enabled = !state.busy && !state.copilotAgentBusy,
-                    label = { Text("Agente con herramientas") },
-                    leadingIcon = {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = null)
-                    },
-                )
-                if (toolMode) {
-                    Text(
-                        "JARVIS elegirá herramientas del proyecto. Lecturas automáticas; " +
-                            "cualquier propuesta para guardar requiere tu aprobación. " +
-                            "Las herramientas aún no conectadas se indicarán sin simular resultados.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = JarvisCyan,
-                    )
                 }
                 state.copilotReferenceError?.let { message ->
                     Text(message, color = JarvisRed, style = MaterialTheme.typography.bodySmall)
@@ -1772,9 +1766,57 @@ private fun CopilotAssistantMessage(
     busy: Boolean,
     approvedVisualAttachments: Map<String, String>,
     approvedVisualErrors: Set<String>,
+    onEditVisual: (String, String) -> Unit,
 ) {
     val clipboardManager = LocalClipboardManager.current
+    val publicUriHandler = LocalUriHandler.current
+    val publicSources = remember(chat.content) {
+        verifiedCopilotPublicSources(chat.content)
+    }
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
+    var expandedVisual by remember { mutableStateOf<String?>(null) }
+    var expandedSource by remember { mutableStateOf<Pair<String, String>?>(null) }
+    expandedVisual?.let { imageId ->
+        val fullImage = remember(imageId) {
+            vm.attachmentStore.decodeThumbnail(imageId, maxSize = 1600)
+        }
+        if (fullImage != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    expandedVisual = null
+                    expandedSource = null
+                },
+                title = { Text("Referencia visual del chat") },
+                text = {
+                    Image(
+                        bitmap = fullImage.asImageBitmap(),
+                        contentDescription = "Imagen ampliada",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth().height(450.dp),
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        expandedVisual = null
+                        expandedSource = null
+                    }) {
+                        Text("Cerrar")
+                    }
+                },
+                dismissButton = {
+                    expandedSource?.let { (assetId, sha) ->
+                        TextButton(onClick = {
+                            expandedVisual = null
+                            expandedSource = null
+                            onEditVisual(assetId, sha)
+                        }) {
+                            Text("Editar en Copilot")
+                        }
+                    }
+                },
+            )
+        }
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1844,6 +1886,38 @@ private fun CopilotAssistantMessage(
                 Spacer(Modifier.height(5.dp))
                 RichModelText(chat.turn.response.text)
 
+                // Only cryptographically validated HTTPS source receipts
+                // are clickable. External search is not canon or pixel proof.
+                if (publicSources.isNotEmpty()) {
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        "FUENTES WEB EXTERNAS · NO SON CANON",
+                        style = HudTextStyle,
+                        color = JarvisCyan,
+                    )
+                    publicSources.take(5).forEachIndexed { index, source ->
+                        val sourceHost = remember(source.url) {
+                            runCatching { java.net.URI(source.url).host }
+                                .getOrNull().orEmpty()
+                        }
+                        TextButton(
+                            onClick = { publicUriHandler.openUri(source.url) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "${index + 1}. " +
+                                    source.title.ifBlank { "Fuente pública" }.take(100) +
+                                    " · " + sourceHost,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisCyan,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+
                 chat.visual_assets.take(6).forEach { approved ->
                     if (approved.status == "APPROVED") {
                         Spacer(Modifier.height(8.dp))
@@ -1870,7 +1944,15 @@ private fun CopilotAssistantMessage(
                                 contentDescription = approved.alt.ifBlank { "Imagen aprobada" },
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxWidth().height(240.dp)
-                                    .clip(RoundedCornerShape(12.dp)),
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        expandedSource = com.jarvis.android.ui.writing.editableCopilotVisualSource(
+                                            approved.asset_id, approved.sha256, approved.status,
+                                            approved.storage_state, thumbnailId,
+                                            approvedVisualAttachments[approved.asset_id],
+                                        )
+                                        expandedVisual = thumbnailId
+                                    },
                             )
                         } else {
                             Text(
@@ -1886,18 +1968,32 @@ private fun CopilotAssistantMessage(
                     }
                 }
 
-                turn.generatedPreviewAttachmentId?.let { attachmentId ->
-                    val image = remember(attachmentId) {
+                // An attachment identifier is not proof that the image is visible.
+                // Keep the approval gate tied to the preview actually decoded
+                // from the authenticated, hash-verified cached attachment.
+                val candidatePreviewBitmap = remember(turn.generatedPreviewAttachmentId) {
+                    turn.generatedPreviewAttachmentId?.let { attachmentId ->
                         vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
                     }
+                }
+                turn.generatedPreviewAttachmentId?.let { attachmentId ->
+                    val image = candidatePreviewBitmap
                     if (image != null) {
                         Spacer(Modifier.height(9.dp))
                         Image(
                             bitmap = image.asImageBitmap(),
-                            contentDescription = "Retrato candidato generado por GPT Image 2 Medium",
+                            contentDescription = "Imagen visual del turno actual",
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxWidth().height(290.dp)
-                                .clip(RoundedCornerShape(16.dp)),
+                            modifier = Modifier.fillMaxWidth().height(350.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    expandedSource = com.jarvis.android.ui.writing.editableCopilotVisualSource(
+                                        turn.candidateAssetId, turn.candidateSha256,
+                                        turn.candidateStatus, turn.candidateStorageState,
+                                        attachmentId, turn.generatedPreviewAttachmentId,
+                                    )
+                                    expandedVisual = attachmentId
+                                },
                         )
                     }
                 }
@@ -1909,9 +2005,12 @@ private fun CopilotAssistantMessage(
                         color = if (turn.candidateStatus == "APPROVED") JarvisGreen else JarvisAmber,
                     )
                     if (turn.candidateStatus == "CANDIDATE" &&
+                        turn.candidateKind == "PRIMARY_REFERENCE" &&
+                        turn.candidatePerspective == "front" &&
+                        !turn.candidateCharacterId.isNullOrBlank() &&
                         turn.candidateStorageState == "stored" &&
                         !turn.candidateSha256.isNullOrBlank() &&
-                        !turn.generatedPreviewAttachmentId.isNullOrBlank()
+                        candidatePreviewBitmap != null
                     ) {
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(
@@ -1925,6 +2024,29 @@ private fun CopilotAssistantMessage(
                             Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Aprobar retrato como referencia visual")
+                        }
+                    } else if (
+                        com.jarvis.android.ui.writing.isApprovableProjectReference(
+                            turn.candidateAssetId, turn.candidateSha256,
+                            turn.candidateKind, turn.candidateStatus,
+                            turn.candidateStorageState, turn.candidateCharacterId,
+                            candidatePreviewBitmap != null,
+                        )
+                    ) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                vm.approveCopilotProjectReference(
+                                    projectId, assetId,
+                                    turn.candidateSha256.orEmpty(),
+                                )
+                            },
+                            enabled = !busy,
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null,
+                                modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Aprobar referencia del proyecto (sin canon)")
                         }
                     } else if (turn.candidateStorageState != "stored" &&
                         turn.candidateStatus == "CANDIDATE"
@@ -1942,7 +2064,10 @@ private fun CopilotAssistantMessage(
                         )
                         val characterId = turn.candidateCharacterId
                         val candidateSha256 = turn.candidateSha256
-                        if (!characterId.isNullOrBlank() && !candidateSha256.isNullOrBlank()) {
+                        if (turn.candidateKind == "PRIMARY_REFERENCE" &&
+                            turn.candidatePerspective == "front" &&
+                            !characterId.isNullOrBlank() &&
+                            !candidateSha256.isNullOrBlank()) {
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = {
@@ -6739,97 +6864,10 @@ private fun writingRoomActivityLabel(
 
 @Composable
 private fun RichModelText(text: String) {
+    // One renderer with Chat Global; surrounding Copilot UI owns only its
+    // canonical sources, images and approvals, never Markdown parsing.
     SelectionContainer {
-        val lines = text.replace("\r\n", "\n").split("\n")
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                lines.forEach { raw ->
-                    val line = raw.trimEnd()
-                    when {
-                        line.isBlank() -> Spacer(Modifier.height(3.dp))
-                        line.startsWith("### ") -> Text(
-                            line.removePrefix("### "),
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = Color(0xFF67E8F9),
-                        )
-                        line.startsWith("## ") -> Text(
-                            line.removePrefix("## "),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF67E8F9),
-                        )
-                        line.startsWith("# ") -> Text(
-                            line.removePrefix("# "),
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFFE0F2FE),
-                        )
-                        line.startsWith("- ") || line.startsWith("* ") -> Row(
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            Text("•", color = JarvisCyan, fontSize = 14.sp, modifier = Modifier.padding(top = 1.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text(
-                                inlineMarkdown(line.drop(2)),
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    color = Color(0xFFE2E8F0),
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
-                                ),
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        line.matches(Regex("^\\d+[.)]\\s+.*")) -> {
-                            val split = line.indexOf(' ')
-                            Row(verticalAlignment = Alignment.Top) {
-                                Text(
-                                    line.take(split),
-                                    color = JarvisCyan,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.padding(top = 1.dp),
-                                )
-                                Spacer(Modifier.size(6.dp))
-                                Text(
-                                    inlineMarkdown(line.drop(split + 1)),
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        color = Color(0xFFE2E8F0),
-                                        fontSize = 15.sp,
-                                        lineHeight = 24.sp,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-                        else -> Text(
-                            inlineMarkdown(line),
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = Color(0xFFE2E8F0),
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                            ),
-                        )
-                    }
-                }
-            }
-    }
-}
-
-private fun inlineMarkdown(text: String): AnnotatedString = buildAnnotatedString {
-    var index = 0
-    val regex = Regex("\\*\\*(.+?)\\*\\*")
-    regex.findAll(text).forEach { match ->
-        if (match.range.first > index) {
-            pushStyle(SpanStyle(color = Color(0xFFE2E8F0)))
-            append(text.substring(index, match.range.first))
-            pop()
-        }
-        pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color(0xFF67E8F9)))
-        append(match.groupValues[1])
-        pop()
-        index = match.range.last + 1
-    }
-    if (index < text.length) {
-        pushStyle(SpanStyle(color = Color(0xFFE2E8F0)))
-        append(text.substring(index))
-        pop()
+        SharedChatMarkdown(text)
     }
 }
 

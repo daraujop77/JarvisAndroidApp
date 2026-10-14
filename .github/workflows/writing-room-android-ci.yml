@@ -120,18 +120,70 @@ jobs:
           set -Eeuo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
           [ -f "$APK" ] || { echo "Signed release APK missing"; exit 1; }
-
-          VERSION_CODE="$(python3 - <<'PY'
-          import re
-          text = open("app/build.gradle.kts", encoding="utf-8").read()
-          match = re.search(r'versionCode\s*=\s*(?:jarvisVersionCode\s*\?:\s*)?(\d+)', text)
-          if not match:
-              raise SystemExit("Could not resolve default Android versionCode")
-          print(match.group(1))
+          # Gradle release signing must have produced a valid signature.
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/build-tools" ] || {
+            echo "Android SDK build-tools not found." >&2; exit 1;
+          }
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -mindepth 2 -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)"
+          [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ] || { echo "apksigner unavailable" >&2; exit 1; }
+          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
+          # V67 was signed with this exact installed-app certificate. A new
+          # valid-but-different keystore is NOT an in-place Android update.
+          python3 - <<'PY'
+          import pathlib, re, os
+          expected = "46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a"
+          lines = (pathlib.Path(os.environ["RUNNER_TEMP"]) / "apk-signature.txt").read_text().splitlines()
+          found = [
+              match.group(1).lower() for line in lines
+              if "certificate sha-256 digest" in line.casefold()
+              for match in [re.search(r"([A-Fa-f0-9]{64})\s*$", line)] if match
+          ]
+          if found != [expected]:
+              raise SystemExit("Signed APK certificate differs from installed JARVIS v67")
+          print("INSTALLED_APP_SIGNER_MATCH=PASS")
           PY
-          )"
-          VERSION_NAME="$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*= *"([^"]+)".*/\1/')"
-          PACKAGE_NAME="com.jarvis.android"
+
+          # Resolve identity from the APK actually compiled, not from Gradle
+          # source text. The Gradle properties provide defaults/overrides, so
+          # grep/sed of "versionName = jarvisVersionName.get()" is incorrect.
+          AAPT="$(find "$SDK_ROOT/build-tools" -mindepth 2 -maxdepth 2 -name aapt -type f | sort -V | tail -n 1)"
+          [ -n "$AAPT" ] && [ -x "$AAPT" ] || {
+            echo "aapt not found in Android SDK build-tools." >&2; exit 1;
+          }
+          BADGING="$("$AAPT" dump badging "$APK")"
+          if printf '%s\n' "$BADGING" | grep -q 'application-debuggable'; then
+            echo "Release APK is debuggable" >&2; exit 1;
+          fi
+          PACKAGE_INFO="$(printf '%s\n' "$BADGING" | python3 -c '
+          import re, sys
+          first = sys.stdin.readline().strip()
+          if not first.startswith("package:"):
+              raise SystemExit("APK package metadata missing")
+          fields = {}
+          for field in ("name", "versionCode", "versionName"):
+              m = re.search(field + r"=\x27([^\x27]*)\x27", first)
+              if not m or not m.group(1):
+                  raise SystemExit("APK identity field missing: " + field)
+              fields[field] = m.group(1)
+          if fields["name"] != "com.jarvis.android":
+              raise SystemExit("Unexpected APK applicationId: " + fields["name"])
+          if not fields["versionCode"].isdigit():
+              raise SystemExit("APK versionCode must be numeric")
+          print(fields["name"])
+          print(fields["versionCode"])
+          print(fields["versionName"])
+          ')"
+          mapfile -t APK_IDENTITY <<< "$PACKAGE_INFO"
+          [ "${#APK_IDENTITY[@]}" -eq 3 ] || {
+            echo "Expected exactly three APK identity fields" >&2; exit 1;
+          }
+          PACKAGE_NAME="${APK_IDENTITY[0]}"
+          VERSION_CODE="${APK_IDENTITY[1]}"
+          VERSION_NAME="${APK_IDENTITY[2]}"
+          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] && [ "$VERSION_CODE" -ge 68 ] && [ -n "$VERSION_NAME" ] || {
+            echo "APK release identity invalid or stale" >&2; exit 1;
+          }
           TAG="android-v${VERSION_CODE}"
 
           RELEASE_APK="$RUNNER_TEMP/JARVIS-release.apk"
@@ -172,6 +224,7 @@ jobs:
           else
             gh release create "$TAG" "$RELEASE_APK" "$RELEASE_MANIFEST" \
               --target "$GITHUB_SHA" \
+              --latest \
               --title "JARVIS Android $VERSION_NAME" \
               --notes "Signed production APK for JARVIS Android $VERSION_NAME (versionCode $VERSION_CODE)."
           fi

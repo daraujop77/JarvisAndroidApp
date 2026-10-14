@@ -131,9 +131,11 @@ class WritingRoomSessionRecoveryTest {
         val renew = server.takeRequest()
         val second = server.takeRequest()
         assertEquals("/api/app/login", login.path)
-        assertEquals("/api/app/writing-room/chat/stream", first.path)
+        // Adaptive route is tried first. A 401 is pre-dispatch and must
+        // refresh once, retry the SAME endpoint and preserve request_id.
+        assertEquals("/api/app/writing-room/agent/stream", first.path)
         assertEquals("/api/app/refresh", renew.path)
-        assertEquals("/api/app/writing-room/chat/stream", second.path)
+        assertEquals("/api/app/writing-room/agent/stream", second.path)
         assertEquals("Bearer access-old", first.getHeader("Authorization"))
         assertEquals("Bearer access-new", second.getHeader("Authorization"))
         assertEquals(first.body.readUtf8(), second.body.readUtf8())

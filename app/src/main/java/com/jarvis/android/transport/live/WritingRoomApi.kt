@@ -133,6 +133,8 @@ data class CopilotTaskStep(
 @Serializable
 data class CopilotTaskResult(
     val tool: String = "",
+    // A recovered tool result is never authoritative if the provider failed.
+    val status: String = "",
     val text: String = "",
     val effect: String = "",
     val result: JsonObject = JsonObject(emptyMap()),
@@ -157,6 +159,17 @@ data class CopilotTaskState(
     val schema: String = "",
     val task_id: String = "",
     val project_id: String = "",
+    val conversation_id: String = "",
+    val request_mode: String = "auto",
+    val agent_run_state: String = "",
+    val action_hash: String = "",
+    val approval_id: String = "",
+    val approval_expires_at: String = "",
+    // Only exact-request recovery exposes these fields. Ordinary status
+    // remains a compact task projection and does not include a full reply.
+    val request_id: String = "",
+    val request_text: String = "",
+    val reply_text: String = "",
     val state: String = "",
     val summary: String = "",
     val requires_confirmation: Boolean = false,
@@ -186,6 +199,34 @@ data class CopilotRecentMessage(
     val content: String = "",
 )
 
+/** Versioned conversation content. Legacy .turn.response.text still renders
+ * until the shared rich renderer is enabled; no approved-canon authority here.
+ */
+@Serializable
+data class JarvisChatContentBlock(
+    val type: String = "",
+    val text: String = "",
+    val asset_id: String = "",
+    val sha256: String = "",
+    val mime_type: String = "",
+    val status: String = "",
+    val storage_state: String = "",
+)
+
+@Serializable
+data class JarvisChatContentSource(
+    val ref: String = "",
+    val title: String = "",
+    val url: String = "",
+)
+
+@Serializable
+data class JarvisChatContent(
+    val schema: String = "",
+    val blocks: List<JarvisChatContentBlock> = emptyList(),
+    val sources: List<JarvisChatContentSource> = emptyList(),
+)
+
 @Serializable
 data class WritingRoomAutoChat(
     val schema: String = "",
@@ -194,6 +235,8 @@ data class WritingRoomAutoChat(
     val turn: JarvisAppSession.WritingRoomTurn = JarvisAppSession.WritingRoomTurn(),
     val copilot_task: CopilotTaskState? = null,
     val visual_assets: List<CopilotApprovedVisualAsset> = emptyList(),
+    val content: JarvisChatContent? = null,
+    val recovered_from_interruption: Boolean = false,
 )
 
 @Serializable
@@ -1447,11 +1490,21 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     toolMode: Boolean = false,
     recentMessages: List<CopilotRecentMessage> = emptyList(),
     approvedVisualAssetIds: List<String> = emptyList(),
+    attachedImageBase64: String? = null,
+    onProgress: (String) -> Unit = {},
     onDelta: (String) -> Unit,
 ): Result<WritingRoomAutoChat> = withContext(Dispatchers.IO) {
     val clean = prompt.trim()
     if (clean.isEmpty()) return@withContext Result.failure(TransportException("Writing Room prompt is empty"))
     if (clean.length > 6000) return@withContext Result.failure(TransportException("Writing Room prompt is too long"))
+    // Same-turn data, never an untrusted URL/asset name. Bound to the VPS
+    // vision provider limit; the backend independently verifies real MIME.
+    if (attachedImageBase64 != null && (attachedImageBase64.isBlank() ||
+        attachedImageBase64.length > 5 * 1024 * 1024)) {
+        return@withContext Result.failure(
+            TransportException("Copilot image is missing or exceeds 5 MB base64"),
+        )
+    }
     if (expired || authHeader() == null) {
         // Local expiry is not a server 401. A competing request may have
         // already rotated the token; reuse its fresh bearer under refreshMutex.
@@ -1464,11 +1517,26 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     }
     var auth = authHeader()
         ?: return@withContext Result.failure(TransportException("no live session"))
+    val stableRequestId = java.util.UUID.randomUUID().toString()
+    val stableConversationId = writingRoomConversationId(projectId)
+    var usingAdaptive = true
+    // Only an accepted adaptive SSE stream may need exact-request recovery.
+    // A pre-execution HTTP rejection (503/429/400) never triggers another
+    // request or falls back to the legacy stream.
+    var adaptiveStreamAccepted = false
     val body = buildJsonObject {
         put("project_id", projectId)
         put("project_title", projectTitle)
         put("room", room)
         put("prompt", clean)
+        if (attachedImageBase64 != null) {
+            put("images", kotlinx.serialization.json.buildJsonArray {
+                add(buildJsonObject {
+                    put("mime_type", "image/jpeg")
+                    put("data_base64", attachedImageBase64)
+                })
+            })
+        }
         if (toolMode) put("tool_mode", "plan")
         // These are untrusted hints: the VPS re-checks project scope, owner,
         // APPROVED status and immutable bytes before any vision call.
@@ -1487,14 +1555,25 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 }
             }
         })
-        put("request_id", java.util.UUID.randomUUID().toString())
+        put("request_id", stableRequestId)
+        put("conversation_id", stableConversationId)
+        put("mode", "auto")
     }.toString()
 
-    runCatching {
+    val streamResult = runCatching {
         var completed: WritingRoomAutoChat? = null
         var streamError: String? = null
         val onEvent: (String, String) -> Unit = { event, data ->
+            // The connection may drop after headers but before postSse
+            // returns. An adaptive SSE event establishes acceptance.
+            if (usingAdaptive) adaptiveStreamAccepted = true
             when (event) {
+                "progress" -> {
+                    val obj = runCatching {
+                        writingRoomJson.parseToJsonElement(data).jsonObject
+                    }.getOrNull()
+                    obj?.get("phase")?.jsonPrimitive?.contentOrNull?.let(onProgress)
+                }
                 "delta" -> {
                     val obj = writingRoomJson.parseToJsonElement(data).jsonObject
                     obj["delta"]?.jsonPrimitive?.contentOrNull?.let(onDelta)
@@ -1510,9 +1589,16 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 }
             }
         }
-        var status = postSse(
-            baseUrl, "/api/app/writing-room/chat/stream", body, auth, onEvent,
-        )
+        // Prefer the adaptive model loop. A disabled/old backend answers
+        // 404 BEFORE accepting any task: then retain the v64 legacy route.
+        var endpoint = "/api/app/writing-room/agent/stream"
+        var status = postSse(baseUrl, endpoint, body, auth, onEvent)
+        if (status in 200..299) adaptiveStreamAccepted = true
+        if (status == 404 && attachedImageBase64 == null) {
+            usingAdaptive = false
+            endpoint = "/api/app/writing-room/chat/stream"
+            status = postSse(baseUrl, endpoint, body, auth, onEvent)
+        }
         if (status == 401) {
             // HTTP 401 means the stream was rejected before execution.
             // Retrying the same request_id avoids accidental duplicate tasks.
@@ -1521,9 +1607,16 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 throw renewed.exceptionOrNull() ?: TransportException("session expired")
             }
             auth = authHeader() ?: throw TransportException("no live session")
-            status = postSse(
-                baseUrl, "/api/app/writing-room/chat/stream", body, auth, onEvent,
-            )
+            status = postSse(baseUrl, endpoint, body, auth, onEvent)
+            if (usingAdaptive && status in 200..299) adaptiveStreamAccepted = true
+            if (status == 404 && attachedImageBase64 == null &&
+                endpoint == "/api/app/writing-room/agent/stream") {
+                // A refreshed bearer against an older VPS is not evidence of
+                // accepted work; keep the original idempotency key and fallback.
+                usingAdaptive = false
+                endpoint = "/api/app/writing-room/chat/stream"
+                status = postSse(baseUrl, endpoint, body, auth, onEvent)
+            }
             if (status == 401) {
                 if (authHeader() == auth) clearAccess()
                 throw TransportException("session expired")
@@ -1531,38 +1624,154 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         }
         if (status !in 200..299) throw TransportException("HTTP $status")
         streamError?.let { throw TransportException(it) }
-        completed ?: throw TransportException("Writing Room stream ended without completion")
+        val response = completed
+            ?: throw TransportException("Writing Room stream ended without completion")
+        // Ordinary successful agent streams also need their stable request
+        // ID: after a user confirms a proposed action, Android must recover
+        // the final text by request ID instead of showing a stale proposal.
+        // Pin it only to the exact authenticated project/conversation and
+        // server-issued agent task. Legacy responses are never augmented.
+        val agentTask = response.copilot_task
+        if (usingAdaptive && agentTask != null &&
+            agentTask.task_id.startsWith("ar_") &&
+            agentTask.project_id == projectId &&
+            agentTask.conversation_id == stableConversationId &&
+            (agentTask.request_id.isBlank() ||
+                agentTask.request_id == stableRequestId)
+        ) {
+            response.copy(copilot_task = agentTask.copy(request_id = stableRequestId))
+        } else response
     }
+    if (streamResult.isSuccess || !usingAdaptive || !adaptiveStreamAccepted) {
+        return@withContext streamResult
+    }
+
+    // A 200/SSE stream may have disconnected after the agent accepted work.
+    // Never send the original instruction again: read its exact, authorized
+    // durable request ID and recover what is already saved.
+    val recovered = writingRoomAgentRequestStatus(
+        projectId, stableConversationId, stableRequestId,
+    ).getOrNull()?.let { task ->
+        recoveredCopilotChat(projectId, stableConversationId, stableRequestId, task)
+    }
+    recovered?.let { Result.success(it) } ?: streamResult
 }
 
-/** Read-only task recovery is scoped by VPS to the authenticated project principal. */
+/** Read the status of one exact interrupted agent request; never re-executes. */
+suspend fun JarvisAppSession.writingRoomAgentRequestStatus(
+    projectId: String,
+    conversationId: String,
+    requestId: String,
+): Result<CopilotTaskState> {
+    if (conversationId.isBlank() || requestId.isBlank()) {
+        return Result.failure(TransportException("Missing agent recovery scope"))
+    }
+    return writingPost(
+        "/api/app/writing-room/agent/request-status",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("conversation_id", conversationId)
+            put("request_id", requestId)
+        },
+    )
+}
+
+/** Capability probe for migrating legacy appearance commands to model tools.
+ * This returns only an authorized task snapshot; no model inference is used. */
+suspend fun JarvisAppSession.writingRoomAdaptiveReady(projectId: String): Boolean {
+    val conversationId = runCatching { writingRoomConversationId(projectId) }.getOrNull()
+        ?: return false
+    val status: Result<CopilotTaskState> = writingPost(
+        "/api/app/writing-room/agent/latest",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("conversation_id", conversationId)
+        },
+    )
+    return status.isSuccess
+}
+
+/** Read-only recovery is scoped by VPS to the authenticated principal+conversation. */
 suspend fun JarvisAppSession.writingRoomCopilotTaskLatest(
     projectId: String,
-): Result<CopilotTaskState> =
-    writingPost(
+): Result<CopilotTaskState> {
+    val conversationId = runCatching { writingRoomConversationId(projectId) }.getOrNull()
+    if (conversationId != null) {
+        val adaptive: Result<CopilotTaskState> = writingPost(
+            "/api/app/writing-room/agent/latest",
+            buildJsonObject {
+                put("project_id", projectId)
+                put("conversation_id", conversationId)
+            },
+        )
+        if (adaptive.isSuccess && adaptive.getOrNull()?.task_id?.isNotBlank() == true) {
+            return adaptive
+        }
+        // Fall back only for feature flag OFF / deployment older than the app.
+        if (adaptive.isFailure && adaptive.exceptionOrNull()?.message != "Agent HTTP 404" &&
+            adaptive.exceptionOrNull()?.message != "HTTP 404"
+        ) return adaptive
+    }
+    return writingPost(
         "/api/app/writing-room/copilot/tasks/latest",
         buildJsonObject { put("project_id", projectId) },
     )
+}
 
 suspend fun JarvisAppSession.writingRoomCopilotTaskStatus(
     projectId: String,
     taskId: String,
-): Result<CopilotTaskState> =
-    writingPost(
+    conversationId: String = "",
+): Result<CopilotTaskState> {
+    if (taskId.startsWith("ar_")) {
+        if (conversationId.isBlank()) {
+            return Result.failure(TransportException("Missing agent conversation"))
+        }
+        return writingPost(
+            "/api/app/writing-room/agent/status",
+            buildJsonObject {
+                put("project_id", projectId)
+                put("conversation_id", conversationId)
+                put("task_id", taskId)
+            },
+        )
+    }
+    return writingPost(
         "/api/app/writing-room/copilot/tasks/status",
         buildJsonObject {
             put("project_id", projectId)
             put("task_id", taskId)
         },
     )
+}
 
-/** Runs only a stored allowlisted plan; proposal writes require explicit confirmation. */
+/** One frozen operation, hash-bound; no generic confirmed=true for agent runs. */
 suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
     projectId: String,
     taskId: String,
     confirmed: Boolean,
-): Result<CopilotTaskState> =
-    writingPost(
+    conversationId: String = "",
+    actionHash: String = "",
+    mode: String = "auto",
+): Result<CopilotTaskState> {
+    if (taskId.startsWith("ar_")) {
+        if (!confirmed || conversationId.isBlank() ||
+            !Regex("^[a-f0-9]{64}$").matches(actionHash)
+        ) return Result.failure(TransportException("Invalid agent approval"))
+        return writingPost(
+            "/api/app/writing-room/agent/confirm",
+            buildJsonObject {
+                put("project_id", projectId)
+                put("conversation_id", conversationId)
+                put("task_id", taskId)
+                put("action_hash", actionHash)
+                put("mode", mode)
+                put("confirmed", true)
+            },
+            timeoutMillis = 120_000L,
+        )
+    }
+    return writingPost(
         "/api/app/writing-room/copilot/tasks/run",
         buildJsonObject {
             put("project_id", projectId)
@@ -1571,6 +1780,7 @@ suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
         },
         timeoutMillis = 120_000L,
     )
+}
 
 suspend fun JarvisAppSession.writingRoomWikiHome(
     projectId: String,

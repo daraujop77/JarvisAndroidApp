@@ -24,6 +24,8 @@ val jarvisApplicationId = providers.gradleProperty("jarvisApplicationId")
 val jarvisVersionCode = providers.gradleProperty("jarvisVersionCode")
     .orNull
     ?.toIntOrNull()
+val jarvisVersionName = providers.gradleProperty("jarvisVersionName")
+    .orElse("0.1.68-adaptive-copilot-preview")
 val jarvisBootstrapGateway = providers.gradleProperty("jarvisBootstrapGateway")
     .orElse("https://40-160-143-245.sslip.io:8443")
 
@@ -39,8 +41,8 @@ android {
         targetSdk = 36
         // Google Play can override versionCode independently so direct APK
         // updates keep their existing version sequence.
-        versionCode = jarvisVersionCode ?: 64
-        versionName = "0.1.64-clean-modern-official"
+        versionCode = jarvisVersionCode ?: 68
+        versionName = jarvisVersionName.get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",

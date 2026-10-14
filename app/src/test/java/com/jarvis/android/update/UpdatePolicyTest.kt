@@ -7,6 +7,11 @@ import org.junit.Test
 class UpdatePolicyTest {
 
     @Test
+    fun nextOfficialCandidateIsNewerThanPublishedV67() {
+        assertTrue(com.jarvis.android.BuildConfig.VERSION_CODE > 67)
+    }
+
+    @Test
     fun acceptsOnlyPinnedGithubReleaseAssets() {
         assertTrue(
             UpdatePolicy.safeGithubReleaseAsset(

@@ -112,18 +112,37 @@ class AttachmentStore(context: Context) {
         )
     }.getOrNull()
 
-    /** Save a generated image returned by the trusted JARVIS VPS into app-private storage. */
-    fun stageGeneratedBase64(dataBase64: String): StagedAttachment? = runCatching {
+    /** Store a generated image. Scoped remote receipt keys let SSE/cache
+     * replays reuse one local attachment rather than creating duplicate files.
+     * The original content is still validated before a cached file is reused.
+     */
+    @Synchronized
+    fun stageGeneratedBase64(
+        dataBase64: String, stableReceiptKey: String? = null,
+    ): StagedAttachment? = runCatching {
         val raw = Base64.decode(dataBase64, Base64.DEFAULT)
         require(raw.isNotEmpty() && raw.size <= 12 * 1024 * 1024)
+        require(stableReceiptKey == null || stableReceiptKey.length in 1..360)
         val bitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size)
             ?: return@runCatching null
-        val id = "gen_" + UUID.randomUUID().toString().take(12)
-        val out = File(dir, "$id.jpg")
-        out.outputStream().use { stream ->
-            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream))
+        val id = if (stableReceiptKey == null) {
+            "gen_" + UUID.randomUUID().toString().take(12)
+        } else {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(stableReceiptKey.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            "gen_" + digest.take(32)
         }
-        bitmap.recycle()
+        val out = File(dir, "$id.jpg")
+        try {
+            if (!out.isFile || out.length() <= 0) {
+                out.outputStream().use { stream ->
+                    check(bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream))
+                }
+            }
+        } finally {
+            bitmap.recycle()
+        }
         StagedAttachment(
             attachmentId = id,
             file = out,

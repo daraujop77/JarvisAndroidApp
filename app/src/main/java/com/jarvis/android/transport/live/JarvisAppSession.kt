@@ -81,6 +81,41 @@ class JarvisAppSession(
     private val json = Json { ignoreUnknownKeys = true }
     private val refreshMutex = Mutex()
 
+    /** Server-advertised opt-in. False until authenticated status proves availability. */
+    @Volatile
+    var generalChatAgentEnabled: Boolean = false
+        private set
+
+    /** Private callback from transport to the presentation's conversation repository. */
+    @Volatile
+    var onAgentImageReady: ((conversationId: String, requestId: String, attachmentId: String) -> Unit)? = null
+    @Volatile
+    var onAgentImageError: ((String) -> Unit)? = null
+    @Volatile
+    var onAgentSourcesReady: ((conversationId: String, requestId: String, sourcesJson: String) -> Unit)? = null
+
+    suspend fun downloadAgentImage(assetId: String): ByteArray = withContext(Dispatchers.IO) {
+        require(Regex("^[A-Za-z0-9_-]{30,64}$").matches(assetId)) { "Invalid image asset" }
+        val token = authHeader() ?: throw TransportException("no token")
+        val request = Request.Builder()
+            .url(baseUrl + "/api/app/chat/agent/general/image/" + assetId)
+            .header("Authorization", token)
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code !in 200..299)
+                throw TransportException("Generated image is unavailable")
+            val mime = response.header("Content-Type")?.substringBefore(';')?.trim()
+            if (mime !in setOf("image/png", "image/jpeg", "image/webp"))
+                throw TransportException("Unsupported generated image type")
+            val bytes = response.body?.bytes()
+                ?: throw TransportException("Empty generated image")
+            if (bytes.isEmpty() || bytes.size > 12 * 1024 * 1024)
+                throw TransportException("Generated image exceeded size limit")
+            bytes
+        }
+    }
+
     @Serializable
     data class AppUser(val id: String = "", val username: String = "", val role: String = "")
 
@@ -312,6 +347,47 @@ class JarvisAppSession(
     fun authHeader(): String? = token?.let { "Bearer $it" }
 
     /**
+     * A stable Writing Room conversation ID isolated by principal AND project.
+     * It persists across process death but never reuses another account's ID.
+     * Server access checks still decide whether this principal may view history.
+     */
+    /** Explicit per-conversation, per-account project binding for Chat Global.
+     * An empty value disables the adaptive project route. Authorization stays
+     * authoritative on the VPS for every request. */
+    fun chatAgentProjectFor(conversationId: String): String? {
+        val principal = userId.trim()
+        if (principal.isBlank() || conversationId.isBlank()) return null
+        return store.get("chat.agent.project." + principal + ":" + conversationId)
+            ?.takeIf { it.isNotBlank() && it.length <= 160 }
+    }
+
+    fun setChatAgentProjectFor(conversationId: String, projectId: String?) {
+        val principal = userId.trim()
+        require(principal.isNotBlank() && conversationId.isNotBlank())
+        require(conversationId.length <= 160)
+        val clean = projectId?.trim()?.takeIf { it.isNotEmpty() }
+        require(clean == null || (clean.length <= 160 &&
+                    clean.matches(Regex("[A-Za-z0-9_:-]{1,160}"))))
+        store.put(mapOf(
+            "chat.agent.project." + principal + ":" + conversationId to clean,
+        ))
+    }
+
+    fun writingRoomConversationId(projectId: String): String {
+        val principal = userId.trim()
+        require(principal.isNotBlank() && projectId.isNotBlank())
+        require(principal.length <= 160 && projectId.length <= 160)
+        val key = "writing_room.conversation." + principal + ":" + projectId
+        return synchronized(store) {
+            store.get(key)?.takeIf { it.matches(Regex("wrc_[a-f0-9-]{36}")) }
+                ?: ("wrc_" + java.util.UUID.randomUUID().toString()).also {
+                    store.put(mapOf(key to it))
+                }
+        }
+    }
+
+
+    /**
      * Conversation-local chat profile chosen by the OWNER (PCB-LIVE-4/5).
      * Values come from the server-driven catalog in `/api/app/status`
      * (`chat.models[].profile`) — the client never invents model names.
@@ -412,6 +488,8 @@ class JarvisAppSession(
             }
             val ownerSel = chat["access"]?.jsonObject
                 ?.get("owner_model_selection")?.jsonPrimitive?.booleanOrNull ?: false
+            generalChatAgentEnabled = chat["general_agent"]?.jsonObject
+                ?.get("enabled")?.jsonPrimitive?.booleanOrNull ?: false
             val capabilities = root["capabilities"]?.jsonObject
             val capabilityStates = capabilities
                 ?.mapValues { (_, value) ->

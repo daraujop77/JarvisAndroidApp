@@ -16,16 +16,19 @@ import com.jarvis.android.transport.fake.FakeScenario
 import com.jarvis.android.update.AppUpdateManager
 import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.transport.live.*
-import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
-import com.jarvis.android.ui.writing.resolveCopilotPortrait
+import com.jarvis.android.ui.writing.approvedVisualIdsForCopilotContext
+import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
+import com.jarvis.android.ui.writing.completedCopilotGeneratedMaster
+import com.jarvis.android.ui.writing.hasRecoverableCopilotVisualReceipt
+import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
+import com.jarvis.android.ui.writing.canRebuildCopilotTurn
+import com.jarvis.android.transport.live.recoveredCopilotChat
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
 import com.jarvis.android.ui.writing.selectCopilotSceneReviewAsset
 import com.jarvis.android.ui.writing.copilotApprovableViewIds
 import com.jarvis.android.ui.writing.copilotBatchCanStartNew
 import com.jarvis.android.ui.writing.CopilotAppearanceIntent
-import com.jarvis.android.ui.writing.looksLikeCopilotAppearanceCommand
-import com.jarvis.android.ui.writing.resolveCopilotAppearance
 import com.jarvis.android.ui.writing.applyCopilotAppearanceChange
 import com.jarvis.android.ui.writing.copilotAppearanceFieldValue
 import android.net.Uri
@@ -61,6 +64,45 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private val _conversationId = MutableStateFlow<String?>(null)
     val conversationId: StateFlow<String?> = _conversationId
+
+    private val _globalChatAgentProject = MutableStateFlow<String?>(null)
+    val globalChatAgentProject: StateFlow<String?> = _globalChatAgentProject
+    private val _globalChatAgentSelecting = MutableStateFlow(false)
+    val globalChatAgentSelecting: StateFlow<Boolean> = _globalChatAgentSelecting
+    private val _globalChatAgentError = MutableStateFlow<String?>(null)
+    val globalChatAgentError: StateFlow<String?> = _globalChatAgentError
+    private var globalChatSelectionEpoch = 0L
+
+    fun selectGlobalChatAgentProject(projectId: String?) {
+        val id = _conversationId.value ?: return
+        val epoch = ++globalChatSelectionEpoch
+        _globalChatAgentError.value = null
+        if (projectId == null) {
+            container.liveSession.setChatAgentProjectFor(id, null)
+            _globalChatAgentProject.value = null
+            _globalChatAgentSelecting.value = false
+            return
+        }
+        _globalChatAgentSelecting.value = true
+        viewModelScope.launch {
+            val ready = container.liveSession.chatGlobalProjectAgentCapability(projectId)
+            if (_conversationId.value != id || globalChatSelectionEpoch != epoch) {
+                return@launch
+            }
+            _globalChatAgentSelecting.value = false
+            val capability = ready.getOrNull()
+            if (capability?.enabled == true && capability.project_id == projectId &&
+                capability.effect == "READ_ONLY" && !capability.supports_attachments
+            ) {
+                container.liveSession.setChatAgentProjectFor(id, projectId)
+                _globalChatAgentProject.value = projectId
+            } else {
+                _globalChatAgentError.value =
+                    "El agente de proyecto no está disponible en el VPS. " +
+                        "El chat general sigue funcionando."
+            }
+        }
+    }
 
     val snapshot: StateFlow<SessionSnapshot> = session.snapshot
 
@@ -115,7 +157,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     fun openConversation(id: String) {
+        globalChatSelectionEpoch++
+        _globalChatAgentSelecting.value = false
+        _globalChatAgentError.value = null
         _conversationId.value = id
+        _globalChatAgentProject.value = container.liveSession.chatAgentProjectFor(id)
     }
 
     suspend fun deleteConversation(id: String): Boolean {
@@ -219,6 +265,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val candidateAssetId: String? = null,
         val candidateSha256: String? = null,
         val candidateCharacterId: String? = null,
+        val candidateKind: String? = null,
+        val candidatePerspective: String? = null,
         val candidateStatus: String? = null,
         val candidateStorageState: String? = null,
     )
@@ -826,11 +874,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (_writingWorkspace.value.busy) return
         viewModelScope.launch {
             val staged = withContext(Dispatchers.IO) { container.attachmentStore.stageFrom(uri) }
-            val valid = staged != null && staged.sizeBytes in 1L..(5L * 1024 * 1024)
+            val valid = staged != null && staged.sizeBytes in 1L..(3L * 1024 * 1024)
             if (!valid) {
                 staged?.let { withContext(Dispatchers.IO) { container.attachmentStore.delete(it.attachmentId) } }
                 _writingWorkspace.value = _writingWorkspace.value.copy(
-                    copilotReferenceError = "La referencia debe ser una imagen JPEG de hasta 5 MB.",
+                    copilotReferenceError = "Adjunta una imagen JPEG de máximo 3 MB.",
                 )
                 return@launch
             }
@@ -1111,6 +1159,89 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     )
                 },
             )
+        }
+    }
+
+    /** Explicit project visual approval, not a character master or canon write.
+     * The VPS reauthorizes the asset, SHA and revision on its exact endpoint.
+     * No image model is called and an ambiguous/unknown result is NOT retried.
+     */
+    fun approveCopilotProjectReference(
+        projectId: String, assetId: String, expectedSha256: String,
+    ) {
+        val current = _writingWorkspace.value
+        if (current.busy || current.chatProjectId != projectId ||
+            !settings.value.isOwner) return
+        val selected = current.chatHistory.firstOrNull { turn ->
+            turn.candidateAssetId == assetId &&
+                turn.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
+                com.jarvis.android.ui.writing.isApprovableProjectReference(
+                    turn.candidateAssetId, turn.candidateSha256,
+                    turn.candidateKind, turn.candidateStatus,
+                    turn.candidateStorageState, turn.candidateCharacterId,
+                    !turn.generatedPreviewAttachmentId.isNullOrBlank(),
+                )
+        } ?: return
+        val epoch = copilotRecoveryEpoch
+        _writingWorkspace.value = current.copy(
+            busy = true, busyLabel = "Aprobando referencia visual del proyecto",
+            error = null,
+        )
+        viewModelScope.launch {
+            try {
+                val registry = container.liveSession.visualAssetList(
+                    projectId = projectId, characterId = "",
+                ).getOrThrow()
+                if (registry.project_id != projectId) {
+                    throw IllegalStateException("El registro pertenece a otro proyecto.")
+                }
+                val exact = registry.assets.singleOrNull {
+                    it.asset_id == assetId &&
+                        it.sha256.equals(expectedSha256, ignoreCase = true)
+                } ?: throw IllegalStateException("Referencia original no disponible.")
+                if (exact.project_id != projectId ||
+                    exact.kind != "REFERENCE" ||
+                    exact.status != "CANDIDATE" ||
+                    exact.storage.state != "stored") {
+                    throw IllegalStateException("La referencia cambió de estado.")
+                }
+                val confirmed = container.liveSession.visualAssetApproveExact(
+                    projectId = projectId, assetId = assetId,
+                    assetSha256 = expectedSha256,
+                    visualRevision = exact.visual_revision,
+                ).getOrThrow().asset
+                if (confirmed.project_id != projectId ||
+                    confirmed.asset_id != assetId ||
+                    !confirmed.sha256.equals(expectedSha256, ignoreCase = true) ||
+                    confirmed.kind != "REFERENCE" ||
+                    confirmed.status != "APPROVED") {
+                    throw IllegalStateException(
+                        "La aprobación no coincide con la referencia original.")
+                }
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId) {
+                    val state = _writingWorkspace.value
+                    _writingWorkspace.value = state.copy(
+                        busy = false, busyLabel = "",
+                        chatHistory = state.chatHistory.map { turn ->
+                            if (turn.candidateAssetId == selected.candidateAssetId &&
+                                turn.candidateSha256.equals(expectedSha256, ignoreCase = true))
+                                turn.copy(candidateStatus = "APPROVED")
+                            else turn
+                        },
+                        error = null,
+                    )
+                }
+            } catch (error: Exception) {
+                if (copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        busy = false, busyLabel = "",
+                        error = (error.message ?: "No se pudo verificar la aprobación") +
+                            ". Consulta Visual Studio antes de reintentar.",
+                    )
+                }
+            }
         }
     }
 
@@ -1880,6 +2011,55 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         refreshCopilotCharacterViews(projectId, progress.character_id)
     }
 
+    /** Present the exact completed candidate inside the originating Copilot message.
+     * Status lookup and image download are both READ_ONLY. Never repeat paid generation.
+     */
+    private fun recoverCopilotGeneratedMaster(projectId: String, task: CopilotTaskState) {
+        val candidate = completedCopilotGeneratedMaster(projectId, task) ?: return
+        val current = _writingWorkspace.value
+        if (current.chatProjectId != projectId ||
+            current.chatHistory.any { it.candidateAssetId == candidate.assetId } ||
+            current.chatHistory.none { it.response?.copilot_task?.task_id == task.task_id }
+        ) return
+        val epoch = copilotRecoveryEpoch
+        viewModelScope.launch {
+            val content = container.liveSession.writingRoomVisualAssetFetch(
+                projectId, candidate.assetId,
+            ).getOrNull() ?: return@launch
+            if (content.asset_id != candidate.assetId ||
+                !content.sha256.equals(candidate.sha256, ignoreCase = true) ||
+                content.mime_type !in setOf("image/png", "image/jpeg", "image/webp")
+            ) return@launch
+            val image = withContext(Dispatchers.IO) {
+                container.attachmentStore.stageVisualAssetBase64(
+                    content.image_base64, candidate.sha256,
+                )
+            } ?: return@launch
+            val state = _writingWorkspace.value
+            val index = state.chatHistory.indexOfLast {
+                it.response?.copilot_task?.task_id == task.task_id
+            }
+            if (copilotRecoveryEpoch != epoch || state.chatProjectId != projectId ||
+                index < 0 || state.chatHistory.any { it.candidateAssetId == candidate.assetId }
+            ) {
+                deleteVisualStudioAttachments(listOf(image.attachmentId))
+                return@launch
+            }
+            val history = state.chatHistory.toMutableList()
+            history[index] = history[index].copy(
+                generatedPreviewAttachmentId = image.attachmentId,
+                candidateAssetId = candidate.assetId,
+                candidateSha256 = candidate.sha256,
+                candidateCharacterId = candidate.characterId,
+                candidateKind = candidate.kind,
+                candidatePerspective = candidate.perspective,
+                candidateStatus = candidate.status,
+                candidateStorageState = candidate.storageState,
+            )
+            _writingWorkspace.value = state.copy(chatHistory = history)
+        }
+    }
+
     private fun followCopilotTaskProgress(projectId: String, task: CopilotTaskState) {
         if (task.project_id != projectId || task.task_id.isBlank() ||
             _writingWorkspace.value.chatProjectId != projectId
@@ -1893,10 +2073,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             loadCopilotSceneCandidate(projectId, scene.final_asset_id, scene.job_id)
         }
         recoverCopilotTurnaroundBatch(projectId, task)
-        val pending = task.live_progress.any {
-            it.status in setOf("QUEUED", "RUNNING", "WORKING",
-                               "PENDING", "PENDING_CANON_DIFF")
-        }
+        recoverCopilotGeneratedMaster(projectId, task)
+        val pending = copilotTaskHasActiveRemoteWork(task)
         if (!pending) {
             if (copilotTaskPollId == task.task_id) {
                 copilotTaskPollJob?.cancel()
@@ -1919,10 +2097,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value.copilotAgentTask?.task_id != task.task_id
                 ) return@launch
                 val next = container.liveSession.writingRoomCopilotTaskStatus(
-                    projectId, task.task_id,
+                    projectId, task.task_id, conversationId = task.conversation_id,
                 ).getOrNull() ?: return@repeat
                 if (next.project_id != projectId || next.task_id != task.task_id) return@launch
-                _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = next)
+                // The task may produce approved references AFTER the initial
+                // chat reply. Harvest only newly completed, hash-bound results
+                // from this exact project/task; never infer images from another
+                // conversation or download a candidate during polling.
+                val newVisuals = newApprovedCopilotTaskVisuals(
+                    projectId, _writingWorkspace.value.copilotAgentTask, next,
+                )
+                val scopedNext = if (task.request_id.isNotBlank())
+                    next.copy(request_id = task.request_id) else next
+                _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = scopedNext)
+                if (newVisuals.isNotEmpty()) loadApprovedCopilotVisuals(projectId, newVisuals)
                 val preview = next.live_progress.firstOrNull {
                     it.tool in setOf("start_scene_generation", "generate_story_scene") &&
                         it.status == "READY_FOR_REVIEW" &&
@@ -1932,11 +2120,66 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     loadCopilotSceneCandidate(projectId, preview.final_asset_id, preview.job_id)
                 }
                 recoverCopilotTurnaroundBatch(projectId, next)
-                if (next.live_progress.none {
-                    it.status in setOf("QUEUED", "RUNNING", "WORKING",
-                                       "PENDING", "PENDING_CANON_DIFF")
-                }) return@launch
+                recoverCopilotGeneratedMaster(projectId, next)
+                if (!copilotTaskHasActiveRemoteWork(next)) {
+                    if (task.request_id.isNotBlank()) {
+                        restoreInterruptedCopilotReply(projectId, task, epoch)
+                    }
+                    return@launch
+                }
             }
+        }
+    }
+
+
+    /** Recover the final reply after a lost SSE stream OR explicit approval.
+     * This is always read-only; it never repeats a confirmed tool call.
+     */
+    private suspend fun restoreInterruptedCopilotReply(
+        projectId: String,
+        task: CopilotTaskState,
+        epoch: Long,
+    ) {
+        val snapshot = container.liveSession.writingRoomAgentRequestStatus(
+            projectId, task.conversation_id, task.request_id,
+        ).getOrNull() ?: return
+        val recovered = recoveredCopilotChat(
+            projectId, task.conversation_id, task.request_id, snapshot,
+        ) ?: return
+        if (snapshot.task_id != task.task_id ||
+            (snapshot.reply_text.isBlank() &&
+                !hasRecoverableCopilotVisualReceipt(projectId, snapshot)) ||
+            snapshot.agent_run_state in setOf("RUNNING", "DISPATCHING", "NEW") ||
+            copilotRecoveryEpoch != epoch ||
+            _writingWorkspace.value.chatProjectId != projectId
+        ) return
+        val state = _writingWorkspace.value
+        val index = state.chatHistory.indexOfLast {
+            it.response?.copilot_task?.task_id == task.task_id
+        }
+        // A process death can discard the in-memory question and its bubble.
+        // Reconstruct ONLY the original, server-scoped request, not another
+        // project's latest message or the text of an unrelated local draft.
+        if (index < 0 && !canRebuildCopilotTurn(projectId, task, snapshot)) return
+        val history = state.chatHistory.toMutableList()
+        if (index >= 0) {
+            history[index] = history[index].copy(response = recovered)
+        } else {
+            history += WritingWorkspaceChatTurn(
+                prompt = snapshot.request_text,
+                response = recovered,
+            )
+        }
+        _writingWorkspace.value = state.copy(
+            chatHistory = history,
+            chat = if (state.chat == null ||
+                state.chat?.copilot_task?.task_id == task.task_id)
+                recovered else state.chat,
+            copilotAgentTask = snapshot,
+        )
+        recoverCopilotGeneratedMaster(projectId, snapshot)
+        if (recovered.visual_assets.isNotEmpty()) {
+            loadApprovedCopilotVisuals(projectId, recovered.visual_assets)
         }
     }
 
@@ -1954,6 +2197,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val approved = response.results.flatMap { it.visual_assets }
                 if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
                 followCopilotTaskProgress(projectId, response)
+                // A terminal latest run may have no legacy progress row. Still
+                // restore its transcript/media from the exact request once.
+                if (response.request_id.isNotBlank() &&
+                    response.conversation_id.isNotBlank() &&
+                    !copilotTaskHasActiveRemoteWork(response)
+                ) {
+                    restoreInterruptedCopilotReply(projectId, response, epoch)
+                }
             }
         }
     }
@@ -1973,10 +2224,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val updated = if (confirm) {
                     container.liveSession.writingRoomCopilotTaskRun(
                         projectId, task.task_id, confirmed = true,
+                        conversationId = task.conversation_id,
+                        actionHash = task.action_hash,
+                        mode = task.request_mode,
                     ).getOrThrow()
                 } else {
                     container.liveSession.writingRoomCopilotTaskStatus(
-                        projectId, task.task_id,
+                        projectId, task.task_id, conversationId = task.conversation_id,
                     ).getOrThrow()
                 }
                 if (updated.project_id != projectId || updated.task_id != task.task_id) {
@@ -1985,10 +2239,21 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 if (copilotRecoveryEpoch == epoch &&
                     _writingWorkspace.value.chatProjectId == projectId
                 ) {
-                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = updated)
+                    val scopedUpdated = if (task.request_id.isNotBlank())
+                        updated.copy(request_id = task.request_id) else updated
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAgentTask = scopedUpdated,
+                    )
                     val approved = updated.results.flatMap { it.visual_assets }
                     if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
-                    followCopilotTaskProgress(projectId, updated)
+                    followCopilotTaskProgress(projectId, scopedUpdated)
+                    // A confirmed action can complete synchronously without
+                    // starting a background poll. Read the authoritative reply
+                    // by the original request ID, never by project-latest.
+                    if (task.request_id.isNotBlank() &&
+                        !copilotTaskHasActiveRemoteWork(scopedUpdated)) {
+                        restoreInterruptedCopilotReply(projectId, scopedUpdated, epoch)
+                    }
                 }
             } catch (error: Exception) {
                 if (copilotRecoveryEpoch == epoch &&
@@ -2006,6 +2271,50 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 ) {
                     _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentBusy = false)
                 }
+            }
+        }
+    }
+
+    /** Stop future adaptive steps; a running tool may still finish remotely. */
+    fun cancelWritingCopilotTask(projectId: String) {
+        val task = _writingWorkspace.value.copilotAgentTask ?: return
+        if (_writingWorkspace.value.chatProjectId != projectId ||
+            task.project_id != projectId ||
+            !Regex("^ar_[a-f0-9]{24}$").matches(task.task_id) ||
+            task.conversation_id.isBlank() ||
+            task.agent_run_state !in setOf(
+                "RUNNING", "WAITING_CONFIRMATION", "DISPATCHING",
+            ) || _writingWorkspace.value.copilotAgentBusy
+        ) return
+        val epoch = copilotRecoveryEpoch
+        _writingWorkspace.value = _writingWorkspace.value.copy(
+            copilotAgentBusy = true, copilotAgentError = null,
+        )
+        viewModelScope.launch {
+            val scope = AgentConversationScope(projectId, task.conversation_id)
+            val response = container.liveSession.agentCancel(scope, task.task_id)
+            if (copilotRecoveryEpoch != epoch ||
+                _writingWorkspace.value.chatProjectId != projectId
+            ) return@launch
+            val current = _writingWorkspace.value
+            if (response.isSuccess && response.getOrNull()?.requested == true) {
+                val cancelled = response.getOrNull()?.state == "CANCELED"
+                _writingWorkspace.value = current.copy(
+                    copilotAgentBusy = false,
+                    copilotAgentTask = task.copy(
+                        state = if (cancelled) "CANCELED" else "CANCEL_REQUESTED",
+                        agent_run_state = if (cancelled) "CANCELED" else "CANCEL_REQUESTED",
+                        requires_confirmation = false,
+                        summary = if (cancelled) "Tarea cancelada antes de ejecutar la acción."
+                                  else "Cancelación solicitada. Las operaciones en curso se registrarán.",
+                    ),
+                )
+            } else {
+                _writingWorkspace.value = current.copy(
+                    copilotAgentBusy = false,
+                    copilotAgentError = response.exceptionOrNull()?.message
+                        ?: "No fue posible confirmar la cancelación; consulta el estado.",
+                )
             }
         }
     }
@@ -2036,11 +2345,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val response = container.liveSession.writingRoomVisualAssetFetch(
                     projectId, asset.asset_id,
                 ).getOrNull()
-                if (response == null || response.asset_id != asset.asset_id ||
-                    !response.sha256.equals(asset.sha256, ignoreCase = true) ||
-                    response.mime_type !in setOf("image/jpeg", "image/png", "image/webp") ||
-                    response.image_base64.length > 16 * 1024 * 1024
-                ) {
+                if (response == null || !isVerifiedApprovedVisualContent(asset, response)) {
                     markCopilotApprovedVisualUnavailable(projectId, epoch, asset.asset_id)
                     continue
                 }
@@ -2049,7 +2354,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         response.image_base64, asset.sha256,
                     )
                 }
-                if (staged == null) {
+                if (staged == null || staged.mimeType != response.mime_type) {
+                    // Do not cache a MIME-disguised or invalid bitmap.
+                    if (staged != null) deleteVisualStudioAttachments(listOf(staged.attachmentId))
                     markCopilotApprovedVisualUnavailable(projectId, epoch, asset.asset_id)
                     continue
                 }
@@ -2074,47 +2381,21 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         prompt: String,
         room: String = "chat",
         toolMode: Boolean = false,
+        referenceAttachmentId: String? = null,
     ) {
-        val clean = prompt.trim()
+        val clean = prompt.trim().ifEmpty {
+            if (referenceAttachmentId != null) "¿Qué muestra esta imagen?" else ""
+        }
         if (clean.isEmpty()) return
-        if (!toolMode && looksLikeCopilotAppearanceCommand(clean)) {
-            if (_writingWorkspace.value.chatProjectId != projectId) return
-            val intent = resolveCopilotAppearance(clean, _writingWorkspace.value.wikiCharacters)
-            if (intent == null) {
-                _writingWorkspace.value = _writingWorkspace.value.copy(
-                    copilotAppearanceError = "No encontré un personaje único con ese nombre en el " +
-                        "Wiki de este proyecto. Usa el nombre canónico exacto.",
-                )
-            } else {
-                openCopilotAppearance(projectId, intent)
-            }
-            return
-        }
-        if (!toolMode && looksLikeCopilotPortraitCommand(clean)) {
-            val characters = _writingWorkspace.value.wikiCharacters
-            val portrait = resolveCopilotPortrait(clean, characters)
-            if (portrait == null) {
-                _writingWorkspace.value = _writingWorkspace.value.copy(
-                    error = "No pude identificar un único personaje del Wiki. " +
-                        "Usa el nombre canónico exacto; por ejemplo: Genera retrato de Naruto.",
-                )
-                return
-            }
-            if (_writingWorkspace.value.chatProjectId != projectId) return
-            // A chat instruction is a request to prepare an image, not consent
-            // to spend cloud credits. Dispatch only after an explicit tap.
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                pendingPortrait = CopilotPendingPortrait(
-                    projectId, projectTitle, clean, portrait.characterId,
-                    portrait.canonicalName, portrait.adjustment,
-                ),
-                error = null,
-            )
-            return
-        }
-
+        // All conversational intent goes to the shared model-first AdaptiveAgent.
+        // The transport probes the authenticated agent stream itself and uses
+        // legacy chat only on an explicit pre-execution 404. Android must not
+        // guess intent with keyword/regex handlers or add a preflight roundtrip.
         val current = _writingWorkspace.value
-        val existingHistory = if (current.chatProjectId == projectId) current.chatHistory else emptyList()
+        if (current.busy || current.chatProjectId != projectId ||
+            (referenceAttachmentId != null &&
+                current.copilotPendingReferenceId != referenceAttachmentId)) return
+        val existingHistory = current.chatHistory
         val recent = existingHistory.takeLast(6).flatMap { previous ->
             buildList {
                 if (previous.prompt.isNotBlank()) add(CopilotRecentMessage(
@@ -2128,28 +2409,48 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }.takeLast(12)
         // Prefer the most recent visual response in this same project's chat.
         // Never pick all images from global attachment storage or other projects.
-        val visibleApprovedIds = existingHistory.asReversed()
-            .mapNotNull { turn ->
-                turn.response?.visual_assets?.takeIf { assets -> assets.isNotEmpty() }
-            }
-            .firstOrNull().orEmpty()
-            .filter { asset ->
-                asset.status == "APPROVED" && asset.storage_state == "stored" &&
-                    asset.asset_id.startsWith("va_") &&
-                    Regex("^[a-fA-F0-9]{64}$").matches(asset.sha256)
-            }
-            .take(6).map { it.asset_id }.distinct()
+        val visibleApprovedIds = approvedVisualIdsForCopilotContext(
+            existingHistory.asReversed().mapNotNull { it.response?.visual_assets },
+        )
         _writingWorkspace.value = current.copy(
             busy = true,
             busyLabel = "JARVIS is routing the Writing Room task",
             chatProjectId = projectId,
             chat = null,
-            chatHistory = existingHistory + WritingWorkspaceChatTurn(prompt = clean),
+            chatHistory = existingHistory + WritingWorkspaceChatTurn(
+                prompt = clean, referenceAttachmentId = referenceAttachmentId,
+            ),
+            copilotPendingReferenceId = null,
+            copilotReferenceError = null,
             streamingText = "",
             error = null,
         )
 
         viewModelScope.launch {
+            val imageBase64 = if (referenceAttachmentId != null) {
+                withContext(Dispatchers.IO) {
+                    val file = container.attachmentStore.resolve(referenceAttachmentId)
+                    val bytes = if (file != null &&
+                        file.length() in 1L..(3L * 1024 * 1024)) file.readBytes() else null
+                    if (bytes != null && bytes.size >= 3 &&
+                        bytes[0] == 0xFF.toByte() &&
+                        bytes[1] == 0xD8.toByte() &&
+                        bytes[2] == 0xFF.toByte())
+                        Base64.encodeToString(bytes, Base64.NO_WRAP) else null
+                }
+            } else null
+            if (referenceAttachmentId != null && imageBase64 == null) {
+                val state = _writingWorkspace.value
+                if (state.chatProjectId == projectId) {
+                    _writingWorkspace.value = state.copy(
+                        busy = false, busyLabel = "",
+                        chatHistory = existingHistory,
+                        copilotPendingReferenceId = referenceAttachmentId,
+                        copilotReferenceError = "No se pudo verificar la imagen adjunta.",
+                    )
+                }
+                return@launch
+            }
             val result = container.liveSession.writingRoomAutoChatStream(
                 projectId = projectId,
                 projectTitle = projectTitle,
@@ -2158,6 +2459,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 toolMode = toolMode,
                 recentMessages = recent,
                 approvedVisualAssetIds = visibleApprovedIds,
+                attachedImageBase64 = imageBase64,
+                onProgress = { phase ->
+                    val current = _writingWorkspace.value
+                    if (current.chatProjectId == projectId && current.busy) {
+                        val label = when (phase) {
+                            "thinking" -> "JARVIS · RAZONANDO"
+                            "using_tool" -> "JARVIS · CONSULTANDO HERRAMIENTAS"
+                            "approval_required" -> "JARVIS · ESPERANDO TU APROBACIÓN"
+                            "completed" -> "JARVIS · FINALIZANDO RESPUESTA"
+                            else -> "JARVIS · PROCESANDO"
+                        }
+                        _writingWorkspace.value = current.copy(busyLabel = label)
+                    }
+                },
                 onDelta = { delta ->
                     val state = _writingWorkspace.value
                     if (state.chatProjectId == projectId) {
@@ -6363,6 +6678,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun startNewConversation(onReady: (String) -> Unit = {}) {
         conversations.newConversation { id ->
             _conversationId.value = id
+            _globalChatAgentProject.value = null
             onReady(id)
         }
     }
@@ -6373,6 +6689,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val id = _conversationId.value ?: run {
             conversations.newConversation { newId ->
                 _conversationId.value = newId
+                _globalChatAgentProject.value = null
                 conversations.send(newId, trimmed)
             }
             return
@@ -6601,6 +6918,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val chatProfile: StateFlow<String> = _chatProfile
 
     init {
+        container.liveSession.onAgentImageReady = { conversationId, requestId, attachmentId ->
+            conversations.recordAgentGeneratedImage(conversationId, requestId, attachmentId)
+        }
+        container.liveSession.onAgentImageError = { message ->
+            _imageGenerationState.value = ImageGenerationState.Error(message)
+        }
+        container.liveSession.onAgentSourcesReady = { conversationId, requestId, sourcesJson ->
+            conversations.recordAgentSources(conversationId, requestId, sourcesJson)
+        }
         viewModelScope.launch {
             _conversationId.collect { id ->
                 _chatProfile.value = container.liveSession.chatProfileFor(id ?: "")

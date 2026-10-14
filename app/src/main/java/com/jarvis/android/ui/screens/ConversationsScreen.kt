@@ -118,6 +118,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -135,6 +136,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.jarvis.android.data.repo.ChatCitation
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.state.RequestStatus
 import com.jarvis.android.ui.JarvisViewModel
@@ -143,6 +145,7 @@ import com.jarvis.android.ui.chat.ConversationActivity
 import com.jarvis.android.ui.components.MarkdownBlock
 import com.jarvis.android.ui.components.JarvisBrain
 import com.jarvis.android.ui.components.HolographicSendButton
+import com.jarvis.android.ui.components.SharedChatMarkdown
 import com.jarvis.android.ui.components.markdownBlocks
 import com.jarvis.android.ui.components.renderInlineMarkdown
 import com.jarvis.android.ui.components.JarvisOrb
@@ -426,6 +429,15 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
     val imageGenerationDetails by vm.lastImageGenerationDetails.collectAsStateWithLifecycle()
     val avatarEpoch by vm.avatarEpoch.collectAsStateWithLifecycle()
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
+    val agentProjectId by vm.globalChatAgentProject.collectAsStateWithLifecycle()
+    val agentProjectSelecting by vm.globalChatAgentSelecting.collectAsStateWithLifecycle()
+    val agentProjectError by vm.globalChatAgentError.collectAsStateWithLifecycle()
+    val projectResults by vm.projects.collectAsStateWithLifecycle()
+    val availableAgentProjects = (projectResults as?
+        com.jarvis.android.data.projects.ProjectsResult.Loaded)
+        ?.projects?.filter { it.kind == com.jarvis.android.data.projects.ProjectKind.WRITING_ROOM }
+        .orEmpty()
+    var projectMenuOpen by remember(conversationId) { mutableStateOf(false) }
     var input by rememberSaveable(conversationId) { mutableStateOf("") }
     var showImageOptions by rememberSaveable(conversationId) { mutableStateOf(false) }
     var selectedImageMode by rememberSaveable(conversationId) { mutableStateOf("speed") }
@@ -600,6 +612,42 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                     }
                 },
                 actions = {
+                    if (availableAgentProjects.isNotEmpty() && conversationId != null) {
+                        Box {
+                            TextButton(
+                                onClick = { projectMenuOpen = true },
+                                enabled = !busy && !agentProjectSelecting,
+                            ) {
+                                Text(
+                                    if (agentProjectSelecting) "Verificando proyecto…"
+                                    else if (agentProjectId == null) "Chat general"
+                                    else "Proyecto · lectura",
+                                    style = HudTextStyle,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = projectMenuOpen,
+                                onDismissRequest = { projectMenuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Chat general") },
+                                    onClick = {
+                                        vm.selectGlobalChatAgentProject(null)
+                                        projectMenuOpen = false
+                                    },
+                                )
+                                availableAgentProjects.forEach { project ->
+                                    DropdownMenuItem(
+                                        text = { Text(project.title + " · solo lectura") },
+                                        onClick = {
+                                            vm.selectGlobalChatAgentProject(project.id.value)
+                                            projectMenuOpen = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     // Summon the floating brain from the conversation itself.
                     // If the overlay grant is missing, this sends the owner to
                     // the one system screen that can give it.
@@ -617,6 +665,24 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(pad),
         ) {
+            if (agentProjectError != null) {
+                Text(
+                    agentProjectError.orEmpty(),
+                    modifier = Modifier.fillMaxWidth().padding(
+                        horizontal = screenInset, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (agentProjectId != null) {
+                Text(
+                    "Agente de proyecto · consultas de texto y canon (solo lectura). " +
+                        "Los adjuntos usan el chat general.",
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = screenInset, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accents.orbGlow,
+                )
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty()) {
                     EmptyChatState(
@@ -635,7 +701,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                         items(messages, key = { "${it.role}_${it.clientRequestId}" }) { msg ->
                             MessageBubble(
                                 msg = msg,
-                                showRouteDetails = chatAccess?.isOwner == true,
+                                showRouteDetails = false, // model selector provides route; avoid per-message metadata
                                 onRetry = { vm.retry(msg.clientRequestId) },
                                 attachmentState = { id -> snapshot.session.attachments[id] },
                                 attachmentStore = vm.attachmentStore,
@@ -1368,50 +1434,42 @@ private fun CodeBlockView(code: String, language: String?) {
  * styling. Streaming replies never reach here — their markers are incomplete.
  */
 @Composable
-private fun MarkdownBody(text: String) {
-    val accents = LocalJarvisAccents.current
+private fun MarkdownBody(text: String, verifiedSources: List<ChatCitation> = emptyList()) {
+    val uriHandler = LocalUriHandler.current
+    // Server-verified citations are authoritative. The legacy text splitter
+    // remains a compatibility path for older servers without typed content.
+    val presentation = remember(text) { splitChatSources(text) }
+    val sources = if (verifiedSources.isNotEmpty()) verifiedSources
+                  else presentation.sources.map {
+                      ChatCitation(ref = "", title = it.title, url = it.url)
+                  }
+    var sourcesExpanded by remember(text, sources) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (block in markdownBlocks(text)) {
-            when (block) {
-                is MarkdownBlock.Heading -> Text(
-                    block.text,
-                    style = if (block.level == 1) MaterialTheme.typography.titleMedium
-                    else MaterialTheme.typography.titleSmall,
-                    color = accents.orbGlow,
-                )
-                is MarkdownBlock.Bullet -> Text(
-                    "•  " + renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                is MarkdownBlock.Numbered -> Text(
-                    "${block.number}. " + renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                is MarkdownBlock.Blockquote -> {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .height(20.dp)
-                                .background(accents.orbGlow.copy(alpha = 0.8f), RoundedCornerShape(2.dp))
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            renderInlineMarkdown(block.text, accents.orbGlow),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+        SharedChatMarkdown(presentation.body)
+        if (sources.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Fuentes", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                sources.take(4).forEachIndexed { index, source ->
+                    TextButton(onClick = { uriHandler.openUri(source.url) },
+                        modifier = Modifier.heightIn(min = 32.dp)) {
+                        Text("[${index + 1}]", style = MaterialTheme.typography.labelSmall)
                     }
                 }
-                is MarkdownBlock.Code -> CodeBlockView(code = block.text, language = block.language)
-                is MarkdownBlock.Paragraph -> Text(
-                    renderInlineMarkdown(block.text, accents.orbGlow),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                TextButton(onClick = { sourcesExpanded = !sourcesExpanded },
+                    modifier = Modifier.heightIn(min = 32.dp)) {
+                    Text(if (sourcesExpanded) "Ocultar" else "Ver", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (sourcesExpanded) {
+                sources.forEachIndexed { index, source ->
+                    TextButton(onClick = { uriHandler.openUri(source.url) },
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("${index + 1}. ${source.title}",
+                            style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                    }
+                }
             }
         }
     }
@@ -1499,7 +1557,8 @@ private fun MessageBubble(
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (!isUser) {
+        // Idle avatar is in the header; the message orb is only a live activity indicator.
+        if (!isUser && (isStreaming || awaiting)) {
             Box(Modifier.padding(end = 8.dp, bottom = 2.dp)) {
                 JarvisOrb(size = 24.dp, activity = if (isStreaming || awaiting) OrbActivity.THINKING else OrbActivity.IDLE)
             }
@@ -1536,8 +1595,8 @@ private fun MessageBubble(
                                         attachmentId = id,
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
-                                        generated = !isUser && msg.clientRequestId.startsWith("img_"),
-                                        onOpen = if (!isUser && msg.clientRequestId.startsWith("img_")) {
+                                        generated = !isUser && id.startsWith("gen_"),
+                                        onOpen = if (!isUser && id.startsWith("gen_")) {
                                             { onOpenGeneratedImage(id) }
                                         } else null,
                                     )
@@ -1551,7 +1610,7 @@ private fun MessageBubble(
                                 streamingText(msg.text, streaming = true),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            msg.text.isNotBlank() -> MarkdownBody(msg.text)
+                            msg.text.isNotBlank() -> MarkdownBody(msg.text, msg.sources)
                         }
                     }
                 }
@@ -1676,7 +1735,7 @@ private fun AttachmentChip(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
-                .size(if (generated) 220.dp else 92.dp)
+                .then(if (generated) Modifier.fillMaxWidth().height(296.dp) else Modifier.size(92.dp))
                 .clip(RoundedCornerShape(if (generated) 20.dp else 14.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .then(if (generated && onOpen != null) Modifier.clickable { onOpen() } else Modifier),
@@ -1688,7 +1747,7 @@ private fun AttachmentChip(
                     bitmap = bitmap.asImageBitmap(),
                     contentDescription = "Attachment",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
+                    contentScale = if (generated) ContentScale.Fit else ContentScale.Crop,
                 )
             } else {
                 Icon(
@@ -1700,15 +1759,18 @@ private fun AttachmentChip(
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             }
         }
-        Spacer(Modifier.height(3.dp))
-        Text(
-            statusText,
+        // A generated draft is stored locally, not an unuploaded STAGED attachment.
+        if (!generated || state?.uploading == true || (state != null && !state.ready)) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                statusText,
             style = HudTextStyle,
             color = if (state == null || state.ready || state.uploading)
                 MaterialTheme.colorScheme.onSurfaceVariant
             else MaterialTheme.colorScheme.error,
             modifier = if (generated) Modifier.padding(top = 2.dp) else Modifier,
-        )
+            )
+        }
     }
 }
 

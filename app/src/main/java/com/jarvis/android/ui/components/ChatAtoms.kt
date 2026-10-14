@@ -103,6 +103,7 @@ internal sealed interface MarkdownBlock {
     data class Numbered(val number: String, val text: String) : MarkdownBlock
     data class Blockquote(val text: String) : MarkdownBlock
     data class Code(val text: String, val language: String? = null) : MarkdownBlock
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MarkdownBlock
 }
 
 /**
@@ -134,6 +135,27 @@ internal fun markdownBlocks(source: String): List<MarkdownBlock> {
             val language = line.removePrefix("```").trim().takeIf { it.isNotEmpty() }
             blocks += MarkdownBlock.Code(lines.subList(i + 1, end).joinToString("\n"), language = language)
             i = end + 1
+            continue
+        }
+        // GFM-style tables. Parse only when the next row is a delimiter;
+        // a stray pipe in prose must remain a paragraph. Bound row/column
+        // counts so adversarial responses cannot allocate a giant grid.
+        fun cells(value: String): List<String> = value.trim().trim('|')
+            .split('|').map { it.trim().take(600) }
+        val header = if ('|' in line) cells(line) else emptyList()
+        val delimiter = if (i + 1 < lines.size) cells(lines[i + 1]) else emptyList()
+        if (header.size in 2..8 && delimiter.size == header.size &&
+            delimiter.all { Regex("^:?-{3,}:?$").matches(it) }
+        ) {
+            flushParagraph()
+            val rows = mutableListOf<List<String>>()
+            i += 2
+            while (i < lines.size && '|' in lines[i] && rows.size < 30) {
+                rows += cells(lines[i]).take(header.size)
+                    .let { it + List((header.size - it.size).coerceAtLeast(0)) { "" } }
+                i++
+            }
+            blocks += MarkdownBlock.Table(header, rows)
             continue
         }
         val heading = Regex("^(#{1,3})\\s+(\\S.*)$").find(line)

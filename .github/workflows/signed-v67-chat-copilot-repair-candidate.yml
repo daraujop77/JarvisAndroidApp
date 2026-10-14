@@ -1,0 +1,90 @@
+name: JARVIS Android — Signed v67 Chat and Copilot Repair Candidate
+on:
+  push:
+    branches: [feature/adaptive-agent-client-20261012]
+    paths:
+      - .github/workflows/signed-v67-chat-copilot-repair-candidate.yml
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: jarvis-signed-chat-copilot-repair
+  cancel-in-progress: false
+jobs:
+  signed-candidate:
+    if: github.repository == 'daraujop77/JarvisAndroidApp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: d65218fb3a57c2700a9b3887345a9c289db239ea
+      VERIFIED_CI_RUN: "38490394449"
+      ORIGINAL_CERT_SHA256: 46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Verify final tested Android snapshot and unchanged application sources
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF_NAME" = "feature/adaptive-agent-client-20261012"
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA" "$GITHUB_SHA")" = ".github/workflows/signed-v67-chat-copilot-repair-candidate.yml"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_CI_RUN" --jq .head_sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_CI_RUN" --jq .conclusion)" = success
+          echo "APP_SOURCES_MATCH_TESTED_SHA=PASS"
+      - name: Build release once with original signing identity
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test -n "$RELEASE_KEYSTORE_BASE64" && test -n "$RELEASE_STORE_PASSWORD"
+          test -n "$RELEASE_KEY_ALIAS" && test -n "$RELEASE_KEY_PASSWORD"
+          folder="$(mktemp -d "$RUNNER_TEMP/jarvis-v67-sign.XXXXXXXX")"
+          trap 'rm -rf "$folder"' EXIT
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$folder/release.jks"
+          export RELEASE_STORE_FILE="$folder/release.jks"
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease -PjarvisVersionCode=67 -PjarvisVersionName=0.1.67-chat-copilot-repair --stacktrace
+          apk="app/build/outputs/apk/release/app-release.apk"
+          test -s "$apk"
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/badging.txt"
+          grep -q "name='com.jarvis.android'" "$RUNNER_TEMP/badging.txt"
+          grep -q "versionCode='67'" "$RUNNER_TEMP/badging.txt"
+          grep -q "versionName='0.1.67-chat-copilot-repair'" "$RUNNER_TEMP/badging.txt"
+          ! grep -q 'application-debuggable' "$RUNNER_TEMP/badging.txt"
+          "$tools/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/signature.txt"
+          python3 - <<'PY'
+          import os,pathlib,re
+          lines=(pathlib.Path(os.environ["RUNNER_TEMP"])/"signature.txt").read_text().splitlines()
+          found=[m.group(1).lower() for line in lines if "certificate sha-256 digest" in line.casefold()
+                 for m in [re.search(r"([A-Fa-f0-9]{64})\s*$",line)] if m]
+          if found != [os.environ["ORIGINAL_CERT_SHA256"]]:
+              raise SystemExit("BLOCKED: signature differs from installed JARVIS")
+          print("ORIGINAL_INSTALL_SIGNATURE=PASS")
+          PY
+          mkdir -p "$RUNNER_TEMP/v67-candidate"
+          cp "$apk" "$RUNNER_TEMP/v67-candidate/JARVIS-v67-chat-copilot-repair.apk"
+          sha256sum "$RUNNER_TEMP/v67-candidate/JARVIS-v67-chat-copilot-repair.apk" |
+            awk '{print "V67_CANDIDATE_APK_SHA256=" $1}'
+          echo "V67_CANDIDATE_BUILD=PASS"
+      - name: Upload signed APK for owner acceptance — never publish automatically
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-v67-chat-copilot-repair-signed-candidate
+          path: ${{ runner.temp }}/v67-candidate/JARVIS-v67-chat-copilot-repair.apk
+          if-no-files-found: error
+          retention-days: 14
