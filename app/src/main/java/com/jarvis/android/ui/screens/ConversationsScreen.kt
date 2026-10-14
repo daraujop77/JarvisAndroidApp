@@ -1589,8 +1589,8 @@ private fun MessageBubble(
                                         attachmentId = id,
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
-                                        generated = !isUser && isGeneratedImageMessage(msg.clientRequestId),
-                                        onOpen = if (!isUser && isGeneratedImageMessage(msg.clientRequestId)) {
+                                        generated = !isUser && id.startsWith("gen_"),
+                                        onOpen = if (!isUser && id.startsWith("gen_")) {
                                             { onOpenGeneratedImage(id) }
                                         } else null,
                                     )
