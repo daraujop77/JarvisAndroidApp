@@ -167,8 +167,22 @@ class CopilotTaskVisualRecoveryTest {
         assertEquals("character:doom", candidate?.characterId)
         assertEquals("CANDIDATE", candidate?.status)
         assertTrue(completedCopilotGeneratedMaster("another_project", completed) == null)
-        assertTrue(completedCopilotGeneratedMaster("prj_story",
-            completed.copy(state = "OUTCOME_UNKNOWN")) == null)
+        val interrupted = completed.copy(
+            state = "OUTCOME_UNKNOWN", agent_run_state = "OUTCOME_UNKNOWN",
+        )
+        assertEquals(candidate?.assetId,
+            completedCopilotGeneratedMaster("prj_story", interrupted)?.assetId)
+        val spoolPending = result.copy(result = buildJsonObject {
+            put("asset_id", "va_gen_" + "a".repeat(32))
+            put("sha256", "b".repeat(64))
+            put("character_id", "character:doom")
+            put("status", "CANDIDATE")
+            put("storage_state", "pending")
+        })
+        assertEquals("pending", completedCopilotGeneratedMaster(
+            "prj_story", interrupted.copy(results = listOf(spoolPending)))?.storageState)
+        assertTrue(completedCopilotGeneratedMaster(
+            "prj_story", interrupted.copy(results = emptyList())) == null)
         assertTrue(completedCopilotGeneratedMaster("prj_story",
             completed.copy(results = listOf(result.copy(result =
                 buildJsonObject { put("asset_id", "not-valid") })))) == null)
