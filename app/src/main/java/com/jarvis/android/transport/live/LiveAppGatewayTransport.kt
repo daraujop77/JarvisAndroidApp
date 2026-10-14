@@ -410,13 +410,23 @@ class LiveAppGatewayTransport(
         val response = obj["response"]?.jsonObject ?: return@runCatching null
         val request = obj["request"]?.jsonObject
         val text = response["text"]?.jsonPrimitive?.content.orEmpty()
-        val assets = obj["media"]?.jsonObject?.get("generated_images")?.jsonArray
+        val wireImages = obj["media"]?.jsonObject?.get("generated_images")?.jsonArray
             ?.mapNotNull { item ->
-                val id = runCatching {
-                    item.jsonObject["asset_id"]?.jsonPrimitive?.content.orEmpty()
-                }.getOrDefault("")
-                id.takeIf { it.matches(Regex("^[A-Za-z0-9_-]{30,64}$")) }
-            }?.distinct()?.take(3).orEmpty()
+                runCatching { item.jsonObject["asset_id"]?.jsonPrimitive?.content }
+                    .getOrNull()
+            }.orEmpty()
+        val contentImages = obj["content"]?.jsonObject?.get("blocks")?.jsonArray
+            ?.mapNotNull { item ->
+                val entry = runCatching { item.jsonObject }.getOrNull()
+                    ?: return@mapNotNull null
+                if (entry["type"]?.jsonPrimitive?.content != "image") {
+                    return@mapNotNull null
+                }
+                entry["asset_id"]?.jsonPrimitive?.content
+            }.orEmpty()
+        val assets = (wireImages + contentImages)
+            .filter { it.matches(Regex("^[A-Za-z0-9_-]{30,64}$")) }
+            .distinct().take(3)
         if (text.isBlank() && assets.isEmpty()) return@runCatching null
         CompletedTurn(
             text = text,
