@@ -25,6 +25,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -502,11 +505,15 @@ class LiveAppGatewayTransportTest {
         }
         assertTrue(reply.isSuccess)
         val saved = postedBodies.single { it.startsWith("POST /api/app/chat/agent/project/turn") }
-        assertTrue(saved.contains("\\"project_id\\":\\"prj_story\\""))
-        assertTrue(saved.contains("\\"conversation_id\\":\\"project-chat-1\\""))
-        assertTrue(saved.contains("\\"request_id\\":\\"req-image-scope\\""))
-        assertTrue(saved.contains("\\"mime_type\\":\\"image/png\\""))
-        assertTrue(saved.contains("\\"data_base64\\":\\"iVBORw0KGgo=\\""))
+        val posted = kotlinx.serialization.json.Json.parseToJsonElement(
+            saved.substringAfter('\n')
+        ).jsonObject
+        assertEquals("prj_story", posted["project_id"]?.jsonPrimitive?.content)
+        assertEquals("project-chat-1", posted["conversation_id"]?.jsonPrimitive?.content)
+        assertEquals("req-image-scope", posted["request_id"]?.jsonPrimitive?.content)
+        val source = posted["images"]?.jsonArray?.single()?.jsonObject
+        assertEquals("image/png", source?.get("mime_type")?.jsonPrimitive?.content)
+        assertEquals("iVBORw0KGgo=", source?.get("data_base64")?.jsonPrimitive?.content)
         assertEquals(0, streamCalls.get())
         assertEquals(0, jsonChatCalls.get())
     }
