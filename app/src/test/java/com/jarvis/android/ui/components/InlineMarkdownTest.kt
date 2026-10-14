@@ -48,6 +48,27 @@ class InlineMarkdownTest {
     }
 
     @Test
+    fun markdownTableIsOneStructuredBlockAndPreservesCells() {
+        val blocks = markdownBlocks("Intro\n\n| Model | Time |\n| :--- | ---: |\n| Kimi | 4.5 s |\n| GPT | 6 s |\n\nAfter")
+        assertEquals(3, blocks.size)
+        val table = blocks[1] as MarkdownBlock.Table
+        assertEquals(listOf("Model", "Time"), table.headers)
+        assertEquals(listOf("Kimi", "4.5 s"), table.rows[0])
+        assertEquals(listOf("GPT", "6 s"), table.rows[1])
+        assertTrue(blocks[2] is MarkdownBlock.Paragraph)
+    }
+
+    @Test
+    fun pipesInProseOrCodeDoNotGenerateFakeTables() {
+        val prose = markdownBlocks("Use A | B to choose\nNot a delimiter")
+        assertEquals(1, prose.size)
+        assertTrue(prose[0] is MarkdownBlock.Paragraph)
+        val code = markdownBlocks("```md\n| Heading | Data |\n| --- | --- |\n```")
+        assertEquals(1, code.size)
+        assertTrue(code[0] is MarkdownBlock.Code)
+    }
+
+    @Test
     fun anUnclosedFenceDoesNotSwallowTheRest() {
         val blocks = markdownBlocks("```\ncode without an end\nstill text")
         assertTrue(blocks.single() is MarkdownBlock.Paragraph)
