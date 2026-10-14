@@ -6,6 +6,27 @@ import kotlinx.serialization.json.JsonPrimitive
 
 
 /**
+ * Visual references in a multi-turn Copilot request must be selected from the
+ * SAME already-scoped project history, newest first. A recent CANDIDATE
+ * cannot hide an older APPROVED image. IDs are just hints: the VPS must
+ * reauthorize project, owner, approval state and immutable bytes.
+ */
+internal fun approvedVisualIdsForCopilotContext(
+    visualAssetsNewestFirst: List<List<CopilotApprovedVisualAsset>>,
+): List<String> = visualAssetsNewestFirst.asSequence()
+    .flatMap { it.asSequence() }
+    .filter { it.status == "APPROVED" && it.storage_state == "stored" }
+    .filter {
+        Regex("^va_[A-Za-z0-9_]{6,80}$").matches(it.asset_id) &&
+            Regex("^[a-fA-F0-9]{64}$").matches(it.sha256)
+    }
+    .map { it.asset_id }
+    .distinct()
+    .take(6)
+    .toList()
+
+
+/**
  * Returns only newly revealed, immutable APPROVED files for the exact task.
  *
  * The initial chat often contains no images when the backend is still
@@ -115,33 +136,37 @@ internal fun completedCopilotGeneratedMaster(
     // The adaptive agent can show an existing asset, then make a new
     // candidate based on it. Only the last exact visual receipt in this run
     // is displayed; unrelated tool results cannot select an image.
-    val receipt = task.results.lastOrNull {
-        it.tool in setOf(
-            "generate_character_master", "get_visual_asset_for_chat",
-            "edit_visual_candidate",
-        )
-    } ?: return null
-    val data = receipt.result
-    fun field(name: String): String = (data[name] as? JsonPrimitive)?.content.orEmpty()
-    val id = field("asset_id")
-    val sha = field("sha256")
-    val character = field("character_id")
-    val status = field("status")
-    val storage = field("storage_state")
-    val kind = field("kind").ifBlank {
-        if (receipt.tool == "generate_character_master")
-            "PRIMARY_REFERENCE" else ""
+    // An invalid/later result must not hide an earlier verified receipt in
+    // this exact task. Never fall back to another task or project.
+    for (receipt in task.results.asReversed()) {
+        if (receipt.tool !in setOf(
+                "generate_character_master", "get_visual_asset_for_chat",
+                "edit_visual_candidate",
+            )) continue
+        val data = receipt.result
+        fun field(name: String): String = (data[name] as? JsonPrimitive)?.content.orEmpty()
+        val id = field("asset_id")
+        val sha = field("sha256")
+        val character = field("character_id")
+        val status = field("status")
+        val storage = field("storage_state")
+        val kind = field("kind").ifBlank {
+            if (receipt.tool == "generate_character_master")
+                "PRIMARY_REFERENCE" else ""
+        }
+        val perspective = field("perspective").ifBlank {
+            if (kind == "PRIMARY_REFERENCE") "front" else ""
+        }
+        if (!Regex("^va_[A-Za-z0-9_]{6,80}$").matches(id) ||
+            !Regex("^[a-fA-F0-9]{64}$").matches(sha) ||
+            (character.isNotBlank() && !character.startsWith("character:")) ||
+            (character.isBlank() && kind !in setOf(
+                "SCENE_ART", "REFERENCE", "LOCATION_REFERENCE")) ||
+            status !in setOf("CANDIDATE", "APPROVED") ||
+            storage !in setOf("stored", "pending")
+        ) continue
+        return CopilotGeneratedMaster(id, sha, character, status, storage,
+            kind = kind, perspective = perspective)
     }
-    val perspective = field("perspective").ifBlank {
-        if (kind == "PRIMARY_REFERENCE") "front" else ""
-    }
-    if (!Regex("^va_[A-Za-z0-9_]{6,80}$").matches(id) ||
-        !Regex("^[a-fA-F0-9]{64}$").matches(sha) ||
-        (character.isNotBlank() && !character.startsWith("character:")) ||
-        (character.isBlank() && kind !in setOf("SCENE_ART", "REFERENCE", "LOCATION_REFERENCE")) ||
-        status !in setOf("CANDIDATE", "APPROVED") ||
-        storage !in setOf("stored", "pending")
-    ) return null
-    return CopilotGeneratedMaster(id, sha, character, status, storage,
-        kind = kind, perspective = perspective)
+    return null
 }

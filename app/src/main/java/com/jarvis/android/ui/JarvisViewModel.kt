@@ -18,6 +18,7 @@ import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.transport.live.*
 import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
 import com.jarvis.android.ui.writing.shouldProbeAdaptiveCopilotTool
+import com.jarvis.android.ui.writing.approvedVisualIdsForCopilotContext
 import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
 import com.jarvis.android.ui.writing.completedCopilotGeneratedMaster
 import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
@@ -2382,17 +2383,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }.takeLast(12)
         // Prefer the most recent visual response in this same project's chat.
         // Never pick all images from global attachment storage or other projects.
-        val visibleApprovedIds = existingHistory.asReversed()
-            .mapNotNull { turn ->
-                turn.response?.visual_assets?.takeIf { assets -> assets.isNotEmpty() }
-            }
-            .firstOrNull().orEmpty()
-            .filter { asset ->
-                asset.status == "APPROVED" && asset.storage_state == "stored" &&
-                    asset.asset_id.startsWith("va_") &&
-                    Regex("^[a-fA-F0-9]{64}$").matches(asset.sha256)
-            }
-            .take(6).map { it.asset_id }.distinct()
+        val visibleApprovedIds = approvedVisualIdsForCopilotContext(
+            existingHistory.asReversed().mapNotNull { it.response?.visual_assets },
+        )
         _writingWorkspace.value = current.copy(
             busy = true,
             busyLabel = "JARVIS is routing the Writing Room task",

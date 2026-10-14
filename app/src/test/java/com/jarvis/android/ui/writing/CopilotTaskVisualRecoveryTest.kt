@@ -34,6 +34,54 @@ class CopilotTaskVisualRecoveryTest {
                   )),
     )
 
+    @Test fun approvedHistorySurvivesMoreRecentCandidateOnlyTurn() {
+        val earlier = approved
+        val newestCandidate = approved.copy(
+            asset_id = "va_abcdefabcdefabcdefabcdef", status = "CANDIDATE",
+        )
+        val reused = earlier.copy(alt = "Same reference in a different turn")
+        assertEquals(listOf(earlier.asset_id),
+            approvedVisualIdsForCopilotContext(listOf(
+                listOf(newestCandidate), listOf(earlier, reused),
+            )))
+        assertTrue(approvedVisualIdsForCopilotContext(listOf(
+            listOf(newestCandidate, approved.copy(storage_state = "pending")),
+            listOf(approved.copy(asset_id = "../outside")),
+            listOf(approved.copy(sha256 = "invalid")),
+        )).isEmpty())
+    }
+
+    @Test fun approvedHistoryKeepsAtMostSixUniqueRecentImages() {
+        val seven = (1..7).map { n ->
+            approved.copy(asset_id = "va_" + n.toString().padStart(24, 'a'))
+        }
+        val ids = approvedVisualIdsForCopilotContext(
+            listOf(seven.take(3), seven.drop(3)),
+        )
+        assertEquals(seven.take(6).map { it.asset_id }, ids)
+    }
+
+    @Test fun invalidLastVisualReceiptDoesNotHidePreviouslyCompletedCandidate() {
+        val valid = CopilotTaskResult(tool = "edit_visual_candidate",
+            result = buildJsonObject {
+                put("asset_id", "va_gen_" + "a".repeat(32))
+                put("sha256", "b".repeat(64))
+                put("character_id", "character:doom")
+                put("status", "CANDIDATE")
+                put("storage_state", "pending")
+            })
+        val malformed = valid.copy(result = buildJsonObject {
+            put("asset_id", "not-a-valid-asset-id")
+            put("sha256", "b".repeat(64))
+            put("character_id", "character:doom")
+            put("status", "CANDIDATE")
+            put("storage_state", "pending")
+        })
+        assertEquals("va_gen_" + "a".repeat(32),
+            completedCopilotGeneratedMaster("prj_story",
+                task().copy(results = listOf(valid, malformed)))?.assetId)
+    }
+
     @Test fun newApprovedAssetArrivingDuringPollingIsDownloadedOnce() {
         val initial = task()
         val completed = task(assets = listOf(approved))
