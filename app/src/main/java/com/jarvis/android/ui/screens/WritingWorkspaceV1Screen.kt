@@ -1930,10 +1930,16 @@ private fun CopilotAssistantMessage(
                     }
                 }
 
-                turn.generatedPreviewAttachmentId?.let { attachmentId ->
-                    val image = remember(attachmentId) {
+                // An attachment identifier is not proof that the image is visible.
+                // Keep the approval gate tied to the preview actually decoded
+                // from the authenticated, hash-verified cached attachment.
+                val candidatePreviewBitmap = remember(turn.generatedPreviewAttachmentId) {
+                    turn.generatedPreviewAttachmentId?.let { attachmentId ->
                         vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
                     }
+                }
+                turn.generatedPreviewAttachmentId?.let { attachmentId ->
+                    val image = candidatePreviewBitmap
                     if (image != null) {
                         Spacer(Modifier.height(9.dp))
                         Image(
@@ -1966,7 +1972,7 @@ private fun CopilotAssistantMessage(
                         !turn.candidateCharacterId.isNullOrBlank() &&
                         turn.candidateStorageState == "stored" &&
                         !turn.candidateSha256.isNullOrBlank() &&
-                        !turn.generatedPreviewAttachmentId.isNullOrBlank()
+                        candidatePreviewBitmap != null
                     ) {
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(
@@ -1986,7 +1992,7 @@ private fun CopilotAssistantMessage(
                             turn.candidateAssetId, turn.candidateSha256,
                             turn.candidateKind, turn.candidateStatus,
                             turn.candidateStorageState, turn.candidateCharacterId,
-                            !turn.generatedPreviewAttachmentId.isNullOrBlank(),
+                            candidatePreviewBitmap != null,
                         )
                     ) {
                         Spacer(Modifier.height(8.dp))
