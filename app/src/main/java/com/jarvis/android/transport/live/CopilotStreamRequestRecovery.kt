@@ -1,5 +1,35 @@
 package com.jarvis.android.transport.live
 
+import com.jarvis.android.data.repo.ChatSourcesCodec
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+
+/**
+ * Request-status returns durable tool receipts, not the original rich SSE
+ * envelope. Reconstruct only public citations from a successful, typed
+ * research tool. The same Global Chat URL+SHA-256 validator is applied again.
+ * Never turn failed tools, model text, Wiki references or malformed links
+ * into clickable external sources.
+ */
+internal fun recoveredCopilotPublicSources(task: CopilotTaskState): List<JarvisChatContentSource> {
+    val rawSources = buildJsonArray {
+        task.results.forEach { receipt ->
+            if (receipt.tool !in setOf("web_search", "web_extract") ||
+                receipt.status != "SUCCEEDED" ||
+                receipt.result["authority"]?.jsonPrimitive?.content != "EXTERNAL_UNTRUSTED" ||
+                receipt.result["status"]?.jsonPrimitive?.content != "READY"
+            ) return@forEach
+            val sources = receipt.result["sources"] as? JsonArray ?: return@forEach
+            sources.take(5).filterIsInstance<JsonObject>().forEach { add(it) }
+        }
+    }
+    return ChatSourcesCodec.decode(rawSources.toString()).take(5).map {
+        JarvisChatContentSource(ref = it.ref, title = it.title, url = it.url)
+    }
+}
+
 /**
  * Rebuild only a response already saved for the exact authenticated agent
  * request. No retry, fake model answer, privilege upgrade or cross-chat data.
@@ -56,6 +86,13 @@ internal fun recoveredCopilotChat(
         ),
         copilot_task = task,
         visual_assets = approved,
+        // Preserve exact public evidence on stream-loss/restart. No web request
+        // is replayed, and no external result becomes project canon.
+        content = JarvisChatContent(
+            schema = "jarvis.chat.content.v1",
+            blocks = listOf(JarvisChatContentBlock(type = "text", text = text)),
+            sources = recoveredCopilotPublicSources(task),
+        ),
         recovered_from_interruption = true,
     )
 }
