@@ -133,6 +133,8 @@ data class CopilotTaskStep(
 @Serializable
 data class CopilotTaskResult(
     val tool: String = "",
+    // A recovered tool result is never authoritative if the provider failed.
+    val status: String = "",
     val text: String = "",
     val effect: String = "",
     val result: JsonObject = JsonObject(emptyMap()),
