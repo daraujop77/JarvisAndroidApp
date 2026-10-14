@@ -149,8 +149,8 @@ class ProcessDeathReconciliationTest {
                 role = "user", text = "Investigate", status = "Completed",
                 createdAtMs = 1,
             ))
-            val json = """[{"ref":"web:aaaaaaaaaaaaaaaaaaaa",
-                "title":"Example","url":"https://example.org"}]"""
+            val json = """[{"ref":"web:d92dac30efd5eb76088d",
+                "title":"Verified report","url":"https://example.org/report"}]"""
             assertTrue(dao.attachGeneratedImageToAssistant(
                 "c-sources", "req-sources", "gen_stable", 2))
             assertTrue(dao.attachVerifiedSources(
@@ -164,6 +164,15 @@ class ProcessDeathReconciliationTest {
             assertTrue(dao.attachVerifiedSources(
                 "c-sources", "req-sources", json, 2))
             assertEquals(1, dao.messages("c-sources").count { it.role == "assistant" })
+            val reader = ConversationRepository(
+                dao, JarvisSessionRepository(
+                    FakeGateway(scope, FakeConfig(replyWords = emptyList())), scope),
+                scope,
+            )
+            val restoredTurn = reader.observeMessages("c-sources").first()
+                .single { it.role == "assistant" }
+            assertEquals("Verified report", restoredTurn.sources.single().title)
+            assertEquals("gen_stable", restoredTurn.attachmentIds.single())
             assertTrue(!dao.attachVerifiedSources("other", "req-sources", json, 2))
             assertTrue(dao.messages("other").isEmpty())
         }
