@@ -141,6 +141,27 @@ class CopilotTaskVisualRecoveryTest {
         ))
     }
 
+    @Test fun backgroundWorkerOutlivesFailedOrPartialAgentText() {
+        val queued = com.jarvis.android.transport.live.CopilotTaskLiveProgress(
+            tool = "start_scene_generation", job_id = "scene_123",
+            status = "QUEUED",
+        )
+        val result = task().copy(
+            state = "BLOCKED", agent_run_state = "PARTIAL",
+            live_progress = listOf(queued),
+        )
+        assertTrue(copilotTaskHasActiveRemoteWork(result))
+        assertTrue(copilotTaskHasActiveRemoteWork(
+            result.copy(agent_run_state = "OUTCOME_UNKNOWN")))
+        assertTrue(!copilotTaskHasActiveRemoteWork(
+            result.copy(live_progress = listOf(queued.copy(
+                status = "READY_FOR_REVIEW",
+            )))))
+        assertTrue(!copilotTaskHasActiveRemoteWork(
+            result.copy(state = "READY", agent_run_state = "WAITING_CONFIRMATION",
+                requires_confirmation = true)))
+    }
+
     @Test fun completedAdaptivePollMakesJustFinishedApprovedReferenceAvailable() {
         val active = task().copy(agent_run_state = "RUNNING", state = "RUNNING")
         val done = task(assets = listOf(approved))
