@@ -19,20 +19,37 @@ object ChatSourcesCodec {
     private val json = Json { ignoreUnknownKeys = true }
     private val refPattern = Regex("^web:[0-9a-f]{20}$")
 
+    /**
+     * A clickable citation is untrusted external data. Accept only public-looking
+     * DNS hostnames, never numeric IP literals or local suffixes. Do not resolve
+     * DNS here: this runs on the UI path and resolution could leak or block.
+     * The VPS bridge must still independently enforce its network boundary.
+     */
+    private fun isPublicDnsHost(value: String): Boolean {
+        val host = value.lowercase()
+        if (host.length !in 4..253 || !host.contains('.') ||
+            host.startsWith('.') || host.endsWith('.') || ':' in host ||
+            host.any { it.code <= 32 || it.code == 127 }) return false
+        val labels = host.split('.')
+        if (labels.any { label ->
+                label.length !in 1..63 ||
+                label.first() == '-' || label.last() == '-' ||
+                label.any { !it.isLetterOrDigit() && it != '-' }
+            }) return false
+        if (labels.last().all { it.isDigit() }) return false
+        if (host.endsWith(".local") || host.endsWith(".localhost") ||
+            host.endsWith(".internal") || host.endsWith(".test") ||
+            host.endsWith(".invalid") || host.endsWith(".lan") ||
+            host.endsWith(".home.arpa")) return false
+        return true
+    }
+
     private fun verified(url: String, ref: String): Boolean {
         if (url.length !in 1..2048 || !refPattern.matches(ref)) return false
         val uri = try { URI(url) } catch (_: Exception) { return false }
         val host = uri.host?.lowercase().orEmpty()
-        if (uri.scheme != "https" || host.isBlank() ||
-            uri.rawUserInfo != null || uri.port !in setOf(-1, 443) ||
-            host == "localhost" || host.endsWith(".local") ||
-            host.endsWith(".internal") || host.endsWith(".test") ||
-            host.endsWith(".invalid") ||
-            host.matches(Regex("^127\\.[0-9.]+$")) ||
-            host.matches(Regex("^10\\.[0-9.]+$")) ||
-            host.matches(Regex("^192\\.168\\.[0-9.]+$")) ||
-            host.matches(Regex("^172\\.(1[6-9]|2[0-9]|3[01])\\.[0-9.]+$")) ||
-            host == "::1" || host == "[::1]") return false
+        if (uri.scheme != "https" || !isPublicDnsHost(host) ||
+            uri.rawUserInfo != null || uri.port !in setOf(-1, 443)) return false
         val calculated = MessageDigest.getInstance("SHA-256")
             .digest(url.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }.take(20)
