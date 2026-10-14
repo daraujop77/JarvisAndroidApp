@@ -55,22 +55,19 @@ internal fun newApprovedCopilotTaskVisuals(
  */
 internal fun copilotTaskHasActiveRemoteWork(task: CopilotTaskState): Boolean {
     val active = setOf("RUNNING", "DISPATCHING")
-    if (task.agent_run_state in active || task.state in active) return true
-    if (task.agent_run_state in setOf(
-            "WAITING_CONFIRMATION", "OUTCOME_UNKNOWN", "CANCEL_REQUESTED",
-            "FAILED", "CANCELED", "PARTIAL",
-        ) || task.state in setOf(
-            "READY", "BLOCKED", "OUTCOME_UNKNOWN",
-            "CANCEL_REQUESTED", "CANCELED",
-        )
+    if (task.agent_run_state == "WAITING_CONFIRMATION" ||
+        (task.state == "READY" && task.requires_confirmation)
     ) return false
-    // A legacy task may already be DONE while its asynchronous visual job
-    // continues. Preserve polling for its pending live_progress entries.
-    return task.live_progress.any {
-        it.status in setOf(
-            "QUEUED", "RUNNING", "WORKING", "PENDING", "PENDING_CANON_DIFF",
-        )
-    }
+    if (task.agent_run_state in active || task.state in active) return true
+    // An accepted, owner-scoped worker can outlive the agent's final reply.
+    // Poll its EXISTING job only, including after a PARTIAL/FAILED text run;
+    // never resubmit a provider operation or treat acceptance as completion.
+    if (task.live_progress.any {
+            it.status in setOf(
+                "QUEUED", "RUNNING", "WORKING", "PENDING", "PENDING_CANON_DIFF",
+            )
+        }) return true
+    return false
 }
 
 
