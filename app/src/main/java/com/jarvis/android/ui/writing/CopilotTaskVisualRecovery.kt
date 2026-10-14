@@ -115,12 +115,13 @@ internal fun completedCopilotGeneratedMaster(
     // The adaptive agent can show an existing asset, then make a new
     // candidate based on it. Only the last exact visual receipt in this run
     // is displayed; unrelated tool results cannot select an image.
-    val data = task.results.lastOrNull {
+    val receipt = task.results.lastOrNull {
         it.tool in setOf(
             "generate_character_master", "get_visual_asset_for_chat",
             "edit_visual_candidate",
         )
-    }?.result ?: return null
+    } ?: return null
+    val data = receipt.result
     fun field(name: String): String = (data[name] as? JsonPrimitive)?.content.orEmpty()
     val id = field("asset_id")
     val sha = field("sha256")
@@ -128,7 +129,7 @@ internal fun completedCopilotGeneratedMaster(
     val status = field("status")
     val storage = field("storage_state")
     val kind = field("kind").ifBlank {
-        if (task.results.lastOrNull { it.tool == "generate_character_master" } != null)
+        if (receipt.tool == "generate_character_master")
             "PRIMARY_REFERENCE" else ""
     }
     val perspective = field("perspective").ifBlank {
