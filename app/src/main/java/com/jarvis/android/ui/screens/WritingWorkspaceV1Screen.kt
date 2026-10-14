@@ -1162,6 +1162,8 @@ private fun ChatSection(
                                         "get_approved_visual_references" -> "Mostrar imágenes aprobadas"
                                         "inspect_approved_character_image" -> "Inspeccionar master aprobado con modelo visual"
                                         "get_character_master_readiness" -> "Consultar masters y pendientes visuales"
+                                        "inspect_attached_image" -> "Inspeccionar imagen adjunta"
+                                        "import_attached_image_reference" -> "Guardar referencia de imagen adjunta"
                                         "complete_character_views" -> "Completar vistas del personaje"
                                         "get_chapter_workflow" -> "Estado y revisiones del capítulo"
                                         "get_chapter_approval_packet" -> "Paquete de aprobación y CanonDiff del capítulo"

@@ -164,7 +164,7 @@ internal fun completedCopilotGeneratedMaster(
     for (receipt in task.results.asReversed()) {
         if (receipt.tool !in setOf(
                 "generate_character_master", "get_visual_asset_for_chat",
-                "edit_visual_candidate",
+                "edit_visual_candidate", "import_attached_image_reference",
             )) continue
         val data = receipt.result
         fun field(name: String): String = (data[name] as? JsonPrimitive)?.content.orEmpty()

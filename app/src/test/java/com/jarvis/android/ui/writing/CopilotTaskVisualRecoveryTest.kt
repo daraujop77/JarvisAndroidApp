@@ -61,6 +61,38 @@ class CopilotTaskVisualRecoveryTest {
         assertEquals(seven.take(6).map { it.asset_id }, ids)
     }
 
+    @Test fun attachedPhotoBecomesExactCandidateThenCanBeEditedInSameTask() {
+        val uploaded = CopilotTaskResult(tool = "import_attached_image_reference",
+            result = buildJsonObject {
+                put("asset_id", "va_ref_" + "a".repeat(32))
+                put("sha256", "b".repeat(64))
+                put("kind", "REFERENCE")
+                put("perspective", "custom")
+                put("character_id", "")
+                put("status", "CANDIDATE")
+                put("storage_state", "stored")
+            })
+        val edited = CopilotTaskResult(tool = "edit_visual_candidate",
+            result = buildJsonObject {
+                put("asset_id", "va_gen_" + "c".repeat(32))
+                put("sha256", "d".repeat(64))
+                put("kind", "REFERENCE")
+                put("perspective", "custom")
+                put("character_id", "")
+                put("status", "CANDIDATE")
+                put("storage_state", "stored")
+            })
+        val original = task().copy(results = listOf(uploaded))
+        assertEquals("va_ref_" + "a".repeat(32),
+            completedCopilotGeneratedMaster("prj_story", original)?.assetId)
+        assertEquals("va_gen_" + "c".repeat(32),
+            completedCopilotGeneratedMaster("prj_story",
+                original.copy(results = listOf(uploaded, edited)))?.assetId)
+        assertEquals(null, completedCopilotGeneratedMaster("wrong-project", original))
+        assertEquals("REFERENCE",
+            completedCopilotGeneratedMaster("prj_story", original)?.kind)
+    }
+
     @Test fun invalidLastVisualReceiptDoesNotHidePreviouslyCompletedCandidate() {
         val valid = CopilotTaskResult(tool = "edit_visual_candidate",
             result = buildJsonObject {
