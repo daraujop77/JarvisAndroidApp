@@ -1791,15 +1791,18 @@ private fun CopilotAssistantMessage(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = {
-                        expandedVisual = null
-                        turn.candidateAssetId?.takeIf { turn.candidateStorageState == "stored" }?.let { assetId ->
-                            turn.candidateSha256?.takeIf { it.isNotBlank() }?.let { sha ->
-                                onEditVisual(assetId, sha)
-                            }
+                    val assetId = turn.candidateAssetId
+                    val sha = turn.candidateSha256
+                    if (assetId != null && !sha.isNullOrBlank() &&
+                        turn.candidateStorageState == "stored" &&
+                        imageId == turn.generatedPreviewAttachmentId
+                    ) {
+                        TextButton(onClick = {
+                            expandedVisual = null
+                            onEditVisual(assetId, sha)
+                        }) {
+                            Text("Editar en Copilot")
                         }
-                    }) {
-                        Text("Editar en Copilot")
                     }
                 },
             )
