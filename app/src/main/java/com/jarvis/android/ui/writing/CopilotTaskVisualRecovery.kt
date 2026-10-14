@@ -110,9 +110,15 @@ internal fun completedCopilotGeneratedMaster(
     if (projectId.isBlank() || task.project_id != projectId ||
         task.task_id.isBlank()
     ) return null
-    val results = task.results.filter { it.tool == "generate_character_master" }
-    if (results.size != 1) return null
-    val data = results.single().result
+    // The adaptive agent can show an existing asset, then make a new
+    // candidate based on it. Only the last exact visual receipt in this run
+    // is displayed; unrelated tool results cannot select an image.
+    val data = task.results.lastOrNull {
+        it.tool in setOf(
+            "generate_character_master", "get_visual_asset_for_chat",
+            "edit_visual_candidate",
+        )
+    }?.result ?: return null
     fun field(name: String): String = (data[name] as? JsonPrimitive)?.content.orEmpty()
     val id = field("asset_id")
     val sha = field("sha256")
