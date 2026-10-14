@@ -1,5 +1,7 @@
 package com.jarvis.android.ui.screens
 
+import com.jarvis.android.ui.components.SharedChatMarkdown
+
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -6793,97 +6795,10 @@ private fun writingRoomActivityLabel(
 
 @Composable
 private fun RichModelText(text: String) {
+    // One renderer with Chat Global; surrounding Copilot UI owns only its
+    // canonical sources, images and approvals, never Markdown parsing.
     SelectionContainer {
-        val lines = text.replace("\r\n", "\n").split("\n")
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                lines.forEach { raw ->
-                    val line = raw.trimEnd()
-                    when {
-                        line.isBlank() -> Spacer(Modifier.height(3.dp))
-                        line.startsWith("### ") -> Text(
-                            line.removePrefix("### "),
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = Color(0xFF67E8F9),
-                        )
-                        line.startsWith("## ") -> Text(
-                            line.removePrefix("## "),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF67E8F9),
-                        )
-                        line.startsWith("# ") -> Text(
-                            line.removePrefix("# "),
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFFE0F2FE),
-                        )
-                        line.startsWith("- ") || line.startsWith("* ") -> Row(
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            Text("•", color = JarvisCyan, fontSize = 14.sp, modifier = Modifier.padding(top = 1.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text(
-                                inlineMarkdown(line.drop(2)),
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    color = Color(0xFFE2E8F0),
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
-                                ),
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        line.matches(Regex("^\\d+[.)]\\s+.*")) -> {
-                            val split = line.indexOf(' ')
-                            Row(verticalAlignment = Alignment.Top) {
-                                Text(
-                                    line.take(split),
-                                    color = JarvisCyan,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.padding(top = 1.dp),
-                                )
-                                Spacer(Modifier.size(6.dp))
-                                Text(
-                                    inlineMarkdown(line.drop(split + 1)),
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        color = Color(0xFFE2E8F0),
-                                        fontSize = 15.sp,
-                                        lineHeight = 24.sp,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-                        else -> Text(
-                            inlineMarkdown(line),
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = Color(0xFFE2E8F0),
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                            ),
-                        )
-                    }
-                }
-            }
-    }
-}
-
-private fun inlineMarkdown(text: String): AnnotatedString = buildAnnotatedString {
-    var index = 0
-    val regex = Regex("\\*\\*(.+?)\\*\\*")
-    regex.findAll(text).forEach { match ->
-        if (match.range.first > index) {
-            pushStyle(SpanStyle(color = Color(0xFFE2E8F0)))
-            append(text.substring(index, match.range.first))
-            pop()
-        }
-        pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color(0xFF67E8F9)))
-        append(match.groupValues[1])
-        pop()
-        index = match.range.last + 1
-    }
-    if (index < text.length) {
-        pushStyle(SpanStyle(color = Color(0xFFE2E8F0)))
-        append(text.substring(index))
-        pop()
+        SharedChatMarkdown(text)
     }
 }
 
