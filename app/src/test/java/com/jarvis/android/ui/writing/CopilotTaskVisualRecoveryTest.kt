@@ -3,6 +3,8 @@ package com.jarvis.android.ui.writing
 import com.jarvis.android.transport.live.CopilotApprovedVisualAsset
 import com.jarvis.android.transport.live.CopilotTaskResult
 import com.jarvis.android.transport.live.CopilotTaskState
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -147,6 +149,29 @@ class CopilotTaskVisualRecoveryTest {
         assertEquals(listOf(approved),
             newApprovedCopilotTaskVisuals("prj_story", active, done))
         assertTrue(!copilotTaskHasActiveRemoteWork(done))
+    }
+
+    @Test fun completedCharacterMasterIsRecoveredWithoutRepeatGeneration() {
+        val result = CopilotTaskResult(tool = "generate_character_master",
+            result = buildJsonObject {
+                put("asset_id", "va_gen_" + "a".repeat(32))
+                put("sha256", "b".repeat(64))
+                put("character_id", "character:doom")
+                put("status", "CANDIDATE")
+                put("storage_state", "stored")
+            })
+        val completed = task().copy(
+            agent_run_state = "SUCCEEDED", state = "DONE", results = listOf(result),
+        )
+        val candidate = completedCopilotGeneratedMaster("prj_story", completed)
+        assertEquals("character:doom", candidate?.characterId)
+        assertEquals("CANDIDATE", candidate?.status)
+        assertTrue(completedCopilotGeneratedMaster("another_project", completed) == null)
+        assertTrue(completedCopilotGeneratedMaster("prj_story",
+            completed.copy(state = "OUTCOME_UNKNOWN")) == null)
+        assertTrue(completedCopilotGeneratedMaster("prj_story",
+            completed.copy(results = listOf(result.copy(result =
+                buildJsonObject { put("asset_id", "not-valid") })))) == null)
     }
 
 }

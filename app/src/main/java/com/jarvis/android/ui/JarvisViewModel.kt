@@ -19,6 +19,7 @@ import com.jarvis.android.transport.live.*
 import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
 import com.jarvis.android.ui.writing.shouldProbeAdaptiveCopilotTool
 import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
+import com.jarvis.android.ui.writing.completedCopilotGeneratedMaster
 import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
 import com.jarvis.android.transport.live.recoveredCopilotChat
 import com.jarvis.android.ui.writing.resolveCopilotPortrait
@@ -1928,6 +1929,53 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         refreshCopilotCharacterViews(projectId, progress.character_id)
     }
 
+    /** Present the exact completed candidate inside the originating Copilot message.
+     * Status lookup and image download are both READ_ONLY. Never repeat paid generation.
+     */
+    private fun recoverCopilotGeneratedMaster(projectId: String, task: CopilotTaskState) {
+        val candidate = completedCopilotGeneratedMaster(projectId, task) ?: return
+        val current = _writingWorkspace.value
+        if (current.chatProjectId != projectId ||
+            current.chatHistory.any { it.candidateAssetId == candidate.assetId } ||
+            current.chatHistory.none { it.response?.copilot_task?.task_id == task.task_id }
+        ) return
+        val epoch = copilotRecoveryEpoch
+        viewModelScope.launch {
+            val content = container.liveSession.writingRoomVisualAssetFetch(
+                projectId, candidate.assetId,
+            ).getOrNull() ?: return@launch
+            if (content.asset_id != candidate.assetId ||
+                !content.sha256.equals(candidate.sha256, ignoreCase = true) ||
+                content.mime_type !in setOf("image/png", "image/jpeg", "image/webp")
+            ) return@launch
+            val image = withContext(Dispatchers.IO) {
+                container.attachmentStore.stageVisualAssetBase64(
+                    content.image_base64, candidate.sha256,
+                )
+            } ?: return@launch
+            val state = _writingWorkspace.value
+            val index = state.chatHistory.indexOfLast {
+                it.response?.copilot_task?.task_id == task.task_id
+            }
+            if (copilotRecoveryEpoch != epoch || state.chatProjectId != projectId ||
+                index < 0 || state.chatHistory.any { it.candidateAssetId == candidate.assetId }
+            ) {
+                deleteVisualStudioAttachments(listOf(image.attachmentId))
+                return@launch
+            }
+            val history = state.chatHistory.toMutableList()
+            history[index] = history[index].copy(
+                generatedPreviewAttachmentId = image.attachmentId,
+                candidateAssetId = candidate.assetId,
+                candidateSha256 = candidate.sha256,
+                candidateCharacterId = candidate.characterId,
+                candidateStatus = candidate.status,
+                candidateStorageState = candidate.storageState,
+            )
+            _writingWorkspace.value = state.copy(chatHistory = history)
+        }
+    }
+
     private fun followCopilotTaskProgress(projectId: String, task: CopilotTaskState) {
         if (task.project_id != projectId || task.task_id.isBlank() ||
             _writingWorkspace.value.chatProjectId != projectId
@@ -1941,6 +1989,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             loadCopilotSceneCandidate(projectId, scene.final_asset_id, scene.job_id)
         }
         recoverCopilotTurnaroundBatch(projectId, task)
+        recoverCopilotGeneratedMaster(projectId, task)
         val pending = copilotTaskHasActiveRemoteWork(task)
         if (!pending) {
             if (copilotTaskPollId == task.task_id) {
@@ -1987,6 +2036,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     loadCopilotSceneCandidate(projectId, preview.final_asset_id, preview.job_id)
                 }
                 recoverCopilotTurnaroundBatch(projectId, next)
+                recoverCopilotGeneratedMaster(projectId, next)
                 if (!copilotTaskHasActiveRemoteWork(next)) {
                     if (task.request_id.isNotBlank()) {
                         restoreInterruptedCopilotReply(projectId, task, epoch)
