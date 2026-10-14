@@ -138,7 +138,8 @@ class WritingRoomIntegrityWiringTest {
     fun copilotChatHistoryRemainsBoundedAndProjectScoped() {
         val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
         val api = code("app/src/main/java/com/jarvis/android/transport/live/WritingRoomApi.kt")
-        assertTrue(vm.contains("if (current.chatProjectId == projectId) current.chatHistory else emptyList()"))
+        assertTrue(vm.contains("current.busy || current.chatProjectId != projectId"))
+        assertTrue(vm.contains("val existingHistory = current.chatHistory"))
         assertTrue(vm.contains("existingHistory.takeLast(6)"))
         assertTrue(vm.contains("recentMessages = recent"))
         assertTrue(api.contains("recentMessages.takeLast(12)"))
@@ -167,9 +168,10 @@ class WritingRoomIntegrityWiringTest {
         assertFalse(autoChat.contains("looksLikeCopilotPortraitCommand(clean)"))
         assertFalse(autoChat.contains("looksLikeCopilotAppearanceCommand(clean)"))
         assertFalse(autoChat.contains("generateCopilotPortrait("))
-        assertTrue(screen.contains("vm.runWritingRoomAutoChat(projectId, title, clean)"))
+        assertTrue(screen.contains("vm.runWritingRoomAutoChat("))
+        assertTrue(screen.contains("referenceAttachmentId = state.copilotPendingReferenceId"))
         assertTrue(api.contains("/api/app/writing-room/agent/stream"))
-        assertTrue(api.contains("if (status == 404)"))
+        assertTrue(api.contains("if (status == 404 && attachedImageBase64 == null)"))
         assertTrue(api.contains("stableRequestId"))
         // Explicit visual-studio confirmation buttons remain available for
         // existing saved drafts and older flows; they are not text routers.
