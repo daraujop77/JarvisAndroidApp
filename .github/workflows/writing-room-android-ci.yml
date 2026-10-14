@@ -127,7 +127,22 @@ jobs:
           }
           APKSIGNER="$(find "$SDK_ROOT/build-tools" -mindepth 2 -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)"
           [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ] || { echo "apksigner unavailable" >&2; exit 1; }
-          "$APKSIGNER" verify "$APK"
+          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
+          # V67 was signed with this exact installed-app certificate. A new
+          # valid-but-different keystore is NOT an in-place Android update.
+          python3 - <<'PY'
+          import pathlib, re, os
+          expected = "46dfbc0ab83fd6ae3a86e663a981ebe9541e50662903e2b8877fd4d16040f93a"
+          lines = (pathlib.Path(os.environ["RUNNER_TEMP"]) / "apk-signature.txt").read_text().splitlines()
+          found = [
+              match.group(1).lower() for line in lines
+              if "certificate sha-256 digest" in line.casefold()
+              for match in [re.search(r"([A-Fa-f0-9]{64})\s*$", line)] if match
+          ]
+          if found != [expected]:
+              raise SystemExit("Signed APK certificate differs from installed JARVIS v67")
+          print("INSTALLED_APP_SIGNER_MATCH=PASS")
+          PY
 
           # Resolve identity from the APK actually compiled, not from Gradle
           # source text. The Gradle properties provide defaults/overrides, so
@@ -137,6 +152,9 @@ jobs:
             echo "aapt not found in Android SDK build-tools." >&2; exit 1;
           }
           BADGING="$("$AAPT" dump badging "$APK")"
+          if printf '%s\n' "$BADGING" | grep -q 'application-debuggable'; then
+            echo "Release APK is debuggable" >&2; exit 1;
+          fi
           PACKAGE_INFO="$(printf '%s\n' "$BADGING" | python3 -c '
           import re, sys
           first = sys.stdin.readline().strip()
