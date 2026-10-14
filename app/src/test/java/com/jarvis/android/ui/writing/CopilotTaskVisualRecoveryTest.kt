@@ -249,6 +249,34 @@ class CopilotTaskVisualRecoveryTest {
             "other-project", linked) == null)
     }
 
+    @Test fun sceneEditPreviewNeverMasqueradesAsCharacterMaster() {
+        val scene = CopilotTaskResult(tool = "edit_visual_candidate",
+            result = buildJsonObject {
+                put("asset_id", "va_gen_" + "e".repeat(32))
+                put("sha256", "f".repeat(64))
+                put("character_id", "")
+                put("kind", "SCENE_ART")
+                put("perspective", "scene")
+                put("status", "CANDIDATE")
+                put("storage_state", "pending")
+            })
+        val task = task().copy(results = listOf(scene))
+        val shown = completedCopilotGeneratedMaster("prj_story", task)
+        assertEquals("SCENE_ART", shown?.kind)
+        assertEquals("scene", shown?.perspective)
+        assertEquals("", shown?.characterId)
+        val fake = scene.copy(result = buildJsonObject {
+            put("asset_id", "va_gen_" + "e".repeat(32))
+            put("sha256", "f".repeat(64))
+            put("status", "CANDIDATE")
+            put("storage_state", "pending")
+            put("kind", "PRIMARY_REFERENCE")
+            put("character_id", "")
+        })
+        assertTrue(completedCopilotGeneratedMaster(
+            "prj_story", task.copy(results = listOf(fake))) == null)
+    }
+
     @Test fun completedCharacterMasterIsRecoveredWithoutRepeatGeneration() {
         val result = CopilotTaskResult(tool = "generate_character_master",
             result = buildJsonObject {
