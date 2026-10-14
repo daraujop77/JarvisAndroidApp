@@ -34,7 +34,7 @@ class CopilotApprovedVisualRevisionWiringTest {
         assertTrue(screen.contains("val image = candidatePreviewBitmap"))
         assertTrue(screen.contains("turn.candidatePerspective == \"front\""))
         assertTrue(screen.contains("candidatePreviewBitmap != null"))
-        assertTrue(screen.contains("turn.candidateCharacterId.isNullOrBlank()").not())
+        assertTrue(screen.contains("!turn.candidateCharacterId.isNullOrBlank()"))
         assertTrue(screen.contains("isApprovableProjectReference("))
         assertTrue(screen.contains("turn.candidateStorageState, turn.candidateCharacterId,\n                            candidatePreviewBitmap != null"))
         assertTrue(!screen.contains("!turn.generatedPreviewAttachmentId.isNullOrBlank()"))
