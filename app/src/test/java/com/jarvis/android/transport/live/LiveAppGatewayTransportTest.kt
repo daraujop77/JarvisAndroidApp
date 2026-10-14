@@ -131,6 +131,12 @@ class LiveAppGatewayTransportTest {
                                 .setBody("""{"schema":"jarvis.web.error.v1","error":"unknown_request"}""")
                         }
                     }
+                    request.path == "/api/app/chat/agent/project/turn" -> {
+                        postedBodies += "POST /api/app/chat/agent/project/turn\\n" + request.body.readUtf8()
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.chat.turn.v1","response":{"text":"Scoped image read","provider":"jarvis-adaptive"}}"""
+                        )
+                    }
                     request.path == "/api/app/chat" && request.method == "POST" -> {
                         jsonChatCalls.incrementAndGet()
                         MockResponse().setBody(
@@ -479,6 +485,30 @@ class LiveAppGatewayTransportTest {
         assertTrue(frames.any { it.contains("message.completed") && it.contains("req-lost") })
         assertEquals(0, streamCalls.get())
         assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-lost"))
+    }
+
+    @Test
+    fun projectAgentTypedMediaNeverDropsProjectScope() {
+        val session = JarvisAppSession(seededStore())
+        val imageArray = kotlinx.serialization.json.Json.parseToJsonElement(
+            """[{"mime_type":"image/png","data_base64":"iVBORw0KGgo="}]"""
+        ) as kotlinx.serialization.json.JsonArray
+        val reply = runBlocking(Dispatchers.IO) {
+            session.chatGlobalProjectAgentTurn(
+                projectId = "prj_story", conversationId = "project-chat-1",
+                requestId = "req-image-scope", prompt = "Describe this picture",
+                images = imageArray,
+            )
+        }
+        assertTrue(reply.isSuccess)
+        val saved = postedBodies.single { it.startsWith("POST /api/app/chat/agent/project/turn") }
+        assertTrue(saved.contains("\\"project_id\\":\\"prj_story\\""))
+        assertTrue(saved.contains("\\"conversation_id\\":\\"project-chat-1\\""))
+        assertTrue(saved.contains("\\"request_id\\":\\"req-image-scope\\""))
+        assertTrue(saved.contains("\\"mime_type\\":\\"image/png\\""))
+        assertTrue(saved.contains("\\"data_base64\\":\\"iVBORw0KGgo=\\""))
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
     }
 
     @Test
