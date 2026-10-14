@@ -243,6 +243,47 @@ class CopilotStreamRequestRecoveryTest {
             assertEquals(1, server.requestCount)
         }
 
+    @Test fun exactRequestRecoveryRetainsOnlySuccessfulVerifiedExternalSources() {
+        val url = "https://example.org/public-doom-reference"
+        val ref = "web:" + java.security.MessageDigest.getInstance("SHA-256")
+            .digest(url.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }.take(20)
+        val ready = CopilotTaskResult(
+            tool = "web_search", status = "SUCCEEDED",
+            result = Json.parseToJsonElement(
+                """{"status":"READY","authority":"EXTERNAL_UNTRUSTED","sources":[
+                  {"url":"$url","ref":"$ref","title":"Public Doom source"},
+                  {"url":"https://169.254.169.254/private","ref":"web:aaaaaaaaaaaaaaaaaaaa","title":"local"}
+                ]}"""
+            ).jsonObject,
+        )
+        val task = CopilotTaskState(
+            project_id = "prj_story", conversation_id = "chat-a",
+            request_id = "req-a", task_id = "ar_0123456789abcdef01234567",
+            agent_run_state = "SUCCEEDED", state = "DONE",
+            reply_text = "Investigación terminada", results = listOf(
+                ready,
+                ready.copy(tool = "search_story_wiki"),
+                ready.copy(status = "UNAVAILABLE"),
+                ready.copy(result = Json.parseToJsonElement(
+                    """{"status":"READY","authority":"CANON","sources":[
+                        {"url":"$url","ref":"$ref"}]}"""
+                ).jsonObject),
+            ),
+        )
+        val recovered = recoveredCopilotChat("prj_story", "chat-a", "req-a", task)
+        assertNotNull(recovered)
+        assertTrue(recovered!!.recovered_from_interruption)
+        assertEquals("jarvis.chat.content.v1", recovered.content?.schema)
+        assertEquals(1, recovered.content?.sources?.size)
+        assertEquals(url, recovered.content?.sources?.single()?.url)
+        assertEquals(ref, recovered.content?.sources?.single()?.ref)
+        assertEquals("Public Doom source", recovered.content?.sources?.single()?.title)
+        assertNull(recoveredCopilotChat("prj_story", "other-chat", "req-a", task))
+        assertTrue(recoveredCopilotPublicSources(task.copy(
+            results = listOf(ready.copy(status = "UNAVAILABLE")))).isEmpty())
+    }
+
     @Test fun mismatchedRecoveredScopeIsNeverPresentedAsSuccessfulReply() {
         val card = CopilotTaskState(
             project_id = "prj_private", conversation_id = "chat-a",
