@@ -1769,13 +1769,17 @@ private fun CopilotAssistantMessage(
     val clipboardManager = LocalClipboardManager.current
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
     var expandedVisual by remember { mutableStateOf<String?>(null) }
+    var expandedSource by remember { mutableStateOf<Pair<String, String>?>(null) }
     expandedVisual?.let { imageId ->
         val fullImage = remember(imageId) {
             vm.attachmentStore.decodeThumbnail(imageId, maxSize = 1600)
         }
         if (fullImage != null) {
             AlertDialog(
-                onDismissRequest = { expandedVisual = null },
+                onDismissRequest = {
+                    expandedVisual = null
+                    expandedSource = null
+                },
                 title = { Text("Referencia visual del chat") },
                 text = {
                     Image(
@@ -1786,19 +1790,18 @@ private fun CopilotAssistantMessage(
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = { expandedVisual = null }) {
+                    TextButton(onClick = {
+                        expandedVisual = null
+                        expandedSource = null
+                    }) {
                         Text("Cerrar")
                     }
                 },
                 dismissButton = {
-                    val assetId = turn.candidateAssetId
-                    val sha = turn.candidateSha256
-                    if (assetId != null && !sha.isNullOrBlank() &&
-                        turn.candidateStorageState == "stored" &&
-                        imageId == turn.generatedPreviewAttachmentId
-                    ) {
+                    expandedSource?.let { (assetId, sha) ->
                         TextButton(onClick = {
                             expandedVisual = null
+                            expandedSource = null
                             onEditVisual(assetId, sha)
                         }) {
                             Text("Editar en Copilot")
@@ -1904,7 +1907,14 @@ private fun CopilotAssistantMessage(
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxWidth().height(240.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .clickable { expandedVisual = thumbnailId },
+                                    .clickable {
+                                        expandedSource = com.jarvis.android.ui.writing.editableCopilotVisualSource(
+                                            approved.asset_id, approved.sha256, approved.status,
+                                            approved.storage_state, thumbnailId,
+                                            approvedVisualAttachments[approved.asset_id],
+                                        )
+                                        expandedVisual = thumbnailId
+                                    },
                             )
                         } else {
                             Text(
@@ -1932,7 +1942,14 @@ private fun CopilotAssistantMessage(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxWidth().height(350.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable { expandedVisual = attachmentId },
+                                .clickable {
+                                    expandedSource = com.jarvis.android.ui.writing.editableCopilotVisualSource(
+                                        turn.candidateAssetId, turn.candidateSha256,
+                                        turn.candidateStatus, turn.candidateStorageState,
+                                        attachmentId, turn.generatedPreviewAttachmentId,
+                                    )
+                                    expandedVisual = attachmentId
+                                },
                         )
                     }
                 }
