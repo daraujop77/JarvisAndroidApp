@@ -415,7 +415,7 @@ class LiveAppGatewayTransport(
                 val id = runCatching {
                     item.jsonObject["asset_id"]?.jsonPrimitive?.content.orEmpty()
                 }.getOrDefault("")
-                id.takeIf { it.matches(Regex("^ga_[A-Za-z0-9_]{6,100}$")) }
+                id.takeIf { it.matches(Regex("^[A-Za-z0-9_-]{30,64}$")) }
             }?.distinct()?.take(3).orEmpty()
         if (text.isBlank() && assets.isEmpty()) return@runCatching null
         CompletedTurn(
