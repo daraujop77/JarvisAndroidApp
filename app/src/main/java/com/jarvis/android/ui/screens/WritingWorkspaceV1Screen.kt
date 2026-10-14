@@ -103,6 +103,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -138,6 +139,7 @@ import com.jarvis.android.ui.theme.JarvisUiTokens
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisScreenInset
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
+import com.jarvis.android.ui.writing.verifiedCopilotPublicSources
 import com.jarvis.android.ui.writing.VisualStudioScreen
 import com.jarvis.android.ui.writing.DraftReviewScreen
 import com.jarvis.android.ui.writing.findStructuredCharacterByReference
@@ -1767,6 +1769,10 @@ private fun CopilotAssistantMessage(
     onEditVisual: (String, String) -> Unit,
 ) {
     val clipboardManager = LocalClipboardManager.current
+    val publicUriHandler = LocalUriHandler.current
+    val publicSources = remember(chat.content) {
+        verifiedCopilotPublicSources(chat.content)
+    }
     var copied by remember(chat.turn.response.text) { mutableStateOf(false) }
     var expandedVisual by remember { mutableStateOf<String?>(null) }
     var expandedSource by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -1879,6 +1885,38 @@ private fun CopilotAssistantMessage(
                 }
                 Spacer(Modifier.height(5.dp))
                 RichModelText(chat.turn.response.text)
+
+                // Only cryptographically validated HTTPS source receipts
+                // are clickable. External search is not canon or pixel proof.
+                if (publicSources.isNotEmpty()) {
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        "FUENTES WEB EXTERNAS · NO SON CANON",
+                        style = HudTextStyle,
+                        color = JarvisCyan,
+                    )
+                    publicSources.take(5).forEachIndexed { index, source ->
+                        val sourceHost = remember(source.url) {
+                            runCatching { java.net.URI(source.url).host }
+                                .getOrNull().orEmpty()
+                        }
+                        TextButton(
+                            onClick = { publicUriHandler.openUri(source.url) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "${index + 1}. " +
+                                    source.title.ifBlank { "Fuente pública" }.take(100) +
+                                    " · " + sourceHost,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisCyan,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
 
                 chat.visual_assets.take(6).forEach { approved ->
                     if (approved.status == "APPROVED") {
