@@ -440,7 +440,7 @@ class LiveAppGatewayTransportTest {
         store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-media"))
         store.put(mapOf(
             JarvisAppSession.KEY_TURN_PREFIX + "req-media" to
-                listOf("c1", "trace-media", ANDROID_DEVICE, APP_SESSION).joinToString("\\u001f"),
+                listOf("c1", "trace-media", ANDROID_DEVICE, APP_SESSION).joinToString("\u001f"),
         ))
         val appSession = JarvisAppSession(store)
         val missingStaging = AtomicInteger(0)
