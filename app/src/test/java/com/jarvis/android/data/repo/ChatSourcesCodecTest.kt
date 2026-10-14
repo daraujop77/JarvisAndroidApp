@@ -41,6 +41,13 @@ class ChatSourcesCodecTest {
             "https://localhost/login",
             "https://attacker:secret@example.org/report",
             "https://example.internal/private",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://0.0.0.0/",
+            "https://8.8.8.8/public",
+            "https://[::1]/private",
+            "https://example.org./trailing-root-dot",
+            "https://router.lan/admin",
+            "https://device.home.arpa/private",
         )) {
             val raw = Json.parseToJsonElement(
                 """{"schema":"jarvis.chat.content.v1","sources":[

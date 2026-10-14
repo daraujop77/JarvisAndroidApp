@@ -34,6 +34,10 @@ class CopilotPublicSourcesTest {
             "http://example.org/unsecured",
             "https://192.168.1.2/admin", "file:///etc/passwd",
             "https://user:password@example.org/private",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://[::1]/admin",
+            "https://router.lan/",
+            "https://example.org./",
         )
         val hostile = urls.map { url ->
             JarvisChatContentSource(ref = receipt(url), url = url, title = "Forged")
