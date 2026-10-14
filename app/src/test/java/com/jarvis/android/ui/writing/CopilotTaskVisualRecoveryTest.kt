@@ -151,6 +151,30 @@ class CopilotTaskVisualRecoveryTest {
         assertTrue(!copilotTaskHasActiveRemoteWork(done))
     }
 
+    @Test fun missingChatBubbleCanBeRebuiltOnlyForItsOriginalScopedTurn() {
+        val original = task(taskId = "ar_original").copy(
+            conversation_id = "conversation-1", request_id = "request-1",
+        )
+        val recovered = original.copy(
+            request_text = "Genera Doom", reply_text = "La imagen está lista",
+            agent_run_state = "SUCCEEDED",
+        )
+        assertTrue(canRebuildCopilotTurn("prj_story", original, recovered))
+        assertTrue(!canRebuildCopilotTurn("wrong-project", original, recovered))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, recovered.copy(task_id = "ar_other")))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, recovered.copy(request_id = "another")))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, recovered.copy(conversation_id = "private")))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, recovered.copy(request_text = "")))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original, recovered.copy(agent_run_state = "RUNNING")))
+        assertTrue(!canRebuildCopilotTurn(
+            "prj_story", original.copy(request_id = ""), recovered))
+    }
+
     @Test fun completedCharacterMasterIsRecoveredWithoutRepeatGeneration() {
         val result = CopilotTaskResult(tool = "generate_character_master",
             result = buildJsonObject {
