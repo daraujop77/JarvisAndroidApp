@@ -67,13 +67,6 @@ import androidx.compose.material.icons.filled.Tune
 import com.jarvis.android.data.story.CharacterChapterActivity
 import com.jarvis.android.data.story.CharacterJarvisAnalysis
 import com.jarvis.android.data.story.CharacterLifeStatus
-import com.jarvis.android.ui.writing.looksLikeCopilotApprovedVisualInspectionRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotSceneImageRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotChapterWriteRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotCharacterViewsRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotVisualDirectionChangeRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotOfficialExportRequest
-import com.jarvis.android.ui.writing.looksLikeCopilotCanonReadRequest
 import com.jarvis.android.ui.writing.resolveCopilotOfficialExport
 import com.jarvis.android.data.story.StoryCharacter
 import com.jarvis.android.data.story.StoryFaction
@@ -621,7 +614,6 @@ private fun ChatSection(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     var prompt by rememberSaveable(projectId) { mutableStateOf("") }
-    var toolMode by rememberSaveable(projectId) { mutableStateOf(false) }
     var sceneCorrection by rememberSaveable(projectId) { mutableStateOf("") }
     val referencePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -667,16 +659,7 @@ private fun ChatSection(
             if (state.copilotPendingReferenceId != null) {
                 vm.importWritingCopilotReference(projectId, title, clean)
             } else {
-                vm.runWritingRoomAutoChat(
-                    projectId, title, clean,
-                    toolMode = toolMode || looksLikeCopilotSceneImageRequest(clean) ||
-                        looksLikeCopilotChapterWriteRequest(clean) ||
-                        looksLikeCopilotCharacterViewsRequest(clean) ||
-                        looksLikeCopilotVisualDirectionChangeRequest(clean) ||
-                        looksLikeCopilotOfficialExportRequest(clean) ||
-                        looksLikeCopilotCanonReadRequest(clean) ||
-                        looksLikeCopilotApprovedVisualInspectionRequest(clean),
-                )
+                vm.runWritingRoomAutoChat(projectId, title, clean)
             }
             prompt = ""
         }
@@ -1657,24 +1640,6 @@ private fun ChatSection(
                             Icon(Icons.Filled.Close, contentDescription = "Quitar referencia")
                         }
                     }
-                }
-                FilterChip(
-                    selected = toolMode,
-                    onClick = { toolMode = !toolMode },
-                    enabled = !state.busy && !state.copilotAgentBusy,
-                    label = { Text("Agente con herramientas") },
-                    leadingIcon = {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = null)
-                    },
-                )
-                if (toolMode) {
-                    Text(
-                        "JARVIS elegirá herramientas del proyecto. Lecturas automáticas; " +
-                            "cualquier propuesta para guardar requiere tu aprobación. " +
-                            "Las herramientas aún no conectadas se indicarán sin simular resultados.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = JarvisCyan,
-                    )
                 }
                 state.copilotReferenceError?.let { message ->
                     Text(message, color = JarvisRed, style = MaterialTheme.typography.bodySmall)

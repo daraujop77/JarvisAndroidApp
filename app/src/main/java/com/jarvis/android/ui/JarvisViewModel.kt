@@ -16,23 +16,18 @@ import com.jarvis.android.transport.fake.FakeScenario
 import com.jarvis.android.update.AppUpdateManager
 import com.jarvis.android.update.AppUpdateState
 import com.jarvis.android.transport.live.*
-import com.jarvis.android.ui.writing.looksLikeCopilotPortraitCommand
-import com.jarvis.android.ui.writing.shouldProbeAdaptiveCopilotTool
 import com.jarvis.android.ui.writing.approvedVisualIdsForCopilotContext
 import com.jarvis.android.ui.writing.newApprovedCopilotTaskVisuals
 import com.jarvis.android.ui.writing.completedCopilotGeneratedMaster
 import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
 import com.jarvis.android.ui.writing.canRebuildCopilotTurn
 import com.jarvis.android.transport.live.recoveredCopilotChat
-import com.jarvis.android.ui.writing.resolveCopilotPortrait
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
 import com.jarvis.android.ui.writing.selectCopilotSceneReviewAsset
 import com.jarvis.android.ui.writing.copilotApprovableViewIds
 import com.jarvis.android.ui.writing.copilotBatchCanStartNew
 import com.jarvis.android.ui.writing.CopilotAppearanceIntent
-import com.jarvis.android.ui.writing.looksLikeCopilotAppearanceCommand
-import com.jarvis.android.ui.writing.resolveCopilotAppearance
 import com.jarvis.android.ui.writing.applyCopilotAppearanceChange
 import com.jarvis.android.ui.writing.copilotAppearanceFieldValue
 import android.net.Uri
@@ -384,7 +379,6 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private var copilotTaskPollId: String? = null
     private var copilotRecoveryEpoch = 0L
     private var copilotRecoveryActiveProject: String? = null
-    private var adaptiveAppearanceProbePending: String? = null
     private var copilotViewPollJob: Job? = null
     private var copilotAppearanceEpoch = 0L
 
@@ -2302,72 +2296,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         prompt: String,
         room: String = "chat",
         toolMode: Boolean = false,
-        skipAdaptiveProbe: Boolean = false,
     ) {
         val clean = prompt.trim()
         if (clean.isEmpty()) return
-        if (shouldProbeAdaptiveCopilotTool(clean, toolMode, skipAdaptiveProbe)) {
-            // Ask the authoritative backend before any legacy appearance OR
-            // portrait command handler. An enabled adaptive agent gets to
-            // resolve natural-language intent, canonical identities and
-            // necessary approvals without rigid Android phrase routing.
-            // Preserve the v64 cards when the agent capability is disabled.
-            if (_writingWorkspace.value.chatProjectId != projectId ||
-                adaptiveAppearanceProbePending != null) return
-            val key = projectId + ":" + clean
-            val epoch = copilotRecoveryEpoch
-            adaptiveAppearanceProbePending = key
-            viewModelScope.launch {
-                val available = container.liveSession.writingRoomAdaptiveReady(projectId)
-                if (adaptiveAppearanceProbePending == key) {
-                    adaptiveAppearanceProbePending = null
-                }
-                if (epoch != copilotRecoveryEpoch ||
-                    _writingWorkspace.value.chatProjectId != projectId
-                ) return@launch
-                runWritingRoomAutoChat(
-                    projectId, projectTitle, clean, room,
-                    toolMode = available, skipAdaptiveProbe = true,
-                )
-            }
-            return
-        }
-        if (!toolMode && looksLikeCopilotAppearanceCommand(clean)) {
-            if (_writingWorkspace.value.chatProjectId != projectId) return
-            val intent = resolveCopilotAppearance(clean, _writingWorkspace.value.wikiCharacters)
-            if (intent == null) {
-                _writingWorkspace.value = _writingWorkspace.value.copy(
-                    copilotAppearanceError = "No encontré un personaje único con ese nombre en el " +
-                        "Wiki de este proyecto. Usa el nombre canónico exacto.",
-                )
-            } else {
-                openCopilotAppearance(projectId, intent)
-            }
-            return
-        }
-        if (!toolMode && looksLikeCopilotPortraitCommand(clean)) {
-            val characters = _writingWorkspace.value.wikiCharacters
-            val portrait = resolveCopilotPortrait(clean, characters)
-            if (portrait == null) {
-                _writingWorkspace.value = _writingWorkspace.value.copy(
-                    error = "No pude identificar un único personaje del Wiki. " +
-                        "Usa el nombre canónico exacto; por ejemplo: Genera retrato de Naruto.",
-                )
-                return
-            }
-            if (_writingWorkspace.value.chatProjectId != projectId) return
-            // A chat instruction is a request to prepare an image, not consent
-            // to spend cloud credits. Dispatch only after an explicit tap.
-            _writingWorkspace.value = _writingWorkspace.value.copy(
-                pendingPortrait = CopilotPendingPortrait(
-                    projectId, projectTitle, clean, portrait.characterId,
-                    portrait.canonicalName, portrait.adjustment,
-                ),
-                error = null,
-            )
-            return
-        }
-
+        // All conversational intent goes to the shared model-first AdaptiveAgent.
+        // The transport probes the authenticated agent stream itself and uses
+        // legacy chat only on an explicit pre-execution 404. Android must not
+        // guess intent with keyword/regex handlers or add a preflight roundtrip.
         val current = _writingWorkspace.value
         val existingHistory = if (current.chatProjectId == projectId) current.chatHistory else emptyList()
         val recent = existingHistory.takeLast(6).flatMap { previous ->
