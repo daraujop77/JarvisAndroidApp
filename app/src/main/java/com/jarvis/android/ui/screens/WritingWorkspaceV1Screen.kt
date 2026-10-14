@@ -1964,6 +1964,29 @@ private fun CopilotAssistantMessage(
                             Spacer(Modifier.width(6.dp))
                             Text("Aprobar retrato como referencia visual")
                         }
+                    } else if (
+                        com.jarvis.android.ui.writing.isApprovableProjectReference(
+                            turn.candidateAssetId, turn.candidateSha256,
+                            turn.candidateKind, turn.candidateStatus,
+                            turn.candidateStorageState, turn.candidateCharacterId,
+                            !turn.generatedPreviewAttachmentId.isNullOrBlank(),
+                        )
+                    ) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                vm.approveCopilotProjectReference(
+                                    projectId, assetId,
+                                    turn.candidateSha256.orEmpty(),
+                                )
+                            },
+                            enabled = !busy,
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null,
+                                modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Aprobar referencia del proyecto (sin canon)")
+                        }
                     } else if (turn.candidateStorageState != "stored" &&
                         turn.candidateStatus == "CANDIDATE"
                     ) {
