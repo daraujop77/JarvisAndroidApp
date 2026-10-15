@@ -1067,7 +1067,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             result.fold(
                 onSuccess = { generated ->
                     val asset = generated.visual_asset
-                    val safe = generated.model == "gpt-image-2-medium" &&
+                    val safe = generated.model.isNotBlank() &&
                         !generated.fallback_used && asset != null &&
                         asset.status == "CANDIDATE" && asset.asset_id.isNotBlank() &&
                         Regex("^[A-Fa-f0-9]{64}$").matches(asset.sha256)
@@ -1075,7 +1075,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         _writingWorkspace.value = _writingWorkspace.value.copy(
                             busy = false,
                             busyLabel = "",
-                            error = "El proveedor respondió, pero no se pudo verificar el modelo y la referencia candidata. " +
+                            error = "El proveedor respondió, pero no se pudo verificar la referencia candidata. " +
                                 "Revisa Visual Studio antes de generar otra imagen.",
                         )
                         return@fold
@@ -1870,7 +1870,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     source.image_base64.length > 16 * 1024 * 1024
                 ) throw IllegalStateException("La imagen original no pasó la verificación.")
                 // One owner gesture dispatches one existing Image Studio edit route.
-                // gpt-image-2-medium is the project's currently configured image model.
+                // Writing Room backend pins the current image model for this project.
                 val response = container.liveSession.editSceneVisualAssetImage(
                     imageBase64 = source.image_base64,
                     mimeType = source.mime_type,
@@ -1878,7 +1878,6 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     instruction = instruction,
                     parentAsset = parent,
                     mode = "quality",
-                    model = "gpt-image-2-medium",
                     preserveIdentity = "high",
                     aspectRatio = "landscape",
                     sceneJobId = if (parent.status == "CANDIDATE") card.jobId else null,
@@ -4362,8 +4361,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     prompt = "",
                     kind = "PRIMARY_REFERENCE",
                     perspective = "front",
-                    mode = "model_select",
-                    model = "gpt-image-2-medium",
+                    mode = "quality",
                     aspectRatio = "portrait",
                     referencesPerCharacter = 1,
                 )
@@ -4629,8 +4627,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 prompt = cleanPrompt,
                 kind = kind,
                 perspective = perspective,
-                mode = "model_select",
-                model = "gpt-image-2-medium",
+                mode = "quality",
                 aspectRatio = "portrait",
                 referencePerspectives = if (kind == "IDENTITY_PACK") listOf("front") else emptyList(),
                 referencesPerCharacter = 1,
