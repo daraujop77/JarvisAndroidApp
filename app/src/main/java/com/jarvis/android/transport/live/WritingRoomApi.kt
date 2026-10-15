@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.util.Base64
 
 private val writingRoomJson = Json { ignoreUnknownKeys = true }
 
@@ -1373,6 +1374,32 @@ suspend fun JarvisAppSession.writingRoomAutoChat(
 }
 
 /**
+ * Preserve original Copilot reference bytes. The MIME comes from a verified
+ * file signature, never the URI extension, picker label, or a JPEG default.
+ * The VPS independently validates image input and applies project access.
+ */
+private fun copilotReferenceMime(base64: String): String? {
+    if (base64.isBlank() || base64.length > 8 * 1024 * 1024) return null
+    val bytes = try {
+        Base64.getDecoder().decode(base64)
+    } catch (_: IllegalArgumentException) {
+        return null
+    }
+    if (bytes.size !in 12..(5 * 1024 * 1024)) return null
+    fun signature(offset: Int, vararg expected: Int): Boolean =
+        bytes.size >= offset + expected.size && expected.indices.all { i ->
+            (bytes[offset + i].toInt() and 0xff) == expected[i]
+        }
+    return when {
+        signature(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a) -> "image/png"
+        signature(0, 0xff, 0xd8, 0xff) -> "image/jpeg"
+        signature(0, 0x52, 0x49, 0x46, 0x46) &&
+            signature(8, 0x57, 0x45, 0x42, 0x50) -> "image/webp"
+        else -> null
+    }
+}
+
+/**
  * Owner-only reference import, persisted as CANDIDATE in the existing Visual Asset Registry.
  * This does not generate any image, promote canon, or associate the upload with a character.
  */
@@ -1381,15 +1408,17 @@ suspend fun JarvisAppSession.writingRoomCopilotImportReference(
     imageBase64: String,
     note: String,
 ): Result<CopilotVisualImport> {
-    if (projectId.isBlank() || imageBase64.isBlank() || imageBase64.length > 8 * 1024 * 1024) {
-        return Result.failure(TransportException("Invalid or oversized visual reference"))
+    if (projectId.isBlank()) {
+        return Result.failure(TransportException("Invalid visual reference project"))
     }
+    val mime = copilotReferenceMime(imageBase64)
+        ?: return Result.failure(TransportException("Invalid, oversized or unsupported original image"))
     return writingPost(
         "/api/app/writing-room/visual-assets/ingest",
         buildJsonObject {
             put("project_id", projectId)
             put("image_base64", imageBase64)
-            put("mime_type", "image/jpeg")
+            put("mime_type", mime)
             put("kind", "REFERENCE")
             put("source", "MANUAL_UPLOAD")
             put("perspective", "custom")
