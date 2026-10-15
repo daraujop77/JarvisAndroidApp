@@ -6447,6 +6447,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             prompt = clean,
                             attachmentId = staged.attachmentId,
                         )
+                        container.liveSession.acknowledgePaidVisual("/api/app/images/generations")
                         _lastImageGenerationDetails.value = ImageGenerationDetails(
                             reply.provider, reply.model, reply.requestedMode,
                             reply.fallbackUsed, reply.attemptCount, reply.durationMs,
@@ -6526,6 +6527,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     } else {
                         // Keep the edited version in Image Studio's local version chain only.
                         // The originating chat image remains in chat, but Studio derivatives do not.
+                        container.liveSession.acknowledgePaidVisual("/api/app/images/edits")
                         _lastImageEditDetails.value = ImageGenerationDetails(
                             reply.provider,
                             reply.model,
