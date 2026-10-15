@@ -739,6 +739,68 @@ class JarvisAppSession(
         }
     }
 
+    /** Preserve an account-specific paid attempt across disconnects and process death.
+     * A repeat uses GET only: never a second provider dispatch.
+     */
+    private fun paidVisualAttemptKey(path: String): String {
+        val owner = "$baseUrl\u001f$userId"
+        val hash = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(owner.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }.take(32)
+        return "jarvis.paid.visual.$hash.${path.substringAfterLast('/')}"
+    }
+
+    private fun paidVisualFingerprint(body: JsonObject): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(body.toString().toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+    @Synchronized
+    private fun postPaidVisual(path: String, body: JsonObject): Pair<Int, String> {
+        if (userId.isBlank()) throw TransportException("Visual operation requires authentication")
+        val key = paidVisualAttemptKey(path)
+        val digest = paidVisualFingerprint(body)
+        val previous = store.get(key)
+        if (previous != null) {
+            val parts = previous.split('\u001f')
+            if (parts.size != 2 || parts[1] != digest) {
+                throw TransportException("Previous paid image request is unresolved. Recover it first.")
+            }
+            val requestId = parts[0]
+            if (!requestId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{7,159}"))) {
+                throw TransportException("Saved visual request ID is invalid")
+            }
+            val result = get(baseUrl, "/api/app/images/requests/$requestId", auth = authHeader())
+            if (result.first != 200) throw TransportException(
+                "Paid image outcome cannot be verified; automatic retry disabled")
+            val receipt = json.parseToJsonElement(result.second).jsonObject
+            if (receipt["result"] != null || receipt["data_base64"] == null) {
+                throw TransportException("Image may already have been charged; no second dispatch")
+            }
+            return result
+        }
+        val requestId = "img_" + UUID.randomUUID().toString()
+        val probe = get(baseUrl, "/api/app/images/requests/$requestId", auth = authHeader())
+        val missing = runCatching {
+            json.parseToJsonElement(probe.second).jsonObject["error"]
+                ?.jsonPrimitive?.contentOrNull == "image_request_not_found"
+        }.getOrDefault(false)
+        if (probe.first != 404 || !missing) {
+            throw TransportException("VPS does not support safe paid-image recovery")
+        }
+        store.put(mapOf(key to "$requestId\u001f$digest"))
+        val wireBody = buildJsonObject {
+            body.forEach { (name, value) -> put(name, value) }
+            put("request_id", requestId)
+        }.toString()
+        return post(baseUrl, path, wireBody, auth = authHeader(), timeoutMillis = 480_000L)
+    }
+
+    /** Acknowledge only after the exact image original has been saved locally. */
+    fun acknowledgePaidVisual(path: String) {
+        store.put(mapOf(paidVisualAttemptKey(path) to null))
+    }
+
     data class ImageGenerationReply(
         val mimeType: String,
         val dataBase64: String,
@@ -777,8 +839,8 @@ class JarvisAppSession(
                 put("prompt", cleanPrompt)
                 put("mode", mode)
                 if (!model.isNullOrBlank()) put("model", model)
-            }.toString()
-            val response = post(root, "/api/app/images/generations", body, auth = authHeader())
+            }
+            val response = postPaidVisual("/api/app/images/generations", body)
             requireImageGenerationOk(response)
             val obj = json.parseToJsonElement(response.second).jsonObject
             val mimeType = obj["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -901,8 +963,8 @@ class JarvisAppSession(
                 put("preserve_identity", preserveIdentity)
                 put("aspect_ratio", aspectRatio)
                 if (!model.isNullOrBlank()) put("model", model)
-            }.toString()
-            val response = post(root, "/api/app/images/edits", body, auth = authHeader())
+            }
+            val response = postPaidVisual("/api/app/images/edits", body)
             requireImageGenerationOk(response)
             val obj = json.parseToJsonElement(response.second).jsonObject
             val resultMime = obj["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
