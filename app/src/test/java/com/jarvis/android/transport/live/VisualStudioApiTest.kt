@@ -226,8 +226,8 @@ class VisualStudioApiTest {
                             "requested_by":"owner-1",
                             "adjustment":"",
                             "mode":"quality",
-                            "max_corrections":2,
-                            "generation_budget":3,
+                            "max_corrections":0,
+                            "generation_budget":1,
                             "generation_used":0,
                             "status":"RUNNING",
                             "pending_count":1,
@@ -256,8 +256,8 @@ class VisualStudioApiTest {
                           "generated_asset_ids":[],
                           "async_execution":true,
                           "semantic_evaluation":true,
-                          "max_corrections":2,
-                          "generation_budget":3,
+                          "max_corrections":0,
+                          "generation_budget":1,
                           "human_approval_required":true,
                           "auto_canon":false
                         }
@@ -510,11 +510,16 @@ class VisualStudioApiTest {
             perspectives = listOf("left_profile", "back"),
         ).orThrowStage("complete missing views")
 
+        val createRequest = server.takeRequest()
+        val createBody = json.parseToJsonElement(createRequest.body.readUtf8()).jsonObject
+        assertEquals(0, createBody["max_corrections"]!!.jsonPrimitive.content.toInt())
+        assertEquals("quality", createBody["mode"]!!.jsonPrimitive.content)
+
         assertEquals("RUNNING", batch.batch?.status)
         assertEquals(listOf("vcj_back"), batch.queued_job_ids)
         assertTrue(batch.async_execution)
         assertTrue(batch.semantic_evaluation)
-        assertEquals(3, batch.generation_budget)
+        assertEquals(1, batch.generation_budget)
         assertTrue(batch.generated_asset_ids.isEmpty())
         assertTrue(batch.human_approval_required)
         assertFalse(batch.auto_canon)
@@ -545,6 +550,23 @@ class VisualStudioApiTest {
         assertFalse(approved.partial)
         assertEquals("COMPLETED", approved.batch?.status)
         assertEquals("va_batch_back", approved.approved.single().asset_id)
+    }
+
+    @Test
+    fun characterViewBatchResumeLeavesPersistedCorrectionPolicyUntouched() = runBlocking {
+        val session = session()
+        session.visualCompleteCharacterViews(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            perspectives = listOf("back"),
+            mode = "quality",
+            batchId = "vcb_1",
+        ).orThrowStage("resume existing views")
+
+        val request = server.takeRequest()
+        val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("vcb_1", body["batch_id"]!!.jsonPrimitive.content)
+        assertTrue(body["max_corrections"] == null)
     }
 
     @Test

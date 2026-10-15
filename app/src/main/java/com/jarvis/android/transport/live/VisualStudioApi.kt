@@ -1040,6 +1040,10 @@ suspend fun JarvisAppSession.visualCompleteCharacterViews(
             )
             put("adjustment", adjustment.trim())
             put("mode", mode)
+            // A new turnaround is one paid attempt per missing view. When
+            // resuming, omit this field so the server reuses the persisted
+            // policy instead of reinterpreting a historical batch.
+            if (batchId.isBlank()) put("max_corrections", 0)
             if (batchId.isNotBlank()) put("batch_id", batchId)
         },
     )
