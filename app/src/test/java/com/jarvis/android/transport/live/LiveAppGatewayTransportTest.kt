@@ -137,7 +137,7 @@ class LiveAppGatewayTransportTest {
                     request.path == "/api/app/chat/agent/project/turn" -> {
                         postedBodies += "POST /api/app/chat/agent/project/turn\n" + request.body.readUtf8()
                         MockResponse().setBody(
-                            """{"schema":"jarvis.chat.turn.v1","response":{"text":"Scoped image read","provider":"jarvis-adaptive"}}"""
+                            """{"schema":"jarvis.chat.turn.v1","response":{"text":"Scoped image read","provider":"jarvis-adaptive"},"content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Scoped image read"}],"sources":[{"ref":"web:a32f3bb71f3e05ea8971","title":"IANA official","url":"https://www.iana.org/domains/reserved"},{"ref":"web:00000000000000000000","title":"Fake local","url":"https://127.0.0.1/private"}]}}"""
                         )
                     }
                     request.path == "/api/app/chat" && request.method == "POST" -> {
@@ -516,6 +516,45 @@ class LiveAppGatewayTransportTest {
         assertEquals("iVBORw0KGgo=", source?.get("data_base64")?.jsonPrimitive?.content)
         assertEquals(0, streamCalls.get())
         assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
+    fun selectedProjectTurnKeepsSignedWebSourcesOnOriginalMessage() {
+        val session = JarvisAppSession(seededStore())
+        session.setChatAgentProjectFor("project-chat-sources", "prj_story")
+        val delivered = java.util.Collections.synchronizedList(
+            mutableListOf<Triple<String, String, String>>()
+        )
+        session.onAgentSourcesReady = { conversationId, requestId, sourcesJson ->
+            delivered += Triple(conversationId, requestId, sourcesJson)
+        }
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val turn = repo.send("project-chat-sources", "Find the official IANA page")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+                     repo.snapshot.value.session.requests[turn]?.status)
+        val sent = postedBodies.single {
+            it.startsWith("POST /api/app/chat/agent/project/turn\\n")
+        }
+        val request = Json.parseToJsonElement(sent.substringAfter('\\n')).jsonObject
+        assertEquals("prj_story", request["project_id"]?.jsonPrimitive?.content)
+        assertEquals("project-chat-sources",
+                     request["conversation_id"]?.jsonPrimitive?.content)
+        assertEquals(turn, request["request_id"]?.jsonPrimitive?.content)
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+        assertEquals(1, delivered.size)
+        assertEquals("project-chat-sources", delivered.single().first)
+        assertEquals(turn, delivered.single().second)
+        val citations = com.jarvis.android.data.repo.ChatSourcesCodec.decode(
+            delivered.single().third
+        )
+        assertEquals(1, citations.size)
+        assertEquals("https://www.iana.org/domains/reserved", citations.single().url)
+        assertEquals("web:a32f3bb71f3e05ea8971", citations.single().ref)
     }
 
     @Test
