@@ -61,7 +61,7 @@ class WritingRoomWorkspaceApiTest {
                         """.trimIndent(),
                     )
                     "/api/app/images/generations" -> MockResponse().setBody(
-                        """{"schema":"jarvis.image.generation.v2","model":"gpt-image-2-medium","provider":"openai-codex","fallback_used":false,"mime_type":"image/jpeg","data_base64":"aW1hZ2U=","visual_asset":{"asset_id":"va_portrait_1","project_id":"prj_story","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"CANDIDATE","storage":{"state":"stored"}}}""",
+                        """{"schema":"jarvis.image.generation.v2","model":"gpt-image-2-medium","provider":"openai-codex","fallback_used":false,"mime_type":"image/png","data_base64":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgZGT8DwABDQED5NTSmwAAAABJRU5ErkJggg==","size_bytes":70,"visual_asset":{"asset_id":"va_portrait_1","project_id":"prj_story","sha256":"2f41b02bc94868f7cdd1e503c7f592ee7673dbb155eac2f267a3d1abf64aea18","mime_type":"image/png","size_bytes":70,"kind":"PRIMARY_REFERENCE","status":"CANDIDATE","storage":{"state":"stored"}}}""",
                     )
                     "/api/app/writing-room/v2/visual/characters/approve-primary-exact" -> MockResponse().setBody(
                         """{"schema":"jarvis.visual-studio.character-primary-approval.v1","character_id":"character:naruto","wiki_link":{"entry_id":"character:naruto"},"asset":{"asset_id":"va_portrait_1","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"APPROVED","storage":{"state":"stored"}}}""",
@@ -1141,7 +1141,7 @@ class WritingRoomWorkspaceApiTest {
     }
 
     @Test
-    fun copilotPortraitPinsImage2MediumAndCharacterCreatorEvidence() = runBlocking(Dispatchers.IO) {
+    fun copilotPortraitUsesServerPinnedModelAndCharacterCreatorEvidence() = runBlocking(Dispatchers.IO) {
         val image = session().writingRoomCopilotGeneratePortrait(
             "prj_story", "character:naruto", "Naruto", "con ropa de batalla",
         ).getOrThrow()
@@ -1163,8 +1163,8 @@ class WritingRoomWorkspaceApiTest {
         val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals(recovery.path!!.substringAfterLast('/'),
             body["request_id"]?.jsonPrimitive?.content)
-        assertEquals("gpt-image-2-medium", body["model"]?.jsonPrimitive?.content)
-        assertEquals("model_select", body["mode"]?.jsonPrimitive?.content)
+        assertEquals(null, body["model"])
+        assertEquals("quality", body["mode"]?.jsonPrimitive?.content)
         assertEquals("square", body["aspect_ratio"]?.jsonPrimitive?.content)
         val meta = body["visual_asset"]!!.jsonObject
         assertEquals("character_creator", meta["surface"]?.jsonPrimitive?.content)
@@ -1172,6 +1172,7 @@ class WritingRoomWorkspaceApiTest {
         assertEquals("front", meta["perspective"]?.jsonPrimitive?.content)
         assertEquals("character:naruto", meta["character_ids"]!!.jsonArray.single().jsonPrimitive.content)
         assertEquals("CANDIDATE", meta["provenance"]!!.jsonObject["authority"]?.jsonPrimitive?.content)
+        assertEquals(null, meta["provenance"]!!.jsonObject["requested_model"])
     }
 
     @Test
