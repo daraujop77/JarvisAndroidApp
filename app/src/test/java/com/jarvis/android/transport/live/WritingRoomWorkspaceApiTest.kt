@@ -1254,6 +1254,34 @@ class WritingRoomWorkspaceApiTest {
     }
 
     @Test
+    fun attachedCopilotTurnPreservesOriginalImageMimeAndBytes() = runBlocking(Dispatchers.IO) {
+        val client = session()
+        val samples = listOf(
+            "image/png" to "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgZGT8DwABDQED5NTSmwAAAABJRU5ErkJggg==",
+            "image/webp" to "UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoBAAEAAUAmJaACdLoB+AADsAD+8ut//NgVzXPv9//S4P0uD9Lg/9KQAAA=",
+        )
+        samples.forEach { (mime, original) ->
+            // The mock has no adaptive agent enabled (HTTP 404), so this
+            // deliberately validates the outbound wire without generation.
+            val result = client.writingRoomAutoChatStream(
+                projectId = "prj_story",
+                projectTitle = "Synthetic Story",
+                prompt = "Describe the attached original",
+                attachedImageBase64 = original,
+                onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            val request = server.takeRequest()
+            assertEquals("/api/app/writing-room/agent/stream", request.path)
+            val image = Json.parseToJsonElement(request.body.readUtf8()).jsonObject[
+                "images"]!!.jsonArray.single().jsonObject
+            assertEquals(mime, image["mime_type"]?.jsonPrimitive?.content)
+            assertEquals(original, image["data_base64"]?.jsonPrimitive?.content)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
     fun copilotReferenceRejectsUnknownOrMalformedBytesBeforeNetwork() = runBlocking(Dispatchers.IO) {
         val client = session()
         for (encoded in listOf("aGVsbG8=", "%%%not-base64%%%", "iVBORw0KGgo=")) {
