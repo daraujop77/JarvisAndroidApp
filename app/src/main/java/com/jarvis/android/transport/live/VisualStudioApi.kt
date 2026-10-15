@@ -17,6 +17,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
+import java.security.MessageDigest
+import java.util.Base64
 import kotlinx.serialization.json.put
 
 private val visualStudioJson = Json { ignoreUnknownKeys = true }
@@ -699,6 +702,55 @@ private suspend inline fun <reified T> JarvisAppSession.visualStudioPost(
     }
 }
 
+/**
+ * Validate the exact original bytes before returning a paid image or releasing
+ * the crash-durable request ID. This runs on initial POST and GET recovery.
+ * A mismatched receipt cannot silently become an approved/displayed candidate.
+ */
+private fun verifyPaidCandidateIntegrity(result: JsonObject, stored: JsonObject) {
+    val encoded = result["data_base64"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val assetMime = stored["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val expectedHash = stored["sha256"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val maxBytes = 12 * 1024 * 1024
+    if (mime !in setOf("image/png", "image/jpeg", "image/webp") ||
+        assetMime != mime || !Regex("^[a-fA-F0-9]{64}$").matches(expectedHash) ||
+        encoded.isEmpty() || encoded.length > ((maxBytes + 2) / 3 * 4 + 4)
+    ) {
+        throw TransportException("Paid image integrity metadata mismatch")
+    }
+    val bytes = try {
+        Base64.getDecoder().decode(encoded)
+    } catch (_: IllegalArgumentException) {
+        throw TransportException("Paid image integrity invalid base64")
+    }
+    if (bytes.isEmpty() || bytes.size > maxBytes) {
+        throw TransportException("Paid image integrity byte length mismatch")
+    }
+    fun matchesAt(offset: Int, vararg signature: Int): Boolean =
+        bytes.size >= offset + signature.size && signature.indices.all { index ->
+            (bytes[offset + index].toInt() and 0xff) == signature[index]
+        }
+    val signatureValid = when (mime) {
+        "image/png" -> matchesAt(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+        "image/jpeg" -> matchesAt(0, 0xff, 0xd8, 0xff)
+        "image/webp" -> matchesAt(0, 0x52, 0x49, 0x46, 0x46) &&
+            matchesAt(8, 0x57, 0x45, 0x42, 0x50)
+        else -> false
+    }
+    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        .joinToString("") { "%02x".format(it) }
+    val payloadSize = result["size_bytes"]?.jsonPrimitive?.longOrNull ?: 0L
+    val assetSize = stored["size_bytes"]?.jsonPrimitive?.longOrNull ?: 0L
+    if (!signatureValid || !digest.equals(expectedHash, ignoreCase = true) ||
+        payloadSize < 0L || assetSize < 0L ||
+        (payloadSize != 0L && payloadSize != bytes.size.toLong()) ||
+        (assetSize != 0L && assetSize != bytes.size.toLong())
+    ) {
+        throw TransportException("Paid image integrity SHA, size, or format mismatch")
+    }
+}
+
 private suspend fun JarvisAppSession.visualStudioObjectPost(
     path: String,
     body: JsonObject,
@@ -745,6 +797,10 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
             ) {
                 throw TransportException("Paid image receipt project or schema mismatch")
             }
+            // The same check protects initial success AND recovered outcomes.
+            // Reject invalid bytes instead of exposing them to a UI consumer;
+            // any pending attempt remains pinned to GET-only recovery.
+            verifyPaidCandidateIntegrity(result, stored)
             // Only release the request ID if the original bytes and exact
             // project candidate are durably recoverable from the VPS.
             // An unknown, cross-project, pending-storage or malformed receipt
