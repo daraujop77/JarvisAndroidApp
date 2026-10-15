@@ -22,6 +22,8 @@ import java.security.MessageDigest
 import java.util.Base64
 import kotlinx.serialization.json.put
 
+private const val SCENE_GENERATE_PATH = "/api/app/writing-room/v2/visual/scenes/generate"
+
 private val visualStudioJson = Json { ignoreUnknownKeys = true }
 
 @Serializable
@@ -765,7 +767,8 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
         val paid = path in setOf(
             "/api/app/images/generations", "/api/app/images/edits",
             "/api/app/images/copilot-scene-edits",
-        )
+        ) || (path == SCENE_GENERATE_PATH &&
+            body["engine"]?.jsonPrimitive?.contentOrNull == "cloud")
         // Use the SAME crash-durable attempt journal as Global Image Studio.
         // Reusing the original request after process death only performs GET.
         // After a verified durable candidate is stored, a NEW explicit user
@@ -789,11 +792,18 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
             val bytes = result["data_base64"]?.jsonPrimitive?.contentOrNull
             val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull
             val schema = result["schema"]?.jsonPrimitive?.contentOrNull
-            val expectedSchema = if (path == "/api/app/images/generations")
-                "jarvis.image.generation.v2" else "jarvis.image.edit.v1"
+            val expectedSchemas = when (path) {
+                "/api/app/images/generations" -> setOf("jarvis.image.generation.v2")
+                // v1 is the manual frozen-context path; v2 is returned when the context carries narrative evidence.
+                SCENE_GENERATE_PATH -> setOf(
+                    "jarvis.visual.scene-generation.v1",
+                    "jarvis.visual.scene-generation.v2",
+                )
+                else -> setOf("jarvis.image.edit.v1")
+            }
             if (expectedProject.isNullOrBlank() ||
                 expectedProject != storedProject || status != "CANDIDATE" ||
-                schema != expectedSchema
+                schema !in expectedSchemas
             ) {
                 throw TransportException("Paid image receipt project or schema mismatch")
             }
@@ -1870,7 +1880,7 @@ suspend fun JarvisAppSession.generateSceneVisualAssetImage(
     maxCorrections: Int = 0,
 ): Result<VisualStudioGeneratedImage> =
     visualStudioObjectPost(
-        "/api/app/writing-room/v2/visual/scenes/generate",
+        SCENE_GENERATE_PATH,
         buildJsonObject {
             put("project_id", projectId)
             put("context_id", contextId)
@@ -1879,7 +1889,7 @@ suspend fun JarvisAppSession.generateSceneVisualAssetImage(
             put("mode", mode)
             put("aspect_ratio", aspectRatio)
             put("max_corrections", maxCorrections.coerceIn(0, 2))
-            if (!model.isNullOrBlank()) put("model", model)
+            if (engine != "cloud" && !model.isNullOrBlank()) put("model", model)
         },
     ).mapCatching { raw ->
         val reply = parseVisualStudioGeneratedImage(raw)
