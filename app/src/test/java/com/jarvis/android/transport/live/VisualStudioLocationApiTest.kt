@@ -33,6 +33,16 @@ class VisualStudioLocationApiTest {
             )
         }
 
+    /** Skip the intentional, read-only paid receipt probe before a visual POST. */
+    private fun takeActionRequest(): RecordedRequest {
+        while (true) {
+            val request = server.takeRequest()
+            if (request.path?.startsWith("/api/app/images/requests/") != true) {
+                return request
+            }
+        }
+    }
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -467,7 +477,7 @@ class VisualStudioLocationApiTest {
 
         val requests = generateSequence {
             if (server.requestCount > 0) {
-                server.takeRequest()
+                takeActionRequest()
             } else {
                 null
             }
@@ -539,7 +549,7 @@ class VisualStudioLocationApiTest {
             uploaded.asset.location_ids,
         )
 
-        val listRequest = server.takeRequest()
+        val listRequest = takeActionRequest()
         val listBody = json.parseToJsonElement(
             listRequest.body.readUtf8(),
         ).jsonObject
@@ -548,7 +558,7 @@ class VisualStudioLocationApiTest {
             listBody["location_id"]!!.jsonPrimitive.content,
         )
 
-        val ingestRequest = server.takeRequest()
+        val ingestRequest = takeActionRequest()
         val ingestBody = json.parseToJsonElement(
             ingestRequest.body.readUtf8(),
         ).jsonObject
