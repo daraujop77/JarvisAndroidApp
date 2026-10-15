@@ -43,6 +43,7 @@ class LiveAppGatewayTransportTest {
     private lateinit var scope: CoroutineScope
     private lateinit var job: Job
     private var advertiseGeneralAgent = false
+    private var rejectProjectAgentTurn = false
     private val cancelCalls = AtomicInteger(0)
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
@@ -137,7 +138,10 @@ class LiveAppGatewayTransportTest {
                     }
                     request.path == "/api/app/chat/agent/project/turn" -> {
                         postedBodies += "POST /api/app/chat/agent/project/turn\n" + request.body.readUtf8()
-                        MockResponse().setBody(
+                        if (rejectProjectAgentTurn) {
+                            MockResponse().setResponseCode(409)
+                                .setBody("""{"error":"agent_not_available"}""")
+                        } else MockResponse().setBody(
                             """{"schema":"jarvis.chat.turn.v1","response":{"text":"Scoped image read","provider":"jarvis-adaptive"},"content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Scoped image read"}],"sources":[{"ref":"web:a32f3bb71f3e05ea8971","title":"IANA official","url":"https://www.iana.org/domains/reserved"},{"ref":"web:00000000000000000000","title":"Fake local","url":"https://127.0.0.1/private"}]}}"""
                         )
                     }
@@ -556,6 +560,27 @@ class LiveAppGatewayTransportTest {
         assertEquals(1, citations.size)
         assertEquals("https://www.iana.org/domains/reserved", citations.single().url)
         assertEquals("web:a32f3bb71f3e05ea8971", citations.single().ref)
+    }
+
+    @Test
+    fun selectedProjectServerRejectionNeverFallsBackToUnscopedChat() {
+        rejectProjectAgentTurn = true
+        val session = JarvisAppSession(seededStore())
+        session.setChatAgentProjectFor("project-private", "prj_story")
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val turn = repo.send("project-private", "Check this private story")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        assertTrue(
+            repo.snapshot.value.session.requests[turn]?.status is RequestStatus.Failed
+        )
+        assertEquals(1, postedBodies.count {
+            it.startsWith("POST /api/app/chat/agent/project/turn")
+        })
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
     }
 
     @Test
