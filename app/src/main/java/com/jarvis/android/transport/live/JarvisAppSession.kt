@@ -50,11 +50,10 @@ class JarvisAppSession(
     interface Store {
         fun get(key: String): String?
         fun put(values: Map<String, String?>) // null value => remove key
-        /** Paid operation identity MUST be flushed before the network dispatch. */
-        fun putDurable(values: Map<String, String?>): Boolean {
-            put(values)
-            return true
-        }
+        /** A storage backend must explicitly guarantee durable paid IDs.
+         * Unknown stores fail closed: they must never authorize a paid POST.
+         */
+        fun putDurable(values: Map<String, String?>): Boolean = false
         fun clear()
     }
 
@@ -93,6 +92,10 @@ class JarvisAppSession(
 
     class MemoryStore : Store {
         private val map = java.util.concurrent.ConcurrentHashMap<String, String>()
+        override fun putDurable(values: Map<String, String?>): Boolean {
+            put(values)
+            return true
+        }
         override fun get(key: String): String? = map[key]
         override fun put(values: Map<String, String?>) {
             values.forEach { (k, v) -> if (v == null) map.remove(k) else map[k] = v }
