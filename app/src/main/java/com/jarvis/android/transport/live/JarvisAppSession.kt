@@ -56,6 +56,8 @@ class JarvisAppSession(
          * Unknown stores fail closed: they must never authorize a paid POST.
          */
         fun putDurable(values: Map<String, String?>): Boolean = false
+        /** Stores that cannot enumerate keys return none, so recovery fails closed. */
+        fun keys(prefix: String): List<String> = emptyList()
         fun clear()
     }
 
@@ -64,6 +66,8 @@ class JarvisAppSession(
             .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
         override fun get(key: String): String? = prefs.getString(key, null)
+
+        override fun keys(prefix: String): List<String> = prefs.all.keys.filter { it.startsWith(prefix) }
 
         override fun put(values: Map<String, String?>) {
             prefs.edit().apply {
@@ -99,6 +103,7 @@ class JarvisAppSession(
             return true
         }
         override fun get(key: String): String? = map[key]
+        override fun keys(prefix: String): List<String> = map.keys.filter { it.startsWith(prefix) }
         override fun put(values: Map<String, String?>) {
             values.forEach { (k, v) -> if (v == null) map.remove(k) else map[k] = v }
         }
@@ -1075,6 +1080,120 @@ class JarvisAppSession(
     /** Global Image Studio requests omit project_id and use their own scope. */
     fun acknowledgePaidVisual(path: String) =
         acknowledgePaidVisual(path, JsonObject(emptyMap()))
+
+    /** Explicit user release only; the recovery scan never calls this. */
+    fun releasePaidVisualIntent(key: String) {
+        if (!store.putDurable(mapOf(key to null))) {
+            throw TransportException("Paid image attempt cannot be released durably")
+        }
+    }
+
+    /** Keys returned here stay pinned; only a verified pre-dispatch rejection is released and omitted. */
+    sealed interface PendingPaidVisualState {
+        val key: String
+
+        data class Completed(
+            override val key: String,
+            val requestId: String,
+            val receipt: JsonObject,
+        ) : PendingPaidVisualState
+
+        data class Unknown(
+            override val key: String,
+            val requestId: String,
+        ) : PendingPaidVisualState
+
+        data class Unverifiable(override val key: String) : PendingPaidVisualState
+    }
+
+    /**
+     * Recovers this account's saved paid attempts without dispatching anything:
+     * receipts are read with GET, and only an ID the server never claimed is voided.
+     */
+    suspend fun pendingPaidVisuals(): List<PendingPaidVisualState> = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext emptyList()
+        val prefix = "jarvis.paid.visual.${paidVisualAccountHash()}."
+        store.keys(prefix).sorted().mapNotNull { key ->
+            val value = store.get(key) ?: return@mapNotNull null
+            runCatching { classifyPendingPaidVisual(key, value) }
+                .getOrElse { PendingPaidVisualState.Unverifiable(key) }
+        }
+    }
+
+    private fun classifyPendingPaidVisual(key: String, value: String): PendingPaidVisualState? {
+        val intent = parsePaidVisualIntent(value) ?: return PendingPaidVisualState.Unverifiable(key)
+        val path = paidVisualPathForKey(key) ?: return PendingPaidVisualState.Unverifiable(key)
+        val probe = get(baseUrl, "/api/app/images/requests/${intent.requestId}", auth = authHeader())
+        if (isUnclaimedPaidVisualNotFound(probe)) {
+            return voidPendingPaidVisual(key, value, path, intent)
+        }
+        if (probe.first != 200) return PendingPaidVisualState.Unverifiable(key)
+        val receipt = json.parseToJsonElement(probe.second).jsonObject
+        if (receipt["request_id"]?.jsonPrimitive?.contentOrNull != intent.requestId) {
+            return PendingPaidVisualState.Unverifiable(key)
+        }
+        val state = receipt["state"]?.jsonPrimitive?.contentOrNull
+        val dispatchState = receipt["dispatch_state"]?.jsonPrimitive?.contentOrNull
+        return when {
+            state == "COMPLETED" && (intent.legacyMigrated ||
+                receipt["request_fingerprint"]?.jsonPrimitive?.contentOrNull == intent.fingerprint) ->
+                PendingPaidVisualState.Completed(key, intent.requestId, receipt)
+            state == "REJECTED_PRE_DISPATCH" && isVerifiedPendingRejection(receipt) ->
+                releaseVerifiedPaidVisual(key, value)
+            state == "OUTCOME_UNKNOWN" || dispatchState == "UNKNOWN" ->
+                PendingPaidVisualState.Unknown(key, intent.requestId)
+            else -> PendingPaidVisualState.Unverifiable(key)
+        }
+    }
+
+    private fun voidPendingPaidVisual(
+        key: String,
+        value: String,
+        path: String,
+        intent: PaidVisualIntent,
+    ): PendingPaidVisualState? {
+        val voidBody = buildJsonObject {
+            put("route", path)
+            put("project_id", "")
+            put("request_fingerprint", intent.fingerprint)
+        }.toString()
+        val voided = post(
+            baseUrl,
+            "/api/app/images/requests/${intent.requestId}/void",
+            voidBody,
+            auth = authHeader(),
+        )
+        if (voided.first != 200) return PendingPaidVisualState.Unverifiable(key)
+        val receipt = json.parseToJsonElement(voided.second).jsonObject
+        val rejected = receipt["request_id"]?.jsonPrimitive?.contentOrNull == intent.requestId &&
+            receipt["state"]?.jsonPrimitive?.contentOrNull == "REJECTED_PRE_DISPATCH" &&
+            receipt["dispatch_state"]?.jsonPrimitive?.contentOrNull == "NOT_DISPATCHED"
+        if (!rejected) return PendingPaidVisualState.Unverifiable(key)
+        return releaseVerifiedPaidVisual(key, value)
+    }
+
+    private fun isVerifiedPendingRejection(receipt: JsonObject): Boolean =
+        receipt["dispatch_state"]?.jsonPrimitive?.contentOrNull == "NOT_DISPATCHED" &&
+            receipt["retryable"]?.jsonPrimitive?.booleanOrNull == true &&
+            !receipt["error"]?.jsonPrimitive?.contentOrNull.isNullOrBlank()
+
+    /** Compare before deleting: a concurrent paid request may have re-pinned this key. */
+    @Synchronized
+    private fun releaseVerifiedPaidVisual(key: String, observed: String): PendingPaidVisualState? =
+        if (store.get(key) == observed && store.putDurable(mapOf(key to null))) {
+            null
+        } else {
+            PendingPaidVisualState.Unverifiable(key)
+        }
+
+    private fun paidVisualPathForKey(key: String): String? =
+        when (key.substringAfterLast('.')) {
+            "generations" -> "/api/app/images/generations"
+            "edits" -> "/api/app/images/edits"
+            "copilot-scene-edits" -> "/api/app/images/copilot-scene-edits"
+            "generate" -> "/api/app/writing-room/v2/visual/scenes/generate"
+            else -> null
+        }
 
     data class ImageGenerationReply(
         val mimeType: String,

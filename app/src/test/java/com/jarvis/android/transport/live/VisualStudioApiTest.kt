@@ -573,8 +573,8 @@ class VisualStudioApiTest {
         })
     }
 
-    private fun legacyPaidAttemptKey(path: String): String {
-        val owner = "${server.url("/").toString().trimEnd('/')}\u001fowner-1"
+    private fun legacyPaidAttemptKey(path: String, userId: String = "owner-1"): String {
+        val owner = "${server.url("/").toString().trimEnd('/')}\u001f$userId"
         val hash = java.security.MessageDigest.getInstance("SHA-256")
             .digest(owner.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }.take(32)
@@ -1114,6 +1114,227 @@ class VisualStudioApiTest {
         assertEquals("Paid image attempt cannot be released durably", retry.exceptionOrNull()?.message)
         assertEquals(postsBefore, generationPosts.get())
         assertEquals(pinned, pendingPaidIntents(store))
+    }
+
+    private fun pendingReceipt(
+        requestId: String,
+        fingerprint: String,
+        path: String,
+        state: String,
+        dispatchState: String,
+        retryable: Boolean,
+        error: String? = null,
+    ): String = buildJsonObject {
+        put("request_id", requestId)
+        put("request_fingerprint", fingerprint)
+        put("project_id", "prj_story")
+        put("route", path)
+        put("state", state)
+        put("dispatch_state", dispatchState)
+        put("retryable", retryable)
+        error?.let { put("error", it) }
+    }.toString()
+
+    @Test
+    fun pendingIntentNeverClaimedIsVoidedAndReleasedWithoutGenerationPost() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val requestId = "img_pending_unclaimed_01"
+        val fingerprint = client.paidVisualFingerprint(projectMasterBody("prj_story", "Pending unclaimed portrait"))
+        val key = legacyPaidAttemptKey("/api/app/images/generations")
+        store.putDurable(mapOf(key to "$requestId\u001f$fingerprint"))
+
+        val pending = client.pendingPaidVisuals()
+
+        assertTrue(pending.isEmpty())
+        assertFalse(pendingPaidIntents(store).containsKey(key))
+        assertEquals(0, generationPosts.get())
+        val trace = (0 until server.requestCount).map { server.takeRequest() }
+        assertEquals(
+            listOf(
+                "GET /api/app/images/requests/$requestId",
+                "POST /api/app/images/requests/$requestId/void",
+            ),
+            trace.map { "${it.method} ${it.path}" },
+        )
+        val voidBody = json.parseToJsonElement(trace[1].body.readUtf8()).jsonObject
+        assertEquals("/api/app/images/generations", voidBody["route"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("", voidBody["project_id"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(fingerprint, voidBody["request_fingerprint"]?.jsonPrimitive?.contentOrNull)
+    }
+
+    @Test
+    fun pendingCompletedReceiptIsReturnedAndIntentStaysPinned() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val requestId = "img_pending_completed_01"
+        val fingerprint = client.paidVisualFingerprint(projectMasterBody("prj_story", "Completed pending portrait"))
+        val key = legacyPaidAttemptKey("/api/app/images/generations")
+        store.putDurable(mapOf(key to "$requestId\u001f$fingerprint"))
+        recoveryReceipts[requestId] = pendingReceipt(
+            requestId, fingerprint, "/api/app/images/generations",
+            state = "COMPLETED", dispatchState = "COMPLETED", retryable = false,
+        )
+
+        val completed = client.pendingPaidVisuals().single() as JarvisAppSession.PendingPaidVisualState.Completed
+
+        assertEquals(key, completed.key)
+        assertEquals(requestId, completed.requestId)
+        assertEquals("COMPLETED", completed.receipt["state"]?.jsonPrimitive?.contentOrNull)
+        assertTrue(pendingPaidIntents(store).containsKey(key))
+        assertEquals(0, generationPosts.get())
+        assertEquals(1, server.requestCount) // read-only receipt lookup only
+    }
+
+    @Test
+    fun pendingOutcomeUnknownIsReportedAndIntentStaysPinned() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val requestId = "img_pending_unknown_0001"
+        val fingerprint = client.paidVisualFingerprint(projectMasterBody("prj_story", "Unknown pending portrait"))
+        val key = legacyPaidAttemptKey("/api/app/images/edits")
+        store.putDurable(mapOf(key to "$requestId\u001f$fingerprint"))
+        recoveryReceipts[requestId] = pendingReceipt(
+            requestId, fingerprint, "/api/app/images/edits",
+            state = "OUTCOME_UNKNOWN", dispatchState = "OUTCOME_UNKNOWN", retryable = false,
+        )
+
+        val unknown = client.pendingPaidVisuals().single() as JarvisAppSession.PendingPaidVisualState.Unknown
+
+        assertEquals(key, unknown.key)
+        assertEquals(requestId, unknown.requestId)
+        assertTrue(pendingPaidIntents(store).containsKey(key))
+        assertEquals(0, generationPosts.get())
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun pendingVerifiedPreDispatchRejectionReleasesIntentAndReturnsNothing() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val requestId = "img_pending_rejected_01"
+        val fingerprint = client.paidVisualFingerprint(projectMasterBody("prj_story", "Rejected pending portrait"))
+        val key = legacyPaidAttemptKey("/api/app/images/generations")
+        store.putDurable(mapOf(key to "$requestId\u001f$fingerprint"))
+        recoveryReceipts[requestId] = pendingReceipt(
+            requestId, fingerprint, "/api/app/images/generations",
+            state = "REJECTED_PRE_DISPATCH", dispatchState = "NOT_DISPATCHED", retryable = true,
+            error = "visual_project_style_required",
+        )
+
+        assertTrue(client.pendingPaidVisuals().isEmpty())
+
+        assertFalse(pendingPaidIntents(store).containsKey(key))
+        assertEquals(0, generationPosts.get())
+        assertEquals(1, server.requestCount) // the receipt already proves no dispatch; no void needed
+    }
+
+    @Test
+    fun pendingServerErrorOrMismatchedReceiptIsUnverifiableAndDeletesNothing() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val fingerprint = "a".repeat(64)
+        val failingKey = legacyPaidAttemptKey("/api/app/images/generations")
+        store.putDurable(mapOf(failingKey to "img_pending_500_000001\u001f$fingerprint"))
+        unknownRecoveryReply = 500 to """{"error":"internal_error"}"""
+        val mismatchedKey = legacyPaidAttemptKey("/api/app/images/edits")
+        store.putDurable(mapOf(mismatchedKey to "img_pending_mismatch_01\u001f$fingerprint"))
+        recoveryReceipts["img_pending_mismatch_01"] = pendingReceipt(
+            "img_pending_other_0001", fingerprint, "/api/app/images/edits",
+            state = "COMPLETED", dispatchState = "COMPLETED", retryable = false,
+        )
+
+        val pending = client.pendingPaidVisuals()
+
+        assertEquals(setOf(failingKey, mismatchedKey), pending.map { it.key }.toSet())
+        assertTrue(pending.all { it is JarvisAppSession.PendingPaidVisualState.Unverifiable })
+        assertEquals(setOf(failingKey, mismatchedKey), pendingPaidIntents(store).keys)
+        assertEquals(0, generationPosts.get())
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun pendingMalformedOrUnknownKindIsUnverifiableWithoutAnyRequest() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val malformedKey = legacyPaidAttemptKey("/api/app/images/generations")
+        store.putDurable(mapOf(malformedKey to "not-a-paid-intent"))
+        val unknownKindKey = legacyPaidAttemptKey("/api/app/images/unknown-kind")
+        store.putDurable(mapOf(unknownKindKey to "img_unknown_kind_000001\u001f${"d".repeat(64)}"))
+
+        val pending = client.pendingPaidVisuals()
+
+        assertEquals(setOf(malformedKey, unknownKindKey), pending.map { it.key }.toSet())
+        assertTrue(pending.all { it is JarvisAppSession.PendingPaidVisualState.Unverifiable })
+        assertEquals(0, server.requestCount)
+        assertEquals(0, generationPosts.get())
+    }
+
+    @Test
+    fun pendingVisualsListOnlyTheCurrentAccount() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val fingerprint = "e".repeat(64)
+        val otherRequestId = "img_other_account_0001"
+        val otherKey = legacyPaidAttemptKey("/api/app/images/generations", userId = "owner-2")
+        store.putDurable(mapOf(otherKey to "$otherRequestId\u001f$fingerprint"))
+        recoveryReceipts[otherRequestId] = pendingReceipt(
+            otherRequestId, fingerprint, "/api/app/images/generations",
+            state = "OUTCOME_UNKNOWN", dispatchState = "OUTCOME_UNKNOWN", retryable = false,
+        )
+        val ownRequestId = "img_current_account_0001"
+        val ownKey = legacyPaidAttemptKey("/api/app/images/edits")
+        store.putDurable(mapOf(ownKey to "$ownRequestId\u001f$fingerprint"))
+        recoveryReceipts[ownRequestId] = pendingReceipt(
+            ownRequestId, fingerprint, "/api/app/images/edits",
+            state = "OUTCOME_UNKNOWN", dispatchState = "OUTCOME_UNKNOWN", retryable = false,
+        )
+
+        val unknown = client.pendingPaidVisuals().single() as JarvisAppSession.PendingPaidVisualState.Unknown
+
+        assertEquals(ownKey, unknown.key)
+        assertEquals(ownRequestId, unknown.requestId)
+        assertEquals(
+            listOf("/api/app/images/requests/$ownRequestId"),
+            (0 until server.requestCount).map { server.takeRequest().path },
+        )
+        assertTrue(pendingPaidIntents(store).containsKey(otherKey))
+    }
+
+    @Test
+    fun releasePaidVisualIntentDeletesOnlyTheRequestedKey() {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val releasedKey = legacyPaidAttemptKey("/api/app/images/generations")
+        val keptKey = legacyPaidAttemptKey("/api/app/images/edits")
+        val fingerprint = "f".repeat(64)
+        store.putDurable(
+            mapOf(
+                releasedKey to "img_release_target_0001\u001f$fingerprint",
+                keptKey to "img_release_kept_000001\u001f$fingerprint",
+            ),
+        )
+
+        client.releasePaidVisualIntent(releasedKey)
+
+        assertEquals(setOf(keptKey), pendingPaidIntents(store).keys)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun releasePaidVisualIntentFailsClosedWhenStoreCannotPersist() {
+        val store = JarvisAppSession.MemoryStore()
+        val key = legacyPaidAttemptKey("/api/app/images/generations")
+        store.putDurable(mapOf(key to "img_release_refused_01\u001f${"f".repeat(64)}"))
+        val unreleasable = object : JarvisAppSession.Store by store {
+            override fun putDurable(values: Map<String, String?>): Boolean = false
+        }
+
+        val failure = runCatching { JarvisAppSession(unreleasable).releasePaidVisualIntent(key) }
+            .exceptionOrNull()
+
+        assertEquals("Paid image attempt cannot be released durably", failure?.message)
+        assertTrue(pendingPaidIntents(store).containsKey(key))
     }
 
     @Test
