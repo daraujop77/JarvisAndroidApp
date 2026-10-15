@@ -50,6 +50,10 @@ class JarvisAppSession(
     interface Store {
         fun get(key: String): String?
         fun put(values: Map<String, String?>) // null value => remove key
+        /** A storage backend must explicitly guarantee durable paid IDs.
+         * Unknown stores fail closed: they must never authorize a paid POST.
+         */
+        fun putDurable(values: Map<String, String?>): Boolean = false
         fun clear()
     }
 
@@ -65,16 +69,42 @@ class JarvisAppSession(
             }.apply()
         }
 
-        override fun clear() = prefs.edit().clear().apply()
+        override fun putDurable(values: Map<String, String?>): Boolean =
+            prefs.edit().apply {
+                values.forEach { (k, v) -> if (v == null) remove(k) else putString(k, v) }
+            }.commit()
+
+        override fun clear() {
+            // Logout removes bearer/user state, but not an unresolved paid
+            // request's opaque ID+digest. On re-login the same account must
+            // recover that attempt rather than sending a second charge.
+            val pending = prefs.all
+                .filterKeys { it.startsWith("jarvis.paid.visual.") }
+                .mapNotNull { (key, value) ->
+                    (value as? String)?.let { key to it }
+                }
+            prefs.edit().apply {
+                clear()
+                pending.forEach { (key, value) -> putString(key, value) }
+            }.commit()
+        }
     }
 
     class MemoryStore : Store {
         private val map = java.util.concurrent.ConcurrentHashMap<String, String>()
+        override fun putDurable(values: Map<String, String?>): Boolean {
+            put(values)
+            return true
+        }
         override fun get(key: String): String? = map[key]
         override fun put(values: Map<String, String?>) {
             values.forEach { (k, v) -> if (v == null) map.remove(k) else map[k] = v }
         }
-        override fun clear() = map.clear()
+        override fun clear() {
+            val pending = map.filterKeys { it.startsWith("jarvis.paid.visual.") }
+            map.clear()
+            map.putAll(pending)
+        }
         fun snapshot(): Map<String, String> = map.toMap()
     }
 
@@ -788,7 +818,9 @@ class JarvisAppSession(
         if (probe.first != 404 || !missing) {
             throw TransportException("VPS does not support safe paid-image recovery")
         }
-        store.put(mapOf(key to "$requestId\u001f$digest"))
+        if (!store.putDurable(mapOf(key to "$requestId\u001f$digest"))) {
+            throw TransportException("Paid image attempt cannot be persisted; no provider call")
+        }
         val wireBody = buildJsonObject {
             body.forEach { (name, value) -> put(name, value) }
             put("request_id", requestId)
@@ -798,7 +830,9 @@ class JarvisAppSession(
 
     /** Acknowledge only after the exact image original has been saved locally. */
     fun acknowledgePaidVisual(path: String) {
-        store.put(mapOf(paidVisualAttemptKey(path) to null))
+        if (!store.putDurable(mapOf(paidVisualAttemptKey(path) to null))) {
+            throw TransportException("Paid image acknowledgment not persisted")
+        }
     }
 
     data class ImageGenerationReply(
