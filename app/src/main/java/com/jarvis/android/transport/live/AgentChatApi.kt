@@ -265,9 +265,19 @@ data class ChatGlobalProjectAgentReplyText(
 )
 
 @Serializable
+data class ChatGlobalProjectAgentReplyScope(
+    val request_id: String = "",
+    val conversation_id: String = "",
+    val trace_id: String = "",
+    val device_id: String = "",
+    val session_id: String = "",
+)
+
+@Serializable
 data class ChatGlobalProjectAgentReply(
     val schema: String = "",
     val route: String = "",
+    val request: ChatGlobalProjectAgentReplyScope? = null,
     val response: ChatGlobalProjectAgentReplyText = ChatGlobalProjectAgentReplyText(),
     val agent_task: AgentRunStatus? = null,
     val content: JsonObject? = null,
