@@ -1153,7 +1153,7 @@ class WritingRoomWorkspaceApiTest {
         val recovery = server.takeRequest()
         assertEquals("GET", recovery.method)
         assertTrue(recovery.path.orEmpty().matches(
-            Regex("/api/app/images/requests/vis_[a-f0-9]{56}"),
+            Regex("/api/app/images/requests/img_[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}"),
         ))
         assertEquals("Bearer test-token", recovery.getHeader("Authorization"))
         val request = server.takeRequest()
