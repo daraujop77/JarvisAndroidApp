@@ -64,6 +64,22 @@ class AgentChatApiContractTest {
         assertTrue(page.events.single().pending_approval_id.startsWith("ap_"))
     }
 
+    @Test fun projectCapabilityAdvertisesExactReadOnlyMediaPolicy() {
+        val wire = """
+          {"schema":"jarvis.chat.agent.capability.v1",
+           "enabled":true,"project_id":"prj_story","effect":"READ_ONLY",
+           "supports_attachments":true,
+           "attachment_policy":"one_image_or_document_read_only_no_web"}
+        """.trimIndent()
+        val capability = json.decodeFromString<ChatGlobalProjectAgentCapability>(wire)
+        assertTrue(capability.enabled)
+        assertTrue(capability.supports_attachments)
+        assertEquals("READ_ONLY", capability.effect)
+        assertEquals("prj_story", capability.project_id)
+        assertEquals("one_image_or_document_read_only_no_web",
+                     capability.attachment_policy)
+    }
+
     @Test fun completedTurnCanReuseLegacyV64ChatEnvelope() {
         val body = """
           {
