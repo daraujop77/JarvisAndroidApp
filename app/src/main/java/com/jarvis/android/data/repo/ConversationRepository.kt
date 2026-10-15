@@ -322,9 +322,10 @@ class ConversationRepository(
      * original text and attachments come from the stored user message.
      */
     fun retry(clientRequestId: String) {
-        val inSession = _live.value.session.requests[clientRequestId]
-        val retryable = session.retryableRequest(clientRequestId)
-        if (inSession != null && retryable == null) return
+        // A request with no live, explicitly retryable classification may
+        // have reached a paid model before a crash. Never create a fresh
+        // idempotency key from a stored failed/pending record.
+        val retryable = session.retryableRequest(clientRequestId) ?: return
         scope.launch {
             val stored = dao.userMessage(clientRequestId)
             val conversationId = retryable?.conversationId ?: stored?.conversationId ?: return@launch
