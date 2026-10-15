@@ -45,6 +45,9 @@ class VisualStudioApiTest {
     @Volatile private var loseNextGenerationResponseAfterDispatch = false
     @Volatile private var corruptNextGenerationBytes = false
     @Volatile private var corruptNextGenerationHash = false
+    @Volatile private var rejectNextGenerationUnclaimed = false
+    @Volatile private var voidFindsOutcomeUnknown = false
+    @Volatile private var unknownRecoveryReply: Pair<Int, String>? = null
     // A real 1x1 PNG, so the test exercises SHA and magic-byte verification.
     private val fixturePng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgZGT8DwABDQED5NTSmwAAAABJRU5ErkJggg=="
     private val fixtureSha256 = "2f41b02bc94868f7cdd1e503c7f592ee7673dbb155eac2f267a3d1abf64aea18"
@@ -90,12 +93,20 @@ class VisualStudioApiTest {
                     json.parseToJsonElement(request.body.clone().readUtf8()).jsonObject
                 }.getOrNull()
                 if (request.path?.startsWith("/api/app/images/requests/") == true) {
+                    if (request.method == "POST" && request.path.orEmpty().endsWith("/void")) {
+                        return voidReply(
+                            request.path.orEmpty().removeSuffix("/void").substringAfterLast('/'),
+                            body ?: JsonObject(emptyMap()),
+                        )
+                    }
                     val requestId = request.path.orEmpty().substringAfterLast('/')
                     val receipt = recoveryReceipts[requestId]
                     return if (receipt != null) {
                         MockResponse().setBody(receipt)
                     } else {
-                        MockResponse().setResponseCode(404)
+                        unknownRecoveryReply?.let { (code, reply) ->
+                            MockResponse().setResponseCode(code).setBody(reply)
+                        } ?: MockResponse().setResponseCode(404)
                             .setBody("""{"error":"image_request_not_found"}""")
                     }
                 }
@@ -106,6 +117,11 @@ class VisualStudioApiTest {
                         val fingerprint = paidFingerprint(paidBody)
                         generationPosts.incrementAndGet()
                         generationPostBodies.add(paidBody)
+                        if (rejectNextGenerationUnclaimed) {
+                            rejectNextGenerationUnclaimed = false
+                            return MockResponse().setResponseCode(413)
+                                .setBody("""{"error":"image_request_too_large"}""")
+                        }
                         val requestedProject = paidBody["project_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
                         if (rejectNextGenerationPreDispatch) {
                             rejectNextGenerationPreDispatch = false
@@ -467,6 +483,54 @@ class VisualStudioApiTest {
             """.trimIndent(),
         )
     }
+
+    /** Mirrors the server: an unclaimed ID is tombstoned; a claimed ID returns its current state. */
+    private fun voidReply(requestId: String, voidBody: JsonObject): MockResponse {
+        if (voidFindsOutcomeUnknown) {
+            voidFindsOutcomeUnknown = false
+            recoveryReceipts[requestId] = paidReceiptJson(
+                requestId, voidBody,
+                state = "OUTCOME_UNKNOWN", dispatchState = "OUTCOME_UNKNOWN", retryable = false,
+            )
+        } else if (recoveryReceipts[requestId] == null) {
+            recoveryReceipts[requestId] = paidReceiptJson(
+                requestId, voidBody,
+                state = "REJECTED_PRE_DISPATCH", dispatchState = "NOT_DISPATCHED", retryable = true,
+                error = "image_request_voided_unclaimed",
+            )
+        }
+        return MockResponse().setBody(recoveryReceipts.getValue(requestId))
+    }
+
+    private fun paidReceiptJson(
+        requestId: String,
+        requestBody: JsonObject,
+        state: String,
+        dispatchState: String,
+        retryable: Boolean,
+        error: String? = null,
+    ): String = buildJsonObject {
+        put("request_id", requestId)
+        put("request_fingerprint", requestBody["request_fingerprint"]?.jsonPrimitive?.contentOrNull.orEmpty())
+        put("project_id", requestBody["project_id"]?.jsonPrimitive?.contentOrNull.orEmpty())
+        put("route", requestBody["route"]?.jsonPrimitive?.contentOrNull.orEmpty())
+        put("state", state)
+        put("dispatch_state", dispatchState)
+        put("retryable", retryable)
+        error?.let { put("error", it) }
+    }.toString()
+
+    private suspend fun JarvisAppSession.portraitRequest(prompt: String): Result<VisualStudioGeneratedImage> =
+        generateVisualAssetImage(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            prompt = prompt,
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        )
+
+    private fun pendingPaidIntents(store: JarvisAppSession.MemoryStore): Map<String, String> =
+        store.snapshot().filterKeys { it.startsWith("jarvis.paid.visual.") }
 
     @After
     fun tearDown() {
@@ -854,6 +918,132 @@ class VisualStudioApiTest {
         assertTrue(client.generateImage(prompt, "speed", null).isFailure)
         assertEquals(1, generationPosts.get())
         assertEquals(4, server.requestCount) // initial probe+POST, then two GETs for the same ID
+    }
+
+    @Test
+    fun unclaimedPaidIntentIsVoidedOnGet404ThenOneNewRequestRuns() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        session(store)
+        val writes = java.util.Collections.synchronizedList(mutableListOf<Pair<String, String?>>())
+        val recording = object : JarvisAppSession.Store by store {
+            override fun putDurable(values: Map<String, String?>): Boolean {
+                values.forEach { (key, value) -> writes += key to value }
+                return store.putDurable(values)
+            }
+        }
+        val client = JarvisAppSession(recording)
+        val prompt = "Portrait whose first POST never reached the server"
+        rejectNextGenerationUnclaimed = true
+        assertTrue(client.portraitRequest(prompt).isFailure)
+        val unclaimedId = generationPostBodies.single()["request_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val pinnedKey = pendingPaidIntents(store).keys.single()
+
+        val replaced = client.portraitRequest(prompt)
+            .orThrowStage("request after voiding the unclaimed attempt")
+
+        assertEquals("stored", replaced.visual_asset?.storage?.state)
+        assertEquals(2, generationPosts.get())
+        val newId = generationPostBodies.last()["request_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        assertTrue(newId.startsWith("img_") && newId != unclaimedId)
+        assertEquals(
+            listOf(unclaimedId, null, newId, null),
+            writes.filter { it.first == pinnedKey }.map { it.second?.substringBefore('\u001f') },
+        )
+        assertTrue(pendingPaidIntents(store).isEmpty())
+
+        val trace = (0 until server.requestCount).map { server.takeRequest() }
+        assertEquals(
+            listOf(
+                "GET /api/app/images/requests/$unclaimedId",
+                "POST /api/app/images/generations",
+                "GET /api/app/images/requests/$unclaimedId",
+                "POST /api/app/images/requests/$unclaimedId/void",
+                "GET /api/app/images/requests/$newId",
+                "POST /api/app/images/generations",
+            ),
+            trace.map { "${it.method} ${it.path}" },
+        )
+        val voidBody = json.parseToJsonElement(trace[3].body.readUtf8()).jsonObject
+        assertEquals("/api/app/images/generations", voidBody["route"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("prj_story", voidBody["project_id"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            client.paidVisualFingerprint(generationPostBodies.first()),
+            voidBody["request_fingerprint"]?.jsonPrimitive?.contentOrNull,
+        )
+    }
+
+    @Test
+    fun voidThatDoesNotProveRejectionKeepsIntentPinnedWithoutAnotherPost() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val prompt = "Portrait whose void finds the ID already claimed"
+        rejectNextGenerationUnclaimed = true
+        assertTrue(client.portraitRequest(prompt).isFailure)
+        val pinned = pendingPaidIntents(store)
+        val postsBefore = generationPosts.get()
+        voidFindsOutcomeUnknown = true
+
+        val retry = client.portraitRequest(prompt)
+
+        assertEquals(
+            "Paid image attempt could not be voided; automatic retry disabled",
+            retry.exceptionOrNull()?.message,
+        )
+        assertEquals(postsBefore, generationPosts.get())
+        assertEquals(pinned, pendingPaidIntents(store))
+    }
+
+    private suspend fun assertUnverifiedRecoveryNeverVoidsOrPosts(reply: Pair<Int, String>) {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val prompt = "Portrait whose recovery GET cannot be trusted"
+        rejectNextGenerationUnclaimed = true
+        assertTrue(client.portraitRequest(prompt).isFailure)
+        val pinned = pendingPaidIntents(store)
+        val postsBefore = generationPosts.get()
+        unknownRecoveryReply = reply
+
+        val retry = client.portraitRequest(prompt)
+
+        assertEquals(
+            "Paid image outcome cannot be verified; automatic retry disabled",
+            retry.exceptionOrNull()?.message,
+        )
+        assertEquals(postsBefore, generationPosts.get())
+        assertEquals(pinned, pendingPaidIntents(store))
+        val paths = (0 until server.requestCount).map { server.takeRequest().path.orEmpty() }
+        assertTrue(paths.none { it.endsWith("/void") })
+    }
+
+    @Test
+    fun recoveryServerErrorNeverVoidsOrPostsAgain() = runBlocking {
+        assertUnverifiedRecoveryNeverVoidsOrPosts(500 to """{"error":"internal_error"}""")
+    }
+
+    @Test
+    fun recoveryNotFoundWithOtherErrorNeverVoids() = runBlocking {
+        assertUnverifiedRecoveryNeverVoidsOrPosts(404 to """{"error":"unknown_request"}""")
+    }
+
+    @Test
+    fun voidThatCannotBeReleasedDurablyStopsBeforeAnotherPost() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val prompt = "Portrait whose void cannot be released durably"
+        rejectNextGenerationUnclaimed = true
+        assertTrue(client.portraitRequest(prompt).isFailure)
+        val pinned = pendingPaidIntents(store)
+        val postsBefore = generationPosts.get()
+        val unreleasable = object : JarvisAppSession.Store by store {
+            override fun putDurable(values: Map<String, String?>): Boolean =
+                values.values.none { it == null } && store.putDurable(values)
+        }
+
+        val retry = JarvisAppSession(unreleasable).portraitRequest(prompt)
+
+        assertEquals("Paid image attempt cannot be released durably", retry.exceptionOrNull()?.message)
+        assertEquals(postsBefore, generationPosts.get())
+        assertEquals(pinned, pendingPaidIntents(store))
     }
 
     @Test

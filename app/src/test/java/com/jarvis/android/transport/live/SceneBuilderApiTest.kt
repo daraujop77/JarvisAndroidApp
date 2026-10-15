@@ -947,6 +947,11 @@ class SceneBuilderApiTest {
 
         val first = makeRequest()
         assertEquals("Paid image receipt project or schema mismatch", first.exceptionOrNull()?.message)
+        // The server claimed and completed the POST, so its GET returns that receipt rather than 404.
+        assertTrue(server.takeRequest().path?.startsWith("/api/app/images/requests/") == true)
+        val postBody = json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        val requestId = postBody["request_id"]!!.jsonPrimitive.content
+        paidReceipts[requestId] = completedSceneReceipt(requestId, client.paidVisualFingerprint(postBody))
         assertTrue(makeRequest().isFailure)
         assertEquals(3, server.requestCount) // probe, one POST, then GET only
         assertTrue(store.snapshot().keys.any { it.startsWith("jarvis.paid.visual.") })

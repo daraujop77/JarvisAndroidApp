@@ -929,6 +929,47 @@ class JarvisAppSession(
         }
     }
 
+    private fun isUnclaimedPaidVisualNotFound(response: Pair<Int, String>): Boolean =
+        response.first == 404 && runCatching {
+            json.parseToJsonElement(response.second).jsonObject["error"]
+                ?.jsonPrimitive?.contentOrNull == "image_request_not_found"
+        }.getOrDefault(false)
+
+    /**
+     * A saved ID that answers 404 never reached the server's claim step, so it may be
+     * tombstoned even when the body changed. Only a verified REJECTED_PRE_DISPATCH
+     * receipt releases the scope; any other outcome keeps the attempt pinned.
+     */
+    private fun voidUnclaimedPaidVisual(
+        path: String,
+        projectId: String,
+        key: String,
+        intent: PaidVisualIntent,
+    ) {
+        val voidBody = buildJsonObject {
+            put("route", path)
+            put("project_id", projectId)
+            put("request_fingerprint", intent.fingerprint)
+        }.toString()
+        val voided = runCatching {
+            post(
+                baseUrl,
+                "/api/app/images/requests/${intent.requestId}/void",
+                voidBody,
+                auth = authHeader(),
+            )
+        }.getOrNull()
+        val receipt = voided?.takeIf { it.first == 200 }?.let {
+            runCatching { json.parseToJsonElement(it.second).jsonObject }.getOrNull()
+        }
+        if (receipt == null || !isVerifiedPaidVisualRejection(receipt, intent, path, projectId)) {
+            throw TransportException("Paid image attempt could not be voided; automatic retry disabled")
+        }
+        if (!store.putDurable(mapOf(key to null))) {
+            throw TransportException("Paid image attempt cannot be released durably")
+        }
+    }
+
     @Synchronized
     internal fun postPaidVisual(path: String, body: JsonObject): Pair<Int, String> {
         if (userId.isBlank()) throw TransportException("Visual operation requires authentication")
@@ -947,11 +988,15 @@ class JarvisAppSession(
                 "/api/app/images/requests/${intent.requestId}",
                 auth = authHeader(),
             )
-            if (result.first != 200) throw TransportException(
+            val unclaimed = isUnclaimedPaidVisualNotFound(result)
+            if (result.first != 200 && !unclaimed) throw TransportException(
                 "Paid image outcome cannot be verified; automatic retry disabled")
             val receipt = runCatching { json.parseToJsonElement(result.second).jsonObject }
                 .getOrElse { throw TransportException("Paid image receipt is invalid; automatic retry disabled") }
-            if (isVerifiedPaidVisualRejection(receipt, intent, path, projectId)) {
+            if (unclaimed) {
+                // A voided ID was never claimed, so the request below gets a fresh ID.
+                voidUnclaimedPaidVisual(path, projectId, key, intent)
+            } else if (isVerifiedPaidVisualRejection(receipt, intent, path, projectId)) {
                 if (!store.putDurable(mapOf(key to null))) {
                     throw TransportException("Confirmed pre-dispatch rejection could not be persisted")
                 }
