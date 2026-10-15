@@ -6433,7 +6433,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             container.liveSession.generateImage(clean, mode, model).fold(
                 onSuccess = { reply ->
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
+                        container.attachmentStore.stageOriginalGeneratedBase64(
+                            reply.dataBase64, reply.mimeType,
+                        )
                     }
                     if (staged == null) {
                         _imageGenerationState.value = ImageGenerationState.Error(
@@ -6486,7 +6488,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
                         "Reference image is too large"
                     }
-                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    val mime = when (file.extension.lowercase()) {
+                        "jpg", "jpeg" -> "image/jpeg"
+                        "png" -> "image/png"
+                        "webp" -> "image/webp"
+                        else -> error("Unsupported image format")
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP) to mime
                 }
             }
             if (source.isFailure) {
@@ -6497,8 +6505,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             }
 
             container.liveSession.editImage(
-                imageBase64 = source.getOrThrow(),
-                mimeType = "image/jpeg",
+                imageBase64 = source.getOrThrow().first,
+                mimeType = source.getOrThrow().second,
                 instruction = clean,
                 mode = mode,
                 model = model,
@@ -6507,7 +6515,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             ).fold(
                 onSuccess = { reply ->
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(reply.dataBase64)
+                        container.attachmentStore.stageOriginalGeneratedBase64(
+                            reply.dataBase64, reply.mimeType,
+                        )
                     }
                     if (staged == null) {
                         _imageEditState.value = ImageEditState.Error(
@@ -6543,7 +6553,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun setWikiPrimaryReference(
         attachmentId: String,
         character: String,
-        projectId: String = "prj_story",
+        projectId: String,
     ) {
         startWikiPrimaryPublish(attachmentId, character, projectId, cleanupAfter = false)
     }
@@ -6551,7 +6561,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun setWikiPrimaryReferenceFromUri(
         uri: Uri,
         character: String,
-        projectId: String = "prj_story",
+        projectId: String,
     ) {
         if (_wikiPrimaryState.value is WikiPrimaryState.Busy) return
         _wikiPrimaryState.value = WikiPrimaryState.Busy
@@ -6579,7 +6589,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             container.liveSession.writingRoomVisualAssetFetch(projectId, clean).fold(
                 onSuccess = { content ->
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(content.image_base64)
+                        container.attachmentStore.stageVerifiedGeneratedBase64(
+                            content.image_base64, content.sha256, content.mime_type,
+                            "wiki:$projectId:$clean",
+                        )
                     }
                     if (staged != null) {
                         _wikiVisualAttachments.update { it + (clean to staged.attachmentId) }
@@ -6628,7 +6641,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
                     "La imagen es demasiado grande."
                 }
-                Base64.encodeToString(bytes, Base64.NO_WRAP)
+                val mime = when (file.extension.lowercase()) {
+                        "jpg", "jpeg" -> "image/jpeg"
+                        "png" -> "image/png"
+                        "webp" -> "image/webp"
+                        else -> error("Unsupported image format")
+                    }
+                    Base64.encodeToString(bytes, Base64.NO_WRAP) to mime
             }
         }
         if (source.isFailure) {
@@ -6640,8 +6659,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
 
         container.liveSession.setWikiPrimaryReference(
-            imageBase64 = source.getOrThrow(),
-            mimeType = "image/jpeg",
+            imageBase64 = source.getOrThrow().first,
+            mimeType = source.getOrThrow().second,
             projectId = projectId,
             characterId = canonical,
             alt = "Referencia visual principal de " + cleanCharacter.substringAfter(":"),
