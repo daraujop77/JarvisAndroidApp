@@ -353,7 +353,8 @@ class LiveAppGatewayTransport(
             val echoed = reply.request
             if (reply.schema != "jarvis.chat.turn.v1" ||
                 reply.route != "adaptive_agent" ||
-                echoed?.request_id != req.clientRequestId ||
+                echoed == null ||
+                echoed.request_id != req.clientRequestId ||
                 echoed.conversation_id != req.conversationId ||
                 echoed.trace_id != traceId ||
                 echoed.device_id != deviceId ||
