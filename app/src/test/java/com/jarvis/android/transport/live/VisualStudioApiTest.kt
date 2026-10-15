@@ -35,6 +35,7 @@ class VisualStudioApiTest {
 
     private lateinit var server: MockWebServer
     private val json = Json { ignoreUnknownKeys = true }
+    private var replyWithWrongProject = false
 
     /** Skip the intentional, read-only paid receipt probe before a visual POST. */
     private fun takeActionRequest(): RecordedRequest {
@@ -86,7 +87,7 @@ class VisualStudioApiTest {
                             put("storage_retry_required", false)
                             put("visual_asset", buildJsonObject {
                                 put("asset_id", assetId)
-                                put("project_id", "prj_story")
+                                put("project_id", if (replyWithWrongProject) "prj_other" else "prj_story")
                                 put("kind", kind)
                                 put("status", "CANDIDATE")
                                 put("source", "CLOUD_GENERATOR")
@@ -409,6 +410,29 @@ class VisualStudioApiTest {
             request.path,
         )
         assertTrue(request.body.readUtf8().contains("\"project_id\":\"prj_story\""))
+    }
+
+    @Test
+    fun crossProjectPaidReceiptNeverReleasesIdForSecondCharge() = runBlocking {
+        replyWithWrongProject = true
+        val client = session()
+        val makeRequest: suspend () -> Result<VisualStudioGeneratedImage> = {
+            client.generateVisualAssetImage(
+                projectId = "prj_story",
+                characterId = "character:alexander",
+                prompt = "Private A portrait",
+                kind = "PRIMARY_REFERENCE",
+                perspective = "front",
+            )
+        }
+        val first = makeRequest()
+        assertTrue(first.isFailure)
+        assertTrue(first.exceptionOrNull()?.message.orEmpty().contains("mismatch"))
+        // A second tap cannot dispatch a new paid call because the forged
+        // response never acknowledged the exact original attempt.
+        val second = makeRequest()
+        assertTrue(second.isFailure)
+        assertEquals(3, server.requestCount) // first GET+POST, second GET only
     }
 
     @Test
