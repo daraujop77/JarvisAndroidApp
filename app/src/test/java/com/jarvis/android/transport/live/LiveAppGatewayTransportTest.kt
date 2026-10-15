@@ -569,6 +569,37 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun projectRetryPostsExactlyTheOriginalPersistentTraceAndDeviceScope() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        session.rememberTurn(
+            "req-persisted", "private-conv", "original-trace",
+            "original-device", "original-client-session",
+        )
+        val transport = LiveAppGatewayTransport(JarvisAppSession(store), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        repo.sendWithId("req-persisted", "private-conv", "Inspect this project")
+        await { repo.snapshot.value.session.requests["req-persisted"]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+                     repo.snapshot.value.session.requests["req-persisted"]?.status)
+        val sent = postedBodies.single { it.startsWith(
+            "POST /api/app/chat/agent/project/turn"
+        ) }.substringAfter(10.toChar())
+        val body = Json.parseToJsonElement(sent).jsonObject
+        assertEquals("prj_story", body["project_id"]?.jsonPrimitive?.content)
+        assertEquals("private-conv", body["conversation_id"]?.jsonPrimitive?.content)
+        assertEquals("req-persisted", body["request_id"]?.jsonPrimitive?.content)
+        assertEquals("original-trace", body["trace_id"]?.jsonPrimitive?.content)
+        assertEquals("original-device", body["device_id"]?.jsonPrimitive?.content)
+        assertEquals("original-client-session", body["session_id"]?.jsonPrimitive?.content)
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
     fun projectAgentTypedMediaNeverDropsProjectScope() {
         val session = JarvisAppSession(seededStore())
         val imageArray = kotlinx.serialization.json.Json.parseToJsonElement(
