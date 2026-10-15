@@ -350,6 +350,17 @@ class LiveAppGatewayTransport(
                 frozenDeviceId = deviceId,
                 frozenSessionId = sessionId,
             ).getOrThrow()
+            val echoed = reply.request
+            if (reply.schema != "jarvis.chat.turn.v1" ||
+                reply.route != "adaptive_agent" ||
+                echoed?.request_id != req.clientRequestId ||
+                echoed.conversation_id != req.conversationId ||
+                echoed.trace_id != traceId ||
+                echoed.device_id != deviceId ||
+                echoed.session_id != sessionId
+            ) {
+                throw TransportException("Project reply scope mismatch")
+            }
             if (ctl.cancelRequested || !currentCoroutineContext().isActive) {
                 throw CancellationException("Project agent turn cancelled")
             }
