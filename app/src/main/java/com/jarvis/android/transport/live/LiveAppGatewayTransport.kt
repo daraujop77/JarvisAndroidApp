@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -700,6 +701,10 @@ class LiveAppGatewayTransport(
                 val code = runCatching {
                     json.parseToJsonElement(data).jsonObject["error"]?.jsonPrimitive?.content
                 }.getOrNull()
+                val retrySafe = runCatching {
+                    json.parseToJsonElement(data).jsonObject["retry_safe"]?.jsonPrimitive
+                        ?.takeIf { !it.isString }?.booleanOrNull
+                }.getOrNull() == true
                 if (code == "chat_cancelled") {
                     emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
                         taskId = "chat_$requestId", requestId = requestId,
@@ -707,6 +712,23 @@ class LiveAppGatewayTransport(
                     )))
                     emit(GatewayEvent.MessageCompleted(requestId, "msg_$requestId"))
                 } else {
+                    // The backend may already hold a finished paid turn: settle it before offering any retry.
+                    val cached = try {
+                        fetchCachedTurn(requestId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        null
+                    }
+                    if (cached != null) {
+                        emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
+                            taskId = "chat_$requestId", requestId = requestId,
+                            status = TaskStatus.COMPLETED,
+                        )))
+                        emitCompletedWithMedia(cached, requestId, conversationId)
+                        session.forgetTurn(requestId)
+                        return true
+                    }
                     emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
                         taskId = "chat_$requestId", requestId = requestId,
                         status = TaskStatus.FAILED,
@@ -716,7 +738,7 @@ class LiveAppGatewayTransport(
                             requestId,
                             "msg_$requestId",
                             ErrorEnvelope(code ?: "stream_error", "assistant stream error"),
-                            retryable = code !in setOf(
+                            retryable = retrySafe && code !in setOf(
                                 "chat_timeout", "general_agent_incomplete",
                                 "agent_outcome_unknown", "outcome_unknown",
                                 "image_result_unknown", "paid_operation_uncertain",

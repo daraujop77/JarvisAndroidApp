@@ -1,5 +1,6 @@
 package com.jarvis.android.transport.live
 
+import com.jarvis.android.contract.TaskStatus
 import com.jarvis.android.data.repo.JarvisSessionRepository
 import com.jarvis.android.data.repo.SessionPhase
 import com.jarvis.android.transport.TransportException
@@ -850,6 +851,82 @@ class LiveAppGatewayTransportTest {
         // exactly one stream attempt; recovery used GET /requests/{id}, no re-run
         assertEquals(1, streamCalls.get())
         assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-broken"))
+    }
+
+    private fun errorFrame(errorJson: String): () -> MockResponse = {
+        MockResponse()
+            .setHeader("Content-Type", "text/event-stream")
+            .setBody("event: ready\ndata: {}\n\nevent: error\ndata: $errorJson\n\n")
+    }
+
+    private fun generalAgentRepo(
+        store: JarvisAppSession.MemoryStore = seededStore(),
+    ): Pair<JarvisAppSession, JarvisSessionRepository> {
+        advertiseGeneralAgent = true
+        val session = JarvisAppSession(store)
+        runBlocking(Dispatchers.IO) { session.fetchChatAccess() }
+        assertTrue(session.generalChatAgentEnabled)
+        val repo = JarvisSessionRepository(LiveAppGatewayTransport(session, scope), scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        return session to repo
+    }
+
+    @Test
+    fun errorFrameRecoversCompletedGeneralTurnBeforeOfferingRetry() {
+        streamResponder = errorFrame("""{"error":"general_agent_empty","retry_safe":false}""")
+        val store = seededStore()
+        val (appSession, repo) = generalAgentRepo(store)
+        val missingStaging = AtomicInteger(0)
+        appSession.onAgentImageError = { missingStaging.incrementAndGet() }
+
+        val turn = repo.sendWithId("req-media", "c1", "hello")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed, repo.snapshot.value.session.requests[turn]!!.status)
+        assertEquals("Recovered answer", repo.snapshot.value.session.requests[turn]!!.text)
+        assertEquals(TaskStatus.COMPLETED, repo.snapshot.value.session.tasks["chat_$turn"]?.status)
+        // The JVM fixture has no AttachmentStore, so only the verified download is observable here.
+        assertEquals(1, recoveredImageDownloads.get())
+        assertEquals(1, missingStaging.get())
+        await { store.get(JarvisAppSession.KEY_TURN_PREFIX + turn) == null }
+        assertEquals(1, postedBodies.count { it.startsWith("POST /api/app/chat/agent/general/stream") })
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
+    fun errorFrameWithoutRetrySafeIsFinalWhenNoTurnIsCached() {
+        streamResponder = errorFrame("""{"error":"agent_unavailable"}""")
+        val (_, repo) = generalAgentRepo()
+        val turn = repo.sendWithId("req-error-plain", "c1", "hello")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        val failed = repo.snapshot.value.session.requests[turn]?.status as? RequestStatus.Failed
+        assertEquals("agent_unavailable", failed?.error?.code)
+        assertEquals(false, failed?.retryable)
+        assertEquals(TaskStatus.FAILED, repo.snapshot.value.session.tasks["chat_$turn"]?.status)
+        assertEquals(1, postedBodies.count { it.startsWith("POST /api/app/chat/agent/general/stream") })
+    }
+
+    @Test
+    fun errorFrameWithRetrySafeIsRetryableWhenNoTurnIsCached() {
+        streamResponder = errorFrame("""{"error":"agent_unavailable","retry_safe":true}""")
+        val (_, repo) = generalAgentRepo()
+        val turn = repo.sendWithId("req-error-safe", "c1", "hello")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        val failed = repo.snapshot.value.session.requests[turn]?.status as? RequestStatus.Failed
+        assertEquals("agent_unavailable", failed?.error?.code)
+        assertEquals(true, failed?.retryable)
+        assertEquals(1, postedBodies.count { it.startsWith("POST /api/app/chat/agent/general/stream") })
+    }
+
+    @Test
+    fun errorFrameKeepsUnresolvedPaidCodesFinalEvenWithRetrySafe() {
+        streamResponder = errorFrame("""{"error":"image_result_unknown","retry_safe":true}""")
+        val (_, repo) = generalAgentRepo()
+        val turn = repo.sendWithId("req-error-unknown", "c1", "hello")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        val failed = repo.snapshot.value.session.requests[turn]?.status as? RequestStatus.Failed
+        assertEquals("image_result_unknown", failed?.error?.code)
+        assertEquals(false, failed?.retryable)
     }
 
     @Test
