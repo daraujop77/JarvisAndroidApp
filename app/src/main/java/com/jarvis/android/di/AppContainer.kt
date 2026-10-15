@@ -32,11 +32,22 @@ class AppContainer(private val context: Context) {
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    // Bind the entire local graph to one immutable authenticated identity.
+    // During A→logout→B, an old ViewModel/DAO must fail closed instead of
+    // reusing A's database, attachments or pending requests for B.
+    private val localAccountPrincipal: String by lazy {
+        liveSession.userId.takeIf { it.isNotBlank() }
+            ?.let { "${liveSession.baseUrl}\u001f$it" }.orEmpty()
+    }
+
+    private fun localAccountStillCurrent(): Boolean {
+        val current = liveSession.userId.takeIf { it.isNotBlank() }
+            ?.let { "${liveSession.baseUrl}\u001f$it" }.orEmpty()
+        return current == localAccountPrincipal
+    }
+
     private val db: JarvisDatabase by lazy {
-        JarvisDatabase.get(context,
-            liveSession.userId.takeIf { it.isNotBlank() }
-                ?.let { "${liveSession.baseUrl}\u001f$it" }.orEmpty(),
-        )
+        JarvisDatabase.get(context, localAccountPrincipal)
     }
     val dao: JarvisDao by lazy { db.dao() }
 
@@ -45,9 +56,8 @@ class AppContainer(private val context: Context) {
     val deviceIdentity: DeviceIdentityStore by lazy { DeviceIdentityStore(context) }
 
     val attachmentStore: com.jarvis.android.data.media.AttachmentStore by lazy {
-        com.jarvis.android.data.media.AttachmentStore(context,
-            liveSession.userId.takeIf { it.isNotBlank() }
-                ?.let { "${liveSession.baseUrl}\u001f$it" }.orEmpty(),
+        com.jarvis.android.data.media.AttachmentStore(
+            context, localAccountPrincipal,
         )
     }
 
@@ -117,7 +127,10 @@ class AppContainer(private val context: Context) {
     }
 
     val conversations: ConversationRepository by lazy {
-        ConversationRepository(dao, session, scope, attachmentStore = attachmentStore)
+        ConversationRepository(
+            dao, session, scope, attachmentStore = attachmentStore,
+            identityMatches = ::localAccountStillCurrent,
+        )
     }
 
     val projectsRepository: com.jarvis.android.data.projects.ProjectsRepository by lazy {
