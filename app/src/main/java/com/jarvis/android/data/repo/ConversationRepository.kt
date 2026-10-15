@@ -64,6 +64,7 @@ class ConversationRepository(
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
     private val attachmentStore: AttachmentStore? = null,
+    private val identityMatches: () -> Boolean = { true },
 ) {
 
     private val _live = session.snapshot
@@ -72,6 +73,7 @@ class ConversationRepository(
         scope.launch {
             var lastToken = ""
             _live.collect { snap ->
+                if (!identityMatches()) return@collect
                 val token = snap.session.lastCursorToken
                 if (token.isBlank() || token == lastToken) return@collect
                 lastToken = token
@@ -84,7 +86,8 @@ class ConversationRepository(
 
     fun observeConversations(): Flow<List<ConversationSummary>> =
         dao.observeConversations().map { list ->
-            list.map { ConversationSummary(it.conversationId, it.title, it.updatedAtMs) }
+            if (!identityMatches()) emptyList() else
+                list.map { ConversationSummary(it.conversationId, it.title, it.updatedAtMs) }
         }
 
     /**
@@ -100,6 +103,7 @@ class ConversationRepository(
 
     /** Delete server history first, then atomically remove local rows and orphaned attachment files. */
     suspend fun deleteConversation(conversationId: String): Boolean {
+        if (!identityMatches()) return false
         val id = conversationId.trim()
         if (id.isEmpty()) return false
         val isRunningHere = _live.value.session.requests.values.any {
@@ -116,6 +120,7 @@ class ConversationRepository(
         dao.observeMessages(conversationId),
         _live,
     ) { stored, snap ->
+        if (!identityMatches()) return@combine emptyList<ChatMessage>()
         val live = liveRequestFor(snap, conversationId)
         val persisted = stored
             .filterNot { isFakeGatewayArtifact(it.role, it.text) }
@@ -172,6 +177,7 @@ class ConversationRepository(
     fun newConversationId(): String {
         val id = "conv_" + UUID.randomUUID().toString().take(8)
         scope.launch {
+            if (!identityMatches()) return@launch
             dao.upsertConversation(ConversationEntity(id, "New chat", clock(), clock()))
         }
         return id
@@ -184,6 +190,7 @@ class ConversationRepository(
      * own dispatch coroutine so this never blocks or reorders the hot path.
      */
     fun send(conversationId: String, text: String, attachmentIds: List<String> = emptyList()) {
+        if (!identityMatches()) return
         val cid = session.send(conversationId, text, attachmentIds) { historyContext(conversationId, text.length) }
         persistOutbound(cid, conversationId, text, attachmentIds)
         watchRequest(cid)
@@ -200,6 +207,7 @@ class ConversationRepository(
         maxMessages: Int = 255,
         maxChars: Int = (150_000 - newMessageChars).coerceAtLeast(0),
     ): List<com.jarvis.android.contract.ChatTurn> {
+        if (!identityMatches()) return emptyList()
         val eligible = dao.messages(conversationId)
             .filter { it.status == RequestStatus.Completed.dbName }
             .filterNot { isFakeGatewayArtifact(it.role, it.text) }
@@ -233,6 +241,7 @@ class ConversationRepository(
         val now = _live.value.session.requests[cid]?.startedAtMs ?: clock()
         val joined = attachmentIds.joinToString(",")
         scope.launch {
+            if (!identityMatches()) return@launch
             ensureConversation(conversationId, text, now)
             dao.upsertPending(PendingOutboundEntity(cid, conversationId, text, now, attachmentIds = joined))
             dao.insertMessage(
@@ -254,7 +263,9 @@ class ConversationRepository(
      * stable attachment IDs and rejects another conversation's request.
      */
     fun recordAgentGeneratedImage(conversationId: String, requestId: String, attachmentId: String) {
+        if (!identityMatches()) return
         scope.launch {
+            if (!identityMatches()) return@launch
             // The optimistic user row is normally stored before network send.
             // If delivery races that initial insert, only wait locally; never
             // reissue the model/image operation to recover the attachment.
@@ -270,8 +281,9 @@ class ConversationRepository(
      * guessed from assistant prose or another chat.
      */
     fun recordAgentSources(conversationId: String, requestId: String, sourcesJson: String) {
-        if (ChatSourcesCodec.decode(sourcesJson).isEmpty()) return
+        if (!identityMatches() || ChatSourcesCodec.decode(sourcesJson).isEmpty()) return
         scope.launch {
+            if (!identityMatches()) return@launch
             repeat(5) {
                 if (dao.attachVerifiedSources(conversationId, requestId,
                         sourcesJson, clock())) return@launch
@@ -282,9 +294,11 @@ class ConversationRepository(
 
     /** Persist one generated image as a normal user/assistant pair in the current conversation. */
     fun recordGeneratedImage(conversationId: String, prompt: String, attachmentId: String) {
+        if (!identityMatches()) return
         val requestId = "img_" + UUID.randomUUID().toString()
         val now = clock()
         scope.launch {
+            if (!identityMatches()) return@launch
             ensureConversation(conversationId, prompt, now)
             dao.insertMessage(
                 MessageEntity(
@@ -322,6 +336,7 @@ class ConversationRepository(
      * original text and attachments come from the stored user message.
      */
     fun retry(clientRequestId: String) {
+        if (!identityMatches()) return
         // A request with no live, explicitly retryable classification may
         // have reached a paid model before a crash. Never create a fresh
         // idempotency key from a stored failed/pending record.
@@ -340,6 +355,7 @@ class ConversationRepository(
      * session has no live/terminal state for it, re-issue with the SAME key.
      */
     suspend fun recover() {
+        if (!identityMatches()) return
         val storedCursor = dao.observeConversations().first()
             .maxByOrNull { it.updatedAtMs }
             ?.lastCursorToken
@@ -352,6 +368,7 @@ class ConversationRepository(
         if (storedCursor.isNotBlank()) session.replayNow()
         if (pendings.isEmpty()) return
         for (p in pendings) {
+            if (!identityMatches()) return
             val live = _live.value.session.requests[p.clientRequestId]
             if (live != null) continue
             // Reconciliation guard: finalize may have persisted the assistant
@@ -406,6 +423,7 @@ class ConversationRepository(
     private val requestWatchers = mutableMapOf<String, kotlinx.coroutines.Job>()
 
     private suspend fun finalize(req: RequestState, snap: SessionSnapshot) {
+        if (!identityMatches()) return
         dao.deletePending(req.clientRequestId)
         dao.finalizeAssistant(
             conversationId = req.conversationId,
