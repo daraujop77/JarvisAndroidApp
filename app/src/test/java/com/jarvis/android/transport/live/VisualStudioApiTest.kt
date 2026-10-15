@@ -2,6 +2,8 @@ package com.jarvis.android.transport.live
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
@@ -22,6 +24,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 class VisualStudioApiTest {
 
@@ -36,6 +40,28 @@ class VisualStudioApiTest {
     private lateinit var server: MockWebServer
     private val json = Json { ignoreUnknownKeys = true }
     private var replyWithWrongProject = false
+    @Volatile private var rejectNextGenerationPreDispatch = false
+    @Volatile private var returnUnknownAfterNextGeneration = false
+    @Volatile private var loseNextGenerationResponseAfterDispatch = false
+    private val generationPosts = AtomicInteger()
+    private val generationPostBodies = java.util.Collections.synchronizedList(mutableListOf<JsonObject>())
+    private val recoveryReceipts = ConcurrentHashMap<String, String>()
+
+    private fun canonicalJson(element: JsonElement): String = when (element) {
+        is JsonObject -> element.entries.sortedBy { it.key }.joinToString(",", "{", "}") {
+            "${JsonPrimitive(it.key)}:${canonicalJson(it.value)}"
+        }
+        is kotlinx.serialization.json.JsonArray -> element.joinToString(",", "[", "]") {
+            canonicalJson(it)
+        }
+        else -> element.toString()
+    }
+
+    private fun paidFingerprint(body: JsonObject): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(canonicalJson(JsonObject(body.filterKeys { it != "request_id" }))
+                .toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
 
     /** Skip the intentional, read-only paid receipt probe before a visual POST. */
     private fun takeActionRequest(): RecordedRequest {
@@ -59,11 +85,56 @@ class VisualStudioApiTest {
                     json.parseToJsonElement(request.body.clone().readUtf8()).jsonObject
                 }.getOrNull()
                 if (request.path?.startsWith("/api/app/images/requests/") == true) {
-                    return MockResponse().setResponseCode(404)
-                        .setBody("""{"error":"image_request_not_found"}""")
+                    val requestId = request.path.orEmpty().substringAfterLast('/')
+                    val receipt = recoveryReceipts[requestId]
+                    return if (receipt != null) {
+                        MockResponse().setBody(receipt)
+                    } else {
+                        MockResponse().setResponseCode(404)
+                            .setBody("""{"error":"image_request_not_found"}""")
+                    }
                 }
                 return when (request.path) {
                     "/api/app/images/generations" -> {
+                        val paidBody = body ?: JsonObject(emptyMap())
+                        val requestId = paidBody["request_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val fingerprint = paidFingerprint(paidBody)
+                        generationPosts.incrementAndGet()
+                        generationPostBodies.add(paidBody)
+                        val requestedProject = paidBody["project_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        if (rejectNextGenerationPreDispatch) {
+                            rejectNextGenerationPreDispatch = false
+                            val rejected = buildJsonObject {
+                                put("error", "visual_project_style_required")
+                                put("request_id", requestId)
+                                put("request_fingerprint", fingerprint)
+                                put("state", "REJECTED_PRE_DISPATCH")
+                                put("dispatch_state", "NOT_DISPATCHED")
+                                put("retryable", true)
+                            }
+                            val receipt = buildJsonObject {
+                                rejected.forEach { (key, value) -> put(key, value) }
+                                put("project_id", requestedProject)
+                                put("route", "/api/app/images/generations")
+                            }.toString()
+                            recoveryReceipts[requestId] = receipt
+                            return MockResponse().setResponseCode(409).setBody(rejected.toString())
+                        }
+                        if (returnUnknownAfterNextGeneration) {
+                            returnUnknownAfterNextGeneration = false
+                            val receipt = buildJsonObject {
+                                put("request_id", requestId)
+                                put("request_fingerprint", fingerprint)
+                                put("project_id", requestedProject)
+                                put("route", "/api/app/images/generations")
+                                put("state", "OUTCOME_UNKNOWN")
+                                put("dispatch_state", "OUTCOME_UNKNOWN")
+                                put("retryable", false)
+                            }.toString()
+                            recoveryReceipts[requestId] = receipt
+                            return MockResponse().setResponseCode(503)
+                                .setBody("""{"error":"image_result_unknown"}""")
+                        }
                         val visual = body?.get("visual_asset")?.jsonObject
                         val kind = visual?.get("kind")?.jsonPrimitive?.contentOrNull.orEmpty()
                         val perspective = visual?.get("perspective")?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -87,7 +158,10 @@ class VisualStudioApiTest {
                             put("storage_retry_required", false)
                             put("visual_asset", buildJsonObject {
                                 put("asset_id", assetId)
-                                put("project_id", if (replyWithWrongProject) "prj_other" else "prj_story")
+                                put(
+                                    "project_id",
+                                    if (replyWithWrongProject) "prj_other" else requestedProject.ifBlank { "prj_story" },
+                                )
                                 put("kind", kind)
                                 put("status", "CANDIDATE")
                                 put("source", "CLOUD_GENERATOR")
@@ -107,7 +181,26 @@ class VisualStudioApiTest {
                                 })
                             })
                         }
-                        MockResponse().setBody(response.toString())
+                        if (requestId.isNotBlank()) {
+                            val completedReceipt = buildJsonObject {
+                                response.forEach { (key, value) -> put(key, value) }
+                                put("request_id", requestId)
+                                put("request_fingerprint", fingerprint)
+                                put("project_id", requestedProject)
+                                put("route", "/api/app/images/generations")
+                                put("state", "COMPLETED")
+                                put("dispatch_state", "COMPLETED")
+                                put("retryable", false)
+                            }
+                            recoveryReceipts[requestId] = completedReceipt.toString()
+                        }
+                        if (loseNextGenerationResponseAfterDispatch) {
+                            loseNextGenerationResponseAfterDispatch = false
+                            MockResponse().setResponseCode(503)
+                                .setBody("""{"error":"image_result_unknown"}""")
+                        } else {
+                            MockResponse().setBody(response.toString())
+                        }
                     }
                     "/api/app/writing-room/v2/visual/assets/approve-exact" -> {
                         val assetId = body?.get("asset_id")?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -370,8 +463,7 @@ class VisualStudioApiTest {
         server.shutdown()
     }
 
-    private fun session(): JarvisAppSession {
-        val store = JarvisAppSession.MemoryStore()
+    private fun session(store: JarvisAppSession.MemoryStore = JarvisAppSession.MemoryStore()): JarvisAppSession {
         store.put(
             mapOf(
                 JarvisAppSession.KEY_TOKEN to "test-token",
@@ -383,6 +475,29 @@ class VisualStudioApiTest {
             ),
         )
         return JarvisAppSession(store)
+    }
+
+    private fun projectMasterBody(projectId: String, prompt: String) = buildJsonObject {
+        put("project_id", projectId)
+        put("prompt", prompt.trim())
+        put("mode", "quality")
+        put("aspect_ratio", "portrait")
+        put("visual_asset", buildJsonObject {
+            put("surface", "character_creator")
+            put("project_id", projectId)
+            put("kind", "PRIMARY_REFERENCE")
+            put("character_ids", buildJsonArray { add(JsonPrimitive("character:alexander")) })
+            put("perspective", "front")
+            put("references_per_character", 1)
+        })
+    }
+
+    private fun legacyPaidAttemptKey(path: String): String {
+        val owner = "${server.url("/").toString().trimEnd('/')}\u001fowner-1"
+        val hash = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(owner.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }.take(32)
+        return "jarvis.paid.visual.$hash.${path.substringAfterLast('/')}"
     }
 
     @Test
@@ -413,6 +528,103 @@ class VisualStudioApiTest {
     }
 
     @Test
+    fun paidFingerprintMatchesPythonCanonicalJsonGolden() {
+        val body = buildJsonObject {
+            put("request_id", "img_test_1234")
+            put("z", buildJsonObject {
+                put("é", buildJsonArray {
+                    add(JsonPrimitive(true))
+                    add(JsonPrimitive(3))
+                })
+                put("a", "x")
+            })
+            put("prompt", "café")
+        }
+        assertEquals(
+            "fb7f168b6884c0862ba5141f686c92763e1cd97fdfe4154848bf4b32464c3033",
+            session().paidVisualFingerprint(body),
+        )
+    }
+
+    @Test
+    fun legacyUncertainIntentMigratesOnlyForSameBodyAndKeepsGetOnlyRecovery() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val projectId = "prj_story"
+        val prompt = "Legacy exact request which may already have been charged"
+        val body = projectMasterBody(projectId, prompt)
+        val requestId = "img_legacy_req_0001"
+        val legacyDigest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(body.toString().toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val legacyKey = legacyPaidAttemptKey("/api/app/images/generations")
+        store.putDurable(mapOf(legacyKey to "$requestId\u001f$legacyDigest"))
+        recoveryReceipts[requestId] = buildJsonObject {
+            put("request_id", requestId)
+            put("request_fingerprint", "F".repeat(64)) // historical server hash was over prepared input
+            put("project_id", projectId)
+            put("route", "/api/app/images/generations")
+            put("state", "OUTCOME_UNKNOWN")
+            put("dispatch_state", "OUTCOME_UNKNOWN")
+            put("retryable", false)
+        }.toString()
+
+        val result = client.generateVisualAssetImage(
+            projectId = projectId,
+            characterId = "character:alexander",
+            prompt = prompt,
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(0, generationPosts.get())
+        assertEquals(2, server.requestCount) // legacy migration lookup and same-ID recovery lookup
+        val pending = store.snapshot().filterKeys { it.startsWith("jarvis.paid.visual.") }
+        assertEquals(1, pending.size)
+        assertFalse(pending.containsKey(legacyKey))
+        assertEquals(
+            listOf(requestId, client.paidVisualFingerprint(body), "LEGACY_MIGRATED"),
+            pending.values.single().split('\u001f'),
+        )
+    }
+
+    @Test
+    fun ambiguousLegacyIntentStaysPinnedAndCannotStartDifferentRequest() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val originalBody = projectMasterBody("prj_story", "Original uncertain prompt")
+        val requestId = "img_legacy_ambiguous_01"
+        val legacyDigest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(originalBody.toString().toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val legacyKey = legacyPaidAttemptKey("/api/app/images/generations")
+        store.putDurable(mapOf(legacyKey to "$requestId\u001f$legacyDigest"))
+        recoveryReceipts[requestId] = buildJsonObject {
+            put("request_id", requestId)
+            put("request_fingerprint", "E".repeat(64))
+            put("project_id", "prj_story")
+            put("route", "/api/app/images/generations")
+            put("state", "OUTCOME_UNKNOWN")
+            put("dispatch_state", "OUTCOME_UNKNOWN")
+            put("retryable", false)
+        }.toString()
+
+        val changed = client.generateVisualAssetImage(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            prompt = "Changed prompt must stay blocked while old intent is ambiguous",
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        )
+
+        assertTrue(changed.isFailure)
+        assertEquals(0, generationPosts.get())
+        assertEquals("$requestId\u001f$legacyDigest", store.get(legacyKey))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
     fun crossProjectPaidReceiptNeverReleasesIdForSecondCharge() = runBlocking {
         replyWithWrongProject = true
         val client = session()
@@ -433,6 +645,164 @@ class VisualStudioApiTest {
         val second = makeRequest()
         assertTrue(second.isFailure)
         assertEquals(3, server.requestCount) // first GET+POST, second GET only
+    }
+
+    @Test
+    fun confirmedPreDispatchRejectionAllowsCorrectedProjectRequestWithNewId() = runBlocking {
+        val client = session()
+        rejectNextGenerationPreDispatch = true
+
+        val rejected = client.generateVisualAssetImage(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            prompt = "Portrait before project theme is configured",
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        )
+        assertTrue(rejected.isFailure)
+        assertTrue(rejected.exceptionOrNull()?.message.orEmpty().contains("visual_project_style_required"))
+
+        val corrected = client.generateVisualAssetImage(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            prompt = "Portrait using the saved copper project theme",
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        ).orThrowStage("corrected project image generation")
+
+        assertEquals("stored", corrected.visual_asset?.storage?.state)
+        assertEquals(2, generationPosts.get())
+        val ids = generationPostBodies.mapNotNull {
+            it["request_id"]?.jsonPrimitive?.contentOrNull
+        }
+        assertEquals(2, ids.distinct().size)
+        assertTrue(server.requestCount >= 5) // probe + POST + durable GET, then new probe + POST
+    }
+
+    @Test
+    fun uncertainVisualOutcomeKeepsIdPinnedAndNeverPostsAgain() = runBlocking {
+        val client = session()
+        returnUnknownAfterNextGeneration = true
+        val makeRequest: suspend () -> Result<VisualStudioGeneratedImage> = {
+            client.generateVisualAssetImage(
+                projectId = "prj_story",
+                characterId = "character:alexander",
+                prompt = "Keep the exact attempt while outcome is uncertain",
+                kind = "PRIMARY_REFERENCE",
+                perspective = "front",
+            )
+        }
+
+        assertTrue(makeRequest().isFailure)
+        assertTrue(makeRequest().isFailure)
+        assertEquals(1, generationPosts.get())
+        val requestId = generationPostBodies.single()["request_id"]?.jsonPrimitive?.contentOrNull
+        assertTrue(server.takeRequest().path?.startsWith("/api/app/images/requests/") == true)
+        val post = server.takeRequest()
+        assertEquals("/api/app/images/generations", post.path)
+        val recovery = server.takeRequest()
+        assertEquals("/api/app/images/requests/$requestId", recovery.path)
+        assertEquals(3, server.requestCount) // same ID only; no second POST
+    }
+
+    @Test
+    fun pendingIntentSurvivesLogoutAndSameAccountLoginForReceiptRecovery() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val firstSession = session(store)
+        loseNextGenerationResponseAfterDispatch = true
+        val first = firstSession.generateVisualAssetImage(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            prompt = "Recover the exact accepted project portrait after login",
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        )
+        assertTrue(first.isFailure)
+        val originalId = generationPostBodies.single()["request_id"]?.jsonPrimitive?.contentOrNull
+
+        firstSession.clear()
+        val loggedInAgain = session(store)
+        val recovered = loggedInAgain.generateVisualAssetImage(
+            projectId = "prj_story",
+            characterId = "character:alexander",
+            prompt = "Recover the exact accepted project portrait after login",
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        ).orThrowStage("recovered project image after login")
+
+        assertEquals("stored", recovered.visual_asset?.storage?.state)
+        assertEquals(1, generationPosts.get())
+        val requests = (0 until server.requestCount).mapNotNull {
+            server.takeRequest().path
+        }
+        assertTrue(requests.contains("/api/app/images/requests/$originalId"))
+        assertEquals(3, requests.size) // initial probe, one POST, then GET recovery
+        assertEquals(1, requests.count { it == "/api/app/images/generations" })
+    }
+
+    @Test
+    fun pendingProjectDoesNotBlockAnotherProjectOrGlobalAndAckIsScoped() = runBlocking {
+        val client = session()
+        loseNextGenerationResponseAfterDispatch = true
+        val projectOnePrompt = "Project one portrait with exact recovery"
+        assertTrue(client.generateVisualAssetImage(
+            projectId = "prj_one",
+            characterId = "character:alexander",
+            prompt = projectOnePrompt,
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        ).isFailure)
+
+        val projectTwo = client.generateVisualAssetImage(
+            projectId = "prj_two",
+            characterId = "character:alexander",
+            prompt = "Project two independent portrait",
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        ).orThrowStage("second project image generation")
+        assertEquals("prj_two", projectTwo.visual_asset?.project_id)
+
+        val recoveredProjectOne = client.generateVisualAssetImage(
+            projectId = "prj_one",
+            characterId = "character:alexander",
+            prompt = projectOnePrompt,
+            kind = "PRIMARY_REFERENCE",
+            perspective = "front",
+        ).orThrowStage("first project receipt recovery")
+        assertEquals("prj_one", recoveredProjectOne.visual_asset?.project_id)
+
+        val global = client.generateImage("A Global-only image request", "speed", null)
+            .orThrowStage("Global image after Writing Room request")
+        assertEquals("image/png", global.mimeType)
+
+        assertEquals(3, generationPosts.get())
+        val projects = generationPostBodies.mapNotNull {
+            it["project_id"]?.jsonPrimitive?.contentOrNull
+        }
+        assertEquals(listOf("prj_one", "prj_two"), projects)
+        assertTrue(generationPostBodies.last()["project_id"] == null)
+    }
+
+    @Test
+    fun globalCompletionWithWrongProjectCorrelationStaysPinnedWithoutAck() = runBlocking {
+        val client = session()
+        loseNextGenerationResponseAfterDispatch = true
+        val prompt = "Global completion recovery must match the empty project scope"
+        assertTrue(client.generateImage(prompt, "speed", null).isFailure)
+        val requestId = generationPostBodies.single()["request_id"]?.jsonPrimitive?.contentOrNull
+            ?: error("Global generation omitted request_id")
+        val stored = json.parseToJsonElement(recoveryReceipts.getValue(requestId)).jsonObject
+        recoveryReceipts[requestId] = buildJsonObject {
+            stored.forEach { (key, value) ->
+                if (key != "project_id") put(key, value)
+            }
+            put("project_id", "prj_unrelated")
+        }.toString()
+
+        assertTrue(client.generateImage(prompt, "speed", null).isFailure)
+        assertTrue(client.generateImage(prompt, "speed", null).isFailure)
+        assertEquals(1, generationPosts.get())
+        assertEquals(4, server.requestCount) // initial probe+POST, then two GETs for the same ID
     }
 
     @Test

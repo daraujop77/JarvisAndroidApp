@@ -754,7 +754,7 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
                 expectedProject == storedProject && status == "CANDIDATE" &&
                 !bytes.isNullOrBlank() && mime in setOf("image/png", "image/jpeg", "image/webp")
             ) {
-                acknowledgePaidVisual(path)
+                acknowledgePaidVisual(path, body)
             }
         }
         result
