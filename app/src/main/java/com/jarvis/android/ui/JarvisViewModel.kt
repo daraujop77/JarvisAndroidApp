@@ -7018,6 +7018,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             container.settings.setPaired(false)
             _liveAuth.value = LiveAuthState.Idle
             onDone()
+            // Rebuild DAO, attachment store and in-memory flows with the new account scope.
+            relaunch()
         }
     }
 
