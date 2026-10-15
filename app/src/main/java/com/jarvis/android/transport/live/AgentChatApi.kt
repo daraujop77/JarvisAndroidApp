@@ -227,6 +227,7 @@ data class ChatGlobalProjectAgentCapability(
     val project_id: String = "",
     val effect: String = "",
     val supports_attachments: Boolean = false,
+    val attachment_policy: String = "",
 )
 
 /** Authorization + rollout probe. Never requests a model turn. */
