@@ -49,8 +49,11 @@ class CopilotStreamRequestRecoveryTest {
     @Test fun attachedImageAndTextUseOneAuthenticatedAgentRequest() =
         runBlocking(Dispatchers.IO) {
             val pixels = java.util.Base64.getEncoder()
-                .encodeToString(byteArrayOf(0xFF.toByte(), 0xD8.toByte(),
-                    0xFF.toByte(), 0x12, 0x34))
+                .encodeToString(
+                    byteArrayOf(0xFF.toByte(), 0xD8.toByte(),
+                        0xFF.toByte(), 0x12, 0x34) +
+                        "synthetic_jpeg_bytes".toByteArray(Charsets.UTF_8),
+                )
             server.enqueue(completedSse(
                 """{"schema":"jarvis.writing-room.chat.v1",
                    "turn":{"project_id":"prj_story",
@@ -72,8 +75,11 @@ class CopilotStreamRequestRecoveryTest {
     @Test fun oldVpsWithoutAdaptiveAgentCannotSilentlyIgnoreAttachedImage() =
         runBlocking(Dispatchers.IO) {
             val pixels = java.util.Base64.getEncoder()
-                .encodeToString(byteArrayOf(0xFF.toByte(), 0xD8.toByte(),
-                    0xFF.toByte(), 0x12, 0x34))
+                .encodeToString(
+                    byteArrayOf(0xFF.toByte(), 0xD8.toByte(),
+                        0xFF.toByte(), 0x12, 0x34) +
+                        "synthetic_jpeg_bytes".toByteArray(Charsets.UTF_8),
+                )
             server.enqueue(MockResponse().setResponseCode(404))
             val result = session.writingRoomAutoChatStream(
                 "prj_story", "Alexander", "Edita esta imagen",
