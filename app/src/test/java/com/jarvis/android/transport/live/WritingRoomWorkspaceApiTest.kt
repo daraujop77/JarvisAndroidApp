@@ -61,7 +61,7 @@ class WritingRoomWorkspaceApiTest {
                         """.trimIndent(),
                     )
                     "/api/app/images/generations" -> MockResponse().setBody(
-                        """{"schema":"jarvis.image.generation.v2","model":"gpt-image-2-medium","provider":"openai-codex","fallback_used":false,"mime_type":"image/jpeg","data_base64":"aW1hZ2U=","visual_asset":{"asset_id":"va_portrait_1","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"CANDIDATE","storage":{"state":"stored"}}}""",
+                        """{"schema":"jarvis.image.generation.v2","model":"gpt-image-2-medium","provider":"openai-codex","fallback_used":false,"mime_type":"image/jpeg","data_base64":"aW1hZ2U=","visual_asset":{"asset_id":"va_portrait_1","project_id":"prj_story","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"CANDIDATE","storage":{"state":"stored"}}}""",
                     )
                     "/api/app/writing-room/v2/visual/characters/approve-primary-exact" -> MockResponse().setBody(
                         """{"schema":"jarvis.visual-studio.character-primary-approval.v1","character_id":"character:naruto","wiki_link":{"entry_id":"character:naruto"},"asset":{"asset_id":"va_portrait_1","sha256":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","kind":"PRIMARY_REFERENCE","status":"APPROVED","storage":{"state":"stored"}}}""",
