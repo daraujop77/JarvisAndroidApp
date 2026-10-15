@@ -2433,10 +2433,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     val file = container.attachmentStore.resolve(referenceAttachmentId)
                     val bytes = if (file != null &&
                         file.length() in 1L..(3L * 1024 * 1024)) file.readBytes() else null
-                    if (bytes != null && bytes.size >= 3 &&
-                        bytes[0] == 0xFF.toByte() &&
-                        bytes[1] == 0xD8.toByte() &&
-                        bytes[2] == 0xFF.toByte())
+                    // Preserve the original PNG/JPEG/WebP bytes. The live
+                    // transport and authenticated VPS independently verify
+                    // the image signature and MIME before agent execution.
+                    if (bytes != null)
                         Base64.encodeToString(bytes, Base64.NO_WRAP) else null
                 }
             } else null
