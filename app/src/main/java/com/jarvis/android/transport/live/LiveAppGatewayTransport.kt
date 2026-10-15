@@ -219,11 +219,20 @@ class LiveAppGatewayTransport(
         val sessionId = session.appSessionId
         val ctl = TurnCtl()
 
-        session.rememberTurn(turnId, req.conversationId, traceId, deviceId, sessionId)
+        val original = session.rememberTurn(
+            turnId, req.conversationId, traceId, deviceId, sessionId,
+        )
+        val frozenProject = original.projectId
+        val originalTraceId = original.traceId
+        val originalDeviceId = original.deviceId
+        val originalSessionId = original.sessionId
         val job = scope.launch(Dispatchers.IO) {
             try {
                 emit(GatewayEvent.MessageAccepted(turnId, req.conversationId, "msg_$turnId"))
-                streamChat(req, traceId, deviceId, sessionId, ctl)
+                streamChat(
+                    req, originalTraceId, originalDeviceId, originalSessionId,
+                    ctl, frozenProject,
+                )
                 emit(GatewayEvent.MessageCompleted(turnId, "msg_$turnId"))
                 session.forgetTurn(turnId)
             } catch (t: CancellationException) {
@@ -291,7 +300,10 @@ class LiveAppGatewayTransport(
                 active.remove(turnId)
             }
         }
-        active[turnId] = ActiveTurn(turnId, req.conversationId, traceId, deviceId, sessionId, job, ctl)
+        active[turnId] = ActiveTurn(
+            turnId, req.conversationId, originalTraceId, originalDeviceId,
+            originalSessionId, job, ctl,
+        )
     }
 
     /** SSE route missing on this PC-A build; caller falls back to JSON chat. */
@@ -306,11 +318,11 @@ class LiveAppGatewayTransport(
         deviceId: String,
         sessionId: String,
         ctl: TurnCtl,
+        projectAgent: String?,
     ) {
-        // An explicit project selection uses the same adaptive backend as
-        // Writing Room, but only for text-only, read-only requests. All other
-        // conversations (and attachments) retain legacy stream/recovery.
-        val projectAgent = session.chatAgentProjectFor(req.conversationId)
+        // Freeze the chosen project when the turn is persisted, not when the
+        // asynchronous HTTP coroutine eventually starts. A selection change
+        // must never reroute an already-accepted private message.
         if (projectAgent != null) {
             emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
                 taskId = "chat_${req.clientRequestId}",
@@ -374,8 +386,7 @@ class LiveAppGatewayTransport(
         // The adaptive general agent now accepts bounded inline images and
         // one document. Existing backend parses them with the same JARVIS
         // validators; older deployments continue on legacy streaming.
-        val generalAgent = session.generalChatAgentEnabled &&
-            session.chatAgentProjectFor(req.conversationId) == null
+        val generalAgent = session.generalChatAgentEnabled && projectAgent == null
         val endpoint = if (generalAgent) "/api/app/chat/agent/general/stream"
                        else "/api/app/chat/stream"
 
@@ -764,6 +775,10 @@ class LiveAppGatewayTransport(
      * request, so emit accepted+completed from the cached server turn.
      */
     override suspend fun recoverCompletedTurn(clientRequestId: String, conversationId: String): Boolean {
+        val frozen = session.loadTurn(clientRequestId) ?: return false
+        if (frozen.conversationId != conversationId ||
+            frozen.principalId != null && frozen.principalId != session.userId
+        ) return false
         val completed = fetchCachedTurn(clientRequestId) ?: return false
         emit(GatewayEvent.MessageAccepted(clientRequestId, conversationId, "msg_$clientRequestId"))
         emitCompletedWithMedia(completed, clientRequestId, conversationId)
