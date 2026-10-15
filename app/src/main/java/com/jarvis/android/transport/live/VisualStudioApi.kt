@@ -731,12 +731,18 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
             val state = stored?.get("storage")?.jsonObject
                 ?.get("state")?.jsonPrimitive?.contentOrNull
             val assetId = stored?.get("asset_id")?.jsonPrimitive?.contentOrNull
+            val expectedProject = body["project_id"]?.jsonPrimitive?.contentOrNull
+            val storedProject = stored?.get("project_id")?.jsonPrimitive?.contentOrNull
+            val status = stored?.get("status")?.jsonPrimitive?.contentOrNull
             val bytes = result["data_base64"]?.jsonPrimitive?.contentOrNull
             val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull
             // Only release the request ID if the original bytes and exact
             // project candidate are durably recoverable from the VPS.
-            // An unknown, pending-storage or malformed result stays pinned.
+            // An unknown, cross-project, pending-storage or malformed receipt
+            // stays pinned to prevent a second paid dispatch.
             if (!assetId.isNullOrBlank() && state == "stored" &&
+                !expectedProject.isNullOrBlank() &&
+                expectedProject == storedProject && status == "CANDIDATE" &&
                 !bytes.isNullOrBlank() && mime in setOf("image/png", "image/jpeg", "image/webp")
             ) {
                 acknowledgePaidVisual(path)
