@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -254,6 +255,7 @@ data class ChatGlobalProjectAgentReply(
     val route: String = "",
     val response: ChatGlobalProjectAgentReplyText = ChatGlobalProjectAgentReplyText(),
     val agent_task: AgentRunStatus? = null,
+    val content: JsonObject? = null,
 )
 
 suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
