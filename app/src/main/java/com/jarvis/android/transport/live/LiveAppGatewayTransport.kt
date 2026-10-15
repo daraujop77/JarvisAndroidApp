@@ -316,6 +316,16 @@ class LiveAppGatewayTransport(
             }
             val text = reply.response.text
             if (text.isBlank()) throw TransportException("Agent returned no answer")
+            // Reuse exactly the same validated receipt codec as general chat.
+            // Cite only the signed web:hash refs in this project-bound turn;
+            // never derive a source from arbitrary agent/model text.
+            val sourcesJson = com.jarvis.android.data.repo.ChatSourcesCodec
+                .encodeValidated(reply.content)
+            if (sourcesJson.isNotBlank() && sourcesJson != "[]") {
+                session.onAgentSourcesReady?.invoke(
+                    req.conversationId, req.clientRequestId, sourcesJson,
+                )
+            }
             emit(GatewayEvent.MessageDelta(
                 req.clientRequestId, "msg_${req.clientRequestId}", 0, text,
             ))
