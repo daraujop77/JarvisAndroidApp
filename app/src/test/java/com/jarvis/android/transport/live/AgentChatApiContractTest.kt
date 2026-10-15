@@ -67,6 +67,21 @@ class AgentChatApiContractTest {
         assertTrue(page.events.single().pending_approval_id.startsWith("ap_"))
     }
 
+    @Test fun jsonAgentCallsHaveFiniteRouteSpecificDeadlines() {
+        assertEquals(8L * 60_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/chat/agent/project/turn"))
+        assertEquals(8L * 60_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/writing-room/agent/turn"))
+        assertEquals(8L * 60_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/writing-room/agent/confirm"))
+        assertEquals(45_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/chat/agent/project/capability"))
+        assertEquals(45_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/writing-room/agent/status"))
+        assertEquals(45_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/writing-room/agent/events"))
+    }
+
     @Test fun projectMediaMatchesVpsThreeMiBImageLimit() {
         fun media(base64Length: Int) = JsonArray(listOf(JsonObject(mapOf(
             "data_base64" to JsonPrimitive("A".repeat(base64Length)),
