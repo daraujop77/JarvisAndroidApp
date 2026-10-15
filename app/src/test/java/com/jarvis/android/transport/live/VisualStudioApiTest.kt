@@ -412,6 +412,39 @@ class VisualStudioApiTest {
     }
 
     @Test
+    fun twoDeliberateSuccessfulMasterRequestsUseDistinctPaidAttemptIds() = runBlocking {
+        val client = session()
+        repeat(2) {
+            val reply = client.generateVisualAssetImage(
+                projectId = "prj_story",
+                characterId = "character:alexander",
+                prompt = "The same canonical portrait",
+                kind = "PRIMARY_REFERENCE",
+                perspective = "front",
+            ).orThrowStage("explicit image generation ${it + 1}")
+            assertEquals("stored", reply.visual_asset?.storage?.state)
+        }
+        // Two user gestures, each with exactly one read-only lookup and
+        // one intentional paid POST. No cached first image on the second tap.
+        val firstProbe = server.takeRequest()
+        val firstPost = server.takeRequest()
+        val secondProbe = server.takeRequest()
+        val secondPost = server.takeRequest()
+        assertTrue(firstProbe.path?.startsWith("/api/app/images/requests/") == true)
+        assertTrue(secondProbe.path?.startsWith("/api/app/images/requests/") == true)
+        assertEquals("/api/app/images/generations", firstPost.path)
+        assertEquals("/api/app/images/generations", secondPost.path)
+        val firstId = json.parseToJsonElement(firstPost.body.readUtf8()).jsonObject[
+            "request_id"]?.jsonPrimitive?.content
+        val secondId = json.parseToJsonElement(secondPost.body.readUtf8()).jsonObject[
+            "request_id"]?.jsonPrimitive?.content
+        assertTrue(!firstId.isNullOrBlank())
+        assertTrue(!secondId.isNullOrBlank())
+        assertFalse(firstId == secondId)
+        assertEquals(4, server.requestCount)
+    }
+
+    @Test
     fun masterTurnaroundAndPackUseVersionedDurableContract() = runBlocking {
         val session = session()
 
