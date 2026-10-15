@@ -28,6 +28,10 @@ class SceneBuilderApiTest {
                 if (request.getHeader("Authorization") != "Bearer test-token") {
                     return MockResponse().setResponseCode(401)
                 }
+                if (request.path?.startsWith("/api/app/images/requests/") == true) {
+                    return MockResponse().setResponseCode(404)
+                        .setBody("""{"error":"image_request_not_found"}""")
+                }
                 return when (request.path) {
                     "/api/app/writing-room/v2/visual/scenes/capabilities" ->
                         MockResponse().setBody(
