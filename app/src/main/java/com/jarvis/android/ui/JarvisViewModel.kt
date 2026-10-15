@@ -5105,8 +5105,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             ).fold(
                 onSuccess = { reply ->
                     if (!scopeIsCurrent()) return@fold
+                    val asset = reply.visual_asset
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+                        if (asset == null || asset.sha256.isBlank()) null
+                        else container.attachmentStore.stageVisualAssetBase64(reply.data_base64, asset.sha256)
                     }
                     if (!scopeIsCurrent()) {
                         staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
@@ -7638,8 +7640,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             }
             return
         }
+        val asset = reply.visual_asset
         val staged = withContext(Dispatchers.IO) {
-            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+            if (asset == null || asset.sha256.isBlank()) null
+            else container.attachmentStore.stageVisualAssetBase64(reply.data_base64, asset.sha256)
         }
         if (
             expectedScopeVersion != sceneBuilderScopeVersion ||
@@ -7826,9 +7830,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 onSuccess = { reply ->
                     val oldAttachments = _sceneBuilder.value.attachmentIds +
                         listOfNotNull(_sceneBuilder.value.generatedAttachmentId)
+                    val asset = reply.visual_asset
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(
+                        if (asset == null || asset.sha256.isBlank()) null
+                        else container.attachmentStore.stageVisualAssetBase64(
                             reply.data_base64,
+                            asset.sha256,
                         )
                     }
                     if (scopeVersion != sceneBuilderScopeVersion ||
@@ -7943,9 +7950,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 aspectRatio = aspectRatio,
             ).fold(
                 onSuccess = { reply ->
+                    val asset = reply.visual_asset
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(
+                        if (asset == null || asset.sha256.isBlank()) null
+                        else container.attachmentStore.stageVisualAssetBase64(
                             reply.data_base64,
+                            asset.sha256,
                         )
                     }
                     if (staged == null) {

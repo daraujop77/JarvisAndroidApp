@@ -15,6 +15,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 class SceneBuilderApiTest {
@@ -980,5 +981,23 @@ class SceneBuilderApiTest {
         assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
     }
 
-
+    @Test
+    fun sceneCandidatesStageServerBytesVerifiedBySha() {
+        val vm = listOf(
+            File("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
+            File("../app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
+        ).first { it.isFile }.readText()
+        val stagedWithSha = Regex("stageVisualAssetBase64\\(\\s*reply\\.data_base64,\\s*asset\\.sha256,?\\s*\\)")
+        val sites = listOf(
+            "fun editCharacterVisualInStudio(" to "fun createCharacterReferencePack(",
+            "private suspend fun applySceneDirectorResult(" to "fun previewSceneVisualContext(",
+            "fun generateSceneVisual(" to "fun editSceneVisual(",
+            "fun editSceneVisual(" to "fun approveSceneVisual(",
+        )
+        for ((start, end) in sites) {
+            val body = vm.substringAfter(start).substringBefore(end)
+            assertTrue("$start must stage with the server SHA", stagedWithSha.containsMatchIn(body))
+            assertFalse("$start must not recompress via stageGeneratedBase64", body.contains("stageGeneratedBase64("))
+        }
+    }
 }
