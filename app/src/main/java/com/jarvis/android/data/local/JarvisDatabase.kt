@@ -23,6 +23,15 @@ abstract class JarvisDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var instance: JarvisDatabase? = null
+        private var instanceScope: String? = null
+
+        fun accountStorageKey(principalId: String): String {
+            if (principalId.isBlank()) return "unauthenticated"
+            require(principalId.length <= 4096)
+            return java.security.MessageDigest.getInstance("SHA-256")
+                .digest(principalId.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }.take(32)
+        }
 
         /**
          * v1 → v2: `pending_outbound` gained the `attachmentIds` column (AND-W6).
@@ -125,16 +134,23 @@ abstract class JarvisDatabase : RoomDatabase() {
             execSql("ALTER TABLE `messages` ADD COLUMN `sourcesJson` TEXT NOT NULL DEFAULT ''")
         }
 
-        fun get(context: Context): JarvisDatabase =
-            instance ?: synchronized(this) {
+        fun get(context: Context, principalId: String = ""): JarvisDatabase =
+            synchronized(this) {
+                val ownerKey = accountStorageKey(principalId)
+                if (instanceScope != ownerKey) {
+                    instance?.close()
+                    instance = null
+                }
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     JarvisDatabase::class.java,
-                    "jarvis.db",
+                    "jarvis-account-$ownerKey.db",
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
-                    .also { instance = it }
+                    .also { instance = it; instanceScope = ownerKey }
             }
+        // Legacy jarvis.db stays quarantined rather than being assigned to
+        // whichever account happens to log in next.
     }
 }
