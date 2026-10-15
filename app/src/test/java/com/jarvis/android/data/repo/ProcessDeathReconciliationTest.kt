@@ -113,7 +113,7 @@ class ProcessDeathReconciliationTest {
             dao.insertMessage(MessageEntity(
                 conversationId = "private-a", clientRequestId = "req-a",
                 role = "user", text = "Only account A",
-                status = RequestStatus.Completed.dbName, createdAtMs = 1,
+                status = "Completed", createdAtMs = 1,
             ))
             assertEquals(1, repository.observeConversations().first().size)
             assertEquals(1, repository.observeMessages("private-a").first().size)
