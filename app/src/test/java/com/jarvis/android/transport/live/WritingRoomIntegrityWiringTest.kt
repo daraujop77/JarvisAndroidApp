@@ -12,6 +12,20 @@ class WritingRoomIntegrityWiringTest {
             ?.readText() ?: error("Missing source: $path")
 
     @Test
+    fun selectedGlobalProjectRequiresExactScopedMediaCapability() {
+        val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
+        val selection = vm.substringAfter("fun selectGlobalChatAgentProject(")
+            .substringBefore("val snapshot: StateFlow")
+        assertTrue(selection.contains("capability.effect == \"READ_ONLY\""))
+        assertTrue(selection.contains("capability.supports_attachments"))
+        assertTrue(selection.contains(
+            "capability.attachment_policy == \"one_image_or_document_read_only_no_web\""
+        ))
+        assertFalse(selection.contains("!capability.supports_attachments"))
+        assertTrue(selection.contains("setChatAgentProjectFor(id, projectId)"))
+    }
+
+    @Test
     fun switchingProjectsClearsProtectedStateAndIgnoresLateLoads() {
         val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
         assertTrue(vm.contains("WritingWorkspaceState(chatProjectId = projectId)"))
