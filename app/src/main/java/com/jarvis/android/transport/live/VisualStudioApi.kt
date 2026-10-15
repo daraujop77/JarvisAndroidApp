@@ -710,48 +710,39 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
     val auth = authHeader()
         ?: return@withContext Result.failure(TransportException("no live session"))
     runCatching {
-        val response = if (path in setOf(
-                "/api/app/images/generations", "/api/app/images/edits",
-                "/api/app/images/copilot-scene-edits")) {
-            // Exact account/route/body identity; a retry first polls the VPS.
-            // An uncertain result is NEVER permitted to become another charge.
-            val signature = "$baseUrl\u001f$userId\u001f$path\u001f${body}"
-            val hash = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(signature.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
-            val requestId = "vis_" + hash.take(56)
-            val recovered = get(baseUrl, "/api/app/images/requests/$requestId", auth)
-            when (recovered.first) {
-                200 -> {
-                    val stored = visualStudioJson.parseToJsonElement(recovered.second).jsonObject
-                    if (stored["result"] != null || stored["data_base64"] == null) {
-                        throw TransportException("La operación visual es incierta. No se repetirá el cobro.")
-                    }
-                    recovered
-                }
-                404 -> {
-                    val code = runCatching {
-                        visualStudioJson.parseToJsonElement(recovered.second).jsonObject["error"]
-                            ?.jsonPrimitive?.contentOrNull
-                    }.getOrNull()
-                    if (code != "image_request_not_found") {
-                        throw TransportException("El VPS no tiene recuperación segura de imágenes.")
-                    }
-                    val wire = buildJsonObject {
-                        body.forEach { (name, value) -> put(name, value) }
-                        put("request_id", requestId)
-                    }
-                    post(baseUrl, path, wire.toString(), auth, timeoutMillis = 480_000L)
-                }
-                else -> throw TransportException("No se pudo comprobar el intento visual original")
-            }
-        } else post(baseUrl, path, body.toString(), auth)
+        val paid = path in setOf(
+            "/api/app/images/generations", "/api/app/images/edits",
+            "/api/app/images/copilot-scene-edits",
+        )
+        // Use the SAME crash-durable attempt journal as Global Image Studio.
+        // Reusing the original request after process death only performs GET.
+        // After a verified durable candidate is stored, a NEW explicit user
+        // gesture may generate a new image even with an identical prompt.
+        val response = if (paid) postPaidVisual(path, body)
+                       else post(baseUrl, path, body.toString(), auth)
         if (response.first == 401) {
             clear()
             throw TransportException("session expired")
         }
         requireOk(response)
-        visualStudioJson.parseToJsonElement(response.second).jsonObject
+        val result = visualStudioJson.parseToJsonElement(response.second).jsonObject
+        if (paid) {
+            val stored = result["visual_asset"]?.jsonObject
+            val state = stored?.get("storage")?.jsonObject
+                ?.get("state")?.jsonPrimitive?.contentOrNull
+            val assetId = stored?.get("asset_id")?.jsonPrimitive?.contentOrNull
+            val bytes = result["data_base64"]?.jsonPrimitive?.contentOrNull
+            val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull
+            // Only release the request ID if the original bytes and exact
+            // project candidate are durably recoverable from the VPS.
+            // An unknown, pending-storage or malformed result stays pinned.
+            if (!assetId.isNullOrBlank() && state == "stored" &&
+                !bytes.isNullOrBlank() && mime in setOf("image/png", "image/jpeg", "image/webp")
+            ) {
+                acknowledgePaidVisual(path)
+            }
+        }
+        result
     }
 }
 
