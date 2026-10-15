@@ -36,6 +36,16 @@ class VisualStudioApiTest {
     private lateinit var server: MockWebServer
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** Skip the intentional, read-only paid receipt probe before a visual POST. */
+    private fun takeActionRequest(): RecordedRequest {
+        while (true) {
+            val request = server.takeRequest()
+            if (request.path?.startsWith("/api/app/images/requests/") != true) {
+                return request
+            }
+        }
+    }
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -393,7 +403,7 @@ class VisualStudioApiTest {
             roster.items.single { it.state == "READY" }.character_id,
         )
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         assertEquals(
             "/api/app/writing-room/v2/visual/characters/masters/status",
             request.path,
@@ -482,7 +492,7 @@ class VisualStudioApiTest {
         assertEquals("va_left", detail.gallery?.identity_pack?.single()?.asset_id)
 
         val requests = generateSequence {
-            if (server.requestCount > 0) server.takeRequest() else null
+            if (server.requestCount > 0) takeActionRequest() else null
         }.take(8).toList()
         assertTrue(requests.all { it.getHeader("Authorization") == "Bearer test-token" })
 
