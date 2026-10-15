@@ -29,6 +29,10 @@ class WritingRoomWorkspaceApiTest {
                 if (request.getHeader("Authorization") != "Bearer test-token") {
                     return MockResponse().setResponseCode(401)
                 }
+                if (request.path.orEmpty().startsWith("/api/app/images/requests/")) {
+                    return MockResponse().setResponseCode(404)
+                        .setBody("""{"error":"image_request_not_found"}""")
+                }
                 return when (request.path) {
                     "/api/app/writing-room/wiki/home" -> MockResponse().setBody(
                         """
@@ -1145,11 +1149,20 @@ class WritingRoomWorkspaceApiTest {
         assertEquals(false, image.fallback_used)
         assertEquals("CANDIDATE", image.visual_asset?.status)
         assertEquals("stored", image.visual_asset?.storage?.state)
-        assertEquals(1, server.requestCount)
+        assertEquals(2, server.requestCount)
+        val recovery = server.takeRequest()
+        assertEquals("GET", recovery.method)
+        assertTrue(recovery.path.orEmpty().matches(
+            Regex("/api/app/images/requests/vis_[a-f0-9]{56}"),
+        ))
+        assertEquals("Bearer test-token", recovery.getHeader("Authorization"))
         val request = server.takeRequest()
+        assertEquals("POST", request.method)
         assertEquals("/api/app/images/generations", request.path)
         assertEquals("Bearer test-token", request.getHeader("Authorization"))
         val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals(recovery.path!!.substringAfterLast('/'),
+            body["request_id"]?.jsonPrimitive?.content)
         assertEquals("gpt-image-2-medium", body["model"]?.jsonPrimitive?.content)
         assertEquals("model_select", body["mode"]?.jsonPrimitive?.content)
         assertEquals("square", body["aspect_ratio"]?.jsonPrimitive?.content)

@@ -1361,6 +1361,8 @@ suspend fun JarvisAppSession.generateVisualAssetImage(
     parentSha256: String = "",
     derivation: String = "",
     assetId: String? = null,
+    alt: String = "",
+    provenance: JsonObject = JsonObject(emptyMap()),
 ): Result<VisualStudioGeneratedImage> =
     visualStudioObjectPost(
         "/api/app/images/generations",
@@ -1384,9 +1386,11 @@ suspend fun JarvisAppSession.generateVisualAssetImage(
                 }
                 put("references_per_character", referencesPerCharacter.coerceIn(1, 4))
                 if (!assetId.isNullOrBlank()) put("asset_id", assetId)
+                if (alt.isNotBlank()) put("alt", alt.trim().take(240))
                 if (parentAssetId.isNotBlank()) put("parent_asset_id", parentAssetId)
                 if (parentSha256.isNotBlank()) put("parent_sha256", parentSha256)
                 if (derivation.isNotBlank()) put("derivation", derivation)
+                if (provenance.isNotEmpty()) put("provenance", provenance)
             })
         },
     ).mapCatching { raw ->

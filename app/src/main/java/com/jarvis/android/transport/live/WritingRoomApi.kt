@@ -1419,30 +1419,51 @@ suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
     if (!characterId.startsWith("character:") || characterName.isBlank() ||
         projectId.isBlank() || adjustment.length > 850
     ) return Result.failure(TransportException("Invalid character portrait request"))
-    return writingPost(
-        "/api/app/images/generations",
-        buildJsonObject {
-            put("project_id", projectId)
-            put("prompt", adjustment.ifBlank { "One faithful frontal portrait of the canonical character." })
-            put("mode", "model_select")
-            put("model", "gpt-image-2-medium")
-            put("aspect_ratio", "square")
-            put("visual_asset", buildJsonObject {
-                put("project_id", projectId)
-                put("surface", "character_creator")
-                put("kind", "PRIMARY_REFERENCE")
-                put("perspective", "front")
-                put("character_ids", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive(characterId)) })
-                put("alt", "Retrato candidato de " + characterName.take(120))
-                put("provenance", buildJsonObject {
-                    put("requested_from", "copilot")
-                    put("requested_model", "gpt-image-2-medium")
-                    put("authority", "CANDIDATE")
-                })
-            })
+    return generateVisualAssetImage(
+        projectId = projectId,
+        characterId = characterId,
+        prompt = adjustment.ifBlank {
+            "One faithful frontal portrait of the canonical character."
         },
-        timeoutMillis = 180_000L,
-    )
+        kind = "PRIMARY_REFERENCE",
+        perspective = "front",
+        mode = "model_select",
+        model = "gpt-image-2-medium",
+        aspectRatio = "square",
+        referencesPerCharacter = 1,
+        alt = "Retrato candidato de " + characterName.take(120),
+        provenance = buildJsonObject {
+            put("requested_from", "copilot")
+            put("requested_model", "gpt-image-2-medium")
+            put("authority", "CANDIDATE")
+        },
+    ).mapCatching { image ->
+        val asset = image.visual_asset
+            ?: throw TransportException("Visual generation returned no candidate asset")
+        CopilotPortraitGeneration(
+            schema = image.schema,
+            mime_type = image.mime_type,
+            data_base64 = image.data_base64,
+            model = image.model,
+            fallback_used = image.fallback_used,
+            visual_asset = CopilotVisualCandidate(
+                asset_id = asset.asset_id,
+                sha256 = asset.sha256,
+                status = asset.status,
+                kind = asset.kind,
+                storage = CopilotVisualStorage(
+                    backend = asset.storage.backend,
+                    state = asset.storage.state,
+                ),
+                perspective = asset.perspective,
+                character_ids = asset.character_ids,
+                mime_type = asset.mime_type,
+                visual_revision = asset.visual_revision,
+                alt = asset.alt,
+                provenance = asset.provenance,
+            ),
+        )
+    }
 }
 
 /** Explicit human approval of the exact candidate image; separate from text canon. */
