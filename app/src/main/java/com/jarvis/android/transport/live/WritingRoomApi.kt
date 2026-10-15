@@ -1378,14 +1378,17 @@ suspend fun JarvisAppSession.writingRoomAutoChat(
  * file signature, never the URI extension, picker label, or a JPEG default.
  * The VPS independently validates image input and applies project access.
  */
-private fun copilotReferenceMime(base64: String): String? {
+private fun copilotReferenceMime(
+    base64: String,
+    maxBytes: Int = 5 * 1024 * 1024,
+): String? {
     if (base64.isBlank() || base64.length > 8 * 1024 * 1024) return null
     val bytes = try {
         Base64.getDecoder().decode(base64)
     } catch (_: IllegalArgumentException) {
         return null
     }
-    if (bytes.size !in 12..(5 * 1024 * 1024)) return null
+    if (bytes.size !in 12..maxBytes) return null
     fun signature(offset: Int, vararg expected: Int): Boolean =
         bytes.size >= offset + expected.size && expected.indices.all { i ->
             (bytes[offset + i].toInt() and 0xff) == expected[i]
@@ -1548,10 +1551,13 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     if (clean.length > 6000) return@withContext Result.failure(TransportException("Writing Room prompt is too long"))
     // Same-turn data, never an untrusted URL/asset name. Bound to the VPS
     // vision provider limit; the backend independently verifies real MIME.
-    if (attachedImageBase64 != null && (attachedImageBase64.isBlank() ||
-        attachedImageBase64.length > 5 * 1024 * 1024)) {
+    val attachedMime = attachedImageBase64?.let {
+        copilotReferenceMime(it, maxBytes = 3 * 1024 * 1024)
+    }
+    if (attachedImageBase64 != null && (attachedImageBase64.length > 5 * 1024 * 1024 ||
+        attachedMime == null)) {
         return@withContext Result.failure(
-            TransportException("Copilot image is missing or exceeds 5 MB base64"),
+            TransportException("Copilot attachment must contain valid JPEG, PNG or WebP original bytes (max 3 MB)"),
         )
     }
     if (expired || authHeader() == null) {
@@ -1581,7 +1587,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         if (attachedImageBase64 != null) {
             put("images", kotlinx.serialization.json.buildJsonArray {
                 add(buildJsonObject {
-                    put("mime_type", "image/jpeg")
+                    put("mime_type", requireNotNull(attachedMime))
                     put("data_base64", attachedImageBase64)
                 })
             })
