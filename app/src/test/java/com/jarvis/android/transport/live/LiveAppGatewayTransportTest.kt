@@ -44,6 +44,7 @@ class LiveAppGatewayTransportTest {
     private lateinit var job: Job
     private var advertiseGeneralAgent = false
     private var rejectProjectAgentTurn = false
+    private var tamperProjectAgentReplyScope = false
     private val cancelCalls = AtomicInteger(0)
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
@@ -137,13 +138,26 @@ class LiveAppGatewayTransportTest {
                         }
                     }
                     request.path == "/api/app/chat/agent/project/turn" -> {
-                        postedBodies += "POST /api/app/chat/agent/project/turn\n" + request.body.readUtf8()
+                        val posted = request.body.readUtf8()
+                        postedBodies += "POST /api/app/chat/agent/project/turn\n" + posted
                         if (rejectProjectAgentTurn) {
                             MockResponse().setResponseCode(409)
                                 .setBody("""{"error":"agent_not_available"}""")
-                        } else MockResponse().setBody(
-                            """{"schema":"jarvis.chat.turn.v1","response":{"text":"Scoped image read","provider":"jarvis-adaptive"},"content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Scoped image read"}],"sources":[{"ref":"web:a32f3bb71f3e05ea8971","title":"IANA official","url":"https://www.iana.org/domains/reserved"},{"ref":"web:00000000000000000000","title":"Fake local","url":"https://127.0.0.1/private"}]}}"""
-                        )
+                        } else {
+                            val reqScope = Json.parseToJsonElement(posted).jsonObject
+                            val identity = kotlinx.serialization.json.buildJsonObject {
+                                listOf("request_id", "conversation_id", "trace_id",
+                                       "device_id", "session_id").forEach { field ->
+                                    put(field, reqScope[field]!!)
+                                }
+                                if (tamperProjectAgentReplyScope) {
+                                    put("conversation_id", "other-conversation")
+                                }
+                            }
+                            MockResponse().setBody(
+                                """{"schema":"jarvis.chat.turn.v1","route":"adaptive_agent","request":$identity,"response":{"text":"Scoped image read","provider":"jarvis-adaptive"},"content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Scoped image read"}],"sources":[{"ref":"web:a32f3bb71f3e05ea8971","title":"IANA official","url":"https://www.iana.org/domains/reserved"},{"ref":"web:00000000000000000000","title":"Fake local","url":"https://127.0.0.1/private"}]}}"""
+                            )
+                        }
                     }
                     request.path == "/api/app/chat" && request.method == "POST" -> {
                         jsonChatCalls.incrementAndGet()
