@@ -496,6 +496,79 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun frozenProjectReceiptSurvivesRestartAndRefusesRescope() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        val saved = session.rememberTurn(
+            "private-req", "private-conv", "trace-original", "device-original",
+            "session-original",
+        )
+        assertEquals("prj_story", saved.projectId)
+        assertTrue(saved.scopeKnown)
+        val afterRestart = JarvisAppSession(store)
+        val reused = afterRestart.rememberTurn(
+            "private-req", "private-conv", "new-trace", "different-device",
+            "different-session",
+        )
+        assertEquals("trace-original", reused.traceId)
+        assertEquals("device-original", reused.deviceId)
+        assertEquals("session-original", reused.sessionId)
+
+        afterRestart.setChatAgentProjectFor("private-conv", null)
+        try {
+            afterRestart.rememberTurn(
+                "private-req", "private-conv", "unsafe-trace", "other-device",
+                "other-session",
+            )
+            throw AssertionError("Project-scoped request must not become unscoped")
+        } catch (expected: TransportException) {
+            assertTrue(expected.message.orEmpty().contains("project changed"))
+        }
+        assertEquals("prj_story", afterRestart.loadTurn("private-req")?.projectId)
+        assertEquals("trace-original", afterRestart.loadTurn("private-req")?.traceId)
+    }
+
+    @Test
+    fun projectReplayNeverFallsBackAfterSelectionIsCleared() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        session.rememberTurn(
+            "private-replay", "private-conv", "trace-original", "device-original",
+            "session-original",
+        )
+        session.setChatAgentProjectFor("private-conv", null)
+        val transport = LiveAppGatewayTransport(JarvisAppSession(store), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        repo.sendWithId("private-replay", "private-conv", "Sensitive project request")
+        await { repo.snapshot.value.session.requests["private-replay"]?.status?.isTerminal == true }
+        assertTrue(repo.snapshot.value.session.requests["private-replay"]?.status
+            is RequestStatus.Failed)
+        assertTrue(postedBodies.none { it.startsWith("POST /api/app/chat/") })
+        assertEquals("prj_story", JarvisAppSession(store).loadTurn("private-replay")?.projectId)
+    }
+
+    @Test
+    fun recoveryRefusesAnotherConversationWithoutFetchingCachedTurn() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        session.rememberTurn(
+            "req-lost", "private-conv", "trace-original", ANDROID_DEVICE,
+            APP_SESSION,
+        )
+        val transport = LiveAppGatewayTransport(session, scope)
+        assertFalse(runBlocking(Dispatchers.IO) {
+            transport.recoverCompletedTurn("req-lost", "unrelated-conversation")
+        })
+        assertEquals("prj_story", session.loadTurn("req-lost")?.projectId)
+        assertTrue(postedBodies.none { it.contains("/api/app/chat/requests/req-lost") })
+    }
+
+    @Test
     fun projectAgentTypedMediaNeverDropsProjectScope() {
         val session = JarvisAppSession(seededStore())
         val imageArray = kotlinx.serialization.json.Json.parseToJsonElement(
