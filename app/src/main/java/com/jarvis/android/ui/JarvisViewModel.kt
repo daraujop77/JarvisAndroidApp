@@ -92,7 +92,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             _globalChatAgentSelecting.value = false
             val capability = ready.getOrNull()
             if (capability?.enabled == true && capability.project_id == projectId &&
-                capability.effect == "READ_ONLY" && !capability.supports_attachments
+                capability.effect == "READ_ONLY" &&
+                capability.supports_attachments &&
+                capability.attachment_policy == "one_image_or_document_read_only_no_web"
             ) {
                 container.liveSession.setChatAgentProjectFor(id, projectId)
                 _globalChatAgentProject.value = projectId
