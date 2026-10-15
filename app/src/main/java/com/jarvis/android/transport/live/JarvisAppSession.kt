@@ -405,23 +405,66 @@ class JarvisAppSession(
         store.put(mapOf(KEY_PROFILE_CONV + conversationId to profile))
     }
 
-    /** Persist per-turn scope so process-death recovery can call GET /requests/{id}. */
-    fun rememberTurn(clientRequestId: String, conversationId: String, traceId: String, deviceId: String, sessionId: String) {
-        store.put(
-            mapOf(
-                KEY_TURN_PREFIX + clientRequestId to
-                    listOf(conversationId, traceId, deviceId, sessionId).joinToString("\u001f"),
-            ),
+    /** Persist the exact original account/project/transport scope before POST.
+     * A process-death retry MUST reuse this immutable receipt. Never turn a
+     * formerly project-scoped request into unscoped Chat Global merely because
+     * its selected-project preference changed while the app was closed.
+     */
+    fun rememberTurn(
+        clientRequestId: String, conversationId: String, traceId: String,
+        deviceId: String, sessionId: String,
+        selectedProjectId: String? = chatAgentProjectFor(conversationId),
+    ): StoredTurn {
+        val principal = userId.trim()
+        if (principal.isBlank() || conversationId.isBlank() ||
+            selectedProjectId?.contains("\u001f") == true
+        ) throw TransportException("invalid persisted chat scope")
+        val key = KEY_TURN_PREFIX + clientRequestId
+        val original = loadTurn(clientRequestId)
+        if (store.get(key) != null && original == null) {
+            throw TransportException("Original chat scope cannot be verified")
+        }
+        if (original != null) {
+            if (original.conversationId != conversationId ||
+                original.principalId != null && original.principalId != principal ||
+                !original.scopeKnown && selectedProjectId != null ||
+                original.scopeKnown && original.projectId != selectedProjectId
+            ) throw TransportException(
+                "Conversation project changed; reconcile the original request before retrying"
+            )
+            // Keep the original trace/device/session IDs for exact server-side
+            // idempotency, rather than inventing a new scope on process restart.
+            return original
+        }
+        val saved = StoredTurn(
+            clientRequestId, conversationId, traceId, deviceId, sessionId,
+            projectId = selectedProjectId, scopeKnown = true,
+            principalId = principal,
         )
+        store.put(mapOf(
+            key to listOf(
+                saved.conversationId, saved.traceId, saved.deviceId,
+                saved.sessionId, saved.projectId ?: "~", principal,
+            ).joinToString("\u001f"),
+        ))
         val ids = (storedTurnIds() + clientRequestId).distinct().takeLast(32)
         store.put(mapOf(KEY_TURN_IDS to ids.joinToString(",")))
+        return saved
     }
 
     fun loadTurn(clientRequestId: String): StoredTurn? {
         val raw = store.get(KEY_TURN_PREFIX + clientRequestId) ?: return null
         val parts = raw.split("\u001f")
-        if (parts.size != 4) return null
-        return StoredTurn(clientRequestId, parts[0], parts[1], parts[2], parts[3])
+        if (parts.size != 4 && parts.size != 6) return null
+        if (parts.any { it.isBlank() }) return null
+        val projectId = if (parts.size == 6) {
+            parts[4].takeUnless { it == "~" }
+        } else null
+        return StoredTurn(
+            clientRequestId, parts[0], parts[1], parts[2], parts[3],
+            projectId = projectId, scopeKnown = parts.size == 6,
+            principalId = parts.getOrNull(5),
+        )
     }
 
     fun forgetTurn(clientRequestId: String) {
@@ -438,6 +481,9 @@ class JarvisAppSession(
         val traceId: String,
         val deviceId: String,
         val sessionId: String,
+        val projectId: String? = null,
+        val scopeKnown: Boolean = false,
+        val principalId: String? = null,
     )
 
     /**
