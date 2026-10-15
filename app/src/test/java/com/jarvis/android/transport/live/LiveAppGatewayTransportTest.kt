@@ -80,6 +80,9 @@ class LiveAppGatewayTransportTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val auth = request.getHeader("Authorization")
                 return when {
+                    request.path?.startsWith("/api/app/images/requests/") == true ->
+                        MockResponse().setResponseCode(404)
+                            .setBody("""{"error":"image_request_not_found"}""")
                     request.path == "/api/app/login" && request.method == "POST" -> {
                         loginCalls.incrementAndGet()
                         val body = request.body.readUtf8()
