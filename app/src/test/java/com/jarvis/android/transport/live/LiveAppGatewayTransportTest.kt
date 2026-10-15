@@ -907,6 +907,36 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun paidImageNeverDispatchesIfDurableRequestIdWriteFails() {
+        val original = seededStore()
+        val unsafeDisk = object : JarvisAppSession.Store by original {
+            override fun putDurable(values: Map<String, String?>): Boolean = false
+        }
+        val session = JarvisAppSession(unsafeDisk)
+        val result = runBlocking(Dispatchers.IO) {
+            session.generateImage("do not charge me", "speed", null)
+        }
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("cannot be persisted"))
+        assertTrue(postedBodies.none {
+            it.startsWith("POST /api/app/images/generations")
+        })
+    }
+
+    @Test
+    fun logoutRetainsOnlyOpaqueUnsettledPaidIntentNotOtherSessionData() {
+        val memory = seededStore()
+        val key = "jarvis.paid.visual.account-hash.generations"
+        memory.put(mapOf(key to "img_original_1234\\u001fdigest",
+                         "chat.private.sample" to "SECRET"))
+        memory.clear()
+        assertEquals("img_original_1234\\u001fdigest", memory.get(key))
+        assertEquals(null, memory.get(JarvisAppSession.KEY_TOKEN))
+        assertEquals(null, memory.get(JarvisAppSession.KEY_USER_ID))
+        assertEquals(null, memory.get("chat.private.sample"))
+    }
+
+    @Test
     fun exactImageModelSelectionIsSentAndMetadataIsParsed() {
         val session = JarvisAppSession(seededStore())
         val result = runBlocking(Dispatchers.IO) {
