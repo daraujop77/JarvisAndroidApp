@@ -46,6 +46,10 @@ class VisualStudioLocationApiTest {
                         request.body.clone().readUtf8(),
                     ).jsonObject
                 }.getOrNull()
+                if (request.path?.startsWith("/api/app/images/requests/") == true) {
+                    return MockResponse().setResponseCode(404)
+                        .setBody("""{"error":"image_request_not_found"}""")
+                }
                 return when (request.path) {
                     "/api/app/images/generations" -> {
                         val visual = body
