@@ -444,7 +444,7 @@ class SceneBuilderApiTest {
                         MockResponse().setBody(
                             """
                             {
-                              "schema":"jarvis.visual.generated.v1",
+                              "schema":"jarvis.image.edit.v1",
                               "mime_type":"image/png",
                               "data_base64":"ZWRpdA==",
                               "size_bytes":4,
