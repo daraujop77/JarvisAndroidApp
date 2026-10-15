@@ -736,6 +736,15 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
             val status = stored?.get("status")?.jsonPrimitive?.contentOrNull
             val bytes = result["data_base64"]?.jsonPrimitive?.contentOrNull
             val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull
+            val schema = result["schema"]?.jsonPrimitive?.contentOrNull
+            val expectedSchema = if (path == "/api/app/images/generations")
+                "jarvis.image.generation.v2" else "jarvis.image.edit.v1"
+            if (expectedProject.isNullOrBlank() ||
+                expectedProject != storedProject || status != "CANDIDATE" ||
+                schema != expectedSchema
+            ) {
+                throw TransportException("Paid image receipt project or schema mismatch")
+            }
             // Only release the request ID if the original bytes and exact
             // project candidate are durably recoverable from the VPS.
             // An unknown, cross-project, pending-storage or malformed receipt
