@@ -20,6 +20,16 @@ class SceneBuilderApiTest {
     private lateinit var server: MockWebServer
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** Skip the intentional, read-only paid receipt probe before a visual POST. */
+    private fun takeActionRequest(): RecordedRequest {
+        while (true) {
+            val request = server.takeRequest()
+            if (request.path?.startsWith("/api/app/images/requests/") != true) {
+                return request
+            }
+        }
+    }
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -27,6 +37,10 @@ class SceneBuilderApiTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 if (request.getHeader("Authorization") != "Bearer test-token") {
                     return MockResponse().setResponseCode(401)
+                }
+                if (request.path?.startsWith("/api/app/images/requests/") == true) {
+                    return MockResponse().setResponseCode(404)
+                        .setBody("""{"error":"image_request_not_found"}""")
                 }
                 return when (request.path) {
                     "/api/app/writing-room/v2/visual/scenes/capabilities" ->
@@ -430,7 +444,7 @@ class SceneBuilderApiTest {
                         MockResponse().setBody(
                             """
                             {
-                              "schema":"jarvis.visual.generated.v1",
+                              "schema":"jarvis.image.edit.v1",
                               "mime_type":"image/png",
                               "data_base64":"ZWRpdA==",
                               "size_bytes":4,
@@ -555,7 +569,7 @@ class SceneBuilderApiTest {
         assertEquals("CANON_LOCKED", result.context.reference_manifest.references.single().authority)
         assertEquals("D".repeat(64), result.context.reference_manifest.references.single().asset_sha256)
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
         assertEquals("revision_9", body["draft_revision_id"]!!.jsonPrimitive.content)
@@ -589,7 +603,7 @@ class SceneBuilderApiTest {
             result.context?.selection?.character_ids,
         )
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
         assertEquals(
@@ -610,7 +624,7 @@ class SceneBuilderApiTest {
         assertEquals("svc_123", result.context.context_id)
         assertEquals("source-7", result.context.source.revision)
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("svc_123", body["context_id"]!!.jsonPrimitive.content)
     }
@@ -636,7 +650,7 @@ class SceneBuilderApiTest {
         assertTrue(result.scene_human_approval_required)
         assertFalse(result.auto_canon)
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("svc_123", body["context_id"]!!.jsonPrimitive.content)
         assertEquals("A".repeat(64), body["context_hash"]!!.jsonPrimitive.content)
@@ -667,7 +681,7 @@ class SceneBuilderApiTest {
         assertEquals("vsj_scene_1", queued.job?.job_id)
         assertEquals(null, queued.result)
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         assertEquals(
             "/api/app/writing-room/v2/visual/scenes/director/generate",
             request.path,
@@ -699,7 +713,7 @@ class SceneBuilderApiTest {
         assertEquals("svc_123", finished.result?.scene_context_id)
         assertFalse(finished.auto_canon)
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         assertEquals(
             "/api/app/writing-room/v2/visual/scenes/director/job/status",
             request.path,
@@ -743,7 +757,7 @@ class SceneBuilderApiTest {
         assertEquals(parent.sha256, edited.parent_sha256)
         assertEquals("EDIT", edited.derivation)
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
         val meta = body["visual_asset"]!!.jsonObject
         assertEquals("scene_builder", meta["surface"]!!.jsonPrimitive.content)
@@ -790,7 +804,7 @@ class SceneBuilderApiTest {
         assertEquals(2, local.exact_reference_count)
         assertFalse(local.fallback_allowed)
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         val body = json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
     }

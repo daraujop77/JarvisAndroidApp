@@ -25,6 +25,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -39,11 +44,18 @@ class LiveAppGatewayTransportTest {
     private lateinit var scope: CoroutineScope
     private lateinit var job: Job
     private var advertiseGeneralAgent = false
+    private var rejectProjectAgentTurn = false
+    private var tamperProjectAgentReplyScope = false
     private val cancelCalls = AtomicInteger(0)
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
     private val jsonChatCalls = AtomicInteger(0)
     private val recoveredImageDownloads = AtomicInteger(0)
+    private val receiptImage = byteArrayOf(
+        0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3,
+    )
+    private val receiptSha = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(receiptImage).joinToString("") { "%02x".format(it) }
     private val postedBodies = java.util.Collections.synchronizedList(mutableListOf<String>())
 
     /** Per-test SSE behavior; default = full happy stream. */
@@ -68,6 +80,9 @@ class LiveAppGatewayTransportTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val auth = request.getHeader("Authorization")
                 return when {
+                    request.path?.startsWith("/api/app/images/requests/") == true ->
+                        MockResponse().setResponseCode(404)
+                            .setBody("""{"error":"image_request_not_found"}""")
                     request.path == "/api/app/login" && request.method == "POST" -> {
                         loginCalls.incrementAndGet()
                         val body = request.body.readUtf8()
@@ -102,7 +117,7 @@ class LiveAppGatewayTransportTest {
                         auth == "Bearer test-token" -> {
                         recoveredImageDownloads.incrementAndGet()
                         MockResponse().setHeader("Content-Type", "image/png")
-                            .setBody("fixture-image-bytes")
+                            .setBody(okio.Buffer().write(receiptImage))
                     }
                     request.path?.startsWith("/api/app/chat/requests/") == true && auth != "Bearer test-token" ->
                         MockResponse().setResponseCode(401)
@@ -110,12 +125,12 @@ class LiveAppGatewayTransportTest {
                         val rid = request.path!!.substringAfterLast('/')
                         if (rid in setOf("req-lost", "req-broken", "req-media", "req-content", "req-sources")) {
                             val media = if (rid == "req-media") {
-                                ""","media":{"generated_images":[{"asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"""
+                                ""","media":{"generated_images":[{"asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sha256":"$receiptSha","mime_type":"image/png"}]}"""
                             } else ""
                             val content = if (rid == "req-sources") {
                                 ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Sources"}],"sources":[{"ref":"web:d92dac30efd5eb76088d","title":"Verified report","url":"https://example.org/report"}]}"""
                             } else if (rid in setOf("req-media", "req-content")) {
-                                ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"sources":[]}"""
+                                ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sha256":"$receiptSha","mime_type":"image/png"}],"sources":[]}"""
                             } else ""
                             MockResponse().setBody(
                                 """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
@@ -124,6 +139,28 @@ class LiveAppGatewayTransportTest {
                         } else {
                             MockResponse().setResponseCode(404)
                                 .setBody("""{"schema":"jarvis.web.error.v1","error":"unknown_request"}""")
+                        }
+                    }
+                    request.path == "/api/app/chat/agent/project/turn" -> {
+                        val posted = request.body.readUtf8()
+                        postedBodies += "POST /api/app/chat/agent/project/turn\n" + posted
+                        if (rejectProjectAgentTurn) {
+                            MockResponse().setResponseCode(409)
+                                .setBody("""{"error":"agent_not_available"}""")
+                        } else {
+                            val reqScope = Json.parseToJsonElement(posted).jsonObject
+                            val identity = kotlinx.serialization.json.buildJsonObject {
+                                listOf("request_id", "conversation_id", "trace_id",
+                                       "device_id", "session_id").forEach { field ->
+                                    put(field, reqScope[field]!!)
+                                }
+                                if (tamperProjectAgentReplyScope) {
+                                    put("conversation_id", "other-conversation")
+                                }
+                            }
+                            MockResponse().setBody(
+                                """{"schema":"jarvis.chat.turn.v1","route":"adaptive_agent","request":$identity,"response":{"text":"Scoped image read","provider":"jarvis-adaptive"},"content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"text","text":"Scoped image read"}],"sources":[{"ref":"web:a32f3bb71f3e05ea8971","title":"IANA official","url":"https://www.iana.org/domains/reserved"},{"ref":"web:00000000000000000000","title":"Fake local","url":"https://127.0.0.1/private"}]}}"""
+                            )
                         }
                     }
                     request.path == "/api/app/chat" && request.method == "POST" -> {
@@ -477,6 +514,220 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun frozenProjectReceiptSurvivesRestartAndRefusesRescope() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        val saved = session.rememberTurn(
+            "private-req", "private-conv", "trace-original", "device-original",
+            "session-original",
+        )
+        assertEquals("prj_story", saved.projectId)
+        assertTrue(saved.scopeKnown)
+        val afterRestart = JarvisAppSession(store)
+        val reused = afterRestart.rememberTurn(
+            "private-req", "private-conv", "new-trace", "different-device",
+            "different-session",
+        )
+        assertEquals("trace-original", reused.traceId)
+        assertEquals("device-original", reused.deviceId)
+        assertEquals("session-original", reused.sessionId)
+
+        afterRestart.setChatAgentProjectFor("private-conv", null)
+        try {
+            afterRestart.rememberTurn(
+                "private-req", "private-conv", "unsafe-trace", "other-device",
+                "other-session",
+            )
+            throw AssertionError("Project-scoped request must not become unscoped")
+        } catch (expected: TransportException) {
+            assertTrue(expected.message.orEmpty().contains("project changed"))
+        }
+        assertEquals("prj_story", afterRestart.loadTurn("private-req")?.projectId)
+        assertEquals("trace-original", afterRestart.loadTurn("private-req")?.traceId)
+    }
+
+    @Test
+    fun projectReplayNeverFallsBackAfterSelectionIsCleared() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        session.rememberTurn(
+            "private-replay", "private-conv", "trace-original", "device-original",
+            "session-original",
+        )
+        session.setChatAgentProjectFor("private-conv", null)
+        val transport = LiveAppGatewayTransport(JarvisAppSession(store), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        repo.sendWithId("private-replay", "private-conv", "Sensitive project request")
+        await { repo.snapshot.value.session.requests["private-replay"]?.status?.isTerminal == true }
+        assertTrue(repo.snapshot.value.session.requests["private-replay"]?.status
+            is RequestStatus.Failed)
+        assertTrue(postedBodies.none { it.startsWith("POST /api/app/chat/") })
+        assertEquals("prj_story", JarvisAppSession(store).loadTurn("private-replay")?.projectId)
+    }
+
+    @Test
+    fun recoveryRefusesAnotherConversationWithoutFetchingCachedTurn() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        session.rememberTurn(
+            "req-lost", "private-conv", "trace-original", ANDROID_DEVICE,
+            APP_SESSION,
+        )
+        val transport = LiveAppGatewayTransport(session, scope)
+        assertFalse(runBlocking(Dispatchers.IO) {
+            transport.recoverCompletedTurn("req-lost", "unrelated-conversation")
+        })
+        assertEquals("prj_story", session.loadTurn("req-lost")?.projectId)
+        assertTrue(postedBodies.none { it.contains("/api/app/chat/requests/req-lost") })
+    }
+
+    @Test
+    fun forgedProjectReplyScopeCannotBeRenderedOrPersistSources() {
+        tamperProjectAgentReplyScope = true
+        val session = JarvisAppSession(seededStore())
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        val sources = mutableListOf<String>()
+        session.onAgentSourcesReady = { _, _, receipt -> sources += receipt }
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val turn = repo.send("private-conv", "Check source identity")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        assertTrue(repo.snapshot.value.session.requests[turn]?.status is RequestStatus.Failed)
+        assertTrue(sources.isEmpty())
+        assertEquals(1, postedBodies.count {
+            it.startsWith("POST /api/app/chat/agent/project/turn")
+        })
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
+    fun projectRetryPostsExactlyTheOriginalPersistentTraceAndDeviceScope() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        session.rememberTurn(
+            "req-persisted", "private-conv", "original-trace",
+            "original-device", "original-client-session",
+        )
+        val transport = LiveAppGatewayTransport(JarvisAppSession(store), scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        repo.sendWithId("req-persisted", "private-conv", "Inspect this project")
+        await { repo.snapshot.value.session.requests["req-persisted"]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+                     repo.snapshot.value.session.requests["req-persisted"]?.status)
+        val sent = postedBodies.single { it.startsWith(
+            "POST /api/app/chat/agent/project/turn"
+        ) }.substringAfter(10.toChar())
+        val body = Json.parseToJsonElement(sent).jsonObject
+        assertEquals("prj_story", body["project_id"]?.jsonPrimitive?.content)
+        assertEquals("private-conv", body["conversation_id"]?.jsonPrimitive?.content)
+        assertEquals("req-persisted", body["request_id"]?.jsonPrimitive?.content)
+        assertEquals("original-trace", body["trace_id"]?.jsonPrimitive?.content)
+        assertEquals("original-device", body["device_id"]?.jsonPrimitive?.content)
+        assertEquals("original-client-session", body["session_id"]?.jsonPrimitive?.content)
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
+    fun projectAgentTypedMediaNeverDropsProjectScope() {
+        val session = JarvisAppSession(seededStore())
+        val imageArray = kotlinx.serialization.json.Json.parseToJsonElement(
+            """[{"mime_type":"image/png","data_base64":"iVBORw0KGgo="}]"""
+        ) as kotlinx.serialization.json.JsonArray
+        val reply = runBlocking(Dispatchers.IO) {
+            session.chatGlobalProjectAgentTurn(
+                projectId = "prj_story", conversationId = "project-chat-1",
+                requestId = "req-image-scope", prompt = "Describe this picture",
+                images = imageArray,
+            )
+        }
+        assertTrue(reply.isSuccess)
+        val saved = postedBodies.single { it.startsWith("POST /api/app/chat/agent/project/turn") }
+        val posted = kotlinx.serialization.json.Json.parseToJsonElement(
+            saved.substringAfter('\n')
+        ).jsonObject
+        assertEquals("prj_story", posted["project_id"]?.jsonPrimitive?.content)
+        assertEquals("project-chat-1", posted["conversation_id"]?.jsonPrimitive?.content)
+        assertEquals("req-image-scope", posted["request_id"]?.jsonPrimitive?.content)
+        val source = posted["images"]?.jsonArray?.single()?.jsonObject
+        assertEquals("image/png", source?.get("mime_type")?.jsonPrimitive?.content)
+        assertEquals("iVBORw0KGgo=", source?.get("data_base64")?.jsonPrimitive?.content)
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
+    fun selectedProjectTurnKeepsSignedWebSourcesOnOriginalMessage() {
+        val session = JarvisAppSession(seededStore())
+        session.setChatAgentProjectFor("project-chat-sources", "prj_story")
+        val delivered = java.util.Collections.synchronizedList(
+            mutableListOf<Triple<String, String, String>>()
+        )
+        session.onAgentSourcesReady = { conversationId, requestId, sourcesJson ->
+            delivered += Triple(conversationId, requestId, sourcesJson)
+        }
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val turn = repo.send("project-chat-sources", "Find the official IANA page")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+                     repo.snapshot.value.session.requests[turn]?.status)
+        val sent = postedBodies.single {
+            it.startsWith("POST /api/app/chat/agent/project/turn")
+        }
+        val request = Json.parseToJsonElement(sent.substringAfter(10.toChar())).jsonObject
+        assertEquals("prj_story", request["project_id"]?.jsonPrimitive?.content)
+        assertEquals("project-chat-sources",
+                     request["conversation_id"]?.jsonPrimitive?.content)
+        assertEquals(turn, request["request_id"]?.jsonPrimitive?.content)
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+        assertEquals(1, delivered.size)
+        assertEquals("project-chat-sources", delivered.single().first)
+        assertEquals(turn, delivered.single().second)
+        val citations = com.jarvis.android.data.repo.ChatSourcesCodec.decode(
+            delivered.single().third
+        )
+        assertEquals(1, citations.size)
+        assertEquals("https://www.iana.org/domains/reserved", citations.single().url)
+        assertEquals("web:a32f3bb71f3e05ea8971", citations.single().ref)
+    }
+
+    @Test
+    fun selectedProjectServerRejectionNeverFallsBackToUnscopedChat() {
+        rejectProjectAgentTurn = true
+        val session = JarvisAppSession(seededStore())
+        session.setChatAgentProjectFor("project-private", "prj_story")
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val turn = repo.send("project-private", "Check this private story")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        assertTrue(
+            repo.snapshot.value.session.requests[turn]?.status is RequestStatus.Failed
+        )
+        assertEquals(1, postedBodies.count {
+            it.startsWith("POST /api/app/chat/agent/project/turn")
+        })
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
     fun cachedTurnRestoresImageReceiptWithoutPostingNewGeneration() {
         val store = seededStore()
         store.put(mapOf(JarvisAppSession.KEY_TURN_IDS to "req-media"))
@@ -653,6 +904,36 @@ class LiveAppGatewayTransportTest {
         val cid2 = repo.send("c1", "again")
         await { repo.snapshot.value.session.requests[cid2]?.status?.isTerminal == true }
         assertTrue(postedBodies.last().contains("\"profile\":\"deep\""))
+    }
+
+    @Test
+    fun paidImageNeverDispatchesIfDurableRequestIdWriteFails() {
+        val original = seededStore()
+        val unsafeDisk = object : JarvisAppSession.Store by original {
+            override fun putDurable(values: Map<String, String?>): Boolean = false
+        }
+        val session = JarvisAppSession(unsafeDisk)
+        val result = runBlocking(Dispatchers.IO) {
+            session.generateImage("do not charge me", "speed", null)
+        }
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("cannot be persisted"))
+        assertTrue(postedBodies.none {
+            it.startsWith("POST /api/app/images/generations")
+        })
+    }
+
+    @Test
+    fun logoutRetainsOnlyOpaqueUnsettledPaidIntentNotOtherSessionData() {
+        val memory = seededStore()
+        val key = "jarvis.paid.visual.account-hash.generations"
+        memory.put(mapOf(key to "img_original_1234\\u001fdigest",
+                         "chat.private.sample" to "SECRET"))
+        memory.clear()
+        assertEquals("img_original_1234\\u001fdigest", memory.get(key))
+        assertEquals(null, memory.get(JarvisAppSession.KEY_TOKEN))
+        assertEquals(null, memory.get(JarvisAppSession.KEY_USER_ID))
+        assertEquals(null, memory.get("chat.private.sample"))
     }
 
     @Test

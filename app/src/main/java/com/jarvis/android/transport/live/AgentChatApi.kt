@@ -6,6 +6,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -83,6 +85,19 @@ data class AgentConversationScope(
     }
 }
 
+/**
+ * JSON agent calls share the SSE-capable OkHttp client (unbounded read timeout),
+ * so each non-streaming call must impose its own total call deadline.
+ * Model/confirmation operations receive a longer budget than read-only probes.
+ * A timed-out request is NOT permission to send another model/effect attempt.
+ */
+internal fun adaptiveAgentJsonTimeoutMillis(path: String): Long = when (path) {
+    "/api/app/chat/agent/project/turn",
+    "/api/app/writing-room/agent/turn",
+    "/api/app/writing-room/agent/confirm" -> 8L * 60_000L
+    else -> 45_000L
+}
+
 private suspend inline fun <reified T> JarvisAppSession.agentPost(
     path: String,
     body: String,
@@ -97,13 +112,14 @@ private suspend inline fun <reified T> JarvisAppSession.agentPost(
     }
     runCatching {
         var auth = authHeader() ?: throw TransportException("no live session")
-        var response = post(baseUrl, path, body, auth)
+        val deadlineMs = adaptiveAgentJsonTimeoutMillis(path)
+        var response = post(baseUrl, path, body, auth, timeoutMillis = deadlineMs)
         if (response.first == 401) {
             val renewed = refresh(staleBearer = auth)
             if (renewed.isFailure) throw renewed.exceptionOrNull()
                 ?: TransportException("session expired")
             auth = authHeader() ?: throw TransportException("no live session")
-            response = post(baseUrl, path, body, auth)
+            response = post(baseUrl, path, body, auth, timeoutMillis = deadlineMs)
             if (response.first == 401) {
                 if (authHeader() == auth) clearAccess()
                 throw TransportException("session expired")
@@ -225,6 +241,7 @@ data class ChatGlobalProjectAgentCapability(
     val project_id: String = "",
     val effect: String = "",
     val supports_attachments: Boolean = false,
+    val attachment_policy: String = "",
 )
 
 /** Authorization + rollout probe. Never requests a model turn. */
@@ -248,11 +265,22 @@ data class ChatGlobalProjectAgentReplyText(
 )
 
 @Serializable
+data class ChatGlobalProjectAgentReplyScope(
+    val request_id: String = "",
+    val conversation_id: String = "",
+    val trace_id: String = "",
+    val device_id: String = "",
+    val session_id: String = "",
+)
+
+@Serializable
 data class ChatGlobalProjectAgentReply(
     val schema: String = "",
     val route: String = "",
+    val request: ChatGlobalProjectAgentReplyScope? = null,
     val response: ChatGlobalProjectAgentReplyText = ChatGlobalProjectAgentReplyText(),
     val agent_task: AgentRunStatus? = null,
+    val content: JsonObject? = null,
 )
 
 suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
@@ -261,6 +289,11 @@ suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
     requestId: String,
     prompt: String,
     mode: String = "auto",
+    images: JsonArray? = null,
+    documents: JsonArray? = null,
+    frozenTraceId: String? = null,
+    frozenDeviceId: String? = null,
+    frozenSessionId: String? = null,
 ): Result<ChatGlobalProjectAgentReply> {
     if (projectId.isBlank() || conversationId.isBlank() ||
         requestId.isBlank() || prompt.isBlank() ||
@@ -273,10 +306,12 @@ suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
         put("project_id", projectId)
         put("conversation_id", conversationId)
         put("request_id", requestId)
-        put("trace_id", UUID.randomUUID().toString())
-        put("device_id", deviceId)
-        put("session_id", appSessionId)
+        put("trace_id", frozenTraceId ?: UUID.randomUUID().toString())
+        put("device_id", frozenDeviceId ?: deviceId)
+        put("session_id", frozenSessionId ?: appSessionId)
         put("mode", mode)
+        if (images != null && images.isNotEmpty()) put("images", images)
+        if (documents != null && documents.isNotEmpty()) put("documents", documents)
         put("messages", buildJsonArray {
             addJsonObject {
                 put("role", "user")

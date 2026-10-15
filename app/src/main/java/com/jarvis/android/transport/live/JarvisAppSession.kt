@@ -50,6 +50,10 @@ class JarvisAppSession(
     interface Store {
         fun get(key: String): String?
         fun put(values: Map<String, String?>) // null value => remove key
+        /** A storage backend must explicitly guarantee durable paid IDs.
+         * Unknown stores fail closed: they must never authorize a paid POST.
+         */
+        fun putDurable(values: Map<String, String?>): Boolean = false
         fun clear()
     }
 
@@ -65,16 +69,42 @@ class JarvisAppSession(
             }.apply()
         }
 
-        override fun clear() = prefs.edit().clear().apply()
+        override fun putDurable(values: Map<String, String?>): Boolean =
+            prefs.edit().apply {
+                values.forEach { (k, v) -> if (v == null) remove(k) else putString(k, v) }
+            }.commit()
+
+        override fun clear() {
+            // Logout removes bearer/user state, but not an unresolved paid
+            // request's opaque ID+digest. On re-login the same account must
+            // recover that attempt rather than sending a second charge.
+            val pending = prefs.all
+                .filterKeys { it.startsWith("jarvis.paid.visual.") }
+                .mapNotNull { (key, value) ->
+                    (value as? String)?.let { key to it }
+                }
+            prefs.edit().apply {
+                clear()
+                pending.forEach { (key, value) -> putString(key, value) }
+            }.commit()
+        }
     }
 
     class MemoryStore : Store {
         private val map = java.util.concurrent.ConcurrentHashMap<String, String>()
+        override fun putDurable(values: Map<String, String?>): Boolean {
+            put(values)
+            return true
+        }
         override fun get(key: String): String? = map[key]
         override fun put(values: Map<String, String?>) {
             values.forEach { (k, v) -> if (v == null) map.remove(k) else map[k] = v }
         }
-        override fun clear() = map.clear()
+        override fun clear() {
+            val pending = map.filterKeys { it.startsWith("jarvis.paid.visual.") }
+            map.clear()
+            map.putAll(pending)
+        }
         fun snapshot(): Map<String, String> = map.toMap()
     }
 
@@ -405,23 +435,66 @@ class JarvisAppSession(
         store.put(mapOf(KEY_PROFILE_CONV + conversationId to profile))
     }
 
-    /** Persist per-turn scope so process-death recovery can call GET /requests/{id}. */
-    fun rememberTurn(clientRequestId: String, conversationId: String, traceId: String, deviceId: String, sessionId: String) {
-        store.put(
-            mapOf(
-                KEY_TURN_PREFIX + clientRequestId to
-                    listOf(conversationId, traceId, deviceId, sessionId).joinToString("\u001f"),
-            ),
+    /** Persist the exact original account/project/transport scope before POST.
+     * A process-death retry MUST reuse this immutable receipt. Never turn a
+     * formerly project-scoped request into unscoped Chat Global merely because
+     * its selected-project preference changed while the app was closed.
+     */
+    fun rememberTurn(
+        clientRequestId: String, conversationId: String, traceId: String,
+        deviceId: String, sessionId: String,
+        selectedProjectId: String? = chatAgentProjectFor(conversationId),
+    ): StoredTurn {
+        val principal = userId.trim()
+        if (principal.isBlank() || conversationId.isBlank() ||
+            selectedProjectId?.contains("\u001f") == true
+        ) throw TransportException("invalid persisted chat scope")
+        val key = KEY_TURN_PREFIX + clientRequestId
+        val original = loadTurn(clientRequestId)
+        if (store.get(key) != null && original == null) {
+            throw TransportException("Original chat scope cannot be verified")
+        }
+        if (original != null) {
+            if (original.conversationId != conversationId ||
+                original.principalId != null && original.principalId != principal ||
+                !original.scopeKnown && selectedProjectId != null ||
+                original.scopeKnown && original.projectId != selectedProjectId
+            ) throw TransportException(
+                "Conversation project changed; reconcile the original request before retrying"
+            )
+            // Keep the original trace/device/session IDs for exact server-side
+            // idempotency, rather than inventing a new scope on process restart.
+            return original
+        }
+        val saved = StoredTurn(
+            clientRequestId, conversationId, traceId, deviceId, sessionId,
+            projectId = selectedProjectId, scopeKnown = true,
+            principalId = principal,
         )
+        store.put(mapOf(
+            key to listOf(
+                saved.conversationId, saved.traceId, saved.deviceId,
+                saved.sessionId, saved.projectId ?: "~", principal,
+            ).joinToString("\u001f"),
+        ))
         val ids = (storedTurnIds() + clientRequestId).distinct().takeLast(32)
         store.put(mapOf(KEY_TURN_IDS to ids.joinToString(",")))
+        return saved
     }
 
     fun loadTurn(clientRequestId: String): StoredTurn? {
         val raw = store.get(KEY_TURN_PREFIX + clientRequestId) ?: return null
         val parts = raw.split("\u001f")
-        if (parts.size != 4) return null
-        return StoredTurn(clientRequestId, parts[0], parts[1], parts[2], parts[3])
+        if (parts.size != 4 && parts.size != 6) return null
+        if (parts.any { it.isBlank() }) return null
+        val projectId = if (parts.size == 6) {
+            parts[4].takeUnless { it == "~" }
+        } else null
+        return StoredTurn(
+            clientRequestId, parts[0], parts[1], parts[2], parts[3],
+            projectId = projectId, scopeKnown = parts.size == 6,
+            principalId = parts.getOrNull(5),
+        )
     }
 
     fun forgetTurn(clientRequestId: String) {
@@ -438,6 +511,9 @@ class JarvisAppSession(
         val traceId: String,
         val deviceId: String,
         val sessionId: String,
+        val projectId: String? = null,
+        val scopeKnown: Boolean = false,
+        val principalId: String? = null,
     )
 
     /**
@@ -693,6 +769,72 @@ class JarvisAppSession(
         }
     }
 
+    /** Preserve an account-specific paid attempt across disconnects and process death.
+     * A repeat uses GET only: never a second provider dispatch.
+     */
+    private fun paidVisualAttemptKey(path: String): String {
+        val owner = "$baseUrl\u001f$userId"
+        val hash = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(owner.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }.take(32)
+        return "jarvis.paid.visual.$hash.${path.substringAfterLast('/')}"
+    }
+
+    private fun paidVisualFingerprint(body: JsonObject): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(body.toString().toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+    @Synchronized
+    internal fun postPaidVisual(path: String, body: JsonObject): Pair<Int, String> {
+        if (userId.isBlank()) throw TransportException("Visual operation requires authentication")
+        val key = paidVisualAttemptKey(path)
+        val digest = paidVisualFingerprint(body)
+        val previous = store.get(key)
+        if (previous != null) {
+            val parts = previous.split('\u001f')
+            if (parts.size != 2 || parts[1] != digest) {
+                throw TransportException("Previous paid image request is unresolved. Recover it first.")
+            }
+            val requestId = parts[0]
+            if (!requestId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{7,159}"))) {
+                throw TransportException("Saved visual request ID is invalid")
+            }
+            val result = get(baseUrl, "/api/app/images/requests/$requestId", auth = authHeader())
+            if (result.first != 200) throw TransportException(
+                "Paid image outcome cannot be verified; automatic retry disabled")
+            val receipt = json.parseToJsonElement(result.second).jsonObject
+            if (receipt["result"] != null || receipt["data_base64"] == null) {
+                throw TransportException("Image may already have been charged; no second dispatch")
+            }
+            return result
+        }
+        val requestId = "img_" + UUID.randomUUID().toString()
+        val probe = get(baseUrl, "/api/app/images/requests/$requestId", auth = authHeader())
+        val missing = runCatching {
+            json.parseToJsonElement(probe.second).jsonObject["error"]
+                ?.jsonPrimitive?.contentOrNull == "image_request_not_found"
+        }.getOrDefault(false)
+        if (probe.first != 404 || !missing) {
+            throw TransportException("VPS does not support safe paid-image recovery")
+        }
+        if (!store.putDurable(mapOf(key to "$requestId\u001f$digest"))) {
+            throw TransportException("Paid image attempt cannot be persisted; no provider call")
+        }
+        val wireBody = buildJsonObject {
+            body.forEach { (name, value) -> put(name, value) }
+            put("request_id", requestId)
+        }.toString()
+        return post(baseUrl, path, wireBody, auth = authHeader(), timeoutMillis = 480_000L)
+    }
+
+    /** Acknowledge only after the exact image original has been saved locally. */
+    fun acknowledgePaidVisual(path: String) {
+        if (!store.putDurable(mapOf(paidVisualAttemptKey(path) to null))) {
+            throw TransportException("Paid image acknowledgment not persisted")
+        }
+    }
+
     data class ImageGenerationReply(
         val mimeType: String,
         val dataBase64: String,
@@ -731,8 +873,8 @@ class JarvisAppSession(
                 put("prompt", cleanPrompt)
                 put("mode", mode)
                 if (!model.isNullOrBlank()) put("model", model)
-            }.toString()
-            val response = post(root, "/api/app/images/generations", body, auth = authHeader())
+            }
+            val response = postPaidVisual("/api/app/images/generations", body)
             requireImageGenerationOk(response)
             val obj = json.parseToJsonElement(response.second).jsonObject
             val mimeType = obj["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -790,7 +932,7 @@ class JarvisAppSession(
 
         runCatching {
             val body = buildJsonObject {
-                put("project_id", projectId.trim().ifBlank { "prj_story" })
+                put("project_id", projectId.trim().also { require(it.isNotBlank()) { "Wiki project is required" } })
                 put("character_id", cleanCharacter)
                 put("image_base64", imageBase64)
                 put("mime_type", mimeType)
@@ -855,8 +997,8 @@ class JarvisAppSession(
                 put("preserve_identity", preserveIdentity)
                 put("aspect_ratio", aspectRatio)
                 if (!model.isNullOrBlank()) put("model", model)
-            }.toString()
-            val response = post(root, "/api/app/images/edits", body, auth = authHeader())
+            }
+            val response = postPaidVisual("/api/app/images/edits", body)
             requireImageGenerationOk(response)
             val obj = json.parseToJsonElement(response.second).jsonObject
             val resultMime = obj["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()

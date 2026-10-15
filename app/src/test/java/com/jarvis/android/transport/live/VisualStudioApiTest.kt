@@ -35,6 +35,17 @@ class VisualStudioApiTest {
 
     private lateinit var server: MockWebServer
     private val json = Json { ignoreUnknownKeys = true }
+    private var replyWithWrongProject = false
+
+    /** Skip the intentional, read-only paid receipt probe before a visual POST. */
+    private fun takeActionRequest(): RecordedRequest {
+        while (true) {
+            val request = server.takeRequest()
+            if (request.path?.startsWith("/api/app/images/requests/") != true) {
+                return request
+            }
+        }
+    }
 
     @Before
     fun setUp() {
@@ -47,6 +58,10 @@ class VisualStudioApiTest {
                 val body = runCatching {
                     json.parseToJsonElement(request.body.clone().readUtf8()).jsonObject
                 }.getOrNull()
+                if (request.path?.startsWith("/api/app/images/requests/") == true) {
+                    return MockResponse().setResponseCode(404)
+                        .setBody("""{"error":"image_request_not_found"}""")
+                }
                 return when (request.path) {
                     "/api/app/images/generations" -> {
                         val visual = body?.get("visual_asset")?.jsonObject
@@ -72,7 +87,7 @@ class VisualStudioApiTest {
                             put("storage_retry_required", false)
                             put("visual_asset", buildJsonObject {
                                 put("asset_id", assetId)
-                                put("project_id", "prj_story")
+                                put("project_id", if (replyWithWrongProject) "prj_other" else "prj_story")
                                 put("kind", kind)
                                 put("status", "CANDIDATE")
                                 put("source", "CLOUD_GENERATOR")
@@ -389,12 +404,68 @@ class VisualStudioApiTest {
             roster.items.single { it.state == "READY" }.character_id,
         )
 
-        val request = server.takeRequest()
+        val request = takeActionRequest()
         assertEquals(
             "/api/app/writing-room/v2/visual/characters/masters/status",
             request.path,
         )
         assertTrue(request.body.readUtf8().contains("\"project_id\":\"prj_story\""))
+    }
+
+    @Test
+    fun crossProjectPaidReceiptNeverReleasesIdForSecondCharge() = runBlocking {
+        replyWithWrongProject = true
+        val client = session()
+        val makeRequest: suspend () -> Result<VisualStudioGeneratedImage> = {
+            client.generateVisualAssetImage(
+                projectId = "prj_story",
+                characterId = "character:alexander",
+                prompt = "Private A portrait",
+                kind = "PRIMARY_REFERENCE",
+                perspective = "front",
+            )
+        }
+        val first = makeRequest()
+        assertTrue(first.isFailure)
+        assertTrue(first.exceptionOrNull()?.message.orEmpty().contains("mismatch"))
+        // A second tap cannot dispatch a new paid call because the forged
+        // response never acknowledged the exact original attempt.
+        val second = makeRequest()
+        assertTrue(second.isFailure)
+        assertEquals(3, server.requestCount) // first GET+POST, second GET only
+    }
+
+    @Test
+    fun twoDeliberateSuccessfulMasterRequestsUseDistinctPaidAttemptIds() = runBlocking {
+        val client = session()
+        repeat(2) {
+            val reply = client.generateVisualAssetImage(
+                projectId = "prj_story",
+                characterId = "character:alexander",
+                prompt = "The same canonical portrait",
+                kind = "PRIMARY_REFERENCE",
+                perspective = "front",
+            ).orThrowStage("explicit image generation ${it + 1}")
+            assertEquals("stored", reply.visual_asset?.storage?.state)
+        }
+        // Two user gestures, each with exactly one read-only lookup and
+        // one intentional paid POST. No cached first image on the second tap.
+        val firstProbe = server.takeRequest()
+        val firstPost = server.takeRequest()
+        val secondProbe = server.takeRequest()
+        val secondPost = server.takeRequest()
+        assertTrue(firstProbe.path?.startsWith("/api/app/images/requests/") == true)
+        assertTrue(secondProbe.path?.startsWith("/api/app/images/requests/") == true)
+        assertEquals("/api/app/images/generations", firstPost.path)
+        assertEquals("/api/app/images/generations", secondPost.path)
+        val firstId = json.parseToJsonElement(firstPost.body.readUtf8()).jsonObject[
+            "request_id"]?.jsonPrimitive?.content
+        val secondId = json.parseToJsonElement(secondPost.body.readUtf8()).jsonObject[
+            "request_id"]?.jsonPrimitive?.content
+        assertTrue(!firstId.isNullOrBlank())
+        assertTrue(!secondId.isNullOrBlank())
+        assertFalse(firstId == secondId)
+        assertEquals(4, server.requestCount)
     }
 
     @Test
@@ -478,7 +549,7 @@ class VisualStudioApiTest {
         assertEquals("va_left", detail.gallery?.identity_pack?.single()?.asset_id)
 
         val requests = generateSequence {
-            if (server.requestCount > 0) server.takeRequest() else null
+            if (server.requestCount > 0) takeActionRequest() else null
         }.take(8).toList()
         assertTrue(requests.all { it.getHeader("Authorization") == "Bearer test-token" })
 

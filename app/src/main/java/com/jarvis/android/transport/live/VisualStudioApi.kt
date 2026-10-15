@@ -710,13 +710,54 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
     val auth = authHeader()
         ?: return@withContext Result.failure(TransportException("no live session"))
     runCatching {
-        val response = post(baseUrl, path, body.toString(), auth)
+        val paid = path in setOf(
+            "/api/app/images/generations", "/api/app/images/edits",
+            "/api/app/images/copilot-scene-edits",
+        )
+        // Use the SAME crash-durable attempt journal as Global Image Studio.
+        // Reusing the original request after process death only performs GET.
+        // After a verified durable candidate is stored, a NEW explicit user
+        // gesture may generate a new image even with an identical prompt.
+        val response = if (paid) postPaidVisual(path, body)
+                       else post(baseUrl, path, body.toString(), auth)
         if (response.first == 401) {
             clear()
             throw TransportException("session expired")
         }
         requireOk(response)
-        visualStudioJson.parseToJsonElement(response.second).jsonObject
+        val result = visualStudioJson.parseToJsonElement(response.second).jsonObject
+        if (paid) {
+            val stored = result["visual_asset"]?.jsonObject
+            val state = stored?.get("storage")?.jsonObject
+                ?.get("state")?.jsonPrimitive?.contentOrNull
+            val assetId = stored?.get("asset_id")?.jsonPrimitive?.contentOrNull
+            val expectedProject = body["project_id"]?.jsonPrimitive?.contentOrNull
+            val storedProject = stored?.get("project_id")?.jsonPrimitive?.contentOrNull
+            val status = stored?.get("status")?.jsonPrimitive?.contentOrNull
+            val bytes = result["data_base64"]?.jsonPrimitive?.contentOrNull
+            val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull
+            val schema = result["schema"]?.jsonPrimitive?.contentOrNull
+            val expectedSchema = if (path == "/api/app/images/generations")
+                "jarvis.image.generation.v2" else "jarvis.image.edit.v1"
+            if (expectedProject.isNullOrBlank() ||
+                expectedProject != storedProject || status != "CANDIDATE" ||
+                schema != expectedSchema
+            ) {
+                throw TransportException("Paid image receipt project or schema mismatch")
+            }
+            // Only release the request ID if the original bytes and exact
+            // project candidate are durably recoverable from the VPS.
+            // An unknown, cross-project, pending-storage or malformed receipt
+            // stays pinned to prevent a second paid dispatch.
+            if (!assetId.isNullOrBlank() && state == "stored" &&
+                !expectedProject.isNullOrBlank() &&
+                expectedProject == storedProject && status == "CANDIDATE" &&
+                !bytes.isNullOrBlank() && mime in setOf("image/png", "image/jpeg", "image/webp")
+            ) {
+                acknowledgePaidVisual(path)
+            }
+        }
+        result
     }
 }
 

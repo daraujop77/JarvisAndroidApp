@@ -29,10 +29,14 @@ data class StagedAttachment(
  * NOTE (plan §11): the binary upload transport is not frozen; [uploadPending]
  * marks where the real Gateway upload plugs in.
  */
-class AttachmentStore(context: Context) {
+class AttachmentStore(context: Context, principalId: String = "") {
 
     private val appContext = context.applicationContext
-    private val dir = File(appContext.filesDir, "attachments").apply { mkdirs() }
+    private val ownerKey =
+        com.jarvis.android.data.local.JarvisDatabase.accountStorageKey(principalId)
+    private val dir = File(appContext.filesDir, "attachments-account-$ownerKey")
+        .apply { mkdirs() }
+    // Pre-account attachments remain quarantined.
 
     /** False when the upload contract is still frozen-pending: fake mode only. */
     val uploadPending: Boolean = true
@@ -175,6 +179,75 @@ class AttachmentStore(context: Context) {
         StagedAttachment(id, out, "visual-reference.$extension", mime, out.length())
     }.getOrNull()
 
+    /** Durable generated-image original: no lossy JPEG recompression.
+     * The stable key is hashed, not used as a path. A repeated recovery must
+     * find the exact same bytes or fail closed instead of overwriting them.
+     */
+    @Synchronized
+    fun stageVerifiedGeneratedBase64(
+        dataBase64: String,
+        expectedSha256: String,
+        expectedMimeType: String,
+        stableReceiptKey: String,
+    ): StagedAttachment? = runCatching {
+        require(stableReceiptKey.length in 1..360)
+        require(expectedSha256.matches(Regex("^[a-fA-F0-9]{64}$")))
+        require(expectedMimeType in setOf("image/jpeg", "image/png", "image/webp"))
+        val raw = Base64.decode(dataBase64, Base64.DEFAULT)
+        require(raw.isNotEmpty() && raw.size <= 12 * 1024 * 1024)
+        fun sha(bytes: ByteArray): String =
+            java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+        require(sha(raw).equals(expectedSha256, ignoreCase = true))
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0)
+        require(bounds.outMimeType == expectedMimeType)
+        val ext = when (expectedMimeType) {
+            "image/jpeg" -> "jpg"
+            "image/png" -> "png"
+            else -> "webp"
+        }
+        val id = "gen_" + sha(stableReceiptKey.toByteArray(Charsets.UTF_8)).take(32)
+        val out = File(dir, "$id.$ext")
+        if (out.exists()) {
+            require(sha(out.readBytes()).equals(expectedSha256, ignoreCase = true))
+        } else {
+            val temp = File(dir, "$id.$ext.tmp")
+            try {
+                temp.writeBytes(raw)
+                require(temp.renameTo(out) ||
+                    (out.exists() &&
+                     sha(out.readBytes()).equals(expectedSha256, ignoreCase = true)))
+            } finally {
+                temp.delete()
+            }
+        }
+        StagedAttachment(
+            attachmentId = id,
+            file = out,
+            filename = "generated-image.$ext",
+            mimeType = expectedMimeType,
+            sizeBytes = out.length(),
+        )
+    }.getOrNull()
+
+    /** Keep the exact generated PNG/WebP/JPEG bytes for subsequent edits.
+     * A verified SHA controls the existing receipt-backed storage path.
+     */
+    fun stageOriginalGeneratedBase64(
+        dataBase64: String, expectedMimeType: String,
+    ): StagedAttachment? = runCatching {
+        val raw = Base64.decode(dataBase64, Base64.DEFAULT)
+        require(raw.isNotEmpty() && raw.size <= 12 * 1024 * 1024)
+        val sha = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(raw).joinToString("") { "%02x".format(it) }
+        stageVerifiedGeneratedBase64(
+            dataBase64, sha, expectedMimeType,
+            "original-generated:$sha",
+        ) ?: error("Generated source failed MIME/SHA validation")
+    }.getOrNull()
+
     fun resolve(attachmentId: String): File? =
         dir.listFiles()?.firstOrNull { it.nameWithoutExtension == attachmentId && it.extension in setOf("jpg", "png", "webp", "txt", "md", "pdf", "docx") }
 
@@ -200,7 +273,7 @@ class AttachmentStore(context: Context) {
 
     // ---- owner avatar (local only; never uploaded) ----------------------------
 
-    private val avatarFile = File(appContext.filesDir, "avatar.jpg")
+    private val avatarFile = File(dir, "avatar.jpg")
 
     fun hasAvatar(): Boolean = avatarFile.exists() && avatarFile.length() > 0
 

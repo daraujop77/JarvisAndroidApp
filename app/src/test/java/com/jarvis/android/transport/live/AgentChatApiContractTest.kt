@@ -2,6 +2,9 @@ package com.jarvis.android.transport.live
 
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -62,6 +65,70 @@ class AgentChatApiContractTest {
         assertEquals(3, page.events.single().seq)
         assertEquals("WAITING_CONFIRMATION", page.events.single().state)
         assertTrue(page.events.single().pending_approval_id.startsWith("ap_"))
+    }
+
+    @Test fun jsonAgentCallsHaveFiniteRouteSpecificDeadlines() {
+        assertEquals(8L * 60_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/chat/agent/project/turn"))
+        assertEquals(8L * 60_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/writing-room/agent/turn"))
+        assertEquals(8L * 60_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/writing-room/agent/confirm"))
+        assertEquals(45_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/chat/agent/project/capability"))
+        assertEquals(45_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/writing-room/agent/status"))
+        assertEquals(45_000L, adaptiveAgentJsonTimeoutMillis(
+            "/api/app/writing-room/agent/events"))
+    }
+
+    @Test fun projectMediaMatchesVpsThreeMiBImageLimit() {
+        fun media(base64Length: Int) = JsonArray(listOf(JsonObject(mapOf(
+            "data_base64" to JsonPrimitive("A".repeat(base64Length)),
+        ))))
+        // A 4MiB padded Base64 string decodes to 3MiB of bytes.
+        requireProjectAgentMediaWithinWireContract(media(4 * 1024 * 1024), null)
+        try {
+            requireProjectAgentMediaWithinWireContract(
+                media(4 * 1024 * 1024 + 4), null,
+            )
+            throw AssertionError("3MiB+ image must be rejected locally")
+        } catch (error: com.jarvis.android.transport.TransportException) {
+            assertTrue(error.message.orEmpty().contains("3 MiB"))
+        }
+    }
+
+    @Test fun projectMediaRefusesMixedOrMultipleAttachments() {
+        val image = JsonArray(listOf(JsonObject(mapOf(
+            "data_base64" to JsonPrimitive("aGVsbG8="),
+        ))))
+        val document = JsonArray(listOf(JsonObject(mapOf(
+            "mime_type" to JsonPrimitive("text/plain"),
+        ))))
+        try {
+            requireProjectAgentMediaWithinWireContract(image, document)
+            throw AssertionError("mixed project media must be rejected")
+        } catch (_: com.jarvis.android.transport.TransportException) { }
+        try {
+            requireProjectAgentMediaWithinWireContract(JsonArray(image + image), null)
+            throw AssertionError("multiple project images must be rejected")
+        } catch (_: com.jarvis.android.transport.TransportException) { }
+    }
+
+    @Test fun projectCapabilityAdvertisesExactReadOnlyMediaPolicy() {
+        val wire = """
+          {"schema":"jarvis.chat.agent.capability.v1",
+           "enabled":true,"project_id":"prj_story","effect":"READ_ONLY",
+           "supports_attachments":true,
+           "attachment_policy":"one_image_or_document_read_only_no_web"}
+        """.trimIndent()
+        val capability = json.decodeFromString<ChatGlobalProjectAgentCapability>(wire)
+        assertTrue(capability.enabled)
+        assertTrue(capability.supports_attachments)
+        assertEquals("READ_ONLY", capability.effect)
+        assertEquals("prj_story", capability.project_id)
+        assertEquals("one_image_or_document_read_only_no_web",
+                     capability.attachment_policy)
     }
 
     @Test fun completedTurnCanReuseLegacyV64ChatEnvelope() {

@@ -100,6 +100,41 @@ class ProcessDeathReconciliationTest {
     }
 
     @Test
+    fun oldRoomGraphStopsReadingWritingAndSendingAfterAccountSwitch() {
+        var currentAccount = "account-a"
+        val fake = FakeGateway(scope, FakeConfig(replyWords = listOf("secret ")))
+        val session = JarvisSessionRepository(fake, scope)
+        val repository = ConversationRepository(
+            dao, session, scope,
+            identityMatches = { currentAccount == "account-a" },
+        )
+        runBlockingShort {
+            dao.upsertConversation(ConversationEntity("private-a", "A only", 1, 1))
+            dao.insertMessage(MessageEntity(
+                conversationId = "private-a", clientRequestId = "req-a",
+                role = "user", text = "Only account A",
+                status = "Completed", createdAtMs = 1,
+            ))
+            assertEquals(1, repository.observeConversations().first().size)
+            assertEquals(1, repository.observeMessages("private-a").first().size)
+        }
+        currentAccount = "account-b"
+        runBlockingShort {
+            assertTrue(repository.observeConversations().first().isEmpty())
+            assertTrue(repository.observeMessages("private-a").first().isEmpty())
+            repository.recover()
+        }
+        repository.send("private-a", "Do not submit A's context to B")
+        runBlockingShort { delay(200) }
+        assertTrue(session.snapshot.value.session.requests.values.none {
+            it.userText.contains("Do not submit")
+        })
+        assertTrue(runBlockingShort { dao.messages("private-a") }.none {
+            it.text.contains("Do not submit")
+        })
+    }
+
+    @Test
     fun generatedImageAndTextUseOneAssistantMessageInEitherArrivalOrder() {
         runBlockingShort {
             dao.upsertConversation(ConversationEntity("c-media", "image", 1, 1))
@@ -197,30 +232,33 @@ class ProcessDeathReconciliationTest {
     }
 
     @Test
-    fun retryAfterProcessDeathResendsTheStoredMessage() {
+    fun failedRequestAfterProcessDeathNeverCreatesNewPaidAttempt() {
         runBlockingShort {
             dao.upsertConversation(ConversationEntity("cR", "old", 1L, 1L))
-            dao.insertMessage(MessageEntity(conversationId = "cR", clientRequestId = "req_old", role = "user", text = "try again", status = "Failed", createdAtMs = 1L))
-            dao.insertMessage(MessageEntity(conversationId = "cR", clientRequestId = "req_old", role = "assistant", text = "boom", status = "Failed", createdAtMs = 2L))
+            dao.insertMessage(MessageEntity(
+                conversationId = "cR", clientRequestId = "req_old",
+                role = "user", text = "try again", status = "Failed", createdAtMs = 1L,
+            ))
+            dao.insertMessage(MessageEntity(
+                conversationId = "cR", clientRequestId = "req_old",
+                role = "assistant", text = "outcome unknown", status = "Failed", createdAtMs = 2L,
+            ))
         }
-        val fake = FakeGateway(scope, FakeConfig(replyWords = listOf("ok ")))
-        val session = JarvisSessionRepository(fake, scope)
+        val gateway = FakeGateway(scope, FakeConfig(replyWords = listOf("charged ")))
+        val session = JarvisSessionRepository(gateway, scope)
         val convos = ConversationRepository(dao, session, scope)
         session.start()
         runBlockingShort {
-            withTimeout(2_000) { while (!session.snapshot.value.session.connection.isUsable) delay(10) }
-        }
-
-        convos.retry("req_old")
-
-        runBlockingShort {
-            withTimeout(5_000) {
-                while (session.snapshot.value.session.requests.values.none {
-                        it.conversationId == "cR" && it.userText == "try again"
-                    }
-                ) delay(10)
+            withTimeout(2_000) {
+                while (!session.snapshot.value.session.connection.isUsable) delay(10)
             }
         }
+        convos.retry("req_old")
+        runBlockingShort { delay(250) }
+        assertTrue(session.snapshot.value.session.requests.values.none {
+            it.conversationId == "cR" && it.userText == "try again"
+        })
+        assertEquals("Failed", runBlockingShort { dao.assistantMessage("req_old")?.status })
     }
 
     @Test
