@@ -1407,7 +1407,8 @@ suspend fun JarvisAppSession.writingRoomCopilotImportReference(
 
 /**
  * One owner-directed image request. Backend binds physical traits to Wiki/RAG and
- * persists a CANDIDATE. Model is explicitly pinned to the existing Codex model.
+ * persists a CANDIDATE. The backend owns the pinned Writing Room model;
+ * this client must not claim a different model in its request provenance.
  * Do not retry on timeout: an image may already have been generated and billed.
  */
 suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
@@ -1427,14 +1428,12 @@ suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
         },
         kind = "PRIMARY_REFERENCE",
         perspective = "front",
-        mode = "model_select",
-        model = "gpt-image-2-medium",
+        mode = "quality", // backend pins its configured WR model before dispatch
         aspectRatio = "square",
         referencesPerCharacter = 1,
         alt = "Retrato candidato de " + characterName.take(120),
         provenance = buildJsonObject {
             put("requested_from", "copilot")
-            put("requested_model", "gpt-image-2-medium")
             put("authority", "CANDIDATE")
         },
     ).mapCatching { image ->
