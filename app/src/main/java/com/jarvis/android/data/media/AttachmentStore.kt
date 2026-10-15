@@ -228,6 +228,22 @@ class AttachmentStore(context: Context) {
         )
     }.getOrNull()
 
+    /** Keep the exact generated PNG/WebP/JPEG bytes for subsequent edits.
+     * A verified SHA controls the existing receipt-backed storage path.
+     */
+    fun stageOriginalGeneratedBase64(
+        dataBase64: String, expectedMimeType: String,
+    ): StagedAttachment? = runCatching {
+        val raw = Base64.decode(dataBase64, Base64.DEFAULT)
+        require(raw.isNotEmpty() && raw.size <= 12 * 1024 * 1024)
+        val sha = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(raw).joinToString("") { "%02x".format(it) }
+        stageVerifiedGeneratedBase64(
+            dataBase64, sha, expectedMimeType,
+            "original-generated:$sha",
+        ) ?: error("Generated source failed MIME/SHA validation")
+    }.getOrNull()
+
     fun resolve(attachmentId: String): File? =
         dir.listFiles()?.firstOrNull { it.nameWithoutExtension == attachmentId && it.extension in setOf("jpg", "png", "webp", "txt", "md", "pdf", "docx") }
 
