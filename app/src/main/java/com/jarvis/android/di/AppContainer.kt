@@ -32,7 +32,12 @@ class AppContainer(private val context: Context) {
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val db: JarvisDatabase by lazy { JarvisDatabase.get(context) }
+    private val db: JarvisDatabase by lazy {
+        JarvisDatabase.get(context,
+            liveSession.userId.takeIf { it.isNotBlank() }
+                ?.let { "${liveSession.baseUrl}\u001f$it" }.orEmpty(),
+        )
+    }
     val dao: JarvisDao by lazy { db.dao() }
 
     val settings: SettingsStore by lazy { SettingsStore(context) }
@@ -40,7 +45,10 @@ class AppContainer(private val context: Context) {
     val deviceIdentity: DeviceIdentityStore by lazy { DeviceIdentityStore(context) }
 
     val attachmentStore: com.jarvis.android.data.media.AttachmentStore by lazy {
-        com.jarvis.android.data.media.AttachmentStore(context)
+        com.jarvis.android.data.media.AttachmentStore(context,
+            liveSession.userId.takeIf { it.isNotBlank() }
+                ?.let { "${liveSession.baseUrl}\u001f$it" }.orEmpty(),
+        )
     }
 
     private val fake = FakeGateway(scope)

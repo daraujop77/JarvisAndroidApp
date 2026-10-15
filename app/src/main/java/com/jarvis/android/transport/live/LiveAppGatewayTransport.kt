@@ -716,7 +716,11 @@ class LiveAppGatewayTransport(
                             requestId,
                             "msg_$requestId",
                             ErrorEnvelope(code ?: "stream_error", "assistant stream error"),
-                            retryable = code !in setOf("chat_timeout"),
+                            retryable = code !in setOf(
+                                "chat_timeout", "general_agent_incomplete",
+                                "agent_outcome_unknown", "outcome_unknown",
+                                "image_result_unknown", "paid_operation_uncertain",
+                            ),
                         ),
                     )
                 }

@@ -29,10 +29,14 @@ data class StagedAttachment(
  * NOTE (plan §11): the binary upload transport is not frozen; [uploadPending]
  * marks where the real Gateway upload plugs in.
  */
-class AttachmentStore(context: Context) {
+class AttachmentStore(context: Context, principalId: String = "") {
 
     private val appContext = context.applicationContext
-    private val dir = File(appContext.filesDir, "attachments").apply { mkdirs() }
+    private val ownerKey =
+        com.jarvis.android.data.local.JarvisDatabase.accountStorageKey(principalId)
+    private val dir = File(appContext.filesDir, "attachments-account-$ownerKey")
+        .apply { mkdirs() }
+    // Pre-account attachments remain quarantined.
 
     /** False when the upload contract is still frozen-pending: fake mode only. */
     val uploadPending: Boolean = true
@@ -228,6 +232,22 @@ class AttachmentStore(context: Context) {
         )
     }.getOrNull()
 
+    /** Keep the exact generated PNG/WebP/JPEG bytes for subsequent edits.
+     * A verified SHA controls the existing receipt-backed storage path.
+     */
+    fun stageOriginalGeneratedBase64(
+        dataBase64: String, expectedMimeType: String,
+    ): StagedAttachment? = runCatching {
+        val raw = Base64.decode(dataBase64, Base64.DEFAULT)
+        require(raw.isNotEmpty() && raw.size <= 12 * 1024 * 1024)
+        val sha = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(raw).joinToString("") { "%02x".format(it) }
+        stageVerifiedGeneratedBase64(
+            dataBase64, sha, expectedMimeType,
+            "original-generated:$sha",
+        ) ?: error("Generated source failed MIME/SHA validation")
+    }.getOrNull()
+
     fun resolve(attachmentId: String): File? =
         dir.listFiles()?.firstOrNull { it.nameWithoutExtension == attachmentId && it.extension in setOf("jpg", "png", "webp", "txt", "md", "pdf", "docx") }
 
@@ -253,7 +273,7 @@ class AttachmentStore(context: Context) {
 
     // ---- owner avatar (local only; never uploaded) ----------------------------
 
-    private val avatarFile = File(appContext.filesDir, "avatar.jpg")
+    private val avatarFile = File(dir, "avatar.jpg")
 
     fun hasAvatar(): Boolean = avatarFile.exists() && avatarFile.length() > 0
 
