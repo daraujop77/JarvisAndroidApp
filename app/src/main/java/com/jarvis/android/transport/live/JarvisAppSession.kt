@@ -836,7 +836,7 @@ class JarvisAppSession(
 
         runCatching {
             val body = buildJsonObject {
-                put("project_id", projectId.trim().ifBlank { "prj_story" })
+                put("project_id", projectId.trim().also { require(it.isNotBlank()) { "Wiki project is required" } })
                 put("character_id", cleanCharacter)
                 put("image_base64", imageBase64)
                 put("mime_type", mimeType)
