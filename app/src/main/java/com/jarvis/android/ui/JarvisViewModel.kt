@@ -2270,6 +2270,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             (error.message ?: "consulta estado") +
                             ". Actualiza el estado antes de intentar otra acción.",
                     )
+                    followCopilotTaskProgress(projectId, task)
                 }
             } finally {
                 if (copilotRecoveryEpoch == epoch &&
@@ -6444,10 +6445,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
     /** Only reached after the user confirms the release of an Unknown outcome. */
-    fun releasePendingPaidVisual(key: String) {
+    fun releasePendingPaidVisual(key: String, expectedRequestId: String) {
         viewModelScope.launch {
             pendingPaidVisualMutex.withLock {
-                _pendingPaidVisualNotice.value = if (releasePaidVisualKey(key)) {
+                _pendingPaidVisualNotice.value = if (releasePaidVisualKey(key, expectedRequestId)) {
                     null
                 } else {
                     "No se pudo liberar la imagen pendiente. Inténtalo de nuevo."
@@ -6464,7 +6465,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         var storedOutsideChat = false
         for ((state, step) in plan) {
             val recovered = when {
-                step == PaidVisualRecoveryStep.RELEASE_CANDIDATE -> releasePaidVisualKey(state.key)
+                step == PaidVisualRecoveryStep.RELEASE_CANDIDATE &&
+                    state is JarvisAppSession.PendingPaidVisualState.Completed ->
+                    releasePaidVisualKey(state.key, state.requestId)
                 step == PaidVisualRecoveryStep.STAGE_ORIGINAL &&
                     state is JarvisAppSession.PendingPaidVisualState.Completed -> {
                     val stored = recoverOriginalPaidVisual(state)
@@ -6491,7 +6494,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val staged = withContext(Dispatchers.IO) {
             container.attachmentStore.stageOriginalGeneratedBase64(data, mime)
         } ?: return false
-        if (!releasePaidVisualKey(state.key)) return false
+        if (!releasePaidVisualKey(state.key, state.requestId)) return false
         if (paidVisualRecordsInChat(state.receipt)) {
             val conversationId = _conversationId.value ?: conversations.newConversationId().also {
                 _conversationId.value = it
@@ -6505,9 +6508,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         return true
     }
 
-    private suspend fun releasePaidVisualKey(key: String): Boolean = withContext(Dispatchers.IO) {
-        runCatching { container.liveSession.releasePaidVisualIntent(key) }.isSuccess
-    }
+    /** A refused compare-and-release is not success: the attempt stays pinned for the next scan. */
+    private suspend fun releasePaidVisualKey(key: String, expectedRequestId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching { container.liveSession.releasePaidVisualIntent(key, expectedRequestId) }
+                .getOrDefault(false)
+        }
 
     fun generateImage(prompt: String, mode: String = "speed", model: String? = null) {
         val clean = prompt.trim()

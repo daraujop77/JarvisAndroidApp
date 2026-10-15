@@ -48,6 +48,11 @@ class JarvisAppSession(
     private val refreshStore: RefreshCredentialStore = MemoryRefreshCredentialStore(),
 ) {
 
+    /** Agent SSE heartbeats arrive every 12 s, so 45 s of silence means the socket is dead. */
+    private val agentStreamClient: OkHttpClient = client.newBuilder()
+        .readTimeout(45, TimeUnit.SECONDS)
+        .build()
+
     /** Persistence seam (SharedPreferences in prod, in-memory in tests). */
     interface Store {
         fun get(key: String): String?
@@ -1081,11 +1086,18 @@ class JarvisAppSession(
     fun acknowledgePaidVisual(path: String) =
         acknowledgePaidVisual(path, JsonObject(emptyMap()))
 
-    /** Explicit user release only; the recovery scan never calls this. */
-    fun releasePaidVisualIntent(key: String) {
+    /**
+     * Deletes the pinned attempt only while it still holds [expectedRequestId];
+     * a newer paid request re-pinned under the same key is left intact.
+     */
+    @Synchronized
+    fun releasePaidVisualIntent(key: String, expectedRequestId: String): Boolean {
+        val current = store.get(key) ?: return true
+        if (parsePaidVisualIntent(current)?.requestId != expectedRequestId) return false
         if (!store.putDurable(mapOf(key to null))) {
             throw TransportException("Paid image attempt cannot be released durably")
         }
+        return true
     }
 
     /** Keys returned here stay pinned; only a verified pre-dispatch rejection is released and omitted. */
@@ -1502,7 +1514,8 @@ class JarvisAppSession(
             .post(body.toRequestBody(JSON_MEDIA))
             .apply { auth?.let { header("Authorization", it) } }
             .build()
-        client.newCall(request).execute().use { response ->
+        val streamClient = if (path == "/api/app/writing-room/agent/stream") agentStreamClient else client
+        streamClient.newCall(request).execute().use { response ->
             if (response.code !in 200..299) return response.code
             val source = response.body?.source() ?: return response.code
             var eventName = ""

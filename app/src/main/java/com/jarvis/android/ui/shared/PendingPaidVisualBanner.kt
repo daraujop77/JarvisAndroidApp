@@ -36,7 +36,7 @@ fun PendingPaidVisualBanner(
 ) {
     val pending by vm.pendingPaidVisuals.collectAsStateWithLifecycle()
     val notice by vm.pendingPaidVisualNotice.collectAsStateWithLifecycle()
-    var releaseKey by remember { mutableStateOf<String?>(null) }
+    var releaseTarget by remember { mutableStateOf<JarvisAppSession.PendingPaidVisualState.Unknown?>(null) }
     if (pending.isEmpty() && notice == null) return
 
     val accents = LocalJarvisAccents.current
@@ -68,7 +68,7 @@ fun PendingPaidVisualBanner(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
                             )
-                            TextButton(onClick = { releaseKey = unknown.key }) { Text("Liberar…") }
+                            TextButton(onClick = { releaseTarget = unknown }) { Text("Liberar…") }
                         }
                     }
             }
@@ -82,9 +82,9 @@ fun PendingPaidVisualBanner(
         }
     }
 
-    releaseKey?.let { key ->
+    releaseTarget?.let { target ->
         AlertDialog(
-            onDismissRequest = { releaseKey = null },
+            onDismissRequest = { releaseTarget = null },
             title = { Text("Liberar imagen pendiente") },
             text = {
                 Text(
@@ -94,12 +94,12 @@ fun PendingPaidVisualBanner(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    releaseKey = null
-                    vm.releasePendingPaidVisual(key)
+                    releaseTarget = null
+                    vm.releasePendingPaidVisual(target.key, target.requestId)
                 }) { Text("Liberar") }
             },
             dismissButton = {
-                TextButton(onClick = { releaseKey = null }) { Text("Cancelar") }
+                TextButton(onClick = { releaseTarget = null }) { Text("Cancelar") }
             },
         )
     }

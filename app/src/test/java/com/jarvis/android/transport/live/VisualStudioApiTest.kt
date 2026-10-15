@@ -1351,7 +1351,7 @@ class VisualStudioApiTest {
             ),
         )
 
-        client.releasePaidVisualIntent(releasedKey)
+        assertTrue(client.releasePaidVisualIntent(releasedKey, "img_release_target_0001"))
 
         assertEquals(setOf(keptKey), pendingPaidIntents(store).keys)
         assertEquals(0, server.requestCount)
@@ -1366,11 +1366,31 @@ class VisualStudioApiTest {
             override fun putDurable(values: Map<String, String?>): Boolean = false
         }
 
-        val failure = runCatching { JarvisAppSession(unreleasable).releasePaidVisualIntent(key) }
-            .exceptionOrNull()
+        val failure = runCatching {
+            JarvisAppSession(unreleasable).releasePaidVisualIntent(key, "img_release_refused_01")
+        }.exceptionOrNull()
 
         assertEquals("Paid image attempt cannot be released durably", failure?.message)
         assertTrue(pendingPaidIntents(store).containsKey(key))
+    }
+
+    @Test
+    fun releasePaidVisualIntentReleasesOnlyTheMatchingRequestId() {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val key = legacyPaidAttemptKey("/api/app/images/generations")
+        val fingerprint = "e".repeat(64)
+        val firstId = "img_compare_first_0001"
+        val secondId = "img_compare_second_002"
+        store.putDurable(mapOf(key to "$firstId\u001f$fingerprint"))
+
+        assertTrue(client.releasePaidVisualIntent(key, firstId))
+        assertFalse(pendingPaidIntents(store).containsKey(key))
+
+        store.putDurable(mapOf(key to "$secondId\u001f$fingerprint"))
+
+        assertFalse(client.releasePaidVisualIntent(key, firstId))
+        assertEquals("$secondId\u001f$fingerprint", pendingPaidIntents(store)[key])
     }
 
     @Test

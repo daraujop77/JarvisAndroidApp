@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +46,7 @@ import java.io.IOException
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * Project-scoped Global Chat permits at most one read-only image OR document.
@@ -99,6 +101,10 @@ class LiveAppGatewayTransport(
         const val MAX_INLINE_IMAGE_BYTES = 3_500_000
         const val MAX_INLINE_DOCUMENT_BYTES = 2_000_000
         const val MAX_INLINE_IMAGES_PER_TURN = 3
+        const val AGENT_RECOVERY_BUDGET_MILLIS = 600_000L
+        const val AGENT_RECOVERY_PROBE_TIMEOUT_MILLIS = 30_000L
+        const val AGENT_RECOVERY_STEADY_WAIT_MILLIS = 15_000L
+        val agentRecoveryBackoffMillis = listOf(2_000L, 4_000L, 8_000L)
     }
 
     private val _frames = Channel<String>(Channel.UNLIMITED)
@@ -109,6 +115,7 @@ class LiveAppGatewayTransport(
 
     private val json = Json { ignoreUnknownKeys = true }
     private val client = JarvisAppSession.defaultClient()
+    private val agentStreamClient = client.newBuilder().readTimeout(45, TimeUnit.SECONDS).build()
     private val active = ConcurrentHashMap<String, ActiveTurn>()
 
     private val frameEmissionLock = Any()
@@ -273,7 +280,7 @@ class LiveAppGatewayTransport(
                     // The request is already Accepted/Streaming locally, so
                     // settle it with the cached text only — no second accepted.
                     t is StreamInterrupted || (t is IOException && !ctl.cancelRequested) -> {
-                        val cached = runCatching { fetchCachedTurn(turnId) }.getOrNull()
+                        val cached = runCatching { awaitCachedTurn(turnId) }.getOrNull()
                         if (cached != null) {
                             emitCompletedWithMedia(cached, turnId, req.conversationId)
                             session.forgetTurn(turnId)
@@ -415,7 +422,7 @@ class LiveAppGatewayTransport(
 
         var seq = 0
         var completed = false
-        val call = client.newCall(request)
+        val call = (if (generalAgent) agentStreamClient else client).newCall(request)
         ctl.call = call
         call.execute().use { resp ->
             if (resp.code == 401) {
@@ -779,8 +786,38 @@ class LiveAppGatewayTransport(
      * assistant text when PC-A already completed the turn, else null. Never
      * triggers a second inference.
      */
-    private suspend fun fetchCachedTurn(clientRequestId: String): CompletedTurn? {
-        val stored = session.loadTurn(clientRequestId) ?: return null
+    private suspend fun fetchCachedTurn(clientRequestId: String): CompletedTurn? =
+        (readCachedTurn(clientRequestId) as? CachedTurn.Completed)?.turn
+
+    private sealed interface CachedTurn {
+        data class Completed(val turn: CompletedTurn) : CachedTurn
+        data object InFlight : CachedTurn
+        data object Unavailable : CachedTurn
+    }
+
+    /**
+     * Stream-interrupted recovery: a turn PC-A still runs is re-read read-only
+     * on a bounded backoff. The pending row is kept until a terminal answer.
+     */
+    private suspend fun awaitCachedTurn(clientRequestId: String): CompletedTurn? {
+        val deadlineNanos = System.nanoTime() + AGENT_RECOVERY_BUDGET_MILLIS * 1_000_000L
+        var attempt = 0
+        while (true) {
+            when (val state = readCachedTurn(clientRequestId, AGENT_RECOVERY_PROBE_TIMEOUT_MILLIS)) {
+                is CachedTurn.Completed -> return state.turn
+                CachedTurn.InFlight -> Unit
+                CachedTurn.Unavailable -> return null
+            }
+            val remainingMillis = (deadlineNanos - System.nanoTime()) / 1_000_000L
+            if (remainingMillis <= 0L) return null
+            val wait = agentRecoveryBackoffMillis.getOrElse(attempt) { AGENT_RECOVERY_STEADY_WAIT_MILLIS }
+            delay(minOf(wait, remainingMillis))
+            attempt++
+        }
+    }
+
+    private suspend fun readCachedTurn(clientRequestId: String, callTimeoutMillis: Long? = null): CachedTurn {
+        val stored = session.loadTurn(clientRequestId) ?: return CachedTurn.Unavailable
         val request = Request.Builder()
             .url(
                 session.baseUrl + "/api/app/chat/requests/" +
@@ -797,16 +834,22 @@ class LiveAppGatewayTransport(
             }
             .build()
         return withContext(Dispatchers.IO) {
-            client.newCall(request).execute().use { resp ->
-                if (resp.code !in 200..299) return@use null
-                val body = resp.body?.string() ?: return@use null
+            val call = client.newCall(request)
+            callTimeoutMillis?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
+            call.execute().use { resp ->
+                if (resp.code !in 200..299) return@use CachedTurn.Unavailable
+                val body = resp.body?.string() ?: return@use CachedTurn.Unavailable
                 runCatching {
                     val obj = json.parseToJsonElement(body).jsonObject
-                    if (obj["schema"]?.jsonPrimitive?.content != "jarvis.chat.turn.v1") return@use null
-                    val status = obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content
-                    if (status != "completed") return@use null
-                    parseCompletedTurn(body)
-                }.getOrNull()
+                    if (obj["schema"]?.jsonPrimitive?.content != "jarvis.chat.turn.v1") {
+                        return@use CachedTurn.Unavailable
+                    }
+                    when (obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content) {
+                        "completed" -> parseCompletedTurn(body)?.let { CachedTurn.Completed(it) } ?: CachedTurn.Unavailable
+                        "active", "queued", "running" -> CachedTurn.InFlight
+                        else -> CachedTurn.Unavailable
+                    }
+                }.getOrDefault(CachedTurn.Unavailable)
             }
         }
     }

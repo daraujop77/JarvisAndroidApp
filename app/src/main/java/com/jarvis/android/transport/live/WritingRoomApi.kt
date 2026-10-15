@@ -1823,7 +1823,7 @@ suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
                 put("mode", mode)
                 put("confirmed", true)
             },
-            timeoutMillis = 120_000L,
+            timeoutMillis = 480_000L,
         )
     }
     return writingPost(
@@ -1833,7 +1833,7 @@ suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
             put("task_id", taskId)
             put("confirmed", confirmed)
         },
-        timeoutMillis = 120_000L,
+        timeoutMillis = 480_000L,
     )
 }
 
