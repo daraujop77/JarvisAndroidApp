@@ -1205,7 +1205,7 @@ class WritingRoomWorkspaceApiTest {
 
     @Test
     fun copilotPhotoUploadsAsCandidateWithoutInvokingGenerationOrCanon() = runBlocking(Dispatchers.IO) {
-        val encoded = "aGVsbG8="
+        val encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgZGT8DwABDQED5NTSmwAAAABJRU5ErkJggg=="
         val imported = session().writingRoomCopilotImportReference(
             projectId = "prj_story",
             imageBase64 = encoded,
@@ -1221,12 +1221,47 @@ class WritingRoomWorkspaceApiTest {
         val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
         assertEquals("prj_story", body["project_id"]?.jsonPrimitive?.content)
         assertEquals(encoded, body["image_base64"]?.jsonPrimitive?.content)
+        assertEquals("image/png", body["mime_type"]?.jsonPrimitive?.content)
         assertEquals("REFERENCE", body["kind"]?.jsonPrimitive?.content)
         assertEquals("MANUAL_UPLOAD", body["source"]?.jsonPrimitive?.content)
         assertEquals("copilot", body["provenance"]?.jsonObject?.get("surface")?.jsonPrimitive?.content)
         assertEquals("CANDIDATE", body["provenance"]?.jsonObject?.get("authority")?.jsonPrimitive?.content)
         assertTrue(body["character_ids"] == null)
         assertTrue(body["status"] == null)
+    }
+
+    @Test
+    fun copilotReferencePreservesOriginalJpegAndWebpMime() = runBlocking(Dispatchers.IO) {
+        val samples = listOf(
+            "image/jpeg" to "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDi6KKK+ZP3E//Z",
+            "image/webp" to "UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoBAAEAAUAmJaACdLoB+AADsAD+8ut//NgVzXPv9//S4P0uD9Lg/9KQAAA=",
+        )
+        val client = session()
+        samples.forEach { (expectedMime, original) ->
+            val result = client.writingRoomCopilotImportReference(
+                projectId = "prj_story",
+                imageBase64 = original,
+                note = "Use the original reference format",
+            ).getOrThrow()
+            assertEquals("CANDIDATE", result.asset.status)
+            val request = server.takeRequest()
+            assertEquals("/api/app/writing-room/visual-assets/ingest", request.path)
+            val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+            assertEquals(expectedMime, body["mime_type"]?.jsonPrimitive?.content)
+            assertEquals(original, body["image_base64"]?.jsonPrimitive?.content)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun copilotReferenceRejectsUnknownOrMalformedBytesBeforeNetwork() = runBlocking(Dispatchers.IO) {
+        val client = session()
+        for (encoded in listOf("aGVsbG8=", "%%%not-base64%%%", "iVBORw0KGgo=")) {
+            assertTrue(client.writingRoomCopilotImportReference(
+                "prj_story", encoded, "Untrusted reference",
+            ).isFailure)
+        }
+        assertEquals(0, server.requestCount)
     }
 
     @Test
