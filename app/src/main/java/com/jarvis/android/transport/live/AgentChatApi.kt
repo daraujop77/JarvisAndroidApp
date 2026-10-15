@@ -281,6 +281,9 @@ suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
     mode: String = "auto",
     images: JsonArray? = null,
     documents: JsonArray? = null,
+    frozenTraceId: String? = null,
+    frozenDeviceId: String? = null,
+    frozenSessionId: String? = null,
 ): Result<ChatGlobalProjectAgentReply> {
     if (projectId.isBlank() || conversationId.isBlank() ||
         requestId.isBlank() || prompt.isBlank() ||
@@ -293,9 +296,9 @@ suspend fun JarvisAppSession.chatGlobalProjectAgentTurn(
         put("project_id", projectId)
         put("conversation_id", conversationId)
         put("request_id", requestId)
-        put("trace_id", UUID.randomUUID().toString())
-        put("device_id", deviceId)
-        put("session_id", appSessionId)
+        put("trace_id", frozenTraceId ?: UUID.randomUUID().toString())
+        put("device_id", frozenDeviceId ?: deviceId)
+        put("session_id", frozenSessionId ?: appSessionId)
         put("mode", mode)
         if (images != null && images.isNotEmpty()) put("images", images)
         if (documents != null && documents.isNotEmpty()) put("documents", documents)
