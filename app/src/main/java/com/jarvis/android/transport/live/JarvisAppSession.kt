@@ -756,7 +756,7 @@ class JarvisAppSession(
             .joinToString("") { "%02x".format(it) }
 
     @Synchronized
-    private fun postPaidVisual(path: String, body: JsonObject): Pair<Int, String> {
+    internal fun postPaidVisual(path: String, body: JsonObject): Pair<Int, String> {
         if (userId.isBlank()) throw TransportException("Visual operation requires authentication")
         val key = paidVisualAttemptKey(path)
         val digest = paidVisualFingerprint(body)
