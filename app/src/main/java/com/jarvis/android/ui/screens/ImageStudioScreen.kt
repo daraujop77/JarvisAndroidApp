@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -82,6 +84,7 @@ fun ImageStudioScreen(
     initialAttachmentId: String,
     onBack: () -> Unit,
     showWikiPrimaryActions: Boolean = true,
+    wikiDestinationProjectId: String? = null,
     onEditRequest: ((
         referenceAttachmentId: String,
         instruction: String,
@@ -108,6 +111,9 @@ fun ImageStudioScreen(
     var selectedMode by rememberSaveable(initialAttachmentId) { mutableStateOf("quality") }
     var selectedModel by rememberSaveable(initialAttachmentId) { mutableStateOf("auto") }
     var wikiCharacter by rememberSaveable(initialAttachmentId) { mutableStateOf("Alexander") }
+    var pendingWikiProject by rememberSaveable(initialAttachmentId) { mutableStateOf<String?>(null) }
+    var pendingWikiCharacter by rememberSaveable(initialAttachmentId) { mutableStateOf<String?>(null) }
+    var pendingWikiAttachment by rememberSaveable(initialAttachmentId) { mutableStateOf<String?>(null) }
 
     val bitmap by rememberAttachmentThumb(
         currentAttachmentId,
@@ -162,6 +168,40 @@ fun ImageStudioScreen(
         currentAttachmentId = success.attachmentId
         instruction = ""
         vm.resetImageEditState()
+    }
+
+    if (pendingWikiProject != null && pendingWikiCharacter != null && pendingWikiAttachment != null) {
+        AlertDialog(
+            onDismissRequest = {
+                pendingWikiProject = null
+                pendingWikiCharacter = null
+                pendingWikiAttachment = null
+            },
+            title = { Text("Confirmar publicación visual") },
+            text = { Text("Proyecto: $pendingWikiProject\nPersonaje: $pendingWikiCharacter\n" +
+                "Vas a sustituir la referencia visual principal autorizada.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val project = pendingWikiProject ?: return@TextButton
+                    val character = pendingWikiCharacter ?: return@TextButton
+                    val attachment = pendingWikiAttachment ?: return@TextButton
+                    pendingWikiProject = null
+                    pendingWikiCharacter = null
+                    pendingWikiAttachment = null
+                    vm.setWikiPrimaryReference(
+                        attachmentId = attachment, character = character,
+                        projectId = project,
+                    )
+                }) { Text("Confirmar") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    pendingWikiProject = null
+                    pendingWikiCharacter = null
+                    pendingWikiAttachment = null
+                }) { Text("Cancelar") }
+            },
+        )
     }
 
     Scaffold(
@@ -529,15 +569,22 @@ fun ImageStudioScreen(
                             }
                             else -> Unit
                         }
+                        val destination = wikiDestinationProjectId?.takeIf { it.isNotBlank() }
+                        Text(
+                            destination?.let { "Proyecto autorizado: $it" }
+                                ?: "Selecciona un proyecto antes de publicar en la Wiki.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (destination == null) MaterialTheme.colorScheme.error
+                                    else Color(0xFFB7C7DC),
+                        )
                         val publishing = wikiPrimaryState is JarvisViewModel.WikiPrimaryState.Busy
                         Button(
                             onClick = {
-                                vm.setWikiPrimaryReference(
-                                    attachmentId = currentAttachmentId,
-                                    character = wikiCharacter,
-                                )
+                                pendingWikiProject = destination
+                                pendingWikiCharacter = wikiCharacter.trim()
+                                pendingWikiAttachment = currentAttachmentId
                             },
-                            enabled = wikiCharacter.isNotBlank() && !publishing,
+                            enabled = destination != null && wikiCharacter.isNotBlank() && !publishing,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = JarvisGreen,
                                 contentColor = Color(0xFF02101F),
