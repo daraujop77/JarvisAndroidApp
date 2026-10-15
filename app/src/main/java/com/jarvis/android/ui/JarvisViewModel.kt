@@ -1556,11 +1556,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
-    /** Separate explicit owner action; every candidate must have a verified preview. */
-    fun approveCopilotCharacterViews(projectId: String) {
+    /** Separate owner action; every candidate needs a verified preview that was decoded on screen. */
+    fun approveCopilotCharacterViews(projectId: String, decodedAssetIds: Set<String>) {
         val current = _writingWorkspace.value
         val batch = current.copilotViewBatch ?: return
-        val ids = copilotApprovableViewIds(batch, current.copilotViewPreviews)
+        val ids = copilotApprovableViewIds(
+            batch, current.copilotViewPreviews.filterKeys { it in decodedAssetIds },
+        )
         if (current.chatProjectId != projectId || batch.project_id != projectId ||
             current.copilotViewLoading || current.busy || ids.isEmpty()
         ) return

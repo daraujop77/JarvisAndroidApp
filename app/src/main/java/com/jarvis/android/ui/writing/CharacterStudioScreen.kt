@@ -1266,6 +1266,7 @@ private fun CharacterAssetCard(
     onEditInImageStudio: ((String, VisualStudioAsset) -> Unit)? = null,
 ) {
     val attachmentId = state.attachmentIds[asset.asset_id]
+    var previewDecoded by remember(attachmentId) { mutableStateOf(false) }
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = Color(0xB30B1528),
@@ -1278,6 +1279,7 @@ private fun CharacterAssetCard(
                 asset = asset,
                 attachmentId = attachmentId,
                 vm = vm,
+                onDecodedChange = { previewDecoded = it },
             )
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1326,7 +1328,8 @@ private fun CharacterAssetCard(
                     if (showApprove) {
                         Button(
                             onClick = { vm.approveCharacterVisual(asset) },
-                            enabled = !state.busy && asset.storage.state == "stored",
+                            enabled = !state.busy &&
+                                canApproveVisualPreview(asset.storage.state, previewDecoded),
                             modifier = Modifier.weight(1f),
                         ) {
                             Icon(Icons.Filled.Check, contentDescription = null)
@@ -1371,6 +1374,7 @@ private fun AssetPreview(
     asset: VisualStudioAsset,
     attachmentId: String?,
     vm: JarvisViewModel,
+    onDecodedChange: (Boolean) -> Unit = {},
 ) {
     val state by vm.characterStudio.collectAsStateWithLifecycle()
     LaunchedEffect(projectId, state.characterId, asset.asset_id, asset.storage.state) {
@@ -1387,6 +1391,7 @@ private fun AssetPreview(
         description = "Referencia visual del personaje",
         height = 320.dp,
         onRetry = { vm.loadCharacterStudioAsset(projectId, asset.asset_id, retry = true) },
+        onDecodedChange = onDecodedChange,
     )
 }
 
