@@ -457,6 +457,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
         ImageStudioScreen(
             vm = vm,
             initialAttachmentId = attachmentId,
+            wikiDestinationProjectId = remember(attachmentId) { agentProjectId },
             onBack = {
                 vm.resetImageEditState()
                 imageStudioAttachmentId = null
