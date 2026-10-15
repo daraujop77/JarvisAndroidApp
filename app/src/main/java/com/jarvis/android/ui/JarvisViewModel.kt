@@ -48,6 +48,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Single app-level ViewModel (Lane B). Composables never touch transport logic —
@@ -1921,7 +1923,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value = _writingWorkspace.value.copy(
                         copilotSceneCorrectionUnknown = true,
                         copilotSceneError = "No se confirmó el resultado de la edición: " +
-                            (error.message ?: "resultado desconocido") +
+                            (paidVisualUserMessage(error.message) ?: "resultado desconocido") +
                             ". No se reintentará. Revisa los candidatos en Visual Studio.",
                     )
                 }
@@ -4371,7 +4373,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _characterStudio.value.projectId != cleanProject
                 ) return@launch
                 if (result.isFailure) {
-                    val message = result.exceptionOrNull()?.message
+                    val message = paidVisualUserMessage(result.exceptionOrNull()?.message)
                         ?: "No se pudo generar el master."
                     _characterStudio.update {
                         it.copy(
@@ -4644,7 +4646,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.copy(
                         busy = false,
                         busyLabel = "",
-                        error = result.exceptionOrNull()?.message ?: "No se pudo generar la imagen.",
+                        error = paidVisualUserMessage(result.exceptionOrNull()?.message) ?: "No se pudo generar la imagen.",
                     )
                 }
                 return@launch
@@ -5022,7 +5024,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.copy(
                         busy = false,
                         busyLabel = "",
-                        error = result.exceptionOrNull()?.message ?: "No se pudo editar la imagen.",
+                        error = paidVisualUserMessage(result.exceptionOrNull()?.message) ?: "No se pudo editar la imagen.",
                     )
                 }
                 return@launch
@@ -5157,7 +5159,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 onFailure = { error ->
                     if (!scopeIsCurrent()) return@fold
                     _imageEditState.value = ImageEditState.Error(
-                        error.message ?: "No se pudo editar la referencia visual.",
+                        paidVisualUserMessage(error.message) ?: "No se pudo editar la referencia visual.",
                     )
                 },
             )
@@ -5506,7 +5508,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.copy(
                         busy = false,
                         busyLabel = "",
-                        error = result.exceptionOrNull()?.message
+                        error = paidVisualUserMessage(result.exceptionOrNull()?.message)
                             ?: "No se pudo generar la locación.",
                     )
                 }
@@ -5789,7 +5791,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.copy(
                         busy = false,
                         busyLabel = "",
-                        error = result.exceptionOrNull()?.message
+                        error = paidVisualUserMessage(result.exceptionOrNull()?.message)
                             ?: "No se pudo editar la locación.",
                     )
                 }
@@ -6420,6 +6422,85 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private val _lastImageEditDetails = MutableStateFlow<ImageGenerationDetails?>(null)
     val lastImageEditDetails: StateFlow<ImageGenerationDetails?> = _lastImageEditDetails
 
+    private val _pendingPaidVisuals = MutableStateFlow<List<JarvisAppSession.PendingPaidVisualState>>(emptyList())
+    val pendingPaidVisuals: StateFlow<List<JarvisAppSession.PendingPaidVisualState>> = _pendingPaidVisuals.asStateFlow()
+    private val _pendingPaidVisualNotice = MutableStateFlow<String?>(null)
+    val pendingPaidVisualNotice: StateFlow<String?> = _pendingPaidVisualNotice.asStateFlow()
+    private val pendingPaidVisualMutex = Mutex()
+
+    /** Read-only scan: Completed receipts are recovered, Unknown outcomes wait for the user. */
+    fun refreshPendingPaidVisuals() {
+        viewModelScope.launch {
+            pendingPaidVisualMutex.withLock { recoverPendingPaidVisuals() }
+        }
+    }
+
+    /** Only reached after the user confirms the release of an Unknown outcome. */
+    fun releasePendingPaidVisual(key: String) {
+        viewModelScope.launch {
+            pendingPaidVisualMutex.withLock {
+                _pendingPaidVisualNotice.value = if (releasePaidVisualKey(key)) {
+                    null
+                } else {
+                    "No se pudo liberar la imagen pendiente. Inténtalo de nuevo."
+                }
+            }
+            refreshPendingPaidVisuals()
+        }
+    }
+
+    private suspend fun recoverPendingPaidVisuals() {
+        val states = runCatching { container.liveSession.pendingPaidVisuals() }.getOrNull() ?: return
+        val plan = withContext(Dispatchers.IO) { states.map { it to paidVisualRecoveryStep(it) } }
+        val remaining = mutableListOf<JarvisAppSession.PendingPaidVisualState>()
+        var storedOutsideChat = false
+        for ((state, step) in plan) {
+            val recovered = when {
+                step == PaidVisualRecoveryStep.RELEASE_CANDIDATE -> releasePaidVisualKey(state.key)
+                step == PaidVisualRecoveryStep.STAGE_ORIGINAL &&
+                    state is JarvisAppSession.PendingPaidVisualState.Completed -> {
+                    val stored = recoverOriginalPaidVisual(state)
+                    if (stored && !paidVisualRecordsInChat(state.receipt)) storedOutsideChat = true
+                    stored
+                }
+                else -> false
+            }
+            if (!recovered) remaining += state
+        }
+        _pendingPaidVisuals.value = remaining
+        _pendingPaidVisualNotice.value = if (storedOutsideChat) {
+            "Imagen pendiente recuperada y guardada en este dispositivo."
+        } else {
+            null
+        }
+    }
+
+    /** Stores the receipt's original bytes, then releases the key. A failed store or release keeps it pinned. */
+    private suspend fun recoverOriginalPaidVisual(
+        state: JarvisAppSession.PendingPaidVisualState.Completed,
+    ): Boolean {
+        val (data, mime) = paidVisualOriginalBytes(state.receipt) ?: return false
+        val staged = withContext(Dispatchers.IO) {
+            container.attachmentStore.stageOriginalGeneratedBase64(data, mime)
+        } ?: return false
+        if (!releasePaidVisualKey(state.key)) return false
+        if (paidVisualRecordsInChat(state.receipt)) {
+            val conversationId = _conversationId.value ?: conversations.newConversationId().also {
+                _conversationId.value = it
+            }
+            conversations.recordGeneratedImage(
+                conversationId = conversationId,
+                prompt = "Imagen recuperada",
+                attachmentId = staged.attachmentId,
+            )
+        }
+        return true
+    }
+
+    private suspend fun releasePaidVisualKey(key: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching { container.liveSession.releasePaidVisualIntent(key) }.isSuccess
+    }
+
     fun generateImage(prompt: String, mode: String = "speed", model: String? = null) {
         val clean = prompt.trim()
         if (clean.isBlank() || _imageGenerationState.value is ImageGenerationState.Busy) return
@@ -6456,7 +6537,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 },
                 onFailure = { error ->
                     _imageGenerationState.value = ImageGenerationState.Error(
-                        error.message ?: "Image generation failed",
+                        paidVisualUserMessage(error.message) ?: "Image generation failed",
                     )
                 },
             )
@@ -6540,7 +6621,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 },
                 onFailure = { error ->
                     _imageEditState.value = ImageEditState.Error(
-                        error.message ?: "Image edit failed",
+                        paidVisualUserMessage(error.message) ?: "Image edit failed",
                     )
                 },
             )
@@ -6867,6 +6948,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 // starting point, so the phone stops defaulting to the home PC.
                 container.settings.setLastControlPlaneUrl(container.liveSession.baseUrl)
                 _liveAuth.value = LiveAuthState.Authed(result.getOrThrow().username)
+                refreshPendingPaidVisuals()
                 onDone(true)
                 // Transport mode is resolved once at startup (existing V1
                 // limitation); a cold restart activates the LIVE seam so the
@@ -6911,6 +6993,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 container.settings.setLastControlPlaneUrl(container.liveSession.baseUrl)
                 _liveAuth.value = LiveAuthState.Authed(result.getOrThrow().username)
                 session.reconnectNow()
+                refreshPendingPaidVisuals()
                 onDone(true)
             } else {
                 _liveAuth.value = LiveAuthState.Error(
@@ -7882,7 +7965,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         it.copy(
                             busy = false,
                             busyLabel = "",
-                            error = error.message
+                            error = paidVisualUserMessage(error.message)
                                 ?: "No se pudo generar la escena.",
                         )
                     }
@@ -7997,7 +8080,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 },
                 onFailure = { error ->
                     _imageEditState.value = ImageEditState.Error(
-                        error.message ?: "No se pudo editar la escena visual.",
+                        paidVisualUserMessage(error.message) ?: "No se pudo editar la escena visual.",
                     )
                 },
             )

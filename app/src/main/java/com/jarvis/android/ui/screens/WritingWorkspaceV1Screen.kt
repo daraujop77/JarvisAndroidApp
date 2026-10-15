@@ -129,6 +129,7 @@ import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.i18n.AppStrings
 import com.jarvis.android.ui.i18n.LocalAppStrings
+import com.jarvis.android.ui.shared.PendingPaidVisualBanner
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisAmber
 import com.jarvis.android.ui.theme.JarvisCyan
@@ -171,6 +172,9 @@ fun WritingWorkspaceV1Screen(
 
     LaunchedEffect(projectId) {
         vm.refreshWritingWorkspace(projectId)
+    }
+    LaunchedEffect(Unit) {
+        vm.refreshPendingPaidVisuals()
     }
 
     Column(
@@ -677,6 +681,7 @@ private fun ChatSection(
             .fillMaxSize()
             .imePadding(),
     ) {
+        PendingPaidVisualBanner(vm = vm)
         // Historial completo del copiloto. Cada turno conserva pregunta y respuesta.
         LazyColumn(
             state = listState,

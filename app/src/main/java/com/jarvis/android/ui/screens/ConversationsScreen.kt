@@ -156,6 +156,7 @@ import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.i18n.EnAppStrings
 import com.jarvis.android.ui.shared.OwnerAvatar
+import com.jarvis.android.ui.shared.PendingPaidVisualBanner
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -173,6 +174,7 @@ fun ConversationsScreen(
     var showList by rememberSaveable { mutableStateOf(true) }
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
 
+    LaunchedEffect(Unit) { vm.refreshPendingPaidVisuals() }
     LaunchedEffect(openConversationRequest) {
         if (openConversationRequest > 0L) {
             showList = false
@@ -238,16 +240,19 @@ private fun ConversationListView(
         contentWindowInsets = WindowInsets(0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = { Text(strings.conversationsTitle, style = MaterialTheme.typography.titleLarge) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = Color(0xFFE8EEF8),
-                    navigationIconContentColor = Color(0xFFE8EEF8),
-                    actionIconContentColor = Color(0xFFE8EEF8),
-                ),
-                windowInsets = WindowInsets(0),
-            )
+            Column {
+                TopAppBar(
+                    title = { Text(strings.conversationsTitle, style = MaterialTheme.typography.titleLarge) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = Color(0xFFE8EEF8),
+                        navigationIconContentColor = Color(0xFFE8EEF8),
+                        actionIconContentColor = Color(0xFFE8EEF8),
+                    ),
+                    windowInsets = WindowInsets(0),
+                )
+                PendingPaidVisualBanner(vm = vm)
+            }
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
@@ -666,6 +671,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(pad),
         ) {
+            PendingPaidVisualBanner(vm = vm)
             if (agentProjectError != null) {
                 Text(
                     agentProjectError.orEmpty(),

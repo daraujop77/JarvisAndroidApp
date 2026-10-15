@@ -3,6 +3,7 @@ package com.jarvis.android.transport.live
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -49,6 +50,7 @@ class VisualStudioApiTest {
     @Volatile private var corruptNextGenerationBytes = false
     @Volatile private var corruptNextGenerationHash = false
     @Volatile private var rejectNextGenerationUnclaimed = false
+    @Volatile private var nextGenerationCandidateError = false
     @Volatile private var voidFindsOutcomeUnknown = false
     @Volatile private var unknownRecoveryReply: Pair<Int, String>? = null
     // A real 1x1 PNG, so the test exercises SHA and magic-byte verification.
@@ -170,6 +172,8 @@ class VisualStudioApiTest {
                         corruptNextGenerationHash = false
                         val storageState = nextGenerationStorageState
                         nextGenerationStorageState = "stored"
+                        val candidateUnpersisted = nextGenerationCandidateError
+                        nextGenerationCandidateError = false
                         val imagePayload = if (invalidBytes) "aW1hZ2U=" else fixturePng
                         val digest = if (invalidHash) "A".repeat(64) else fixtureSha256
                         val refs = if (isMaster) 0 else 1
@@ -213,7 +217,7 @@ class VisualStudioApiTest {
                                     }
                                 })
                             })
-                        }
+                        }.let { if (candidateUnpersisted) it.withoutPersistedCandidate() else it }
                         if (requestId.isNotBlank()) {
                             val completedReceipt = buildJsonObject {
                                 response.forEach { (key, value) -> put(key, value) }
@@ -536,6 +540,16 @@ class VisualStudioApiTest {
             perspective = "front",
         )
 
+    /** Backend shape after the provider result was paid for but the VPS could not persist the candidate. */
+    private fun JsonObject.withoutPersistedCandidate(): JsonObject = JsonObject(
+        filterKeys { it != "visual_asset" } + mapOf(
+            "visual_asset" to JsonNull,
+            "candidate_error" to JsonPrimitive("visual_persist_failed"),
+            "storage_retry_required" to JsonPrimitive(true),
+            "vps_persistence" to JsonPrimitive("provider_result_unpersisted"),
+        ),
+    )
+
     private fun pendingPaidIntents(store: JarvisAppSession.MemoryStore): Map<String, String> =
         store.snapshot().filterKeys { it.startsWith("jarvis.paid.visual.") }
 
@@ -579,6 +593,28 @@ class VisualStudioApiTest {
             .digest(owner.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }.take(32)
         return "jarvis.paid.visual.$hash.${path.substringAfterLast('/')}"
+    }
+
+    @Test
+    fun candidateErrorFailsClosedWithoutReleasingAndStaysRecoverableByGet() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        nextGenerationCandidateError = true
+
+        val result = client.portraitRequest("Candidate error portrait")
+
+        assertEquals(
+            "La imagen se generó, pero no se pudo guardar en el proyecto. " +
+                "Quedó pendiente en este dispositivo; revísala en el aviso de imágenes pendientes.",
+            result.exceptionOrNull()?.message,
+        )
+        assertEquals(1, generationPosts.get())
+        assertEquals(1, pendingPaidIntents(store).size)
+
+        val recovered = client.pendingPaidVisuals().single() as JarvisAppSession.PendingPaidVisualState.Completed
+        assertEquals(fixturePng, recovered.receipt["data_base64"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(1, generationPosts.get())
+        assertEquals(1, pendingPaidIntents(store).size)
     }
 
     @Test

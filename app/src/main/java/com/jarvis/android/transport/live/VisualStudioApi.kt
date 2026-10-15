@@ -7,6 +7,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -709,7 +710,7 @@ private suspend inline fun <reified T> JarvisAppSession.visualStudioPost(
  * the crash-durable request ID. This runs on initial POST and GET recovery.
  * A mismatched receipt cannot silently become an approved/displayed candidate.
  */
-private fun verifyPaidCandidateIntegrity(result: JsonObject, stored: JsonObject) {
+internal fun verifyPaidCandidateIntegrity(result: JsonObject, stored: JsonObject) {
     val encoded = result["data_base64"]?.jsonPrimitive?.contentOrNull.orEmpty()
     val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
     val assetMime = stored["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -782,6 +783,15 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
         requireOk(response)
         val result = visualStudioJson.parseToJsonElement(response.second).jsonObject
         if (paid) {
+            val candidateError = (result["candidate_error"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val visualAssetMissing = result["visual_asset"].let { it == null || it is JsonNull }
+            if (candidateError.isNotBlank() && visualAssetMissing) {
+                // The intent stays pinned: the pending-visuals banner recovers the bytes from
+                // the paid receipt and releases the intent only after they are stored.
+                throw TransportException(
+                    "La imagen se generó, pero no se pudo guardar en el proyecto. Quedó pendiente en este dispositivo; revísala en el aviso de imágenes pendientes.",
+                )
+            }
             val stored = result["visual_asset"]?.jsonObject
             val state = stored?.get("storage")?.jsonObject
                 ?.get("state")?.jsonPrimitive?.contentOrNull
