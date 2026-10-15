@@ -8,6 +8,7 @@ import com.jarvis.android.JarvisApp
 import com.jarvis.android.contract.ApprovalOutcome
 import com.jarvis.android.data.local.ConversationEntity
 import com.jarvis.android.data.media.StagedAttachment
+import com.jarvis.android.data.prefs.ImageStudioVersionStore
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.repo.ConversationSummary
 import com.jarvis.android.data.repo.SessionSnapshot
@@ -5043,6 +5044,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         model: String? = null,
         preserveIdentity: String = "high",
         aspectRatio: String = "portrait",
+        chainRootId: String? = null,
     ) {
         val clean = instruction.trim()
         val state = _characterStudio.value
@@ -5153,6 +5155,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     }
                     reloadCharacterStudio(parentAsset.project_id, characterId)
                     if (scopeIsCurrent()) {
+                        // The API already released this intent; a failed chain write must not invite a paid retry.
+                        appendImageStudioVersion(chainRootId ?: referenceAttachmentId, staged.attachmentId)
                         _imageEditState.value = ImageEditState.Success(staged.attachmentId)
                     }
                 },
@@ -6421,6 +6425,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val imageEditState: StateFlow<ImageEditState> = _imageEditState
     private val _lastImageEditDetails = MutableStateFlow<ImageGenerationDetails?>(null)
     val lastImageEditDetails: StateFlow<ImageGenerationDetails?> = _lastImageEditDetails
+    private val imageStudioVersionFlows =
+        mutableMapOf<Pair<String, String>, MutableStateFlow<List<String>>>()
 
     private val _pendingPaidVisuals = MutableStateFlow<List<JarvisAppSession.PendingPaidVisualState>>(emptyList())
     val pendingPaidVisuals: StateFlow<List<JarvisAppSession.PendingPaidVisualState>> = _pendingPaidVisuals.asStateFlow()
@@ -6545,6 +6551,22 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     }
 
 
+    /** Image Studio version chain for a root. Appends run here, so a late result is still kept. */
+    fun imageStudioVersions(root: String): StateFlow<List<String>> {
+        val owner = container.liveSession.userId
+        return imageStudioVersionFlows.getOrPut(owner to root) {
+            MutableStateFlow(ImageStudioVersionStore(container.imageStudioPrefs, owner).versions(root))
+        }
+    }
+
+    private suspend fun appendImageStudioVersion(root: String, attachmentId: String): Boolean {
+        val owner = container.liveSession.userId
+        val store = ImageStudioVersionStore(container.imageStudioPrefs, owner)
+        val appended = withContext(Dispatchers.IO) { store.append(root, attachmentId) }
+        if (appended) imageStudioVersionFlows[owner to root]?.value = store.versions(root)
+        return appended
+    }
+
     fun editImage(
         referenceAttachmentId: String,
         instruction: String,
@@ -6552,6 +6574,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         model: String? = null,
         preserveIdentity: String = "high",
         aspectRatio: String = "square",
+        chainRootId: String? = null,
     ) {
         val clean = instruction.trim()
         if (clean.isBlank() || _imageEditState.value is ImageEditState.Busy) return
@@ -6559,6 +6582,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         // versions must never be written into the active chat conversation.
         _imageEditState.value = ImageEditState.Busy
         _lastImageEditDetails.value = null
+        val chainRoot = chainRootId ?: referenceAttachmentId
 
         viewModelScope.launch {
             val source = withContext(Dispatchers.IO) {
@@ -6603,6 +6627,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     if (staged == null) {
                         _imageEditState.value = ImageEditState.Error(
                             "JARVIS edited the image, but Android could not decode it.",
+                        )
+                    } else if (!appendImageStudioVersion(chainRoot, staged.attachmentId)) {
+                        // Acknowledge only after the version is durable; on failure the paid intent stays pinned.
+                        _imageEditState.value = ImageEditState.Error(
+                            "No se pudo guardar la nueva versión en el dispositivo. La imagen queda pendiente de confirmación.",
                         )
                     } else {
                         // Keep the edited version in Image Studio's local version chain only.
@@ -7982,6 +8011,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         model: String? = null,
         preserveIdentity: String = "high",
         aspectRatio: String = "landscape",
+        chainRootId: String? = null,
     ) {
         val clean = instruction.trim()
         val state = _sceneBuilder.value
@@ -8074,6 +8104,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             )
                         }
                     }
+                    // The API already released this intent; a failed chain write must not invite a paid retry.
+                    appendImageStudioVersion(chainRootId ?: referenceAttachmentId, staged.attachmentId)
                     _imageEditState.value = ImageEditState.Success(
                         staged.attachmentId,
                     )

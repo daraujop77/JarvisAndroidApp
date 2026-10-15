@@ -103,9 +103,8 @@ fun ImageStudioScreen(
     var currentAttachmentId by rememberSaveable(initialAttachmentId) {
         mutableStateOf(initialAttachmentId)
     }
-    var versions by rememberSaveable(initialAttachmentId) {
-        mutableStateOf(listOf(initialAttachmentId))
-    }
+    val versionsFlow = remember(initialAttachmentId) { vm.imageStudioVersions(initialAttachmentId) }
+    val versions by versionsFlow.collectAsStateWithLifecycle()
     var instruction by rememberSaveable(initialAttachmentId) { mutableStateOf("") }
     var preserveIdentity by rememberSaveable(initialAttachmentId) { mutableStateOf("high") }
     var selectedMode by rememberSaveable(initialAttachmentId) { mutableStateOf("quality") }
@@ -162,9 +161,6 @@ fun ImageStudioScreen(
     LaunchedEffect(editState) {
         val success = editState as? JarvisViewModel.ImageEditState.Success
             ?: return@LaunchedEffect
-        if (success.attachmentId !in versions) {
-            versions = versions + success.attachmentId
-        }
         currentAttachmentId = success.attachmentId
         instruction = ""
         vm.resetImageEditState()
@@ -637,6 +633,7 @@ fun ImageStudioScreen(
                                 model = selected,
                                 preserveIdentity = preserveIdentity,
                                 aspectRatio = aspectRatio,
+                                chainRootId = initialAttachmentId,
                             )
                         }
                     },

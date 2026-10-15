@@ -106,6 +106,7 @@ fun VisualStudioScreen(
                     model = model,
                     preserveIdentity = preserveIdentity,
                     aspectRatio = aspectRatio,
+                    chainRootId = characterAttachmentId,
                 )
             },
         )
@@ -139,6 +140,7 @@ fun VisualStudioScreen(
                     model = model,
                     preserveIdentity = preserveIdentity,
                     aspectRatio = aspectRatio,
+                    chainRootId = editorAttachmentId,
                 )
             },
         )
