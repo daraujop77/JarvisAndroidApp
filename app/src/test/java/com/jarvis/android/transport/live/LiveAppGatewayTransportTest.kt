@@ -537,9 +537,9 @@ class LiveAppGatewayTransportTest {
         assertEquals(RequestStatus.Completed,
                      repo.snapshot.value.session.requests[turn]?.status)
         val sent = postedBodies.single {
-            it.startsWith("POST /api/app/chat/agent/project/turn\\n")
+            it.startsWith("POST /api/app/chat/agent/project/turn")
         }
-        val request = Json.parseToJsonElement(sent.substringAfter('\\n')).jsonObject
+        val request = Json.parseToJsonElement(sent.substringAfter(10.toChar())).jsonObject
         assertEquals("prj_story", request["project_id"]?.jsonPrimitive?.content)
         assertEquals("project-chat-sources",
                      request["conversation_id"]?.jsonPrimitive?.content)
