@@ -41,6 +41,9 @@ class VisualStudioApiTest {
     private val json = Json { ignoreUnknownKeys = true }
     private var replyWithWrongProject = false
     @Volatile private var rejectNextGenerationPreDispatch = false
+    @Volatile private var preDispatchRejectionStatus = 409
+    @Volatile private var preDispatchRejectionError = "visual_project_style_required"
+    @Volatile private var nextGenerationStorageState = "stored"
     @Volatile private var returnUnknownAfterNextGeneration = false
     @Volatile private var loseNextGenerationResponseAfterDispatch = false
     @Volatile private var corruptNextGenerationBytes = false
@@ -126,7 +129,7 @@ class VisualStudioApiTest {
                         if (rejectNextGenerationPreDispatch) {
                             rejectNextGenerationPreDispatch = false
                             val rejected = buildJsonObject {
-                                put("error", "visual_project_style_required")
+                                put("error", preDispatchRejectionError)
                                 put("request_id", requestId)
                                 put("request_fingerprint", fingerprint)
                                 put("state", "REJECTED_PRE_DISPATCH")
@@ -139,7 +142,7 @@ class VisualStudioApiTest {
                                 put("route", "/api/app/images/generations")
                             }.toString()
                             recoveryReceipts[requestId] = receipt
-                            return MockResponse().setResponseCode(409).setBody(rejected.toString())
+                            return MockResponse().setResponseCode(preDispatchRejectionStatus).setBody(rejected.toString())
                         }
                         if (returnUnknownAfterNextGeneration) {
                             returnUnknownAfterNextGeneration = false
@@ -165,6 +168,8 @@ class VisualStudioApiTest {
                         val invalidHash = corruptNextGenerationHash
                         corruptNextGenerationBytes = false
                         corruptNextGenerationHash = false
+                        val storageState = nextGenerationStorageState
+                        nextGenerationStorageState = "stored"
                         val imagePayload = if (invalidBytes) "aW1hZ2U=" else fixturePng
                         val digest = if (invalidHash) "A".repeat(64) else fixtureSha256
                         val refs = if (isMaster) 0 else 1
@@ -201,9 +206,11 @@ class VisualStudioApiTest {
                                 put("perspective", perspective)
                                 put("storage", buildJsonObject {
                                     put("backend", "google_drive")
-                                    put("state", "stored")
-                                    put("drive_file_id", "drive-$assetId")
-                                    put("drive_parent_id", "characters")
+                                    put("state", storageState)
+                                    if (storageState == "stored") {
+                                        put("drive_file_id", "drive-$assetId")
+                                        put("drive_parent_id", "characters")
+                                    }
                                 })
                             })
                         }
@@ -751,6 +758,69 @@ class VisualStudioApiTest {
         }
         assertEquals(2, ids.distinct().size)
         assertTrue(server.requestCount >= 5) // probe + POST + durable GET, then new probe + POST
+    }
+
+    @Test
+    fun pendingStorageCandidateReleasesIntentForDistinctPrompt() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        nextGenerationStorageState = "pending_upload"
+
+        val pending = client.portraitRequest("Portrait staged on the VPS while Drive upload is pending")
+            .orThrowStage("pending storage candidate")
+
+        assertEquals("CANDIDATE", pending.visual_asset?.status)
+        assertEquals("pending_upload", pending.visual_asset?.storage?.state)
+        assertTrue(pendingPaidIntents(store).isEmpty())
+
+        val next = client.portraitRequest("A different portrait requested after the staged candidate")
+            .orThrowStage("distinct prompt after pending storage")
+
+        assertEquals("stored", next.visual_asset?.storage?.state)
+        assertEquals(2, generationPosts.get())
+        val ids = generationPostBodies.mapNotNull { it["request_id"]?.jsonPrimitive?.contentOrNull }
+        assertEquals(2, ids.distinct().size)
+    }
+
+    private suspend fun assertTypedPreDispatchRejectionReleasesIntent(status: Int, errorCode: String) {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val prompt = "Portrait refused with typed HTTP $status before dispatch"
+        rejectNextGenerationPreDispatch = true
+        preDispatchRejectionStatus = status
+        preDispatchRejectionError = errorCode
+
+        val failure = client.portraitRequest(prompt).exceptionOrNull()
+
+        assertTrue(failure?.message.orEmpty().contains("HTTP $status"))
+        assertTrue(failure?.message.orEmpty().contains(errorCode))
+        assertTrue(pendingPaidIntents(store).isEmpty())
+        assertEquals(1, generationPosts.get())
+        val requestId = generationPostBodies.single()["request_id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val trace = (0 until server.requestCount).map { server.takeRequest() }
+        assertEquals(
+            listOf(
+                "GET /api/app/images/requests/$requestId",
+                "POST /api/app/images/generations",
+                "GET /api/app/images/requests/$requestId",
+            ),
+            trace.map { "${it.method} ${it.path}" },
+        )
+
+        val retried = client.portraitRequest(prompt)
+            .orThrowStage("request after typed pre-dispatch rejection")
+        assertEquals("stored", retried.visual_asset?.storage?.state)
+        assertEquals(2, generationPosts.get())
+    }
+
+    @Test
+    fun typedPreDispatchRejectionWith429ReleasesIntentAfterVerifiedReceipt() = runBlocking {
+        assertTypedPreDispatchRejectionReleasesIntent(429, "writing_room_image_budget_exceeded")
+    }
+
+    @Test
+    fun typedPreDispatchRejectionWith409StillReleasesIntentAsBefore() = runBlocking {
+        assertTypedPreDispatchRejectionReleasesIntent(409, "visual_project_style_required")
     }
 
     @Test

@@ -812,10 +812,12 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
             // any pending attempt remains pinned to GET-only recovery.
             verifyPaidCandidateIntegrity(result, stored)
             // Only release the request ID if the original bytes and exact
-            // project candidate are durably recoverable from the VPS.
-            // An unknown, cross-project, pending-storage or malformed receipt
-            // stays pinned to prevent a second paid dispatch.
-            if (!assetId.isNullOrBlank() && state == "stored" &&
+            // project candidate are durably recoverable from the VPS. A pending
+            // storage state means the VPS already staged the candidate before
+            // Drive; an unknown, cross-project, or malformed receipt stays
+            // pinned to prevent a second paid dispatch.
+            if (!assetId.isNullOrBlank() &&
+                (state == "stored" || state?.startsWith("pending") == true) &&
                 !expectedProject.isNullOrBlank() &&
                 expectedProject == storedProject && status == "CANDIDATE" &&
                 !bytes.isNullOrBlank() && mime in setOf("image/png", "image/jpeg", "image/webp")

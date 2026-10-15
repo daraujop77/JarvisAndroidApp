@@ -838,7 +838,8 @@ class JarvisAppSession(
         requestId: String,
         fingerprint: String,
     ): Boolean {
-        if (response.first != 409) return false
+        // The status varies (409, 429, ...); the authenticated receipt GET is the proof.
+        if (response.first !in 400..599) return false
         return runCatching {
             val receipt = json.parseToJsonElement(response.second).jsonObject
             receipt["request_id"]?.jsonPrimitive?.contentOrNull == requestId &&
@@ -1063,6 +1064,7 @@ class JarvisAppSession(
     }
 
     /** Acknowledge only after the exact image original has been saved locally. */
+    @Synchronized
     fun acknowledgePaidVisual(path: String, body: JsonObject) {
         val projectId = body["project_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (!store.putDurable(mapOf(paidVisualAttemptKey(path, projectId) to null))) {
