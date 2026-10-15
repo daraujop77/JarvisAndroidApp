@@ -1142,6 +1142,7 @@ fun CharacterStudioScreen(
                         PackSummary(pendingPack, active = false)
                     }
 
+                    var confirmPackApproval by remember { mutableStateOf(false) }
                     if (settings.isOwner) {
                         Spacer(Modifier.height(10.dp))
                         if (pendingPack == null) {
@@ -1175,18 +1176,39 @@ fun CharacterStudioScreen(
                             }
                         } else if (pendingPack.state == "READY_FOR_APPROVAL") {
                             Button(
-                                onClick = {
-                                    vm.approveCharacterReferencePack(
-                                        projectId,
-                                        selectedCharacterId,
-                                        pendingPack.pack_id,
-                                    )
-                                },
+                                onClick = { confirmPackApproval = true },
                                 enabled = !state.busy,
                             ) {
                                 Icon(Icons.Filled.Check, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
                                 Text("Aprobar Reference Pack")
+                            }
+                            if (confirmPackApproval) {
+                                AlertDialog(
+                                    onDismissRequest = { confirmPackApproval = false },
+                                    title = { Text("Aprobar Reference Pack") },
+                                    text = {
+                                        Text(
+                                            "Se aprobará esta revisión con el máster y las ranuras listados arriba. " +
+                                                "Confirma solo si reconoces sus referencias. La revisión anterior se conserva.",
+                                        )
+                                    },
+                                    confirmButton = {
+                                        TextButton(
+                                            onClick = {
+                                                confirmPackApproval = false
+                                                vm.approveCharacterReferencePack(
+                                                    projectId,
+                                                    selectedCharacterId,
+                                                    pendingPack.pack_id,
+                                                )
+                                            },
+                                        ) { Text("Aprobar") }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { confirmPackApproval = false }) { Text("Cancelar") }
+                                    },
+                                )
                             }
                         }
                     }

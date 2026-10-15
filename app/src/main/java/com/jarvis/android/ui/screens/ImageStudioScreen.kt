@@ -109,7 +109,7 @@ fun ImageStudioScreen(
     var preserveIdentity by rememberSaveable(initialAttachmentId) { mutableStateOf("high") }
     var selectedMode by rememberSaveable(initialAttachmentId) { mutableStateOf("quality") }
     var selectedModel by rememberSaveable(initialAttachmentId) { mutableStateOf("auto") }
-    var wikiCharacter by rememberSaveable(initialAttachmentId) { mutableStateOf("Alexander") }
+    var wikiCharacter by rememberSaveable(initialAttachmentId) { mutableStateOf("") }
     var pendingWikiProject by rememberSaveable(initialAttachmentId) { mutableStateOf<String?>(null) }
     var pendingWikiCharacter by rememberSaveable(initialAttachmentId) { mutableStateOf<String?>(null) }
     var pendingWikiAttachment by rememberSaveable(initialAttachmentId) { mutableStateOf<String?>(null) }
