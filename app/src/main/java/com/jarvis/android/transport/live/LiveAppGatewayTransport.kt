@@ -346,6 +346,9 @@ class LiveAppGatewayTransport(
                 prompt = req.text,
                 images = images,
                 documents = documents,
+                frozenTraceId = traceId,
+                frozenDeviceId = deviceId,
+                frozenSessionId = sessionId,
             ).getOrThrow()
             if (ctl.cancelRequested || !currentCoroutineContext().isActive) {
                 throw CancellationException("Project agent turn cancelled")
