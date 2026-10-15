@@ -85,6 +85,19 @@ data class AgentConversationScope(
     }
 }
 
+/**
+ * JSON agent calls share the SSE-capable OkHttp client (unbounded read timeout),
+ * so each non-streaming call must impose its own total call deadline.
+ * Model/confirmation operations receive a longer budget than read-only probes.
+ * A timed-out request is NOT permission to send another model/effect attempt.
+ */
+internal fun adaptiveAgentJsonTimeoutMillis(path: String): Long = when (path) {
+    "/api/app/chat/agent/project/turn",
+    "/api/app/writing-room/agent/turn",
+    "/api/app/writing-room/agent/confirm" -> 8L * 60_000L
+    else -> 45_000L
+}
+
 private suspend inline fun <reified T> JarvisAppSession.agentPost(
     path: String,
     body: String,
@@ -99,13 +112,14 @@ private suspend inline fun <reified T> JarvisAppSession.agentPost(
     }
     runCatching {
         var auth = authHeader() ?: throw TransportException("no live session")
-        var response = post(baseUrl, path, body, auth)
+        val deadlineMs = adaptiveAgentJsonTimeoutMillis(path)
+        var response = post(baseUrl, path, body, auth, timeoutMillis = deadlineMs)
         if (response.first == 401) {
             val renewed = refresh(staleBearer = auth)
             if (renewed.isFailure) throw renewed.exceptionOrNull()
                 ?: TransportException("session expired")
             auth = authHeader() ?: throw TransportException("no live session")
-            response = post(baseUrl, path, body, auth)
+            response = post(baseUrl, path, body, auth, timeoutMillis = deadlineMs)
             if (response.first == 401) {
                 if (authHeader() == auth) clearAccess()
                 throw TransportException("session expired")
