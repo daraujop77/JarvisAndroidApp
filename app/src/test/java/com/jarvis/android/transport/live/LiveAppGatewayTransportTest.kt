@@ -584,6 +584,28 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun forgedProjectReplyScopeCannotBeRenderedOrPersistSources() {
+        tamperProjectAgentReplyScope = true
+        val session = JarvisAppSession(seededStore())
+        session.setChatAgentProjectFor("private-conv", "prj_story")
+        val sources = mutableListOf<String>()
+        session.onAgentSourcesReady = { _, _, receipt -> sources += receipt }
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val turn = repo.send("private-conv", "Check source identity")
+        await { repo.snapshot.value.session.requests[turn]?.status?.isTerminal == true }
+        assertTrue(repo.snapshot.value.session.requests[turn]?.status is RequestStatus.Failed)
+        assertTrue(sources.isEmpty())
+        assertEquals(1, postedBodies.count {
+            it.startsWith("POST /api/app/chat/agent/project/turn")
+        })
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
+    }
+
+    @Test
     fun projectRetryPostsExactlyTheOriginalPersistentTraceAndDeviceScope() {
         val store = seededStore()
         val session = JarvisAppSession(store)
