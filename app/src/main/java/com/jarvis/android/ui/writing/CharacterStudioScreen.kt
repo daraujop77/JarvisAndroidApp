@@ -318,10 +318,16 @@ fun CharacterStudioScreen(
             title = { Text("Confirmar generación de vistas") },
             text = {
                 Text(
-                    "JARVIS solicitará las perspectivas faltantes usando el master aprobado " +
-                        "de ${selectedCharacterName.ifBlank { "este personaje" }} y el modelo de imagen configurado en Writing Room. " +
-                        "Puede efectuar varias generaciones de pago y hasta dos correcciones " +
-                        "automáticas. Las imágenes nuevas serán candidatas y necesitarán aprobación."
+                    (if (state.batch?.status == "READY" && state.batch?.batch_id?.isNotBlank() == true) {
+                        "Se reanudará el lote existente " + state.batch?.batch_id +
+                            " sin crear uno nuevo. "
+                    } else {
+                        "Se preparará un lote de perspectivas faltantes. "
+                    }) +
+                        "Se utilizará el master aprobado de " +
+                        selectedCharacterName.ifBlank { "este personaje" } +
+                        ". Puede efectuar generaciones de pago y correcciones automáticas. " +
+                        "Las imágenes nuevas seguirán siendo candidatas hasta tu aprobación."
                 )
             },
             confirmButton = {
@@ -331,14 +337,20 @@ fun CharacterStudioScreen(
                         state.batch?.status != "RUNNING",
                     onClick = {
                         pendingTurnaroundGeneration = false
+                        val existing = state.batch?.takeIf {
+                            it.status == "READY" && it.batch_id.isNotBlank()
+                        }
                         vm.completeCharacterViews(
                             projectId = projectId,
                             characterId = selectedCharacterId,
-                            perspectives = TURNAROUND_PERSPECTIVES,
-                            adjustment = turnaroundPrompt,
+                            perspectives = existing?.requested_perspectives
+                                ?.takeIf { it.isNotEmpty() } ?: TURNAROUND_PERSPECTIVES,
+                            adjustment = existing?.adjustment ?: turnaroundPrompt,
+                            resumeBatchId = existing?.batch_id.orEmpty(),
+                            generationMode = existing?.mode ?: "model_select",
                         )
                     },
-                ) { Text("Iniciar vistas de pago") }
+                ) { Text(if (state.batch?.status == "READY") "Reanudar lote existente" else "Iniciar vistas de pago") }
             },
             dismissButton = {
                 TextButton(onClick = { pendingTurnaroundGeneration = false }) { Text("Cancelar") }
