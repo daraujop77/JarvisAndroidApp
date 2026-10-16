@@ -1750,7 +1750,7 @@ suspend fun JarvisAppSession.writingRoomCopilotHistory(
 ): Result<WritingCopilotHistory> {
     val conversationId = runCatching { writingRoomConversationId(projectId) }.getOrNull()
         ?: return Result.failure(TransportException("Missing Writing Room conversation scope"))
-    return writingPost(
+    return writingPost<WritingCopilotHistory>(
         "/api/app/writing-room/agent/history",
         buildJsonObject {
             put("project_id", projectId)
