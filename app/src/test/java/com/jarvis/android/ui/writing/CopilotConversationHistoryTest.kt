@@ -81,4 +81,42 @@ class CopilotConversationHistoryTest {
             "story", altered, emptyList(),
         ).size)
     }
+
+    @Test fun archivedVisualStaysOnItsOriginalTurnNotLatestTaskOrGlobalGallery() {
+        val original = history("first", "second")
+        val a = original.turns.first().copy(
+            visual_asset = com.jarvis.android.transport.live.WritingCopilotHistoryVisual(
+                asset_id = "va_" + "a".repeat(32),
+                sha256 = "b".repeat(64),
+                status = "CANDIDATE", storage_state = "stored",
+                kind = "PRIMARY_REFERENCE",
+                character_id = "character:alexander", perspective = "front",
+            ),
+        )
+        val result = mergeCopilotConversationHistory(
+            "story", original.copy(turns = listOf(a, original.turns.last())),
+            emptyList(),
+        )
+        assertEquals(a.visual_asset?.asset_id, result.first().candidateAssetId)
+        assertEquals(a.visual_asset?.sha256, result.first().candidateSha256)
+        assertEquals("first", result.first().historicalRequestId)
+        assertEquals(null, result.last().candidateAssetId)
+        assertEquals(null, result.first().generatedPreviewAttachmentId)
+    }
+
+    @Test fun maliciousOrMalformedArchiveNeverCreatesAVisualApprovalOrDownload() {
+        val original = history("good")
+        val bad = original.turns.single().copy(
+            visual_asset = com.jarvis.android.transport.live.WritingCopilotHistoryVisual(
+                asset_id = "va_notvalid", sha256 = "unknown",
+                status = "APPROVED", storage_state = "stored",
+                kind = "PRIMARY_REFERENCE", character_id = "character:alexander",
+            ),
+        )
+        val merged = mergeCopilotConversationHistory(
+            "story", original.copy(turns = listOf(bad)), emptyList(),
+        )
+        assertEquals(null, merged.single().candidateAssetId)
+        assertEquals(null, merged.single().generatedPreviewAttachmentId)
+    }
 }
