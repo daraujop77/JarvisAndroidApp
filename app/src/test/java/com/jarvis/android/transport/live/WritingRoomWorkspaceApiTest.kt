@@ -72,7 +72,8 @@ class WritingRoomWorkspaceApiTest {
                     "/api/app/writing-room/visual-assets/ingest" -> MockResponse().setBody(
                         """{"schema":"jarvis.visual.asset.v1","asset":{"asset_id":"va_copilot_1","sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","kind":"REFERENCE","status":"CANDIDATE"}}""",
                     )
-                    "/api/app/writing-room/chat/stream" -> MockResponse()
+                    "/api/app/writing-room/chat/stream",
+                    "/api/app/writing-room/agent/stream" -> MockResponse()
                         .setHeader("Content-Type", "text/event-stream")
                         .setBody(
                             """
