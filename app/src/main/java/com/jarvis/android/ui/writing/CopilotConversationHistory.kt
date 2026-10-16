@@ -2,8 +2,27 @@ package com.jarvis.android.ui.writing
 
 import com.jarvis.android.transport.live.JarvisAppSession
 import com.jarvis.android.transport.live.WritingCopilotHistory
+import com.jarvis.android.transport.live.WritingCopilotHistoryTurn
+import com.jarvis.android.transport.live.WritingCopilotHistoryVisual
 import com.jarvis.android.transport.live.WritingRoomAutoChat
 import com.jarvis.android.ui.JarvisViewModel
+
+/**
+ * Archive metadata only. Never treat an ID as image proof or approve it
+ * until its authenticated SHA-bound original is actually downloaded.
+ */
+internal fun verifiedHistoricalCopilotVisual(
+    item: WritingCopilotHistoryTurn,
+): WritingCopilotHistoryVisual? = item.visual_asset?.takeIf { x ->
+    item.request_id.isNotBlank() &&
+        x.asset_id.matches(Regex("^va_[A-Za-z0-9_]{6,80}$")) &&
+        x.sha256.matches(Regex("^[a-fA-F0-9]{64}$")) &&
+        x.status in setOf("CANDIDATE", "APPROVED") &&
+        x.storage_state in setOf("stored", "pending") &&
+        (x.character_id.isBlank() && x.kind in
+            setOf("SCENE_ART", "REFERENCE", "LOCATION_REFERENCE") ||
+            x.character_id.startsWith("character:"))
+}
 
 /**
  * Server snapshots own historical text. The live local turn still owns its
@@ -32,10 +51,33 @@ internal fun mergeCopilotConversationHistory(
             it.prompt == item.user_text &&
                 it.response?.turn?.response?.text == item.assistant_text
         }
-        if (found >= 0) return@mapNotNull unused.removeAt(found)
+        val visual = verifiedHistoricalCopilotVisual(item)
+        if (found >= 0) {
+            val rich = unused.removeAt(found)
+            // Never overwrite a live original or replace its exact media
+            // provenance with a possibly older archived receipt.
+            if (rich.candidateAssetId != null || visual == null) return@mapNotNull rich
+            return@mapNotNull rich.copy(
+                historicalRequestId = rich.historicalRequestId ?: item.request_id,
+                candidateAssetId = visual.asset_id,
+                candidateSha256 = visual.sha256,
+                candidateStatus = visual.status,
+                candidateStorageState = visual.storage_state,
+                candidateKind = visual.kind,
+                candidateCharacterId = visual.character_id,
+                candidatePerspective = visual.perspective,
+            )
+        }
         JarvisViewModel.WritingWorkspaceChatTurn(
             prompt = item.user_text,
             historicalRequestId = item.request_id,
+            candidateAssetId = visual?.asset_id,
+            candidateSha256 = visual?.sha256,
+            candidateStatus = visual?.status,
+            candidateStorageState = visual?.storage_state,
+            candidateKind = visual?.kind,
+            candidateCharacterId = visual?.character_id,
+            candidatePerspective = visual?.perspective,
             response = WritingRoomAutoChat(
                 schema = "jarvis.writing-room.chat.v1",
                 selected_participant = "copilot",
