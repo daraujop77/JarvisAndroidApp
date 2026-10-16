@@ -3820,6 +3820,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val detail: VisualStudioCharacterDetail? = null,
         val projectStyle: VisualProjectStyleProfile? = null,
         val characterDirection: VisualCharacterDirectionProfile? = null,
+        val externalCharacters: List<VisualExternalCharacter> = emptyList(),
+        val characterVariants: List<VisualExternalCharacterVariant> = emptyList(),
         val batch: VisualCharacterBatch? = null,
         val masterRoster: VisualCharacterMasterRoster? = null,
         val assets: List<VisualStudioAsset> = emptyList(),
@@ -3992,6 +3994,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             projectId,
             characterId,
         )
+        // These reference-only endpoints may be absent on an older deployed VPS;
+        // do not block the rest of Character Studio when unavailable.
+        val externalCatalogResult = container.liveSession.visualExternalCharacterCatalog(projectId)
+        val variantsResult = container.liveSession.visualCharacterVariants(projectId, characterId)
         val assets = container.liveSession.visualAssetList(projectId, characterId)
         val batchResult = container.liveSession.visualCharacterBatchStatus(projectId, characterId)
         val rosterResult = container.liveSession.visualCharacterMasterRosterStatus(projectId)
@@ -4014,6 +4020,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 ?: _characterStudio.value.projectStyle,
             characterDirection = characterDirectionResult.getOrNull()?.profile
                 ?: _characterStudio.value.characterDirection,
+            externalCharacters = externalCatalogResult.getOrNull()?.characters
+                ?: _characterStudio.value.externalCharacters,
+            characterVariants = variantsResult.getOrNull()?.variants
+                ?: _characterStudio.value.characterVariants,
             batch = if (batchResult.isSuccess) loadedBatch else _characterStudio.value.batch,
             masterRoster = rosterResult.getOrNull() ?: _characterStudio.value.masterRoster,
             assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
@@ -4565,6 +4575,50 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             busyLabel = "",
                             error = error.message ?: "No se pudo restaurar el estilo visual.",
                         )
+                    }
+                },
+            )
+        }
+    }
+
+    fun applyExternalCharacterVariant(
+        projectId: String,
+        characterId: String,
+        variantId: String,
+        expectedRevision: Int,
+    ) {
+        val current = _characterStudio.value
+        if (current.busy || !settings.value.isOwner ||
+            current.projectId != projectId || current.characterId != characterId ||
+            variantId.isBlank()
+        ) return
+        val scopeVersion = characterStudioScopeVersion
+        _characterStudio.update {
+            it.copy(busy = true, busyLabel = "Aplicando variante externa", notice = null, error = null)
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.visualApplyCharacterVariant(
+                projectId, characterId, variantId, expectedRevision,
+            )
+            if (characterStudioScopeVersion != scopeVersion ||
+                _characterStudio.value.projectId != projectId ||
+                _characterStudio.value.characterId != characterId
+            ) return@launch
+            result.fold(
+                onSuccess = { response ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false, busyLabel = "", characterDirection = response.profile,
+                            notice = "Variante visual externa aplicada; no modifica el canon narrativo.",
+                            error = null,
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(busy = false, busyLabel = "",
+                            error = error.message ?: "No se pudo aplicar la variante visual.")
                     }
                 },
             )
