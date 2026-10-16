@@ -1105,11 +1105,12 @@ class LiveAppGatewayTransportTest {
 
     @Test
     fun effortSelectionIsConversationLocalAndSentOnlyWhenForced() {
-        val session = JarvisAppSession(seededStore())
+        val store = seededStore()
+        val session = JarvisAppSession(store)
         assertEquals("auto", session.chatEffortFor("cA"))
         session.setChatEffortFor("cA", "high")
         session.setChatEffortFor("cB", "low")
-        assertEquals("high", JarvisAppSession(session.store).chatEffortFor("cA"))
+        assertEquals("high", JarvisAppSession(store).chatEffortFor("cA"))
         assertEquals("low", session.chatEffortFor("cB"))
         val transport = LiveAppGatewayTransport(session, scope)
         val repo = JarvisSessionRepository(transport, scope)
@@ -1121,13 +1122,13 @@ class LiveAppGatewayTransportTest {
         await { repo.snapshot.value.session.requests[b]?.status?.isTerminal == true }
         val bodyA = postedBodies.single { it.contains(a) }
         val bodyB = postedBodies.single { it.contains(b) }
-        assertTrue(bodyA.contains("\\"effort\\":\\"high\\""))
-        assertTrue(bodyB.contains("\\"effort\\":\\"low\\""))
+        assertTrue(bodyA.contains("\"effort\":\"high\""))
+        assertTrue(bodyB.contains("\"effort\":\"low\""))
         session.setChatEffortFor("cB", "auto")
         val c = repo.send("cB", "no effort override")
         await { repo.snapshot.value.session.requests[c]?.status?.isTerminal == true }
         val bodyC = postedBodies.single { it.contains(c) }
-        assertTrue(!bodyC.contains("\\"effort\\":"))
+        assertTrue(!bodyC.contains("\"effort\":"))
     }
 
     @Test
