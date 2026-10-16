@@ -713,6 +713,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         if (!copilotHistoricalImageInFlight.add(key)) return
         val epoch = copilotRecoveryEpoch
         viewModelScope.launch {
+            var unpublishedAttachmentId: String? = null
             try {
                 val fetched = container.liveSession.writingRoomVisualAssetFetch(
                     projectId, assetId,
@@ -726,6 +727,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         fetched.image_base64, source.candidateSha256.orEmpty(),
                     )
                 } ?: return@launch
+                unpublishedAttachmentId = staged.attachmentId
                 val now = _writingWorkspace.value
                 val index = now.chatHistory.indexOfFirst {
                     it.historicalRequestId == requestId &&
@@ -735,7 +737,6 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 }
                 if (copilotRecoveryEpoch != epoch || now.chatProjectId != projectId ||
                     index < 0 || staged.mimeType != fetched.mime_type) {
-                    deleteVisualStudioAttachments(listOf(staged.attachmentId))
                     return@launch
                 }
                 val turns = now.chatHistory.toMutableList()
@@ -754,6 +755,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         it.assetId == assetId
                     },
                 )
+                unpublishedAttachmentId = null // published in the original chat
                 val otherReferences = turns.mapNotNull {
                     it.generatedPreviewAttachmentId
                 }.toSet() + now.approvedVisualAttachments.values +
@@ -762,6 +764,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.previewAttachmentId
                 }.filterNot { it in otherReferences })
             } finally {
+                // Network cancellation, a project switch or an exception must
+                // not leave unpublished private thumbnails on the shared PC.
+                unpublishedAttachmentId?.let {
+                    deleteVisualStudioAttachments(listOf(it))
+                }
                 copilotHistoricalImageInFlight.remove(key)
             }
         }
