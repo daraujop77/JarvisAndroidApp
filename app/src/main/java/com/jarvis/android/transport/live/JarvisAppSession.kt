@@ -981,6 +981,9 @@ class JarvisAppSession(
         }
     }
 
+    /** IDs whose POST is still running here; the recovery scan must not touch them. */
+    private val paidInFlightIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     @Synchronized
     internal fun postPaidVisual(path: String, body: JsonObject): Pair<Int, String> {
         if (userId.isBlank()) throw TransportException("Visual operation requires authentication")
@@ -1044,7 +1047,12 @@ class JarvisAppSession(
             body.forEach { (name, value) -> put(name, value) }
             put("request_id", requestId)
         }.toString()
-        val response = post(baseUrl, path, wireBody, auth = authHeader(), timeoutMillis = 480_000L)
+        paidInFlightIds.add(requestId)
+        val response = try {
+            post(baseUrl, path, wireBody, auth = authHeader(), timeoutMillis = 480_000L)
+        } finally {
+            paidInFlightIds.remove(requestId)
+        }
         if (isTypedPaidVisualPostRejection(response, requestId, digest)) {
             // Read the authenticated durable receipt before freeing the ID. A
             // 409 body alone is not enough to distinguish a preflight reject
@@ -1127,6 +1135,8 @@ class JarvisAppSession(
         val prefix = "jarvis.paid.visual.${paidVisualAccountHash()}."
         store.keys(prefix).sorted().mapNotNull { key ->
             val value = store.get(key) ?: return@mapNotNull null
+            val pendingId = parsePaidVisualIntent(value)?.requestId
+            if (pendingId != null && paidInFlightIds.contains(pendingId)) return@mapNotNull null
             runCatching { classifyPendingPaidVisual(key, value) }
                 .getOrElse { PendingPaidVisualState.Unverifiable(key) }
         }

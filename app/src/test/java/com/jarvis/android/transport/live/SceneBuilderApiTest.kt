@@ -953,7 +953,10 @@ class SceneBuilderApiTest {
         val postBody = json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
         val requestId = postBody["request_id"]!!.jsonPrimitive.content
         paidReceipts[requestId] = completedSceneReceipt(requestId, client.paidVisualFingerprint(postBody))
-        assertTrue(makeRequest().isFailure)
+        assertEquals(
+            "Paid image receipt project or schema mismatch",
+            makeRequest().exceptionOrNull()?.message,
+        )
         assertEquals(3, server.requestCount) // probe, one POST, then GET only
         assertTrue(store.snapshot().keys.any { it.startsWith("jarvis.paid.visual.") })
     }
