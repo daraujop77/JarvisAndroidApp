@@ -568,6 +568,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             copilotTaskPollJob = null
             copilotTaskPollId = null
             deleteVisualStudioAttachments(_writingWorkspace.value.copilotViewPreviews.values)
+            deleteVisualStudioAttachments(
+                _writingWorkspace.value.copilotRecoveredPortraits.mapNotNull {
+                    it.previewAttachmentId
+                },
+            )
             deleteVisualStudioAttachments(_writingWorkspace.value.approvedVisualAttachments.values)
             _writingWorkspace.value.copilotSceneCandidate?.let {
                 deleteVisualStudioAttachments(listOf(it.previewAttachmentId))
