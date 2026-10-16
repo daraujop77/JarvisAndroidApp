@@ -26,6 +26,7 @@ import com.jarvis.android.ui.writing.canRebuildCopilotTurn
 import com.jarvis.android.transport.live.recoveredCopilotChat
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
 import com.jarvis.android.ui.writing.replacedCopilotPortraitCopies
+import com.jarvis.android.ui.writing.mergeCopilotConversationHistory
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
 import com.jarvis.android.ui.writing.selectCopilotSceneReviewAsset
 import com.jarvis.android.ui.writing.copilotApprovableViewIds
@@ -275,6 +276,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val candidatePerspective: String? = null,
         val candidateStatus: String? = null,
         val candidateStorageState: String? = null,
+        val historicalRequestId: String? = null,
     )
 
     data class CopilotRecoveredPortrait(
@@ -385,6 +387,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private var copilotTaskPollJob: Job? = null
     private var copilotTaskPollId: String? = null
     private var copilotRecoveryEpoch = 0L
+    private var copilotHistoryEpoch = 0L
     private var copilotRecoveryActiveProject: String? = null
     private var copilotViewPollJob: Job? = null
     private var copilotAppearanceEpoch = 0L
@@ -561,6 +564,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val loadEpoch = ++writingWorkspaceLoadEpoch
         if (_writingWorkspace.value.chatProjectId != projectId) {
             copilotRecoveryEpoch++
+            copilotHistoryEpoch++
             copilotAppearanceEpoch++
             copilotRecoveryActiveProject = null
             copilotViewPollJob?.cancel()
@@ -589,6 +593,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         // Wiki, timeline or Drive metadata reads succeeding. In particular,
         // a failed public Wiki request must not make saved portraits disappear.
         recoverWritingCopilotTask(projectId)
+        recoverWritingCopilotHistory(projectId)
         writingWorkspaceBusy("Loading workspace")
         recoverWritingCopilotPortraits(projectId)
         viewModelScope.launch {
@@ -643,6 +648,29 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 error = privateFailure?.exceptionOrNull()?.message,
             )
             refreshKnowledgeAtlas(projectId = projectId, refreshSnapshot = true)
+        }
+    }
+
+    /**
+     * Reconstruct older Copilot text turns from the owner-authorized server
+     * conversation. This is read-only; it never resubmits a model or tool.
+     * Concurrent task/image recovery may already have restored a richer final
+     * turn, so merge instead of replacing the live history.
+     */
+    private fun recoverWritingCopilotHistory(projectId: String) {
+        if (_writingWorkspace.value.chatProjectId != projectId) return
+        val epoch = ++copilotHistoryEpoch
+        viewModelScope.launch {
+            val history = container.liveSession.writingRoomCopilotHistory(projectId)
+                .getOrNull() ?: return@launch // older backend: keep task recovery
+            if (copilotHistoryEpoch != epoch ||
+                _writingWorkspace.value.chatProjectId != projectId) return@launch
+            val current = _writingWorkspace.value
+            _writingWorkspace.value = current.copy(
+                chatHistory = mergeCopilotConversationHistory(
+                    projectId, history, current.chatHistory,
+                ),
+            )
         }
     }
 
@@ -2205,7 +2233,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         ) return
         val state = _writingWorkspace.value
         val index = state.chatHistory.indexOfLast {
-            it.response?.copilot_task?.task_id == task.task_id
+            it.response?.copilot_task?.task_id == task.task_id ||
+                it.historicalRequestId == task.request_id
         }
         // A process death can discard the in-memory question and its bubble.
         // Reconstruct ONLY the original, server-scoped request, not another
