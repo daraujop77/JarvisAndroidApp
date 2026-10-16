@@ -8,6 +8,7 @@ import com.jarvis.android.JarvisApp
 import com.jarvis.android.contract.ApprovalOutcome
 import com.jarvis.android.data.local.ConversationEntity
 import com.jarvis.android.data.media.StagedAttachment
+import com.jarvis.android.data.prefs.ImageStudioVersionStore
 import com.jarvis.android.data.repo.ChatMessage
 import com.jarvis.android.data.repo.ConversationSummary
 import com.jarvis.android.data.repo.SessionSnapshot
@@ -48,6 +49,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Single app-level ViewModel (Lane B). Composables never touch transport logic —
@@ -1067,7 +1070,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             result.fold(
                 onSuccess = { generated ->
                     val asset = generated.visual_asset
-                    val safe = generated.model == "gpt-image-2-medium" &&
+                    val safe = generated.model.isNotBlank() &&
                         !generated.fallback_used && asset != null &&
                         asset.status == "CANDIDATE" && asset.asset_id.isNotBlank() &&
                         Regex("^[A-Fa-f0-9]{64}$").matches(asset.sha256)
@@ -1075,7 +1078,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         _writingWorkspace.value = _writingWorkspace.value.copy(
                             busy = false,
                             busyLabel = "",
-                            error = "El proveedor respondió, pero no se pudo verificar el modelo y la referencia candidata. " +
+                            error = "El proveedor respondió, pero no se pudo verificar la referencia candidata. " +
                                 "Revisa Visual Studio antes de generar otra imagen.",
                         )
                         return@fold
@@ -1553,11 +1556,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
-    /** Separate explicit owner action; every candidate must have a verified preview. */
-    fun approveCopilotCharacterViews(projectId: String) {
+    /** Separate owner action; every candidate needs a verified preview that was decoded on screen. */
+    fun approveCopilotCharacterViews(projectId: String, decodedAssetIds: Set<String>) {
         val current = _writingWorkspace.value
         val batch = current.copilotViewBatch ?: return
-        val ids = copilotApprovableViewIds(batch, current.copilotViewPreviews)
+        val ids = copilotApprovableViewIds(
+            batch, current.copilotViewPreviews.filterKeys { it in decodedAssetIds },
+        )
         if (current.chatProjectId != projectId || batch.project_id != projectId ||
             current.copilotViewLoading || current.busy || ids.isEmpty()
         ) return
@@ -1870,7 +1875,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     source.image_base64.length > 16 * 1024 * 1024
                 ) throw IllegalStateException("La imagen original no pasó la verificación.")
                 // One owner gesture dispatches one existing Image Studio edit route.
-                // gpt-image-2-medium is the project's currently configured image model.
+                // Writing Room backend pins the current image model for this project.
                 val response = container.liveSession.editSceneVisualAssetImage(
                     imageBase64 = source.image_base64,
                     mimeType = source.mime_type,
@@ -1878,7 +1883,6 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     instruction = instruction,
                     parentAsset = parent,
                     mode = "quality",
-                    model = "gpt-image-2-medium",
                     preserveIdentity = "high",
                     aspectRatio = "landscape",
                     sceneJobId = if (parent.status == "CANDIDATE") card.jobId else null,
@@ -1922,7 +1926,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _writingWorkspace.value = _writingWorkspace.value.copy(
                         copilotSceneCorrectionUnknown = true,
                         copilotSceneError = "No se confirmó el resultado de la edición: " +
-                            (error.message ?: "resultado desconocido") +
+                            (paidVisualUserMessage(error.message) ?: "resultado desconocido") +
                             ". No se reintentará. Revisa los candidatos en Visual Studio.",
                     )
                 }
@@ -2266,6 +2270,27 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             (error.message ?: "consulta estado") +
                             ". Actualiza el estado antes de intentar otra acción.",
                     )
+                    // The stale READY card has no remote work to follow; read the real state first.
+                    val refreshed = if (confirm) {
+                        runCatching {
+                            container.liveSession.writingRoomCopilotTaskStatus(
+                                projectId, task.task_id, conversationId = task.conversation_id,
+                            ).getOrThrow()
+                        }.getOrNull()?.takeIf {
+                            it.project_id == projectId && it.task_id == task.task_id
+                        }
+                    } else {
+                        null
+                    }
+                    val followTask = refreshed?.let {
+                        if (task.request_id.isNotBlank()) it.copy(request_id = task.request_id) else it
+                    } ?: task
+                    if (refreshed != null) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            copilotAgentTask = followTask,
+                        )
+                    }
+                    followCopilotTaskProgress(projectId, followTask)
                 }
             } finally {
                 if (copilotRecoveryEpoch == epoch &&
@@ -2434,10 +2459,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     val file = container.attachmentStore.resolve(referenceAttachmentId)
                     val bytes = if (file != null &&
                         file.length() in 1L..(3L * 1024 * 1024)) file.readBytes() else null
-                    if (bytes != null && bytes.size >= 3 &&
-                        bytes[0] == 0xFF.toByte() &&
-                        bytes[1] == 0xD8.toByte() &&
-                        bytes[2] == 0xFF.toByte())
+                    // Preserve the original PNG/JPEG/WebP bytes. The live
+                    // transport and authenticated VPS independently verify
+                    // the image signature and MIME before agent execution.
+                    if (bytes != null)
                         Base64.encodeToString(bytes, Base64.NO_WRAP) else null
                 }
             } else null
@@ -4362,8 +4387,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     prompt = "",
                     kind = "PRIMARY_REFERENCE",
                     perspective = "front",
-                    mode = "model_select",
-                    model = "gpt-image-2-medium",
+                    mode = "quality",
                     aspectRatio = "portrait",
                     referencesPerCharacter = 1,
                 )
@@ -4373,7 +4397,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     _characterStudio.value.projectId != cleanProject
                 ) return@launch
                 if (result.isFailure) {
-                    val message = result.exceptionOrNull()?.message
+                    val message = paidVisualUserMessage(result.exceptionOrNull()?.message)
                         ?: "No se pudo generar el master."
                     _characterStudio.update {
                         it.copy(
@@ -4629,8 +4653,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 prompt = cleanPrompt,
                 kind = kind,
                 perspective = perspective,
-                mode = "model_select",
-                model = "gpt-image-2-medium",
+                mode = "quality",
                 aspectRatio = "portrait",
                 referencePerspectives = if (kind == "IDENTITY_PACK") listOf("front") else emptyList(),
                 referencesPerCharacter = 1,
@@ -4647,7 +4670,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.copy(
                         busy = false,
                         busyLabel = "",
-                        error = result.exceptionOrNull()?.message ?: "No se pudo generar la imagen.",
+                        error = paidVisualUserMessage(result.exceptionOrNull()?.message) ?: "No se pudo generar la imagen.",
                     )
                 }
                 return@launch
@@ -5025,7 +5048,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.copy(
                         busy = false,
                         busyLabel = "",
-                        error = result.exceptionOrNull()?.message ?: "No se pudo editar la imagen.",
+                        error = paidVisualUserMessage(result.exceptionOrNull()?.message) ?: "No se pudo editar la imagen.",
                     )
                 }
                 return@launch
@@ -5044,6 +5067,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         model: String? = null,
         preserveIdentity: String = "high",
         aspectRatio: String = "portrait",
+        chainRootId: String? = null,
     ) {
         val clean = instruction.trim()
         val state = _characterStudio.value
@@ -5108,8 +5132,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             ).fold(
                 onSuccess = { reply ->
                     if (!scopeIsCurrent()) return@fold
+                    val asset = reply.visual_asset
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+                        if (asset == null || asset.sha256.isBlank()) null
+                        else container.attachmentStore.stageVisualAssetBase64(reply.data_base64, asset.sha256)
                     }
                     if (!scopeIsCurrent()) {
                         staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
@@ -5152,13 +5178,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     }
                     reloadCharacterStudio(parentAsset.project_id, characterId)
                     if (scopeIsCurrent()) {
+                        // The API already released this intent; a failed chain write must not invite a paid retry.
+                        appendImageStudioVersion(chainRootId ?: referenceAttachmentId, staged.attachmentId)
                         _imageEditState.value = ImageEditState.Success(staged.attachmentId)
                     }
                 },
                 onFailure = { error ->
                     if (!scopeIsCurrent()) return@fold
                     _imageEditState.value = ImageEditState.Error(
-                        error.message ?: "No se pudo editar la referencia visual.",
+                        paidVisualUserMessage(error.message) ?: "No se pudo editar la referencia visual.",
                     )
                 },
             )
@@ -5507,7 +5535,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.copy(
                         busy = false,
                         busyLabel = "",
-                        error = result.exceptionOrNull()?.message
+                        error = paidVisualUserMessage(result.exceptionOrNull()?.message)
                             ?: "No se pudo generar la locación.",
                     )
                 }
@@ -5790,7 +5818,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.copy(
                         busy = false,
                         busyLabel = "",
-                        error = result.exceptionOrNull()?.message
+                        error = paidVisualUserMessage(result.exceptionOrNull()?.message)
                             ?: "No se pudo editar la locación.",
                     )
                 }
@@ -6420,6 +6448,92 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     val imageEditState: StateFlow<ImageEditState> = _imageEditState
     private val _lastImageEditDetails = MutableStateFlow<ImageGenerationDetails?>(null)
     val lastImageEditDetails: StateFlow<ImageGenerationDetails?> = _lastImageEditDetails
+    private val imageStudioVersionFlows =
+        mutableMapOf<Pair<String, String>, MutableStateFlow<List<String>>>()
+
+    private val _pendingPaidVisuals = MutableStateFlow<List<JarvisAppSession.PendingPaidVisualState>>(emptyList())
+    val pendingPaidVisuals: StateFlow<List<JarvisAppSession.PendingPaidVisualState>> = _pendingPaidVisuals.asStateFlow()
+    private val _pendingPaidVisualNotice = MutableStateFlow<String?>(null)
+    val pendingPaidVisualNotice: StateFlow<String?> = _pendingPaidVisualNotice.asStateFlow()
+    private val pendingPaidVisualMutex = Mutex()
+
+    /** Read-only scan: Completed receipts are recovered, Unknown outcomes wait for the user. */
+    fun refreshPendingPaidVisuals() {
+        viewModelScope.launch {
+            pendingPaidVisualMutex.withLock { recoverPendingPaidVisuals() }
+        }
+    }
+
+    /** Only reached after the user confirms the release of an Unknown outcome. */
+    fun releasePendingPaidVisual(key: String, expectedRequestId: String) {
+        viewModelScope.launch {
+            pendingPaidVisualMutex.withLock {
+                _pendingPaidVisualNotice.value = if (releasePaidVisualKey(key, expectedRequestId)) {
+                    null
+                } else {
+                    "No se pudo liberar la imagen pendiente. Inténtalo de nuevo."
+                }
+            }
+            refreshPendingPaidVisuals()
+        }
+    }
+
+    private suspend fun recoverPendingPaidVisuals() {
+        val states = runCatching { container.liveSession.pendingPaidVisuals() }.getOrNull() ?: return
+        val plan = withContext(Dispatchers.IO) { states.map { it to paidVisualRecoveryStep(it) } }
+        val remaining = mutableListOf<JarvisAppSession.PendingPaidVisualState>()
+        var storedOutsideChat = false
+        for ((state, step) in plan) {
+            val recovered = when {
+                step == PaidVisualRecoveryStep.RELEASE_CANDIDATE &&
+                    state is JarvisAppSession.PendingPaidVisualState.Completed ->
+                    releasePaidVisualKey(state.key, state.requestId)
+                step == PaidVisualRecoveryStep.STAGE_ORIGINAL &&
+                    state is JarvisAppSession.PendingPaidVisualState.Completed -> {
+                    val stored = recoverOriginalPaidVisual(state)
+                    if (stored && !paidVisualRecordsInChat(state.receipt)) storedOutsideChat = true
+                    stored
+                }
+                else -> false
+            }
+            if (!recovered) remaining += state
+        }
+        _pendingPaidVisuals.value = remaining
+        _pendingPaidVisualNotice.value = if (storedOutsideChat) {
+            "Imagen pendiente recuperada y guardada en este dispositivo."
+        } else {
+            null
+        }
+    }
+
+    /** Stores the receipt's original bytes, then releases the key. A failed store or release keeps it pinned. */
+    private suspend fun recoverOriginalPaidVisual(
+        state: JarvisAppSession.PendingPaidVisualState.Completed,
+    ): Boolean {
+        val (data, mime) = paidVisualOriginalBytes(state.receipt) ?: return false
+        val staged = withContext(Dispatchers.IO) {
+            container.attachmentStore.stageOriginalGeneratedBase64(data, mime)
+        } ?: return false
+        if (!releasePaidVisualKey(state.key, state.requestId)) return false
+        if (paidVisualRecordsInChat(state.receipt)) {
+            val conversationId = _conversationId.value ?: conversations.newConversationId().also {
+                _conversationId.value = it
+            }
+            conversations.recordGeneratedImage(
+                conversationId = conversationId,
+                prompt = "Imagen recuperada",
+                attachmentId = staged.attachmentId,
+            )
+        }
+        return true
+    }
+
+    /** A refused compare-and-release is not success: the attempt stays pinned for the next scan. */
+    private suspend fun releasePaidVisualKey(key: String, expectedRequestId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching { container.liveSession.releasePaidVisualIntent(key, expectedRequestId) }
+                .getOrDefault(false)
+        }
 
     fun generateImage(prompt: String, mode: String = "speed", model: String? = null) {
         val clean = prompt.trim()
@@ -6457,13 +6571,29 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 },
                 onFailure = { error ->
                     _imageGenerationState.value = ImageGenerationState.Error(
-                        error.message ?: "Image generation failed",
+                        paidVisualUserMessage(error.message) ?: "Image generation failed",
                     )
                 },
             )
         }
     }
 
+
+    /** Image Studio version chain for a root. Appends run here, so a late result is still kept. */
+    fun imageStudioVersions(root: String): StateFlow<List<String>> {
+        val owner = container.liveSession.userId
+        return imageStudioVersionFlows.getOrPut(owner to root) {
+            MutableStateFlow(ImageStudioVersionStore(container.imageStudioPrefs, owner).versions(root))
+        }
+    }
+
+    private suspend fun appendImageStudioVersion(root: String, attachmentId: String): Boolean {
+        val owner = container.liveSession.userId
+        val store = ImageStudioVersionStore(container.imageStudioPrefs, owner)
+        val appended = withContext(Dispatchers.IO) { store.append(root, attachmentId) }
+        if (appended) imageStudioVersionFlows[owner to root]?.value = store.versions(root)
+        return appended
+    }
 
     fun editImage(
         referenceAttachmentId: String,
@@ -6472,6 +6602,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         model: String? = null,
         preserveIdentity: String = "high",
         aspectRatio: String = "square",
+        chainRootId: String? = null,
     ) {
         val clean = instruction.trim()
         if (clean.isBlank() || _imageEditState.value is ImageEditState.Busy) return
@@ -6479,6 +6610,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         // versions must never be written into the active chat conversation.
         _imageEditState.value = ImageEditState.Busy
         _lastImageEditDetails.value = null
+        val chainRoot = chainRootId ?: referenceAttachmentId
 
         viewModelScope.launch {
             val source = withContext(Dispatchers.IO) {
@@ -6524,6 +6656,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         _imageEditState.value = ImageEditState.Error(
                             "JARVIS edited the image, but Android could not decode it.",
                         )
+                    } else if (!appendImageStudioVersion(chainRoot, staged.attachmentId)) {
+                        // Acknowledge only after the version is durable; on failure the paid intent stays pinned.
+                        _imageEditState.value = ImageEditState.Error(
+                            "No se pudo guardar la nueva versión en el dispositivo. La imagen queda pendiente de confirmación.",
+                        )
                     } else {
                         // Keep the edited version in Image Studio's local version chain only.
                         // The originating chat image remains in chat, but Studio derivatives do not.
@@ -6541,7 +6678,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 },
                 onFailure = { error ->
                     _imageEditState.value = ImageEditState.Error(
-                        error.message ?: "Image edit failed",
+                        paidVisualUserMessage(error.message) ?: "Image edit failed",
                     )
                 },
             )
@@ -6868,6 +7005,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 // starting point, so the phone stops defaulting to the home PC.
                 container.settings.setLastControlPlaneUrl(container.liveSession.baseUrl)
                 _liveAuth.value = LiveAuthState.Authed(result.getOrThrow().username)
+                refreshPendingPaidVisuals()
                 onDone(true)
                 // Transport mode is resolved once at startup (existing V1
                 // limitation); a cold restart activates the LIVE seam so the
@@ -6912,6 +7050,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 container.settings.setLastControlPlaneUrl(container.liveSession.baseUrl)
                 _liveAuth.value = LiveAuthState.Authed(result.getOrThrow().username)
                 session.reconnectNow()
+                refreshPendingPaidVisuals()
                 onDone(true)
             } else {
                 _liveAuth.value = LiveAuthState.Error(
@@ -7641,8 +7780,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             }
             return
         }
+        val asset = reply.visual_asset
         val staged = withContext(Dispatchers.IO) {
-            container.attachmentStore.stageGeneratedBase64(reply.data_base64)
+            if (asset == null || asset.sha256.isBlank()) null
+            else container.attachmentStore.stageVisualAssetBase64(reply.data_base64, asset.sha256)
         }
         if (
             expectedScopeVersion != sceneBuilderScopeVersion ||
@@ -7829,9 +7970,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 onSuccess = { reply ->
                     val oldAttachments = _sceneBuilder.value.attachmentIds +
                         listOfNotNull(_sceneBuilder.value.generatedAttachmentId)
+                    val asset = reply.visual_asset
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(
+                        if (asset == null || asset.sha256.isBlank()) null
+                        else container.attachmentStore.stageVisualAssetBase64(
                             reply.data_base64,
+                            asset.sha256,
                         )
                     }
                     if (scopeVersion != sceneBuilderScopeVersion ||
@@ -7878,7 +8022,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         it.copy(
                             busy = false,
                             busyLabel = "",
-                            error = error.message
+                            error = paidVisualUserMessage(error.message)
                                 ?: "No se pudo generar la escena.",
                         )
                     }
@@ -7895,6 +8039,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         model: String? = null,
         preserveIdentity: String = "high",
         aspectRatio: String = "landscape",
+        chainRootId: String? = null,
     ) {
         val clean = instruction.trim()
         val state = _sceneBuilder.value
@@ -7946,9 +8091,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 aspectRatio = aspectRatio,
             ).fold(
                 onSuccess = { reply ->
+                    val asset = reply.visual_asset
                     val staged = withContext(Dispatchers.IO) {
-                        container.attachmentStore.stageGeneratedBase64(
+                        if (asset == null || asset.sha256.isBlank()) null
+                        else container.attachmentStore.stageVisualAssetBase64(
                             reply.data_base64,
+                            asset.sha256,
                         )
                     }
                     if (staged == null) {
@@ -7984,13 +8132,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             )
                         }
                     }
+                    // The API already released this intent; a failed chain write must not invite a paid retry.
+                    appendImageStudioVersion(chainRootId ?: referenceAttachmentId, staged.attachmentId)
                     _imageEditState.value = ImageEditState.Success(
                         staged.attachmentId,
                     )
                 },
                 onFailure = { error ->
                     _imageEditState.value = ImageEditState.Error(
-                        error.message ?: "No se pudo editar la escena visual.",
+                        paidVisualUserMessage(error.message) ?: "No se pudo editar la escena visual.",
                     )
                 },
             )

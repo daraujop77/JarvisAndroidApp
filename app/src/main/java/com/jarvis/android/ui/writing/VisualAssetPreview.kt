@@ -18,7 +18,11 @@ import com.jarvis.android.data.media.AttachmentStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private data class VisualBitmapState(val bitmap: Bitmap? = null, val finished: Boolean = false)
+private data class VisualBitmapState(
+    val bitmap: Bitmap? = null,
+    val finished: Boolean = false,
+    val attachmentId: String? = null,
+)
 
 /** Download and decode failures are visible; retry only fetches existing bytes. */
 @Composable
@@ -31,14 +35,18 @@ internal fun VisualAssetPreview(
     description: String,
     height: Dp,
     onRetry: () -> Unit,
+    onDecodedChange: (Boolean) -> Unit = {},
 ) {
     val decoded by produceState(VisualBitmapState(), attachmentId) {
         value = VisualBitmapState()
         if (!attachmentId.isNullOrBlank()) {
             val bitmap = withContext(Dispatchers.IO) { store.decodeThumbnail(attachmentId, 2048) }
-            value = VisualBitmapState(bitmap, finished = true)
+            value = VisualBitmapState(bitmap, finished = true, attachmentId = attachmentId)
         }
     }
+    // produceState can keep the previous attachment's bitmap for a frame; it must never count as this one.
+    val isDecoded = decoded.attachmentId == attachmentId && decoded.bitmap != null
+    LaunchedEffect(attachmentId, isDecoded) { onDecodedChange(isDecoded) }
     Box(
         Modifier.fillMaxWidth().height(height)
             .background(Color(0xFF050B14), RoundedCornerShape(12.dp)),

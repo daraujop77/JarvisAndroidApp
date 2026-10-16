@@ -1,5 +1,6 @@
 package com.jarvis.android.ui.writing
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -32,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,11 +48,12 @@ import com.jarvis.android.transport.live.VisualSceneReference
 import com.jarvis.android.transport.live.VisualStudioAsset
 import com.jarvis.android.transport.live.WritingWikiEntity
 import com.jarvis.android.ui.JarvisViewModel
-import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.JarvisAmber
 import com.jarvis.android.ui.theme.JarvisCyan
 import com.jarvis.android.ui.theme.JarvisGreen
 import com.jarvis.android.ui.theme.LocalJarvisAccents
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SceneBuilderScreen(
@@ -808,7 +811,18 @@ fun SceneBuilderScreen(
 
         builder.generated?.let { generated ->
             val asset = generated.visual_asset
-            item {
+            // Keyed by attachment so a decoded preview never outlives the image it came from.
+            item(key = "scene-candidate-" + builder.generatedAttachmentId.orEmpty()) {
+                val previewAttachmentId = builder.generatedAttachmentId
+                val previewBitmap by produceState<Bitmap?>(null, previewAttachmentId) {
+                    value = if (previewAttachmentId.isNullOrBlank()) {
+                        null
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            vm.attachmentStore.decodeThumbnail(previewAttachmentId, 2048)
+                        }
+                    }
+                }
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -835,8 +849,8 @@ fun SceneBuilderScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         SceneGeneratedPreview(
-                            attachmentId = builder.generatedAttachmentId,
-                            vm = vm,
+                            attachmentId = previewAttachmentId,
+                            bitmap = previewBitmap,
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -921,7 +935,10 @@ fun SceneBuilderScreen(
                             } else if (asset.status == "CANDIDATE") {
                                 Button(
                                     onClick = vm::approveSceneVisual,
-                                    enabled = !builder.busy,
+                                    enabled = !builder.busy && canApproveVisualPreview(
+                                        asset.storage.state,
+                                        previewDecoded = previewBitmap != null,
+                                    ),
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     Text("Aprobar escena visual")
@@ -973,7 +990,7 @@ fun SceneBuilderScreen(
 @Composable
 private fun SceneGeneratedPreview(
     attachmentId: String?,
-    vm: JarvisViewModel,
+    bitmap: Bitmap?,
 ) {
     Box(
         modifier = Modifier
@@ -985,16 +1002,11 @@ private fun SceneGeneratedPreview(
         if (attachmentId.isNullOrBlank()) {
             CircularProgressIndicator(color = LocalJarvisAccents.current.orbGlow)
         } else {
-            val bitmap by rememberAttachmentThumb(
-                attachmentId,
-                vm.attachmentStore,
-                maxSize = 2048,
-            )
             if (bitmap == null) {
                 CircularProgressIndicator(color = LocalJarvisAccents.current.orbGlow)
             } else {
                 Image(
-                    bitmap = bitmap!!.asImageBitmap(),
+                    bitmap = bitmap.asImageBitmap(),
                     contentDescription = "Escena generada",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,

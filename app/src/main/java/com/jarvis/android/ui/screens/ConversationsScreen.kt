@@ -156,6 +156,7 @@ import com.jarvis.android.ui.components.streamingText
 import com.jarvis.android.ui.i18n.LocalAppStrings
 import com.jarvis.android.ui.i18n.EnAppStrings
 import com.jarvis.android.ui.shared.OwnerAvatar
+import com.jarvis.android.ui.shared.PendingPaidVisualBanner
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.LocalJarvisAccents
@@ -173,6 +174,7 @@ fun ConversationsScreen(
     var showList by rememberSaveable { mutableStateOf(true) }
     val conversationId by vm.conversationId.collectAsStateWithLifecycle()
 
+    LaunchedEffect(Unit) { vm.refreshPendingPaidVisuals() }
     LaunchedEffect(openConversationRequest) {
         if (openConversationRequest > 0L) {
             showList = false
@@ -238,16 +240,19 @@ private fun ConversationListView(
         contentWindowInsets = WindowInsets(0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = { Text(strings.conversationsTitle, style = MaterialTheme.typography.titleLarge) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = Color(0xFFE8EEF8),
-                    navigationIconContentColor = Color(0xFFE8EEF8),
-                    actionIconContentColor = Color(0xFFE8EEF8),
-                ),
-                windowInsets = WindowInsets(0),
-            )
+            Column {
+                TopAppBar(
+                    title = { Text(strings.conversationsTitle, style = MaterialTheme.typography.titleLarge) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = Color(0xFFE8EEF8),
+                        navigationIconContentColor = Color(0xFFE8EEF8),
+                        actionIconContentColor = Color(0xFFE8EEF8),
+                    ),
+                    windowInsets = WindowInsets(0),
+                )
+                PendingPaidVisualBanner(vm = vm)
+            }
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
@@ -666,6 +671,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(pad),
         ) {
+            PendingPaidVisualBanner(vm = vm)
             if (agentProjectError != null) {
                 Text(
                     agentProjectError.orEmpty(),
@@ -1590,17 +1596,32 @@ private fun MessageBubble(
                 ) {
                     Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
                         if (msg.attachmentIds.isNotEmpty()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                msg.attachmentIds.forEach { id ->
+                            val (generatedIds, otherIds) = msg.attachmentIds.partition {
+                                !isUser && it.startsWith("gen_")
+                            }
+                            // Generated previews fill the bubble width: in a row only the first stays visible.
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                generatedIds.forEach { id ->
                                     AttachmentChip(
                                         attachmentId = id,
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
-                                        generated = !isUser && id.startsWith("gen_"),
-                                        onOpen = if (!isUser && id.startsWith("gen_")) {
-                                            { onOpenGeneratedImage(id) }
-                                        } else null,
+                                        generated = true,
+                                        onOpen = { onOpenGeneratedImage(id) },
                                     )
+                                }
+                                if (otherIds.isNotEmpty()) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        otherIds.forEach { id ->
+                                            AttachmentChip(
+                                                attachmentId = id,
+                                                state = attachmentState(id),
+                                                attachmentStore = attachmentStore,
+                                                generated = false,
+                                                onOpen = null,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             if (msg.text.isNotBlank()) Spacer(Modifier.height(8.dp))

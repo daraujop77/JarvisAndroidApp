@@ -55,8 +55,11 @@ class VisualDirectionEditorWiringTest {
         assertTrue(screen.contains("vm.generateMissingCharacterMasters(projectId, count)"))
         assertTrue(viewModel.contains("fun generateMissingCharacterMasters(projectId: String, expectedCount: Int)"))
         assertTrue(viewModel.contains("ready.size != expectedCount"))
-        assertTrue(viewModel.contains("mode = \"model_select\",\n                    model = \"gpt-image-2-medium\""))
-        assertTrue(viewModel.contains("mode = \"model_select\",\n                model = \"gpt-image-2-medium\""))
+        // The server pins the current WR model; no UI path hardcodes a
+        // provider, including bulk character masters and identity variants.
+        assertTrue(viewModel.contains("mode = \"quality\",\n                    aspectRatio = \"portrait\""))
+        assertTrue(viewModel.contains("mode = \"quality\",\n                aspectRatio = \"portrait\""))
+        assertTrue(!viewModel.contains("gpt-image-2-medium"))
         assertTrue(viewModel.contains("generationMode = loadedBatch.mode"))
         assertTrue(viewModel.contains("mode = previous.mode"))
         assertTrue(viewModel.contains("_characterStudio.value.projectId != cleanProject"))

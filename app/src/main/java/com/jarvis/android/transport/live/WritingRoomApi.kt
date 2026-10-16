@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.util.Base64
 
 private val writingRoomJson = Json { ignoreUnknownKeys = true }
 
@@ -1373,6 +1374,35 @@ suspend fun JarvisAppSession.writingRoomAutoChat(
 }
 
 /**
+ * Preserve original Copilot reference bytes. The MIME comes from a verified
+ * file signature, never the URI extension, picker label, or a JPEG default.
+ * The VPS independently validates image input and applies project access.
+ */
+private fun copilotReferenceMime(
+    base64: String,
+    maxBytes: Int = 5 * 1024 * 1024,
+): String? {
+    if (base64.isBlank() || base64.length > 8 * 1024 * 1024) return null
+    val bytes = try {
+        Base64.getDecoder().decode(base64)
+    } catch (_: IllegalArgumentException) {
+        return null
+    }
+    if (bytes.size !in 12..maxBytes) return null
+    fun signature(offset: Int, vararg expected: Int): Boolean =
+        bytes.size >= offset + expected.size && expected.indices.all { i ->
+            (bytes[offset + i].toInt() and 0xff) == expected[i]
+        }
+    return when {
+        signature(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a) -> "image/png"
+        signature(0, 0xff, 0xd8, 0xff) -> "image/jpeg"
+        signature(0, 0x52, 0x49, 0x46, 0x46) &&
+            signature(8, 0x57, 0x45, 0x42, 0x50) -> "image/webp"
+        else -> null
+    }
+}
+
+/**
  * Owner-only reference import, persisted as CANDIDATE in the existing Visual Asset Registry.
  * This does not generate any image, promote canon, or associate the upload with a character.
  */
@@ -1381,15 +1411,17 @@ suspend fun JarvisAppSession.writingRoomCopilotImportReference(
     imageBase64: String,
     note: String,
 ): Result<CopilotVisualImport> {
-    if (projectId.isBlank() || imageBase64.isBlank() || imageBase64.length > 8 * 1024 * 1024) {
-        return Result.failure(TransportException("Invalid or oversized visual reference"))
+    if (projectId.isBlank()) {
+        return Result.failure(TransportException("Invalid visual reference project"))
     }
+    val mime = copilotReferenceMime(imageBase64)
+        ?: return Result.failure(TransportException("Invalid, oversized or unsupported original image"))
     return writingPost(
         "/api/app/writing-room/visual-assets/ingest",
         buildJsonObject {
             put("project_id", projectId)
             put("image_base64", imageBase64)
-            put("mime_type", "image/jpeg")
+            put("mime_type", mime)
             put("kind", "REFERENCE")
             put("source", "MANUAL_UPLOAD")
             put("perspective", "custom")
@@ -1407,7 +1439,8 @@ suspend fun JarvisAppSession.writingRoomCopilotImportReference(
 
 /**
  * One owner-directed image request. Backend binds physical traits to Wiki/RAG and
- * persists a CANDIDATE. Model is explicitly pinned to the existing Codex model.
+ * persists a CANDIDATE. The backend owns the pinned Writing Room model;
+ * this client must not claim a different model in its request provenance.
  * Do not retry on timeout: an image may already have been generated and billed.
  */
 suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
@@ -1419,30 +1452,49 @@ suspend fun JarvisAppSession.writingRoomCopilotGeneratePortrait(
     if (!characterId.startsWith("character:") || characterName.isBlank() ||
         projectId.isBlank() || adjustment.length > 850
     ) return Result.failure(TransportException("Invalid character portrait request"))
-    return writingPost(
-        "/api/app/images/generations",
-        buildJsonObject {
-            put("project_id", projectId)
-            put("prompt", adjustment.ifBlank { "One faithful frontal portrait of the canonical character." })
-            put("mode", "model_select")
-            put("model", "gpt-image-2-medium")
-            put("aspect_ratio", "square")
-            put("visual_asset", buildJsonObject {
-                put("project_id", projectId)
-                put("surface", "character_creator")
-                put("kind", "PRIMARY_REFERENCE")
-                put("perspective", "front")
-                put("character_ids", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive(characterId)) })
-                put("alt", "Retrato candidato de " + characterName.take(120))
-                put("provenance", buildJsonObject {
-                    put("requested_from", "copilot")
-                    put("requested_model", "gpt-image-2-medium")
-                    put("authority", "CANDIDATE")
-                })
-            })
+    return generateVisualAssetImage(
+        projectId = projectId,
+        characterId = characterId,
+        prompt = adjustment.ifBlank {
+            "One faithful frontal portrait of the canonical character."
         },
-        timeoutMillis = 180_000L,
-    )
+        kind = "PRIMARY_REFERENCE",
+        perspective = "front",
+        mode = "quality", // backend pins its configured WR model before dispatch
+        aspectRatio = "square",
+        referencesPerCharacter = 1,
+        alt = "Retrato candidato de " + characterName.take(120),
+        provenance = buildJsonObject {
+            put("requested_from", "copilot")
+            put("authority", "CANDIDATE")
+        },
+    ).mapCatching { image ->
+        val asset = image.visual_asset
+            ?: throw TransportException("Visual generation returned no candidate asset")
+        CopilotPortraitGeneration(
+            schema = image.schema,
+            mime_type = image.mime_type,
+            data_base64 = image.data_base64,
+            model = image.model,
+            fallback_used = image.fallback_used,
+            visual_asset = CopilotVisualCandidate(
+                asset_id = asset.asset_id,
+                sha256 = asset.sha256,
+                status = asset.status,
+                kind = asset.kind,
+                storage = CopilotVisualStorage(
+                    backend = asset.storage.backend,
+                    state = asset.storage.state,
+                ),
+                perspective = asset.perspective,
+                character_ids = asset.character_ids,
+                mime_type = asset.mime_type,
+                visual_revision = asset.visual_revision,
+                alt = asset.alt,
+                provenance = asset.provenance,
+            ),
+        )
+    }
 }
 
 /** Explicit human approval of the exact candidate image; separate from text canon. */
@@ -1499,10 +1551,13 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     if (clean.length > 6000) return@withContext Result.failure(TransportException("Writing Room prompt is too long"))
     // Same-turn data, never an untrusted URL/asset name. Bound to the VPS
     // vision provider limit; the backend independently verifies real MIME.
-    if (attachedImageBase64 != null && (attachedImageBase64.isBlank() ||
-        attachedImageBase64.length > 5 * 1024 * 1024)) {
+    val attachedMime = attachedImageBase64?.let {
+        copilotReferenceMime(it, maxBytes = 3 * 1024 * 1024)
+    }
+    if (attachedImageBase64 != null && (attachedImageBase64.length > 5 * 1024 * 1024 ||
+        attachedMime == null)) {
         return@withContext Result.failure(
-            TransportException("Copilot image is missing or exceeds 5 MB base64"),
+            TransportException("Copilot attachment must contain valid JPEG, PNG or WebP original bytes (max 3 MB)"),
         )
     }
     if (expired || authHeader() == null) {
@@ -1532,7 +1587,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         if (attachedImageBase64 != null) {
             put("images", kotlinx.serialization.json.buildJsonArray {
                 add(buildJsonObject {
-                    put("mime_type", "image/jpeg")
+                    put("mime_type", requireNotNull(attachedMime))
                     put("data_base64", attachedImageBase64)
                 })
             })
@@ -1641,6 +1696,14 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         ) {
             response.copy(copilot_task = agentTask.copy(request_id = stableRequestId))
         } else response
+    }
+    // A network fault can hit after the server accepted the request but before any
+    // event arrived. Only the durable request ID can tell, and reading it is harmless.
+    val streamFault = streamResult.exceptionOrNull()
+    if (usingAdaptive &&
+        (streamFault is java.io.IOException || streamFault?.cause is java.io.IOException)
+    ) {
+        adaptiveStreamAccepted = true
     }
     if (streamResult.isSuccess || !usingAdaptive || !adaptiveStreamAccepted) {
         return@withContext streamResult
@@ -1768,7 +1831,7 @@ suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
                 put("mode", mode)
                 put("confirmed", true)
             },
-            timeoutMillis = 120_000L,
+            timeoutMillis = 480_000L,
         )
     }
     return writingPost(
@@ -1778,7 +1841,7 @@ suspend fun JarvisAppSession.writingRoomCopilotTaskRun(
             put("task_id", taskId)
             put("confirmed", confirmed)
         },
-        timeoutMillis = 120_000L,
+        timeoutMillis = 480_000L,
     )
 }
 

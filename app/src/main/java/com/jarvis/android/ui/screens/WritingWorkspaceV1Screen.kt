@@ -129,6 +129,7 @@ import com.jarvis.android.ui.components.JarvisOrb
 import com.jarvis.android.ui.components.OrbActivity
 import com.jarvis.android.ui.i18n.AppStrings
 import com.jarvis.android.ui.i18n.LocalAppStrings
+import com.jarvis.android.ui.shared.PendingPaidVisualBanner
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisAmber
 import com.jarvis.android.ui.theme.JarvisCyan
@@ -171,6 +172,9 @@ fun WritingWorkspaceV1Screen(
 
     LaunchedEffect(projectId) {
         vm.refreshWritingWorkspace(projectId)
+    }
+    LaunchedEffect(Unit) {
+        vm.refreshPendingPaidVisuals()
     }
 
     Column(
@@ -677,6 +681,7 @@ private fun ChatSection(
             .fillMaxSize()
             .imePadding(),
     ) {
+        PendingPaidVisualBanner(vm = vm)
         // Historial completo del copiloto. Cada turno conserva pregunta y respuesta.
         LazyColumn(
             state = listState,
@@ -808,6 +813,11 @@ private fun ChatSection(
 
             state.copilotRecoveredPortraits.forEach { portrait ->
                 item(key = "recovered-" + portrait.assetId) {
+                    val previewImage = portrait.previewAttachmentId?.let { attachmentId ->
+                        remember(attachmentId) {
+                            vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
+                        }
+                    }
                     Surface(
                         shape = RoundedCornerShape(18.dp),
                         color = Color(0xEE0E182A),
@@ -826,20 +836,15 @@ private fun ChatSection(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFFE2E8F0),
                             )
-                            portrait.previewAttachmentId?.let { attachmentId ->
-                                val image = remember(attachmentId) {
-                                    vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
-                                }
-                                if (image != null) {
-                                    Spacer(Modifier.height(8.dp))
-                                    Image(
-                                        bitmap = image.asImageBitmap(),
-                                        contentDescription = "Retrato candidato recuperado del VPS",
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier.fillMaxWidth().height(260.dp)
-                                            .clip(RoundedCornerShape(14.dp)),
-                                    )
-                                }
+                            if (previewImage != null) {
+                                Spacer(Modifier.height(8.dp))
+                                Image(
+                                    bitmap = previewImage.asImageBitmap(),
+                                    contentDescription = "Retrato candidato recuperado del VPS",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxWidth().height(260.dp)
+                                        .clip(RoundedCornerShape(14.dp)),
+                                )
                             }
                             Spacer(Modifier.height(6.dp))
                             Text(
@@ -851,15 +856,27 @@ private fun ChatSection(
                                 portrait.storageState == "stored" &&
                                 !portrait.previewAttachmentId.isNullOrBlank()
                             ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        vm.approveCopilotPortrait(
-                                            projectId, portrait.assetId, portrait.sha256,
-                                        )
-                                    },
-                                    enabled = !state.busy && !state.copilotRecovering,
+                                if (com.jarvis.android.ui.writing.canApproveVisualPreview(
+                                        portrait.storageState,
+                                        previewDecoded = previewImage != null,
+                                    )
                                 ) {
-                                    Text("Aprobar imagen y vincular al Wiki")
+                                    OutlinedButton(
+                                        onClick = {
+                                            vm.approveCopilotPortrait(
+                                                projectId, portrait.assetId, portrait.sha256,
+                                            )
+                                        },
+                                        enabled = !state.busy && !state.copilotRecovering,
+                                    ) {
+                                        Text("Aprobar imagen y vincular al Wiki")
+                                    }
+                                } else {
+                                    Text(
+                                        "No se puede mostrar la imagen",
+                                        color = JarvisAmber,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
                                 }
                             } else if (portrait.status == "CANDIDATE") {
                                 Text(
@@ -913,6 +930,7 @@ private fun ChatSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF94A3B8),
                             )
+                            val decodedViewIds = mutableSetOf<String>()
                             batch.items.forEach { view ->
                                 Spacer(Modifier.height(8.dp))
                                 Text(view.perspective.replace('_', ' ') + " · " + view.status,
@@ -923,12 +941,19 @@ private fun ChatSection(
                                         vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
                                     }
                                     if (preview != null) {
+                                        decodedViewIds += view.candidate_asset_id
                                         Image(
                                             bitmap = preview.asImageBitmap(),
                                             contentDescription = "Vista " + view.perspective,
                                             contentScale = ContentScale.Fit,
                                             modifier = Modifier.fillMaxWidth().height(230.dp)
                                                 .clip(RoundedCornerShape(12.dp)),
+                                        )
+                                    } else {
+                                        Text(
+                                            "No se puede mostrar la imagen",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = JarvisAmber,
                                         )
                                     }
                                 } else if (view.status == "CANDIDATE" ||
@@ -941,6 +966,7 @@ private fun ChatSection(
                                 }
                             }
                             Spacer(Modifier.height(10.dp))
+                            val decodedIds = decodedViewIds.toSet()
                             Column {
                                 TextButton(
                                     onClick = {
@@ -949,11 +975,11 @@ private fun ChatSection(
                                     enabled = !state.copilotViewLoading && !state.busy,
                                 ) { Text("Actualizar lote") }
                                 val ready = com.jarvis.android.ui.writing.copilotApprovableViewIds(
-                                    batch, state.copilotViewPreviews,
+                                    batch, state.copilotViewPreviews.filterKeys { it in decodedIds },
                                 )
                                 if (ready.isNotEmpty()) {
                                     OutlinedButton(
-                                        onClick = { vm.approveCopilotCharacterViews(projectId) },
+                                        onClick = { vm.approveCopilotCharacterViews(projectId, decodedIds) },
                                         enabled = !state.copilotViewLoading && !state.busy,
                                     ) { Text("Aprobar ${ready.size} vistas verificadas") }
                                 }
@@ -1332,7 +1358,11 @@ private fun ChatSection(
                                             color = JarvisCyan,
                                         )
                                         if (scene.status == "CANDIDATE" &&
-                                            progress.status == "READY_FOR_REVIEW"
+                                            progress.status == "READY_FOR_REVIEW" &&
+                                            com.jarvis.android.ui.writing.canApproveVisualPreview(
+                                                scene.storageState,
+                                                previewDecoded = bitmap != null,
+                                            )
                                         ) {
                                             Text(
                                                 "Confirma solo si esta imagen representa " +

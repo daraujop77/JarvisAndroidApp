@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -44,6 +46,7 @@ import java.io.IOException
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * Project-scoped Global Chat permits at most one read-only image OR document.
@@ -98,6 +101,10 @@ class LiveAppGatewayTransport(
         const val MAX_INLINE_IMAGE_BYTES = 3_500_000
         const val MAX_INLINE_DOCUMENT_BYTES = 2_000_000
         const val MAX_INLINE_IMAGES_PER_TURN = 3
+        const val AGENT_RECOVERY_BUDGET_MILLIS = 600_000L
+        const val AGENT_RECOVERY_PROBE_TIMEOUT_MILLIS = 30_000L
+        const val AGENT_RECOVERY_STEADY_WAIT_MILLIS = 15_000L
+        val agentRecoveryBackoffMillis = listOf(2_000L, 4_000L, 8_000L)
     }
 
     private val _frames = Channel<String>(Channel.UNLIMITED)
@@ -108,6 +115,7 @@ class LiveAppGatewayTransport(
 
     private val json = Json { ignoreUnknownKeys = true }
     private val client = JarvisAppSession.defaultClient()
+    private val agentStreamClient = client.newBuilder().readTimeout(45, TimeUnit.SECONDS).build()
     private val active = ConcurrentHashMap<String, ActiveTurn>()
 
     private val frameEmissionLock = Any()
@@ -272,7 +280,13 @@ class LiveAppGatewayTransport(
                     // The request is already Accepted/Streaming locally, so
                     // settle it with the cached text only — no second accepted.
                     t is StreamInterrupted || (t is IOException && !ctl.cancelRequested) -> {
-                        val cached = runCatching { fetchCachedTurn(turnId) }.getOrNull()
+                        val cached = try {
+                            awaitCachedTurn(turnId)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            null
+                        }
                         if (cached != null) {
                             emitCompletedWithMedia(cached, turnId, req.conversationId)
                             session.forgetTurn(turnId)
@@ -414,7 +428,7 @@ class LiveAppGatewayTransport(
 
         var seq = 0
         var completed = false
-        val call = client.newCall(request)
+        val call = (if (generalAgent) agentStreamClient else client).newCall(request)
         ctl.call = call
         call.execute().use { resp ->
             if (resp.code == 401) {
@@ -700,6 +714,10 @@ class LiveAppGatewayTransport(
                 val code = runCatching {
                     json.parseToJsonElement(data).jsonObject["error"]?.jsonPrimitive?.content
                 }.getOrNull()
+                val retrySafe = runCatching {
+                    json.parseToJsonElement(data).jsonObject["retry_safe"]?.jsonPrimitive
+                        ?.takeIf { !it.isString }?.booleanOrNull
+                }.getOrNull() == true
                 if (code == "chat_cancelled") {
                     emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
                         taskId = "chat_$requestId", requestId = requestId,
@@ -707,6 +725,23 @@ class LiveAppGatewayTransport(
                     )))
                     emit(GatewayEvent.MessageCompleted(requestId, "msg_$requestId"))
                 } else {
+                    // The backend may already hold a finished paid turn: settle it before offering any retry.
+                    val cached = try {
+                        fetchCachedTurn(requestId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        null
+                    }
+                    if (cached != null) {
+                        emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
+                            taskId = "chat_$requestId", requestId = requestId,
+                            status = TaskStatus.COMPLETED,
+                        )))
+                        emitCompletedWithMedia(cached, requestId, conversationId)
+                        session.forgetTurn(requestId)
+                        return true
+                    }
                     emit(GatewayEvent.TaskUpdated(TaskUpdatedPayload(
                         taskId = "chat_$requestId", requestId = requestId,
                         status = TaskStatus.FAILED,
@@ -716,7 +751,7 @@ class LiveAppGatewayTransport(
                             requestId,
                             "msg_$requestId",
                             ErrorEnvelope(code ?: "stream_error", "assistant stream error"),
-                            retryable = code !in setOf(
+                            retryable = retrySafe && code !in setOf(
                                 "chat_timeout", "general_agent_incomplete",
                                 "agent_outcome_unknown", "outcome_unknown",
                                 "image_result_unknown", "paid_operation_uncertain",
@@ -757,8 +792,46 @@ class LiveAppGatewayTransport(
      * assistant text when PC-A already completed the turn, else null. Never
      * triggers a second inference.
      */
-    private suspend fun fetchCachedTurn(clientRequestId: String): CompletedTurn? {
-        val stored = session.loadTurn(clientRequestId) ?: return null
+    private suspend fun fetchCachedTurn(clientRequestId: String): CompletedTurn? =
+        (readCachedTurn(clientRequestId) as? CachedTurn.Completed)?.turn
+
+    private sealed interface CachedTurn {
+        data class Completed(val turn: CompletedTurn) : CachedTurn
+        data object InFlight : CachedTurn
+        data object Unavailable : CachedTurn
+    }
+
+    /**
+     * Stream-interrupted recovery: a turn PC-A still runs is re-read read-only
+     * on a bounded backoff. The pending row is kept until a terminal answer.
+     */
+    private suspend fun awaitCachedTurn(clientRequestId: String): CompletedTurn? {
+        val deadlineNanos = System.nanoTime() + AGENT_RECOVERY_BUDGET_MILLIS * 1_000_000L
+        var attempt = 0
+        while (true) {
+            val observed = try {
+                readCachedTurn(clientRequestId, AGENT_RECOVERY_PROBE_TIMEOUT_MILLIS)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (network: IOException) {
+                // A cut connection says nothing about the turn the server is still running.
+                CachedTurn.InFlight
+            }
+            when (val state = observed) {
+                is CachedTurn.Completed -> return state.turn
+                CachedTurn.InFlight -> Unit
+                CachedTurn.Unavailable -> return null
+            }
+            val remainingMillis = (deadlineNanos - System.nanoTime()) / 1_000_000L
+            if (remainingMillis <= 0L) return null
+            val wait = agentRecoveryBackoffMillis.getOrElse(attempt) { AGENT_RECOVERY_STEADY_WAIT_MILLIS }
+            delay(minOf(wait, remainingMillis))
+            attempt++
+        }
+    }
+
+    private suspend fun readCachedTurn(clientRequestId: String, callTimeoutMillis: Long? = null): CachedTurn {
+        val stored = session.loadTurn(clientRequestId) ?: return CachedTurn.Unavailable
         val request = Request.Builder()
             .url(
                 session.baseUrl + "/api/app/chat/requests/" +
@@ -775,16 +848,23 @@ class LiveAppGatewayTransport(
             }
             .build()
         return withContext(Dispatchers.IO) {
-            client.newCall(request).execute().use { resp ->
-                if (resp.code !in 200..299) return@use null
-                val body = resp.body?.string() ?: return@use null
+            val call = client.newCall(request)
+            callTimeoutMillis?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
+            call.execute().use { resp ->
+                if (resp.code in 500..599) return@use CachedTurn.InFlight
+                if (resp.code !in 200..299) return@use CachedTurn.Unavailable
+                val body = resp.body?.string() ?: return@use CachedTurn.Unavailable
                 runCatching {
                     val obj = json.parseToJsonElement(body).jsonObject
-                    if (obj["schema"]?.jsonPrimitive?.content != "jarvis.chat.turn.v1") return@use null
-                    val status = obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content
-                    if (status != "completed") return@use null
-                    parseCompletedTurn(body)
-                }.getOrNull()
+                    if (obj["schema"]?.jsonPrimitive?.content != "jarvis.chat.turn.v1") {
+                        return@use CachedTurn.Unavailable
+                    }
+                    when (obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content) {
+                        "completed" -> parseCompletedTurn(body)?.let { CachedTurn.Completed(it) } ?: CachedTurn.Unavailable
+                        "active", "queued", "running" -> CachedTurn.InFlight
+                        else -> CachedTurn.Unavailable
+                    }
+                }.getOrDefault(CachedTurn.Unavailable)
             }
         }
     }

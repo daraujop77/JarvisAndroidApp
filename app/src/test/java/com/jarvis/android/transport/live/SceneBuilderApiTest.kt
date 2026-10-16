@@ -15,10 +15,18 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 class SceneBuilderApiTest {
     private lateinit var server: MockWebServer
     private val json = Json { ignoreUnknownKeys = true }
+    @Volatile private var sceneSchema = "jarvis.visual.scene-generation.v2"
+    @Volatile private var loseNextSceneGenerationResponse = false
+    // A real 1x1 PNG, so the test exercises SHA and magic-byte verification.
+    private val fixturePng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgZGT8DwABDQED5NTSmwAAAABJRU5ErkJggg=="
+    private val fixtureSha256 = "2f41b02bc94868f7cdd1e503c7f592ee7673dbb155eac2f267a3d1abf64aea18"
+    private val paidReceipts = ConcurrentHashMap<String, String>()
 
     /** Skip the intentional, read-only paid receipt probe before a visual POST. */
     private fun takeActionRequest(): RecordedRequest {
@@ -39,8 +47,20 @@ class SceneBuilderApiTest {
                     return MockResponse().setResponseCode(401)
                 }
                 if (request.path?.startsWith("/api/app/images/requests/") == true) {
-                    return MockResponse().setResponseCode(404)
-                        .setBody("""{"error":"image_request_not_found"}""")
+                    val receipt = paidReceipts[request.path.orEmpty().substringAfterLast('/')]
+                    return if (receipt != null) {
+                        MockResponse().setBody(receipt)
+                    } else {
+                        MockResponse().setResponseCode(404)
+                            .setBody("""{"error":"image_request_not_found"}""")
+                    }
+                }
+                if (request.path == "/api/app/writing-room/v2/visual/scenes/generate" &&
+                    loseNextSceneGenerationResponse
+                ) {
+                    loseNextSceneGenerationResponse = false
+                    return MockResponse().setResponseCode(503)
+                        .setBody("""{"error":"image_result_unknown"}""")
                 }
                 return when (request.path) {
                     "/api/app/writing-room/v2/visual/scenes/capabilities" ->
@@ -367,10 +387,10 @@ class SceneBuilderApiTest {
                         MockResponse().setBody(
                             """
                             {
-                              "schema":"jarvis.visual.scene-generation.v2",
+                              "schema":"$sceneSchema",
                               "mime_type":"image/png",
-                              "data_base64":"aW1hZ2U=",
-                              "size_bytes":5,
+                              "data_base64":"$fixturePng",
+                              "size_bytes":70,
                               "provider":"xai-oauth",
                               "model":"grok-imagine-image-2.0",
                               "route":"cloud_image_generation:xai-oauth",
@@ -397,7 +417,7 @@ class SceneBuilderApiTest {
                                 "attempt_number":1,
                                 "correction_number":0,
                                 "asset_id":"va_scene_1",
-                                "sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                "sha256":"$fixtureSha256",
                                 "storage_state":"stored",
                                 "evaluation":{
                                   "verdict":"PASS",
@@ -419,9 +439,9 @@ class SceneBuilderApiTest {
                                 "kind":"SCENE_ART",
                                 "status":"CANDIDATE",
                                 "source":"CLOUD_GENERATOR",
-                                "sha256":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                                "sha256":"$fixtureSha256",
                                 "mime_type":"image/png",
-                                "size_bytes":5,
+                                "size_bytes":70,
                                 "character_ids":["character:alexander"],
                                 "chapter_ids":["chapter_12"],
                                 "event_ids":[],
@@ -446,8 +466,8 @@ class SceneBuilderApiTest {
                             {
                               "schema":"jarvis.image.edit.v1",
                               "mime_type":"image/png",
-                              "data_base64":"ZWRpdA==",
-                              "size_bytes":4,
+                              "data_base64":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgZGT8DwABDQED5NTSmwAAAABJRU5ErkJggg==",
+                              "size_bytes":70,
                               "provider":"openai",
                               "model":"image-edit",
                               "route":"cloud_image_edit:openai",
@@ -464,9 +484,9 @@ class SceneBuilderApiTest {
                                 "kind":"SCENE_ART",
                                 "status":"CANDIDATE",
                                 "source":"CLOUD_GENERATOR",
-                                "sha256":"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                                "sha256":"2f41b02bc94868f7cdd1e503c7f592ee7673dbb155eac2f267a3d1abf64aea18",
                                 "mime_type":"image/png",
-                                "size_bytes":4,
+                                "size_bytes":70,
                                 "character_ids":["character:alexander","character:guardian"],
                                 "chapter_ids":["chapter_12"],
                                 "event_ids":["event:arrival"],
@@ -532,8 +552,7 @@ class SceneBuilderApiTest {
         server.shutdown()
     }
 
-    private fun session(): JarvisAppSession {
-        val store = JarvisAppSession.MemoryStore()
+    private fun session(store: JarvisAppSession.MemoryStore = JarvisAppSession.MemoryStore()): JarvisAppSession {
         store.put(
             mapOf(
                 JarvisAppSession.KEY_TOKEN to "test-token",
@@ -786,6 +805,162 @@ class SceneBuilderApiTest {
         )
     }
 
+    private fun completedSceneReceipt(requestId: String, fingerprint: String): String =
+        """
+        {
+          "schema":"$sceneSchema",
+          "mime_type":"image/png",
+          "data_base64":"$fixturePng",
+          "size_bytes":70,
+          "scene_context_id":"svc_123",
+          "request_id":"$requestId",
+          "request_fingerprint":"$fingerprint",
+          "project_id":"prj_story",
+          "route":"/api/app/writing-room/v2/visual/scenes/generate",
+          "state":"COMPLETED",
+          "dispatch_state":"COMPLETED",
+          "retryable":false,
+          "visual_asset":{
+            "asset_id":"va_scene_1",
+            "project_id":"prj_story",
+            "kind":"SCENE_ART",
+            "status":"CANDIDATE",
+            "source":"CLOUD_GENERATOR",
+            "sha256":"$fixtureSha256",
+            "mime_type":"image/png",
+            "size_bytes":70,
+            "storage":{"backend":"google_drive","state":"stored","drive_file_id":"drive-scene-1","drive_parent_id":"drive-scenes"}
+          }
+        }
+        """.trimIndent()
+
+    @Test
+    fun cloudSceneGenerateUsesPaidJournal() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val result = session(store).generateSceneVisualAssetImage(
+            projectId = "prj_story",
+            contextId = "svc_123",
+            contextHash = "A".repeat(64),
+            engine = "cloud",
+            mode = "quality",
+            aspectRatio = "landscape",
+            model = "grok-imagine-image-2.0",
+        ).getOrThrow()
+
+        assertEquals("CANDIDATE", result.visual_asset?.status)
+        assertEquals("stored", result.visual_asset?.storage?.state)
+        assertTrue(store.snapshot().keys.none { it.startsWith("jarvis.paid.visual.") })
+
+        val probe = server.takeRequest()
+        assertEquals("GET", probe.method)
+        val requestId = probe.path.orEmpty().substringAfterLast('/')
+        assertTrue(requestId.startsWith("img_"))
+        val post = server.takeRequest()
+        assertEquals("/api/app/writing-room/v2/visual/scenes/generate", post.path)
+        val body = json.parseToJsonElement(post.body.readUtf8()).jsonObject
+        assertEquals(requestId, body["request_id"]!!.jsonPrimitive.content)
+        assertFalse(body.containsKey("model"))
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun cloudSceneGenerateAfterTimeoutOnlyRecoversByGet() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        loseNextSceneGenerationResponse = true
+        assertTrue(
+            client.generateSceneVisualAssetImage(
+                projectId = "prj_story",
+                contextId = "svc_123",
+                contextHash = "A".repeat(64),
+                engine = "cloud",
+            ).isFailure,
+        )
+
+        assertTrue(server.takeRequest().path?.startsWith("/api/app/images/requests/") == true)
+        val post = server.takeRequest()
+        assertEquals("/api/app/writing-room/v2/visual/scenes/generate", post.path)
+        val postBody = json.parseToJsonElement(post.body.readUtf8()).jsonObject
+        val requestId = postBody["request_id"]!!.jsonPrimitive.content
+        paidReceipts[requestId] = completedSceneReceipt(requestId, client.paidVisualFingerprint(postBody))
+
+        val recovered = client.generateSceneVisualAssetImage(
+            projectId = "prj_story",
+            contextId = "svc_123",
+            contextHash = "A".repeat(64),
+            engine = "cloud",
+        ).getOrThrow()
+
+        assertEquals("stored", recovered.visual_asset?.storage?.state)
+        assertEquals(3, server.requestCount) // probe, one POST, then GET recovery only
+        val recovery = server.takeRequest()
+        assertEquals("GET", recovery.method)
+        assertEquals("/api/app/images/requests/$requestId", recovery.path)
+        assertTrue(store.snapshot().keys.none { it.startsWith("jarvis.paid.visual.") })
+    }
+
+    @Test
+    fun localSceneGenerateIsNotPaid() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val result = session(store).generateSceneVisualAssetImage(
+            projectId = "prj_story",
+            contextId = "svc_123",
+            contextHash = "A".repeat(64),
+            engine = "local",
+            model = "flux-local-test",
+        ).getOrThrow()
+
+        assertEquals("svc_123", result.scene_context_id)
+        assertEquals(1, server.requestCount)
+        val body = json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        assertEquals("local", body["engine"]!!.jsonPrimitive.content)
+        assertEquals("flux-local-test", body["model"]!!.jsonPrimitive.content)
+        assertFalse(body.containsKey("request_id"))
+        assertTrue(store.snapshot().keys.none { it.startsWith("jarvis.paid.visual.") })
+    }
+
+    @Test
+    fun cloudSceneGenerateAcceptsManualV1Receipt() = runBlocking {
+        sceneSchema = "jarvis.visual.scene-generation.v1"
+        val result = session().generateSceneVisualAssetImage(
+            projectId = "prj_story",
+            contextId = "svc_123",
+            contextHash = "A".repeat(64),
+            engine = "cloud",
+        ).getOrThrow()
+
+        assertEquals("stored", result.visual_asset?.storage?.state)
+    }
+
+    @Test
+    fun cloudSceneGenerateRejectsForeignSchemaAndStaysPinned() = runBlocking {
+        sceneSchema = "jarvis.image.edit.v1"
+        val store = JarvisAppSession.MemoryStore()
+        val client = session(store)
+        val makeRequest: suspend () -> Result<VisualStudioGeneratedImage> = {
+            client.generateSceneVisualAssetImage(
+                projectId = "prj_story",
+                contextId = "svc_123",
+                contextHash = "A".repeat(64),
+                engine = "cloud",
+            )
+        }
+
+        val first = makeRequest()
+        assertEquals("Paid image receipt project or schema mismatch", first.exceptionOrNull()?.message)
+        // The server claimed and completed the POST, so its GET returns that receipt rather than 404.
+        assertTrue(server.takeRequest().path?.startsWith("/api/app/images/requests/") == true)
+        val postBody = json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        val requestId = postBody["request_id"]!!.jsonPrimitive.content
+        paidReceipts[requestId] = completedSceneReceipt(requestId, client.paidVisualFingerprint(postBody))
+        assertEquals(
+            "Paid image receipt project or schema mismatch",
+            makeRequest().exceptionOrNull()?.message,
+        )
+        assertEquals(3, server.requestCount) // probe, one POST, then GET only
+        assertTrue(store.snapshot().keys.any { it.startsWith("jarvis.paid.visual.") })
+    }
+
     @Test
     fun sceneCapabilitiesExposeLocalBlockerAndNoFallback() = runBlocking {
         val result = session().visualSceneGenerationCapabilities(
@@ -809,5 +984,23 @@ class SceneBuilderApiTest {
         assertEquals("prj_story", body["project_id"]!!.jsonPrimitive.content)
     }
 
-
+    @Test
+    fun sceneCandidatesStageServerBytesVerifiedBySha() {
+        val vm = listOf(
+            File("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
+            File("../app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
+        ).first { it.isFile }.readText()
+        val stagedWithSha = Regex("stageVisualAssetBase64\\(\\s*reply\\.data_base64,\\s*asset\\.sha256,?\\s*\\)")
+        val sites = listOf(
+            "fun editCharacterVisualInStudio(" to "fun createCharacterReferencePack(",
+            "private suspend fun applySceneDirectorResult(" to "fun previewSceneVisualContext(",
+            "fun generateSceneVisual(" to "fun editSceneVisual(",
+            "fun editSceneVisual(" to "fun approveSceneVisual(",
+        )
+        for ((start, end) in sites) {
+            val body = vm.substringAfter(start).substringBefore(end)
+            assertTrue("$start must stage with the server SHA", stagedWithSha.containsMatchIn(body))
+            assertFalse("$start must not recompress via stageGeneratedBase64", body.contains("stageGeneratedBase64("))
+        }
+    }
 }

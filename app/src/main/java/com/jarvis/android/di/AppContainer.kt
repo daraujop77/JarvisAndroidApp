@@ -1,9 +1,11 @@
 package com.jarvis.android.di
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.jarvis.android.BuildConfig
 import com.jarvis.android.data.local.JarvisDao
 import com.jarvis.android.data.local.JarvisDatabase
+import com.jarvis.android.data.prefs.ImageStudioVersionStore
 import com.jarvis.android.data.prefs.SettingsStore
 import com.jarvis.android.data.repo.ConversationRepository
 import com.jarvis.android.data.repo.JarvisSessionRepository
@@ -52,6 +54,10 @@ class AppContainer(private val context: Context) {
     val dao: JarvisDao by lazy { db.dao() }
 
     val settings: SettingsStore by lazy { SettingsStore(context) }
+
+    val imageStudioPrefs: SharedPreferences by lazy {
+        context.getSharedPreferences(ImageStudioVersionStore.PREFS, Context.MODE_PRIVATE)
+    }
 
     val deviceIdentity: DeviceIdentityStore by lazy { DeviceIdentityStore(context) }
 

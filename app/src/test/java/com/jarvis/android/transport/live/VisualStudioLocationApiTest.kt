@@ -81,17 +81,13 @@ class VisualStudioLocationApiTest {
                         } else {
                             "va_location_interior"
                         }
-                        val digest = if (isMaster) {
-                            "C".repeat(64)
-                        } else {
-                            "D".repeat(64)
-                        }
+                        val digest = "2f41b02bc94868f7cdd1e503c7f592ee7673dbb155eac2f267a3d1abf64aea18"
                         val refs = if (isMaster) 0 else 1
                         val response = buildJsonObject {
                             put("schema", "jarvis.image.generation.v2")
                             put("mime_type", "image/png")
-                            put("data_base64", "aW1hZ2U=")
-                            put("size_bytes", 5)
+                            put("data_base64", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgZGT8DwABDQED5NTSmwAAAABJRU5ErkJggg==")
+                            put("size_bytes", 70)
                             put("provider", "fixture-cloud")
                             put("model", "fixture-image")
                             put(
@@ -115,7 +111,7 @@ class VisualStudioLocationApiTest {
                                 put("source", "CLOUD_GENERATOR")
                                 put("sha256", digest)
                                 put("mime_type", "image/png")
-                                put("size_bytes", 5)
+                                put("size_bytes", 70)
                                 put(
                                     "location_ids",
                                     buildJsonArray {

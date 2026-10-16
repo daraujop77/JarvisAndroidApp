@@ -7,6 +7,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -17,7 +18,12 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
+import java.security.MessageDigest
+import java.util.Base64
 import kotlinx.serialization.json.put
+
+private const val SCENE_GENERATE_PATH = "/api/app/writing-room/v2/visual/scenes/generate"
 
 private val visualStudioJson = Json { ignoreUnknownKeys = true }
 
@@ -699,6 +705,55 @@ private suspend inline fun <reified T> JarvisAppSession.visualStudioPost(
     }
 }
 
+/**
+ * Validate the exact original bytes before returning a paid image or releasing
+ * the crash-durable request ID. This runs on initial POST and GET recovery.
+ * A mismatched receipt cannot silently become an approved/displayed candidate.
+ */
+internal fun verifyPaidCandidateIntegrity(result: JsonObject, stored: JsonObject) {
+    val encoded = result["data_base64"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val assetMime = stored["mime_type"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val expectedHash = stored["sha256"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val maxBytes = 12 * 1024 * 1024
+    if (mime !in setOf("image/png", "image/jpeg", "image/webp") ||
+        assetMime != mime || !Regex("^[a-fA-F0-9]{64}$").matches(expectedHash) ||
+        encoded.isEmpty() || encoded.length > ((maxBytes + 2) / 3 * 4 + 4)
+    ) {
+        throw TransportException("Paid image integrity metadata mismatch")
+    }
+    val bytes = try {
+        Base64.getDecoder().decode(encoded)
+    } catch (_: IllegalArgumentException) {
+        throw TransportException("Paid image integrity invalid base64")
+    }
+    if (bytes.isEmpty() || bytes.size > maxBytes) {
+        throw TransportException("Paid image integrity byte length mismatch")
+    }
+    fun matchesAt(offset: Int, vararg signature: Int): Boolean =
+        bytes.size >= offset + signature.size && signature.indices.all { index ->
+            (bytes[offset + index].toInt() and 0xff) == signature[index]
+        }
+    val signatureValid = when (mime) {
+        "image/png" -> matchesAt(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+        "image/jpeg" -> matchesAt(0, 0xff, 0xd8, 0xff)
+        "image/webp" -> matchesAt(0, 0x52, 0x49, 0x46, 0x46) &&
+            matchesAt(8, 0x57, 0x45, 0x42, 0x50)
+        else -> false
+    }
+    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        .joinToString("") { "%02x".format(it) }
+    val payloadSize = result["size_bytes"]?.jsonPrimitive?.longOrNull ?: 0L
+    val assetSize = stored["size_bytes"]?.jsonPrimitive?.longOrNull ?: 0L
+    if (!signatureValid || !digest.equals(expectedHash, ignoreCase = true) ||
+        payloadSize < 0L || assetSize < 0L ||
+        (payloadSize != 0L && payloadSize != bytes.size.toLong()) ||
+        (assetSize != 0L && assetSize != bytes.size.toLong())
+    ) {
+        throw TransportException("Paid image integrity SHA, size, or format mismatch")
+    }
+}
+
 private suspend fun JarvisAppSession.visualStudioObjectPost(
     path: String,
     body: JsonObject,
@@ -713,7 +768,8 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
         val paid = path in setOf(
             "/api/app/images/generations", "/api/app/images/edits",
             "/api/app/images/copilot-scene-edits",
-        )
+        ) || (path == SCENE_GENERATE_PATH &&
+            body["engine"]?.jsonPrimitive?.contentOrNull == "cloud")
         // Use the SAME crash-durable attempt journal as Global Image Studio.
         // Reusing the original request after process death only performs GET.
         // After a verified durable candidate is stored, a NEW explicit user
@@ -727,6 +783,15 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
         requireOk(response)
         val result = visualStudioJson.parseToJsonElement(response.second).jsonObject
         if (paid) {
+            val candidateError = (result["candidate_error"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val visualAssetMissing = result["visual_asset"].let { it == null || it is JsonNull }
+            if (candidateError.isNotBlank() && visualAssetMissing) {
+                // The intent stays pinned: the pending-visuals banner recovers the bytes from
+                // the paid receipt and releases the intent only after they are stored.
+                throw TransportException(
+                    "La imagen se generó, pero no se pudo guardar en el proyecto. Quedó pendiente en este dispositivo; revísala en el aviso de imágenes pendientes.",
+                )
+            }
             val stored = result["visual_asset"]?.jsonObject
             val state = stored?.get("storage")?.jsonObject
                 ?.get("state")?.jsonPrimitive?.contentOrNull
@@ -737,24 +802,37 @@ private suspend fun JarvisAppSession.visualStudioObjectPost(
             val bytes = result["data_base64"]?.jsonPrimitive?.contentOrNull
             val mime = result["mime_type"]?.jsonPrimitive?.contentOrNull
             val schema = result["schema"]?.jsonPrimitive?.contentOrNull
-            val expectedSchema = if (path == "/api/app/images/generations")
-                "jarvis.image.generation.v2" else "jarvis.image.edit.v1"
+            val expectedSchemas = when (path) {
+                "/api/app/images/generations" -> setOf("jarvis.image.generation.v2")
+                // v1 is the manual frozen-context path; v2 is returned when the context carries narrative evidence.
+                SCENE_GENERATE_PATH -> setOf(
+                    "jarvis.visual.scene-generation.v1",
+                    "jarvis.visual.scene-generation.v2",
+                )
+                else -> setOf("jarvis.image.edit.v1")
+            }
             if (expectedProject.isNullOrBlank() ||
                 expectedProject != storedProject || status != "CANDIDATE" ||
-                schema != expectedSchema
+                schema !in expectedSchemas
             ) {
                 throw TransportException("Paid image receipt project or schema mismatch")
             }
+            // The same check protects initial success AND recovered outcomes.
+            // Reject invalid bytes instead of exposing them to a UI consumer;
+            // any pending attempt remains pinned to GET-only recovery.
+            verifyPaidCandidateIntegrity(result, stored)
             // Only release the request ID if the original bytes and exact
-            // project candidate are durably recoverable from the VPS.
-            // An unknown, cross-project, pending-storage or malformed receipt
-            // stays pinned to prevent a second paid dispatch.
-            if (!assetId.isNullOrBlank() && state == "stored" &&
+            // project candidate are durably recoverable from the VPS. A pending
+            // storage state means the VPS already staged the candidate before
+            // Drive; an unknown, cross-project, or malformed receipt stays
+            // pinned to prevent a second paid dispatch.
+            if (!assetId.isNullOrBlank() &&
+                (state == "stored" || state?.startsWith("pending") == true) &&
                 !expectedProject.isNullOrBlank() &&
                 expectedProject == storedProject && status == "CANDIDATE" &&
                 !bytes.isNullOrBlank() && mime in setOf("image/png", "image/jpeg", "image/webp")
             ) {
-                acknowledgePaidVisual(path)
+                acknowledgePaidVisual(path, body)
             }
         }
         result
@@ -1081,6 +1159,10 @@ suspend fun JarvisAppSession.visualCompleteCharacterViews(
             )
             put("adjustment", adjustment.trim())
             put("mode", mode)
+            // A new turnaround is one paid attempt per missing view. When
+            // resuming, omit this field so the server reuses the persisted
+            // policy instead of reinterpreting a historical batch.
+            if (batchId.isBlank()) put("max_corrections", 0)
             if (batchId.isNotBlank()) put("batch_id", batchId)
         },
     )
@@ -1363,6 +1445,8 @@ suspend fun JarvisAppSession.generateVisualAssetImage(
     parentSha256: String = "",
     derivation: String = "",
     assetId: String? = null,
+    alt: String = "",
+    provenance: JsonObject = JsonObject(emptyMap()),
 ): Result<VisualStudioGeneratedImage> =
     visualStudioObjectPost(
         "/api/app/images/generations",
@@ -1386,9 +1470,11 @@ suspend fun JarvisAppSession.generateVisualAssetImage(
                 }
                 put("references_per_character", referencesPerCharacter.coerceIn(1, 4))
                 if (!assetId.isNullOrBlank()) put("asset_id", assetId)
+                if (alt.isNotBlank()) put("alt", alt.trim().take(240))
                 if (parentAssetId.isNotBlank()) put("parent_asset_id", parentAssetId)
                 if (parentSha256.isNotBlank()) put("parent_sha256", parentSha256)
                 if (derivation.isNotBlank()) put("derivation", derivation)
+                if (provenance.isNotEmpty()) put("provenance", provenance)
             })
         },
     ).mapCatching { raw ->
@@ -1806,7 +1892,7 @@ suspend fun JarvisAppSession.generateSceneVisualAssetImage(
     maxCorrections: Int = 0,
 ): Result<VisualStudioGeneratedImage> =
     visualStudioObjectPost(
-        "/api/app/writing-room/v2/visual/scenes/generate",
+        SCENE_GENERATE_PATH,
         buildJsonObject {
             put("project_id", projectId)
             put("context_id", contextId)
@@ -1815,7 +1901,7 @@ suspend fun JarvisAppSession.generateSceneVisualAssetImage(
             put("mode", mode)
             put("aspect_ratio", aspectRatio)
             put("max_corrections", maxCorrections.coerceIn(0, 2))
-            if (!model.isNullOrBlank()) put("model", model)
+            if (engine != "cloud" && !model.isNullOrBlank()) put("model", model)
         },
     ).mapCatching { raw ->
         val reply = parseVisualStudioGeneratedImage(raw)
