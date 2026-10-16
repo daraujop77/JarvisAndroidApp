@@ -18,6 +18,22 @@ import com.jarvis.android.data.media.AttachmentStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** Do not render internal server JSON, URLs or storage diagnostics inside a visual card. */
+internal fun friendlyVisualAssetError(raw: String?): String {
+    if (raw.isNullOrBlank()) return "La copia descargada no se pudo leer."
+    val code = Regex("""\b(?:HTTP\s*)?(500|502|503|504|401|403|404)\b""", RegexOption.IGNORE_CASE)
+        .find(raw)?.groupValues?.get(1)
+    return when (code) {
+        "500", "502", "503", "504" ->
+            "El servidor no pudo recuperar esta imagen (HTTP $code). " +
+                "El original aprobado no se ha modificado. Puedes reintentar."
+        "401", "403" ->
+            "Tu sesión no tiene acceso a esta imagen. Verifica la cuenta y vuelve a intentar."
+        "404" -> "No se encontró el archivo de esta imagen. El registro de aprobación permanece intacto."
+        else -> "No se pudo cargar la imagen. Puedes reintentar sin modificar el original."
+    }
+}
+
 private data class VisualBitmapState(
     val bitmap: Bitmap? = null,
     val finished: Boolean = false,
@@ -66,7 +82,7 @@ internal fun VisualAssetPreview(
                     error != null || decodeFailed -> {
                         Text("No se pudo mostrar la imagen.", color = Color(0xFFF1F5F9))
                         Text(
-                            error?.take(240) ?: "La copia descargada no se pudo leer.",
+                            friendlyVisualAssetError(error),
                             color = Color(0xFF94A3B8), style = MaterialTheme.typography.bodySmall,
                         )
                         OutlinedButton(onClick = onRetry, enabled = !loading) { Text("Reintentar") }
