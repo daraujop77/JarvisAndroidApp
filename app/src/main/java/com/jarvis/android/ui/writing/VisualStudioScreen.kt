@@ -168,7 +168,7 @@ fun VisualStudioScreen(
                     onClick = {
                         section = VisualStudioSection.CHARACTERS
                     },
-                    label = { Text(strings.visualCharacters, maxLines = 1) },
+                    label = { Text("Character Studio", maxLines = 1) },
                 )
                 FilterChip(
                     selected = section == VisualStudioSection.LOCATIONS,
