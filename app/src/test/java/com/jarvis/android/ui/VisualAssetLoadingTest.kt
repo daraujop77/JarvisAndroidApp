@@ -84,4 +84,33 @@ class VisualAssetLoadingTest {
             "prj_story", listed.copy(sha256 = "not-a-digest"), fetched,
         ))
     }
+
+    @Test fun paidEditRejectsAlteredOrOtherCharacterOriginalBeforeDispatch() {
+        val valid = "synthetic-approved-original".toByteArray()
+        val hash = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(valid).joinToString("") { "%02x".format(it) }
+        val parent = com.jarvis.android.transport.live.VisualStudioAsset(
+            project_id = "prj_story",
+            asset_id = "va_master",
+            kind = "PRIMARY_REFERENCE",
+            status = "APPROVED",
+            character_ids = listOf("character:alexander"),
+            sha256 = hash, mime_type = "image/png",
+        )
+        assertTrue(verifiedCharacterEditParent(
+            "prj_story", "character:alexander", parent, valid,
+        ))
+        assertFalse(verifiedCharacterEditParent(
+            "prj_story", "character:alexander", parent, "changed".toByteArray(),
+        ))
+        assertFalse(verifiedCharacterEditParent(
+            "prj_story", "character:doom", parent, valid,
+        ))
+        assertFalse(verifiedCharacterEditParent(
+            "prj_other", "character:alexander", parent, valid,
+        ))
+        assertFalse(verifiedCharacterEditParent(
+            "prj_story", "character:alexander", parent.copy(status = "CANDIDATE"), valid,
+        ))
+    }
 }
