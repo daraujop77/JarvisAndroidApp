@@ -116,7 +116,9 @@ internal fun VisualAssetPreview(
             .background(Color(0xFF050B14), RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        val bitmap = decoded.bitmap
+        // Never show a previous asset for a frame while the new attachment
+        // is being decoded. This also prevents cross-character image flashes.
+        val bitmap = fullBitmap
         if (bitmap != null) {
             Image(
                 bitmap.asImageBitmap(),
