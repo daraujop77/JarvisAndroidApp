@@ -280,7 +280,13 @@ class LiveAppGatewayTransport(
                     // The request is already Accepted/Streaming locally, so
                     // settle it with the cached text only — no second accepted.
                     t is StreamInterrupted || (t is IOException && !ctl.cancelRequested) -> {
-                        val cached = runCatching { awaitCachedTurn(turnId) }.getOrNull()
+                        val cached = try {
+                            awaitCachedTurn(turnId)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            null
+                        }
                         if (cached != null) {
                             emitCompletedWithMedia(cached, turnId, req.conversationId)
                             session.forgetTurn(turnId)
@@ -803,7 +809,15 @@ class LiveAppGatewayTransport(
         val deadlineNanos = System.nanoTime() + AGENT_RECOVERY_BUDGET_MILLIS * 1_000_000L
         var attempt = 0
         while (true) {
-            when (val state = readCachedTurn(clientRequestId, AGENT_RECOVERY_PROBE_TIMEOUT_MILLIS)) {
+            val observed = try {
+                readCachedTurn(clientRequestId, AGENT_RECOVERY_PROBE_TIMEOUT_MILLIS)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (network: IOException) {
+                // A cut connection says nothing about the turn the server is still running.
+                CachedTurn.InFlight
+            }
+            when (val state = observed) {
                 is CachedTurn.Completed -> return state.turn
                 CachedTurn.InFlight -> Unit
                 CachedTurn.Unavailable -> return null
@@ -837,6 +851,7 @@ class LiveAppGatewayTransport(
             val call = client.newCall(request)
             callTimeoutMillis?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
             call.execute().use { resp ->
+                if (resp.code in 500..599) return@use CachedTurn.InFlight
                 if (resp.code !in 200..299) return@use CachedTurn.Unavailable
                 val body = resp.body?.string() ?: return@use CachedTurn.Unavailable
                 runCatching {

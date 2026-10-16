@@ -1040,14 +1040,15 @@ class JarvisAppSession(
         if (probe.first != 404 || !missing) {
             throw TransportException("VPS does not support safe paid-image recovery")
         }
+        paidInFlightIds.add(requestId)
         if (!store.putDurable(mapOf(key to "$requestId\u001f$digest"))) {
+            paidInFlightIds.remove(requestId)
             throw TransportException("Paid image attempt cannot be persisted; no provider call")
         }
         val wireBody = buildJsonObject {
             body.forEach { (name, value) -> put(name, value) }
             put("request_id", requestId)
         }.toString()
-        paidInFlightIds.add(requestId)
         val response = try {
             post(baseUrl, path, wireBody, auth = authHeader(), timeoutMillis = 480_000L)
         } finally {

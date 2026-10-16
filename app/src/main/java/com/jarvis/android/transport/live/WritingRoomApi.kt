@@ -1697,6 +1697,14 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
             response.copy(copilot_task = agentTask.copy(request_id = stableRequestId))
         } else response
     }
+    // A network fault can hit after the server accepted the request but before any
+    // event arrived. Only the durable request ID can tell, and reading it is harmless.
+    val streamFault = streamResult.exceptionOrNull()
+    if (usingAdaptive &&
+        (streamFault is java.io.IOException || streamFault?.cause is java.io.IOException)
+    ) {
+        adaptiveStreamAccepted = true
+    }
     if (streamResult.isSuccess || !usingAdaptive || !adaptiveStreamAccepted) {
         return@withContext streamResult
     }
