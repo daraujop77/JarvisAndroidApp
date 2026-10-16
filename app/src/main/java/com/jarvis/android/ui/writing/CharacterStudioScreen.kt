@@ -1485,7 +1485,10 @@ private fun CharacterAssetCard(
                                 val id = attachmentId
                                 if (!id.isNullOrBlank()) onEditInImageStudio(id, asset)
                             },
-                            enabled = !state.busy && !attachmentId.isNullOrBlank(),
+                            // A local attachment receipt is not sufficient:
+                            // decode must succeed before offering the paid edit UI.
+                            enabled = !state.busy && previewDecoded &&
+                                !attachmentId.isNullOrBlank(),
                             modifier = Modifier.weight(1f),
                         ) {
                             Icon(Icons.Filled.Edit, contentDescription = null)
@@ -1508,7 +1511,10 @@ private fun AssetPreview(
     onDecodedChange: (Boolean) -> Unit = {},
 ) {
     val state by vm.characterStudio.collectAsStateWithLifecycle()
-    LaunchedEffect(projectId, state.characterId, asset.asset_id, asset.storage.state) {
+    LaunchedEffect(
+        projectId, state.characterId, asset.asset_id, asset.storage.state,
+        attachmentId,
+    ) {
         if (attachmentId.isNullOrBlank() && asset.storage.state == "stored") {
             vm.loadCharacterStudioAsset(projectId, asset.asset_id)
         }
