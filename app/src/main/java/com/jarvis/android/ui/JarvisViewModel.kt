@@ -579,9 +579,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             resetVisualStudioProtectedMedia()
             _writingWorkspace.value = WritingWorkspaceState(chatProjectId = projectId)
         }
-        // Task restoration must work even when an unrelated Wiki/Drive refresh fails.
+        // Task and previously generated image recovery must not depend on
+        // Wiki, timeline or Drive metadata reads succeeding. In particular,
+        // a failed public Wiki request must not make saved portraits disappear.
         recoverWritingCopilotTask(projectId)
         writingWorkspaceBusy("Loading workspace")
+        recoverWritingCopilotPortraits(projectId)
         viewModelScope.launch {
             val overview = container.liveSession.writingRoomOverview(projectId)
             val wikiHome = container.liveSession.writingRoomWikiHome(projectId)
@@ -634,7 +637,6 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 error = privateFailure?.exceptionOrNull()?.message,
             )
             refreshKnowledgeAtlas(projectId = projectId, refreshSnapshot = true)
-            recoverWritingCopilotPortraits(projectId)
         }
     }
 
