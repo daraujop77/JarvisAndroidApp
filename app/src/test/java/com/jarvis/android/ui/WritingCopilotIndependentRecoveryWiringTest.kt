@@ -31,5 +31,15 @@ class WritingCopilotIndependentRecoveryWiringTest {
                 .findAll(loader).count(),
         )
         assertTrue(loader.indexOf("if (publicFailure != null)") > recovery)
+
+        // A project switch is an authorization boundary. Recovered portraits
+        // are private staged image bytes, not just a harmless display list.
+        assertTrue(loader.contains(
+            "_writingWorkspace.value.copilotRecoveredPortraits.mapNotNull"
+        ))
+        assertTrue(loader.contains("it.previewAttachmentId"))
+        assertTrue(loader.indexOf(
+            "_writingWorkspace.value.copilotRecoveredPortraits.mapNotNull"
+        ) < loader.indexOf("WritingWorkspaceState(chatProjectId = projectId)"))
     }
 }
