@@ -30,7 +30,10 @@ class CopilotApprovedVisualRevisionWiringTest {
     @Test fun candidateApprovalRequiresDecodedVisiblePreview() {
         val screen = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
         // An attachment ID alone is not evidence that an image loaded.
-        assertTrue(screen.contains("val candidatePreviewBitmap = remember(turn.generatedPreviewAttachmentId)"))
+        assertTrue(screen.contains("val decodedCandidate by produceState("))
+        assertTrue(screen.contains("key1 = turn.generatedPreviewAttachmentId"))
+        assertTrue(screen.contains("withContext(Dispatchers.IO)"))
+        assertTrue(screen.contains("decodedCandidate.first == turn.generatedPreviewAttachmentId"))
         assertTrue(screen.contains("val image = candidatePreviewBitmap"))
         assertTrue(screen.contains("turn.candidatePerspective == \"front\""))
         assertTrue(screen.contains("candidatePreviewBitmap != null"))
