@@ -169,6 +169,8 @@ fun WritingWorkspaceV1Screen(
     val state by vm.writingWorkspace.collectAsStateWithLifecycle()
     var tab by rememberSaveable(projectId) { mutableStateOf(WorkspaceTab.CHAT) }
     var visualSceneOpenRequest by rememberSaveable(projectId) { mutableStateOf(0) }
+    var visualCharacterOpenRequest by rememberSaveable(projectId) { mutableStateOf(0) }
+    var visualCharacterOpenId by rememberSaveable(projectId) { mutableStateOf("") }
 
     LaunchedEffect(projectId) {
         vm.refreshWritingWorkspace(projectId)
@@ -330,7 +332,16 @@ fun WritingWorkspaceV1Screen(
                     tab = WorkspaceTab.VISUAL
                 },
             )
-            WorkspaceTab.CHAT -> ChatSection(state, projectId, title, vm)
+            WorkspaceTab.CHAT -> ChatSection(
+                state, projectId, title, vm,
+                onOpenCharacterStudio = { characterId ->
+                    if (characterId.isNotBlank()) {
+                        visualCharacterOpenId = characterId
+                        visualCharacterOpenRequest += 1
+                        tab = WorkspaceTab.VISUAL
+                    }
+                },
+            )
             WorkspaceTab.PLAN -> PlanSection(state, projectId, vm)
             WorkspaceTab.CANON -> CanonSection(
                 state = state,
@@ -345,6 +356,8 @@ fun WritingWorkspaceV1Screen(
                 characters = state.wikiCharacters,
                 locations = state.wikiLocations,
                 openScenesRequest = visualSceneOpenRequest,
+                requestedCharacterId = visualCharacterOpenId,
+                openCharacterRequest = visualCharacterOpenRequest,
                 onUseSceneInChapter = { chapterId ->
                     vm.openWritingChapter(projectId, chapterId)
                     tab = WorkspaceTab.WRITE
@@ -615,6 +628,7 @@ private fun ChatSection(
     projectId: String,
     title: String,
     vm: JarvisViewModel,
+    onOpenCharacterStudio: (String) -> Unit = {},
 ) {
     val strings = LocalAppStrings.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -813,11 +827,9 @@ private fun ChatSection(
 
             state.copilotRecoveredPortraits.forEach { portrait ->
                 item(key = "recovered-" + portrait.assetId) {
-                    val previewImage = portrait.previewAttachmentId?.let { attachmentId ->
-                        remember(attachmentId) {
-                            vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
-                        }
-                    }
+                    var previewDecoded by remember(
+                        portrait.assetId, portrait.previewAttachmentId,
+                    ) { mutableStateOf(false) }
                     Surface(
                         shape = RoundedCornerShape(18.dp),
                         color = Color(0xEE0E182A),
@@ -836,16 +848,18 @@ private fun ChatSection(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFFE2E8F0),
                             )
-                            if (previewImage != null) {
-                                Spacer(Modifier.height(8.dp))
-                                Image(
-                                    bitmap = previewImage.asImageBitmap(),
-                                    contentDescription = "Retrato candidato recuperado del VPS",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxWidth().height(260.dp)
-                                        .clip(RoundedCornerShape(14.dp)),
-                                )
-                            }
+                            Spacer(Modifier.height(8.dp))
+                            com.jarvis.android.ui.writing.VisualAssetPreview(
+                                attachmentId = portrait.previewAttachmentId,
+                                store = vm.attachmentStore,
+                                stored = portrait.storageState == "stored",
+                                loading = state.copilotRecovering,
+                                error = state.copilotRecoveryError,
+                                description = "Retrato recuperado de " + portrait.alt,
+                                height = 310.dp,
+                                onRetry = { vm.recoverWritingCopilotPortraits(projectId) },
+                                onDecodedChange = { previewDecoded = it },
+                            )
                             Spacer(Modifier.height(6.dp))
                             Text(
                                 "Estado: " + portrait.status + " · " + portrait.assetId,
@@ -858,7 +872,7 @@ private fun ChatSection(
                             ) {
                                 if (com.jarvis.android.ui.writing.canApproveVisualPreview(
                                         portrait.storageState,
-                                        previewDecoded = previewImage != null,
+                                        previewDecoded = previewDecoded,
                                     )
                                 ) {
                                     OutlinedButton(
@@ -898,6 +912,16 @@ private fun ChatSection(
                                     enabled = !state.busy && !state.copilotViewLoading,
                                 ) {
                                     Text("Completar vistas desde el master aprobado")
+                                }
+                            }
+                            if (portrait.status == "APPROVED" &&
+                                previewDecoded && portrait.characterId.isNotBlank()) {
+                                Spacer(Modifier.height(6.dp))
+                                OutlinedButton(
+                                    onClick = { onOpenCharacterStudio(portrait.characterId) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Abrir y editar en Character Studio")
                                 }
                             }
                         }
