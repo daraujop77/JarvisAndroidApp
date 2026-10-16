@@ -25,6 +25,7 @@ import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
 import com.jarvis.android.ui.writing.canRebuildCopilotTurn
 import com.jarvis.android.transport.live.recoveredCopilotChat
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
+import com.jarvis.android.ui.writing.replacedCopilotPortraitCopies
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
 import com.jarvis.android.ui.writing.selectCopilotSceneReviewAsset
 import com.jarvis.android.ui.writing.copilotApprovableViewIds
@@ -718,22 +719,25 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     // Copilot chat while this gallery is still downloading.
                     // Those extra copies must be discarded, not silently
                     // accumulated on every refresh.
-                    val redundantNewIds = stagedThisRecovery - retainedIds
                     val referencedInChat = current.chatHistory.mapNotNull {
                         it.generatedPreviewAttachmentId
                     }.toSet()
                     val otherProtectedIds =
                         current.approvedVisualAttachments.values.toSet() +
                         current.copilotViewPreviews.values.toSet() + referencedInChat
-                    val replacedOldIds = current.copilotRecoveredPortraits
-                        .mapNotNull { it.previewAttachmentId }
-                        .toSet() - retainedIds - otherProtectedIds
+                    val disposableIds = replacedCopilotPortraitCopies(
+                        previousIds = current.copilotRecoveredPortraits
+                            .mapNotNull { it.previewAttachmentId }.toSet(),
+                        newlyStagedIds = stagedThisRecovery,
+                        visibleIds = retainedIds,
+                        otherReferencedIds = otherProtectedIds,
+                    )
                     _writingWorkspace.value = current.copy(
                         copilotRecoveredPortraits = visible,
                         copilotRecoveryError = null,
                     )
                     published = true
-                    deleteVisualStudioAttachments(redundantNewIds + replacedOldIds)
+                    deleteVisualStudioAttachments(disposableIds)
                 }
             } catch (error: Exception) {
                 val current = _writingWorkspace.value
