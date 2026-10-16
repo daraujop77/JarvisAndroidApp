@@ -119,4 +119,41 @@ class CopilotConversationHistoryTest {
         assertEquals(null, merged.single().candidateAssetId)
         assertEquals(null, merged.single().generatedPreviewAttachmentId)
     }
+
+    @Test fun identicalPromptsNeverStealEachOthersVisualReceipts() {
+        val first = WritingCopilotHistoryTurn(
+            request_id = "req_first", user_text = "Haz un retrato",
+            assistant_text = "Aquí está",
+            visual_asset = com.jarvis.android.transport.live.WritingCopilotHistoryVisual(
+                asset_id = "va_" + "a".repeat(32),
+                sha256 = "b".repeat(64), status = "CANDIDATE",
+                storage_state = "stored", kind = "PRIMARY_REFERENCE",
+                character_id = "character:alexander",
+            ),
+        )
+        val second = first.copy(
+            request_id = "req_second",
+            visual_asset = first.visual_asset!!.copy(
+                asset_id = "va_" + "c".repeat(32), sha256 = "d".repeat(64),
+            ),
+        )
+        val rich = JarvisViewModel.WritingWorkspaceChatTurn(
+            prompt = "Haz un retrato",
+            response = WritingRoomAutoChat(
+                turn = JarvisAppSession.WritingRoomTurn(
+                    response = JarvisAppSession.WritingRoomText("Aquí está"),
+                ),
+            ),
+        )
+        val archive = WritingCopilotHistory(
+            schema = "jarvis.writing-room.agent.history.v1",
+            project_id = "story", conversation_id = "wrc_same",
+            turns = listOf(first, second),
+        )
+        val turns = mergeCopilotConversationHistory("story", archive, listOf(rich))
+        assertEquals(3, turns.size)
+        assertEquals("req_first", turns[0].historicalRequestId)
+        assertEquals("req_second", turns[1].historicalRequestId)
+        assertEquals(null, turns.last().candidateAssetId)
+    }
 }
