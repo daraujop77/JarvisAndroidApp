@@ -71,6 +71,37 @@ import com.jarvis.android.ui.theme.JarvisViolet
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
+/**
+ * Reference-only catalog is independently discoverable, even with an empty
+ * Wiki. A matching Wiki id always wins so outside characters cannot replace
+ * project canon or turn a reference into OFFICIAL_CANON.
+ */
+internal fun mergeCharacterStudioOptions(
+    characters: List<WritingWikiEntity>,
+    externalCharacters: List<com.jarvis.android.transport.live.VisualExternalCharacter>,
+): List<WritingWikiEntity> {
+    val wikiCharacters = characters.filter {
+        it.id.isNotBlank() && it.type.equals("character", ignoreCase = true)
+    }
+    val wikiIds = wikiCharacters.map { it.id }.toSet()
+    val externalOnly = externalCharacters
+        .filter { it.character_id.isNotBlank() && it.character_id !in wikiIds }
+        .map { external ->
+            WritingWikiEntity(
+                id = external.character_id,
+                type = "character",
+                name = external.display_name,
+                canonical_name = external.display_name,
+                authority = "REFERENCE",
+                role = "Referencia visual externa · " + external.franchise,
+                summary = "Disponible para Visual Studio sin modificar el canon narrativo.",
+            )
+        }
+    return (wikiCharacters + externalOnly)
+        .distinctBy { it.id }
+        .sortedBy { (it.canonical_name.ifBlank { it.name }).lowercase() }
+}
+
 @Composable
 fun CharacterStudioScreen(
     vm: JarvisViewModel,
@@ -91,25 +122,7 @@ fun CharacterStudioScreen(
     }
 
     val characterOptions = remember(characters, state.externalCharacters) {
-        val wikiCharacters = characters
-            .filter { it.id.isNotBlank() && it.type.equals("character", ignoreCase = true) }
-        val wikiIds = wikiCharacters.map { it.id }.toSet()
-        val externalOnly = state.externalCharacters
-            .filter { it.character_id.isNotBlank() && it.character_id !in wikiIds }
-            .map { external ->
-                WritingWikiEntity(
-                    id = external.character_id,
-                    type = "character",
-                    name = external.display_name,
-                    canonical_name = external.display_name,
-                    authority = "REFERENCE",
-                    role = "Referencia visual externa · " + external.franchise,
-                    summary = "Disponible para Visual Studio sin modificar el canon narrativo.",
-                )
-            }
-        (wikiCharacters + externalOnly)
-            .distinctBy { it.id }
-            .sortedBy { (it.canonical_name.ifBlank { it.name }).lowercase() }
+        mergeCharacterStudioOptions(characters, state.externalCharacters)
     }
     var selectedCharacterId by rememberSaveable(projectId) {
         mutableStateOf(characterOptions.firstOrNull()?.id.orEmpty())
