@@ -44,21 +44,33 @@ internal fun mergeCopilotConversationHistory(
             item.user_text.isBlank() || item.user_text.length > 6000 ||
             item.assistant_text.isBlank() || item.assistant_text.length > 12000
         ) return@mapNotNull null
-        val found = unused.indexOfFirst { existing ->
+        val exact = unused.indexOfFirst { existing ->
             existing.historicalRequestId == item.request_id ||
                 existing.response?.copilot_task?.request_id == item.request_id
-        }.takeIf { it >= 0 } ?: unused.indexOfFirst {
-            it.prompt == item.user_text &&
-                it.response?.turn?.response?.text == item.assistant_text
         }
+        // Text matching is a compatibility fallback only for UNIQUE pairs.
+        // Two identical repeated prompts are distinct requests and must never
+        // steal each other's visual asset provenance.
+        val textPairUnique = archive.turns.count {
+            it.user_text == item.user_text && it.assistant_text == item.assistant_text
+        } == 1
+        val candidateIndices = unused.indices.filter { n ->
+            unused[n].prompt == item.user_text &&
+                unused[n].response?.turn?.response?.text == item.assistant_text
+        }
+        val found = if (exact >= 0) exact else
+            candidateIndices.singleOrNull()?.takeIf { textPairUnique } ?: -1
         val visual = verifiedHistoricalCopilotVisual(item)
         if (found >= 0) {
             val rich = unused.removeAt(found)
+            val identified = rich.copy(
+                historicalRequestId = rich.historicalRequestId ?: item.request_id,
+            )
             // Never overwrite a live original or replace its exact media
             // provenance with a possibly older archived receipt.
-            if (rich.candidateAssetId != null || visual == null) return@mapNotNull rich
-            return@mapNotNull rich.copy(
-                historicalRequestId = rich.historicalRequestId ?: item.request_id,
+            if (identified.candidateAssetId != null || visual == null)
+                return@mapNotNull identified
+            return@mapNotNull identified.copy(
                 candidateAssetId = visual.asset_id,
                 candidateSha256 = visual.sha256,
                 candidateStatus = visual.status,
