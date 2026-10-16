@@ -2,12 +2,9 @@ name: JARVIS v68 isolated debug APK smoke build
 
 # Build-only checkpoint for the integrated v68 feature test. No publishing or signing.
 # A separate debug package can be installed alongside the official application.
+# The Android client simulator and non-APK Gradle CI are the normal
+# checkpoints. Only build an installable APK when explicitly requested.
 on:
-  pull_request:
-    types: [opened, reopened, synchronize]
-    paths:
-      - .github/workflows/repair-v68-debug-apk.yml
-      - app/**
   workflow_dispatch:
 
 permissions:
@@ -15,7 +12,7 @@ permissions:
 
 jobs:
   isolated-apk:
-    if: github.repository == 'daraujop77/JarvisAndroidApp' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.ref == 'integration/preapk-all-features-20261015' && github.event.pull_request.base.ref == 'repair/writing-room-image-stability-20261015'))
+    if: github.repository == 'daraujop77/JarvisAndroidApp' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
