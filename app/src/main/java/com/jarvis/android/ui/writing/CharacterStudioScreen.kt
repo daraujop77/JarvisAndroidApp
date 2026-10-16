@@ -84,6 +84,12 @@ fun CharacterStudioScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val accents = LocalJarvisAccents.current
 
+    // Fetch reference-only character catalog even when Wiki is empty.
+    // This unlocks the first selection and its normal Character Studio data.
+    LaunchedEffect(projectId) {
+        vm.loadCharacterStudioCatalog(projectId)
+    }
+
     val characterOptions = remember(characters, state.externalCharacters) {
         val wikiCharacters = characters
             .filter { it.id.isNotBlank() && it.type.equals("character", ignoreCase = true) }
