@@ -785,6 +785,7 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
             }
 
             ProfileChipRow(vm)
+            EffortChipRow(vm)
 
             if (chatStreaming) {
                 ScanLine(active = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp))
@@ -1134,6 +1135,57 @@ private fun ProfileChipRow(vm: JarvisViewModel) {
                     color = if (active) accents.orbGlow else Color(0xFFB7C7DC),
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Effort is separate from model selection, hidden unless server advertises
+ * supported profiles and choices. Auto is the default and sends no override.
+ */
+@Composable
+private fun EffortChipRow(vm: JarvisViewModel) {
+    val access = vm.chatAccess.collectAsStateWithLifecycle().value ?: return
+    val options = access.effort ?: return
+    val profile by vm.chatProfile.collectAsStateWithLifecycle()
+    val selected by vm.chatEffort.collectAsStateWithLifecycle()
+    if (!access.isOwner || profile !in options.supportedProfiles || options.options.size < 2) return
+    val accents = LocalJarvisAccents.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "Esfuerzo · " + (options.options.firstOrNull { it.id == selected }?.label
+                ?: "Automático"),
+            style = HudTextStyle,
+            color = Color(0xFFB7C7DC),
+            modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 4.dp),
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items(options.options, key = { it.id }) { entry ->
+                val active = entry.id == selected
+                Surface(
+                    onClick = { vm.setChatEffort(entry.id) },
+                    shape = RoundedCornerShape(50),
+                    color = if (active) accents.orbGlow.copy(alpha = 0.22f)
+                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (active) accents.orbGlow.copy(alpha = 0.55f)
+                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                    ),
+                    modifier = Modifier.heightIn(min = 44.dp),
+                ) {
+                    Text(
+                        entry.label,
+                        style = HudTextStyle,
+                        color = if (active) accents.orbGlow else Color(0xFFB7C7DC),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    )
+                }
             }
         }
     }
