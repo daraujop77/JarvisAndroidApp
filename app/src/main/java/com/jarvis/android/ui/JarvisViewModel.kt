@@ -4083,20 +4083,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
             error = failure?.message,
         )
-        if (
-            loadedBatch != null &&
-            loadedBatch.pending_count > 0 &&
-            loadedBatch.status == "READY"
-        ) {
-            completeCharacterViews(
-                projectId = projectId,
-                characterId = characterId,
-                perspectives = loadedBatch.requested_perspectives,
-                adjustment = loadedBatch.adjustment,
-                resumeBatchId = loadedBatch.batch_id,
-                generationMode = loadedBatch.mode,
-            )
-        } else if (loadedBatch?.status == "RUNNING") {
+        // Reading the character must NEVER start or resume paid generations.
+        // A READY durable batch is visible for review in the UI and can only
+        // resume after an explicit owner confirmation.
+        if (loadedBatch?.status == "RUNNING") {
             startCharacterBatchPolling(
                 projectId,
                 characterId,
