@@ -2270,7 +2270,27 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                             (error.message ?: "consulta estado") +
                             ". Actualiza el estado antes de intentar otra acción.",
                     )
-                    followCopilotTaskProgress(projectId, task)
+                    // The stale READY card has no remote work to follow; read the real state first.
+                    val refreshed = if (confirm) {
+                        runCatching {
+                            container.liveSession.writingRoomCopilotTaskStatus(
+                                projectId, task.task_id, conversationId = task.conversation_id,
+                            ).getOrThrow()
+                        }.getOrNull()?.takeIf {
+                            it.project_id == projectId && it.task_id == task.task_id
+                        }
+                    } else {
+                        null
+                    }
+                    val followTask = refreshed?.let {
+                        if (task.request_id.isNotBlank()) it.copy(request_id = task.request_id) else it
+                    } ?: task
+                    if (refreshed != null) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            copilotAgentTask = followTask,
+                        )
+                    }
+                    followCopilotTaskProgress(projectId, followTask)
                 }
             } finally {
                 if (copilotRecoveryEpoch == epoch &&

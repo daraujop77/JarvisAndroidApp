@@ -1596,17 +1596,32 @@ private fun MessageBubble(
                 ) {
                     Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
                         if (msg.attachmentIds.isNotEmpty()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                msg.attachmentIds.forEach { id ->
+                            val (generatedIds, otherIds) = msg.attachmentIds.partition {
+                                !isUser && it.startsWith("gen_")
+                            }
+                            // Generated previews fill the bubble width: in a row only the first stays visible.
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                generatedIds.forEach { id ->
                                     AttachmentChip(
                                         attachmentId = id,
                                         state = attachmentState(id),
                                         attachmentStore = attachmentStore,
-                                        generated = !isUser && id.startsWith("gen_"),
-                                        onOpen = if (!isUser && id.startsWith("gen_")) {
-                                            { onOpenGeneratedImage(id) }
-                                        } else null,
+                                        generated = true,
+                                        onOpen = { onOpenGeneratedImage(id) },
                                     )
+                                }
+                                if (otherIds.isNotEmpty()) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        otherIds.forEach { id ->
+                                            AttachmentChip(
+                                                attachmentId = id,
+                                                state = attachmentState(id),
+                                                attachmentStore = attachmentStore,
+                                                generated = false,
+                                                onOpen = null,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             if (msg.text.isNotBlank()) Spacer(Modifier.height(8.dp))

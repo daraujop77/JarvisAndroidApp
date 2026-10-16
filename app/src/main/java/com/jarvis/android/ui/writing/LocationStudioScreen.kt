@@ -640,6 +640,7 @@ private fun LocationAssetCard(
     showApprove: Boolean,
     showRetry: Boolean,
 ) {
+    var previewDecoded by remember(asset.asset_id) { mutableStateOf(false) }
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = Color(0xB30B1528),
@@ -655,6 +656,7 @@ private fun LocationAssetCard(
                 asset = asset,
                 attachmentId = state.attachmentIds[asset.asset_id],
                 vm = vm,
+                onDecodedChange = { previewDecoded = it },
             )
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -708,7 +710,7 @@ private fun LocationAssetCard(
                             onClick = { vm.approveLocationVisual(asset) },
                             enabled = (
                                 !state.busy &&
-                                    asset.storage.state == "stored"
+                                    canApproveVisualPreview(asset.storage.state, previewDecoded)
                                 ),
                             modifier = Modifier.weight(1f),
                         ) {
@@ -742,6 +744,7 @@ private fun LocationAssetPreview(
     asset: VisualStudioAsset,
     attachmentId: String?,
     vm: JarvisViewModel,
+    onDecodedChange: (Boolean) -> Unit = {},
 ) {
     val state by vm.locationStudio.collectAsStateWithLifecycle()
     LaunchedEffect(projectId, state.locationId, asset.asset_id, asset.storage.state) {
@@ -758,6 +761,7 @@ private fun LocationAssetPreview(
         description = "Referencia visual de locación",
         height = 260.dp,
         onRetry = { vm.loadLocationStudioAsset(projectId, asset.asset_id, retry = true) },
+        onDecodedChange = onDecodedChange,
     )
 }
 

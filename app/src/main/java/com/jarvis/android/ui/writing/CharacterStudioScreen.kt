@@ -1021,21 +1021,46 @@ fun CharacterStudioScreen(
                                     val approvable = batch.items.count {
                                         it.status == "CANDIDATE" || it.status == "CANDIDATE_EXISTING"
                                     }
+                                    var confirmBatchApproval by remember { mutableStateOf(false) }
                                     if (approvable > 0) {
                                         Spacer(Modifier.height(8.dp))
                                         Button(
-                                            onClick = {
-                                                vm.approveCharacterViewBatch(
-                                                    projectId,
-                                                    selectedCharacterId,
-                                                )
-                                            },
+                                            onClick = { confirmBatchApproval = true },
                                             enabled = !state.busy,
                                             modifier = Modifier.fillMaxWidth(),
                                         ) {
                                             Icon(Icons.Filled.Check, contentDescription = null)
                                             Spacer(Modifier.width(6.dp))
                                             Text("Aprobar " + approvable.toString() + " vistas del lote")
+                                        }
+                                        if (confirmBatchApproval) {
+                                            AlertDialog(
+                                                onDismissRequest = { confirmBatchApproval = false },
+                                                title = { Text("Aprobar vistas del lote") },
+                                                text = {
+                                                    Text(
+                                                        "Se aprobarán " + approvable.toString() +
+                                                            " vistas. Revisa cada vista en la galería antes de confirmar. " +
+                                                            "Las versiones anteriores se conservan.",
+                                                    )
+                                                },
+                                                confirmButton = {
+                                                    TextButton(
+                                                        onClick = {
+                                                            confirmBatchApproval = false
+                                                            vm.approveCharacterViewBatch(
+                                                                projectId,
+                                                                selectedCharacterId,
+                                                            )
+                                                        },
+                                                    ) { Text("Aprobar") }
+                                                },
+                                                dismissButton = {
+                                                    TextButton(onClick = { confirmBatchApproval = false }) {
+                                                        Text("Cancelar")
+                                                    }
+                                                },
+                                            )
                                         }
                                     }
                                 }
