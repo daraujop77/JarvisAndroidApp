@@ -2069,6 +2069,13 @@ private fun CopilotAssistantMessage(
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Recuperar imagen de este mensaje") }
+                        turn.historicalImageError?.let { message ->
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisAmber,
+                            )
+                        }
                     }
                     Spacer(Modifier.height(7.dp))
                     Text(
