@@ -88,6 +88,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -954,32 +955,36 @@ private fun ChatSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF94A3B8),
                             )
-                            val decodedViewIds = mutableSetOf<String>()
+                            // Decode off the UI thread and make each view
+                            // tappable/zoomable using the shared verified viewer.
+                            // Approved candidates are selected only after
+                            // successful decoding of these exact local bytes.
+                            val decodedViewIds = remember(batch.batch_id) {
+                                mutableStateMapOf<String, Boolean>()
+                            }
                             batch.items.forEach { view ->
                                 Spacer(Modifier.height(8.dp))
                                 Text(view.perspective.replace('_', ' ') + " · " + view.status,
                                     style = MaterialTheme.typography.bodySmall, color = JarvisCyan)
-                                val attachmentId = state.copilotViewPreviews[view.candidate_asset_id]
-                                if (!attachmentId.isNullOrBlank()) {
-                                    val preview = remember(attachmentId) {
-                                        vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
-                                    }
-                                    if (preview != null) {
-                                        decodedViewIds += view.candidate_asset_id
-                                        Image(
-                                            bitmap = preview.asImageBitmap(),
-                                            contentDescription = "Vista " + view.perspective,
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier.fillMaxWidth().height(230.dp)
-                                                .clip(RoundedCornerShape(12.dp)),
-                                        )
-                                    } else {
-                                        Text(
-                                            "No se puede mostrar la imagen",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = JarvisAmber,
-                                        )
-                                    }
+                                val assetId = view.candidate_asset_id
+                                val attachmentId = state.copilotViewPreviews[assetId]
+                                if (assetId.isNotBlank() && !attachmentId.isNullOrBlank()) {
+                                    com.jarvis.android.ui.writing.VisualAssetPreview(
+                                        attachmentId = attachmentId,
+                                        store = vm.attachmentStore,
+                                        stored = true,
+                                        loading = state.copilotViewLoading,
+                                        error = state.copilotViewError,
+                                        description = "Vista " + view.perspective,
+                                        height = 260.dp,
+                                        onRetry = {
+                                            vm.refreshCopilotCharacterViews(
+                                                projectId, batch.character_id)
+                                        },
+                                        onDecodedChange = {
+                                            decodedViewIds[assetId] = it
+                                        },
+                                    )
                                 } else if (view.status == "CANDIDATE" ||
                                     view.status == "CANDIDATE_EXISTING"
                                 ) {
@@ -990,7 +995,7 @@ private fun ChatSection(
                                 }
                             }
                             Spacer(Modifier.height(10.dp))
-                            val decodedIds = decodedViewIds.toSet()
+                            val decodedIds = decodedViewIds.filterValues { it }.keys.toSet()
                             Column {
                                 TextButton(
                                     onClick = {
@@ -1003,7 +1008,7 @@ private fun ChatSection(
                                 )
                                 if (ready.isNotEmpty()) {
                                     OutlinedButton(
-                                        onClick = { vm.approveCopilotCharacterViews(projectId, decodedIds) },
+                                        onClick = { vm.approveCopilotCharacterViews(projectId, ready.toSet()) },
                                         enabled = !state.copilotViewLoading && !state.busy,
                                     ) { Text("Aprobar ${ready.size} vistas verificadas") }
                                 }
