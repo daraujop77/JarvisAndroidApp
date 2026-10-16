@@ -107,6 +107,8 @@ fun CharacterStudioScreen(
     vm: JarvisViewModel,
     projectId: String,
     characters: List<WritingWikiEntity>,
+    requestedCharacterId: String = "",
+    openCharacterRequest: Int = 0,
     onEditInImageStudio: (String, String, VisualStudioAsset) -> Unit = { _, _, _ -> },
     headerContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -163,6 +165,15 @@ fun CharacterStudioScreen(
     LaunchedEffect(characterOptions) {
         if (selectedCharacterId.isBlank() || characterOptions.none { it.id == selectedCharacterId }) {
             selectedCharacterId = characterOptions.firstOrNull()?.id.orEmpty()
+        }
+    }
+    // An approved portrait opened from Copilot selects that exact character,
+    // including when the external reference catalog arrives asynchronously.
+    // This does not promote an external reference into the project Wiki.
+    LaunchedEffect(projectId, openCharacterRequest, characterOptions) {
+        if (openCharacterRequest > 0 && requestedCharacterId.isNotBlank() &&
+            characterOptions.any { it.id == requestedCharacterId }) {
+            selectedCharacterId = requestedCharacterId
         }
     }
     LaunchedEffect(projectId, selectedCharacterId) {
@@ -447,9 +458,14 @@ fun CharacterStudioScreen(
 
                 if (characterOptions.isEmpty()) {
                     Text(
-                        "No hay personajes disponibles en la Wiki de este proyecto.",
+                        "No se encontraron personajes de Wiki ni referencias externas.",
                         color = JarvisAmber,
                     )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { vm.loadCharacterStudioCatalog(projectId) },
+                        enabled = !state.busy,
+                    ) { Text("Reintentar catálogo de personajes") }
                 } else {
                     Row(
                         Modifier
