@@ -43,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,6 +62,7 @@ import com.jarvis.android.transport.live.VisualStudioAsset
 import com.jarvis.android.transport.live.VisualStudioReferencePack
 import com.jarvis.android.transport.live.WritingWikiEntity
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.pendingCopilotCharacterSelection
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisAmber
@@ -129,6 +131,9 @@ fun CharacterStudioScreen(
     var selectedCharacterId by rememberSaveable(projectId) {
         mutableStateOf(characterOptions.firstOrNull()?.id.orEmpty())
     }
+    var handledCopilotOpenRequest by rememberSaveable(projectId) {
+        mutableIntStateOf(0)
+    }
     var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var bulkMasterConfirmation by rememberSaveable(projectId) { mutableStateOf(false) }
@@ -171,9 +176,15 @@ fun CharacterStudioScreen(
     // including when the external reference catalog arrives asynchronously.
     // This does not promote an external reference into the project Wiki.
     LaunchedEffect(projectId, openCharacterRequest, characterOptions) {
-        if (openCharacterRequest > 0 && requestedCharacterId.isNotBlank() &&
-            characterOptions.any { it.id == requestedCharacterId }) {
-            selectedCharacterId = requestedCharacterId
+        val target = pendingCopilotCharacterSelection(
+            requestNumber = openCharacterRequest,
+            lastHandledRequest = handledCopilotOpenRequest,
+            requestedCharacterId = requestedCharacterId,
+            availableCharacterIds = characterOptions.map { it.id },
+        )
+        if (target != null) {
+            handledCopilotOpenRequest = openCharacterRequest
+            selectedCharacterId = target
         }
     }
     LaunchedEffect(projectId, selectedCharacterId) {
