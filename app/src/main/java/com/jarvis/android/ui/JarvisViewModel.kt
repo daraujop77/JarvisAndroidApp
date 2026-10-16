@@ -5190,6 +5190,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             state.busy ||
             parentAsset.project_id != state.projectId ||
             characterId != state.characterId ||
+            characterId !in parentAsset.character_ids ||
+            !state.assets.any {
+                it.asset_id == parentAsset.asset_id &&
+                    it.sha256.equals(parentAsset.sha256, ignoreCase = true) &&
+                    it.project_id == state.projectId &&
+                    it.status == "APPROVED"
+            } ||
             parentAsset.status != "APPROVED"
         ) {
             if (parentAsset.status != "APPROVED") {
@@ -5207,8 +5214,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     val file = container.attachmentStore.resolve(referenceAttachmentId)
                         ?: error("La imagen base ya no está disponible en el dispositivo.")
                     val bytes = file.readBytes()
-                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
-                        "La imagen base es demasiado grande."
+                    check(verifiedCharacterEditParent(
+                        state.projectId, characterId, parentAsset, bytes,
+                    )) {
+                        "La copia local no coincide con el master aprobado. Vuelve a descargarla antes de editar."
                     }
                     Base64.encodeToString(bytes, Base64.NO_WRAP)
                 }
