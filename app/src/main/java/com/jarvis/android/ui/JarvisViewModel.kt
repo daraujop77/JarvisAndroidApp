@@ -277,6 +277,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val candidateStatus: String? = null,
         val candidateStorageState: String? = null,
         val historicalRequestId: String? = null,
+        val historicalImageError: String? = null,
     )
 
     data class CopilotRecoveredPortrait(
@@ -714,6 +715,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val epoch = copilotRecoveryEpoch
         viewModelScope.launch {
             var unpublishedAttachmentId: String? = null
+            var published = false
             try {
                 val fetched = container.liveSession.writingRoomVisualAssetFetch(
                     projectId, assetId,
@@ -742,6 +744,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val turns = now.chatHistory.toMutableList()
                 turns[index] = turns[index].copy(
                     generatedPreviewAttachmentId = staged.attachmentId,
+                    historicalImageError = null,
                 )
                 // A late restored image belongs inside its originating chat
                 // message. Remove the redundant gallery entry, but never
@@ -755,6 +758,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         it.assetId == assetId
                     },
                 )
+                published = true
                 unpublishedAttachmentId = null // published in the original chat
                 val otherReferences = turns.mapNotNull {
                     it.generatedPreviewAttachmentId
@@ -768,6 +772,23 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 // not leave unpublished private thumbnails on the shared PC.
                 unpublishedAttachmentId?.let {
                     deleteVisualStudioAttachments(listOf(it))
+                }
+                if (!published && copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId) {
+                    val state = _writingWorkspace.value
+                    val failedIndex = state.chatHistory.indexOfFirst {
+                        it.historicalRequestId == requestId &&
+                            it.candidateAssetId == assetId &&
+                            it.generatedPreviewAttachmentId == null
+                    }
+                    if (failedIndex >= 0) {
+                        val history = state.chatHistory.toMutableList()
+                        history[failedIndex] = history[failedIndex].copy(
+                            historicalImageError =
+                                "No se pudo recuperar esta imagen verificada. Puedes reintentar.",
+                        )
+                        _writingWorkspace.value = state.copy(chatHistory = history)
+                    }
                 }
                 copilotHistoricalImageInFlight.remove(key)
             }
