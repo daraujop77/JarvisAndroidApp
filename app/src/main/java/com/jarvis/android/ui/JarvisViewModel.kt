@@ -574,6 +574,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             copilotTaskPollJob = null
             copilotTaskPollId = null
             deleteVisualStudioAttachments(_writingWorkspace.value.copilotViewPreviews.values)
+            // Archive-derived thumbnails live in the originating chat turns.
+            // They are protected project media, just like Character Studio.
+            deleteVisualStudioAttachments(
+                _writingWorkspace.value.chatHistory.mapNotNull {
+                    it.generatedPreviewAttachmentId
+                },
+            )
             deleteVisualStudioAttachments(
                 _writingWorkspace.value.copilotRecoveredPortraits.mapNotNull {
                     it.previewAttachmentId
@@ -735,7 +742,25 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 turns[index] = turns[index].copy(
                     generatedPreviewAttachmentId = staged.attachmentId,
                 )
-                _writingWorkspace.value = now.copy(chatHistory = turns)
+                // A late restored image belongs inside its originating chat
+                // message. Remove the redundant gallery entry, but never
+                // discard its file if both consumers share the same ID.
+                val duplicate = now.copilotRecoveredPortraits.filter {
+                    it.assetId == assetId
+                }
+                _writingWorkspace.value = now.copy(
+                    chatHistory = turns,
+                    copilotRecoveredPortraits = now.copilotRecoveredPortraits.filterNot {
+                        it.assetId == assetId
+                    },
+                )
+                val otherReferences = turns.mapNotNull {
+                    it.generatedPreviewAttachmentId
+                }.toSet() + now.approvedVisualAttachments.values +
+                    now.copilotViewPreviews.values
+                deleteVisualStudioAttachments(duplicate.mapNotNull {
+                    it.previewAttachmentId
+                }.filterNot { it in otherReferences })
             } finally {
                 copilotHistoricalImageInFlight.remove(key)
             }
