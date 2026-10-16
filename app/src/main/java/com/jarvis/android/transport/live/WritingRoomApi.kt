@@ -1723,6 +1723,49 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     recovered?.let { Result.success(it) } ?: streamResult
 }
 
+/** Durable server transcript: scoped to this authenticated project/conversation. */
+@Serializable
+data class WritingCopilotHistoryTurn(
+    val request_id: String = "",
+    val task_id: String = "",
+    val user_text: String = "",
+    val assistant_text: String = "",
+    val state: String = "",
+)
+
+@Serializable
+data class WritingCopilotHistory(
+    val schema: String = "",
+    val project_id: String = "",
+    val conversation_id: String = "",
+    val turns: List<WritingCopilotHistoryTurn> = emptyList(),
+)
+
+/** Restores historical chat text without replaying an action, model or provider.
+ * Unsupported older backend returns a failure; callers must preserve the
+ * existing latest-task and Visual Registry recovery instead.
+ */
+suspend fun JarvisAppSession.writingRoomCopilotHistory(
+    projectId: String,
+): Result<WritingCopilotHistory> {
+    val conversationId = runCatching { writingRoomConversationId(projectId) }.getOrNull()
+        ?: return Result.failure(TransportException("Missing Writing Room conversation scope"))
+    return writingPost(
+        "/api/app/writing-room/agent/history",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("conversation_id", conversationId)
+        },
+    ).mapCatching { result: WritingCopilotHistory ->
+        if (result.schema != "jarvis.writing-room.agent.history.v1" ||
+            result.project_id != projectId ||
+            result.conversation_id != conversationId ||
+            result.turns.size > 80
+        ) throw TransportException("Writing Room history scope mismatch")
+        result
+    }
+}
+
 /** Read the status of one exact interrupted agent request; never re-executes. */
 suspend fun JarvisAppSession.writingRoomAgentRequestStatus(
     projectId: String,
