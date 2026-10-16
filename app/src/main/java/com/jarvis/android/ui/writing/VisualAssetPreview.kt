@@ -3,6 +3,9 @@ package com.jarvis.android.ui.writing
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -11,9 +14,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.jarvis.android.data.media.AttachmentStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -62,7 +69,48 @@ internal fun VisualAssetPreview(
     }
     // produceState can keep the previous attachment's bitmap for a frame; it must never count as this one.
     val isDecoded = decoded.attachmentId == attachmentId && decoded.bitmap != null
+    var expanded by remember(attachmentId) { mutableStateOf(false) }
     LaunchedEffect(attachmentId, isDecoded) { onDecodedChange(isDecoded) }
+
+    val fullBitmap = decoded.bitmap.takeIf { isDecoded }
+    if (expanded && fullBitmap != null) {
+        var zoom by remember(attachmentId) { mutableFloatStateOf(1f) }
+        var pan by remember(attachmentId) { mutableStateOf(Offset.Zero) }
+        val transform = rememberTransformableState { zoomChange, panChange, _ ->
+            zoom = (zoom * zoomChange).coerceIn(1f, 6f)
+            pan = if (zoom <= 1f) Offset.Zero else pan + panChange
+        }
+        Dialog(
+            onDismissRequest = { expanded = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Box(
+                Modifier.fillMaxSize().background(Color(0xFF050B14)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    bitmap = fullBitmap.asImageBitmap(),
+                    contentDescription = description + ". Pellizca para ampliar o arrastra.",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = zoom
+                            scaleY = zoom
+                            translationX = pan.x
+                            translationY = pan.y
+                        }
+                        .transformable(transform),
+                )
+                TextButton(
+                    onClick = { expanded = false },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
+                ) {
+                    Text("Cerrar imagen", color = Color.White)
+                }
+            }
+        }
+    }
+
     Box(
         Modifier.fillMaxWidth().height(height)
             .background(Color(0xFF050B14), RoundedCornerShape(12.dp)),
@@ -70,7 +118,12 @@ internal fun VisualAssetPreview(
     ) {
         val bitmap = decoded.bitmap
         if (bitmap != null) {
-            Image(bitmap.asImageBitmap(), description, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            Image(
+                bitmap.asImageBitmap(),
+                description + ". Toca para ampliar.",
+                Modifier.fillMaxSize().clickable { expanded = true },
+                contentScale = ContentScale.Fit,
+            )
         } else {
             val decodeFailed = !attachmentId.isNullOrBlank() && decoded.finished
             Column(
