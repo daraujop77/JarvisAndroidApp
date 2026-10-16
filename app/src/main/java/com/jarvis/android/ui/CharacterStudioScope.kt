@@ -26,3 +26,23 @@ internal fun newCharacterStudioSelection(
             current.projectId == projectId
         },
     )
+
+
+/**
+ * Apply a Copilot navigation request once, after the exact character becomes
+ * available. Re-loading the catalog must never override a later manual choice.
+ * Requests for unknown characters stay pending instead of selecting the wrong
+ * character or inventing a Wiki entry.
+ */
+internal fun pendingCopilotCharacterSelection(
+    requestNumber: Int,
+    lastHandledRequest: Int,
+    requestedCharacterId: String,
+    availableCharacterIds: Collection<String>,
+): String? =
+    requestedCharacterId.takeIf {
+        requestNumber > 0 &&
+            requestNumber > lastHandledRequest &&
+            it.isNotBlank() &&
+            it in availableCharacterIds
+    }
