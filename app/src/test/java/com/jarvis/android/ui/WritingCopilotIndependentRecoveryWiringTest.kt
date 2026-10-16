@@ -42,4 +42,21 @@ class WritingCopilotIndependentRecoveryWiringTest {
             "_writingWorkspace.value.copilotRecoveredPortraits.mapNotNull"
         ) < loader.indexOf("WritingWorkspaceState(chatProjectId = projectId)"))
     }
+
+    @Test
+    fun galleryDisposesUnpublishedCopiesWhenAsyncRecoveryLosesItsProject() {
+        val viewModel = listOf(
+            File("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
+            File("../app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
+        ).first { it.isFile }.readText()
+        val code = viewModel.substringAfter("fun recoverWritingCopilotPortraits(projectId: String)")
+            .substringBefore("fun refreshKnowledgeAtlas(")
+        assertTrue(code.contains("val stagedThisRecovery = mutableSetOf<String>()"))
+        assertTrue(code.contains("if (!published)"))
+        assertTrue(code.contains("deleteVisualStudioAttachments(stagedThisRecovery)"))
+        assertTrue(code.contains("replacedCopilotPortraitCopies("))
+        assertTrue(code.contains("deleteVisualStudioAttachments(disposableIds)"))
+        assertTrue(code.contains("staged.mimeType == content.mime_type"))
+        assertTrue(code.contains("content.mime_type in setOf(\"image/png\", \"image/jpeg\", \"image/webp\")"))
+    }
 }
