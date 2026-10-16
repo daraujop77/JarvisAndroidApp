@@ -56,4 +56,35 @@ class CharacterStudioCatalogTest {
             sources, listOf(VisualExternalCharacter(character_id = "")))
         assertTrue(options.isEmpty())
     }
+
+    @Test fun approvedCopilotMasterRemainsReachableWhenWikiIsUnavailable() {
+        val options = mergeCharacterStudioOptions(
+            emptyList(), emptyList(), recoveredCharacterId = "character:alexander",
+        )
+        assertEquals(1, options.size)
+        assertEquals("character:alexander", options.single().id)
+        assertEquals("REFERENCE", options.single().authority)
+        assertTrue(options.single().role.contains("Wiki pendiente"))
+        // An untrusted or malformed target must never be offered as an option.
+        assertTrue(mergeCharacterStudioOptions(
+            emptyList(), emptyList(), recoveredCharacterId = "../foreign",
+        ).isEmpty())
+        assertTrue(mergeCharacterStudioOptions(
+            emptyList(), emptyList(), recoveredCharacterId = "character:../foreign",
+        ).isEmpty())
+    }
+
+    @Test fun loadedWikiCanonReplacesAnyRecoveredReferencePlaceholder() {
+        val official = WritingWikiEntity(
+            id = "character:alexander", name = "Alexander",
+            canonical_name = "Alexander", type = "character",
+            authority = "OFFICIAL_CANON",
+        )
+        val options = mergeCharacterStudioOptions(
+            listOf(official), emptyList(), recoveredCharacterId = "character:alexander",
+        )
+        assertEquals(1, options.size)
+        assertEquals("OFFICIAL_CANON", options.single().authority)
+        assertEquals("Alexander", options.single().name)
+    }
 }
