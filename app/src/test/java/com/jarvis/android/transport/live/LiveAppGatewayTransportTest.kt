@@ -220,6 +220,7 @@ class LiveAppGatewayTransportTest {
                             "mode": "local",
                             "general_agent": {"enabled": $advertiseGeneralAgent},
                             "access": {"owner_model_selection": true},
+                            "effort": {"default":"auto","options":[{"id":"auto","label":"Automático"},{"id":"low","label":"Bajo"},{"id":"medium","label":"Medio"},{"id":"high","label":"Alto"}],"profiles":["normal","fast"]},
                             "models": [
                               {"profile":"fast","label":"Fast","model":"qwen3.5:4b","state":"installed"},
                               {"profile":"normal","label":"Normal","model":"gemma4:12b-it-qat","state":"active"},
@@ -958,6 +959,9 @@ class LiveAppGatewayTransportTest {
         assertTrue("server confirms owner role", access?.isOwner == true)
         assertTrue("server grants owner selection", access?.ownerModelSelection == true)
         assertEquals(listOf("fast", "normal", "deep"), access?.entries?.map { it.profile })
+        assertEquals("auto", access?.effort?.default)
+        assertEquals(listOf("auto", "low", "medium", "high"), access?.effort?.options?.map { it.id })
+        assertEquals(listOf("normal", "fast"), access?.effort?.supportedProfiles)
         assertEquals("speed", access?.imageGeneration?.defaultMode)
         assertTrue(access?.imageGeneration?.ownerModelSelection == true)
         assertEquals(listOf("speed", "quality", "model_select"), access?.imageGeneration?.modes?.map { it.id })
@@ -1097,6 +1101,33 @@ class LiveAppGatewayTransportTest {
         // Same store after a restart still shows A's choice, B's default.
         assertEquals("fast", JarvisAppSession(store).chatProfileFor("cA"))
         assertEquals("normal", JarvisAppSession(store).chatProfileFor("cB"))
+    }
+
+    @Test
+    fun effortSelectionIsConversationLocalAndSentOnlyWhenForced() {
+        val session = JarvisAppSession(seededStore())
+        assertEquals("auto", session.chatEffortFor("cA"))
+        session.setChatEffortFor("cA", "high")
+        session.setChatEffortFor("cB", "low")
+        assertEquals("high", JarvisAppSession(session.store).chatEffortFor("cA"))
+        assertEquals("low", session.chatEffortFor("cB"))
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val a = repo.send("cA", "hard question")
+        val b = repo.send("cB", "simple question")
+        await { repo.snapshot.value.session.requests[a]?.status?.isTerminal == true }
+        await { repo.snapshot.value.session.requests[b]?.status?.isTerminal == true }
+        val bodyA = postedBodies.single { it.contains(a) }
+        val bodyB = postedBodies.single { it.contains(b) }
+        assertTrue(bodyA.contains("\\"effort\\":\\"high\\""))
+        assertTrue(bodyB.contains("\\"effort\\":\\"low\\""))
+        session.setChatEffortFor("cB", "auto")
+        val c = repo.send("cB", "no effort override")
+        await { repo.snapshot.value.session.requests[c]?.status?.isTerminal == true }
+        val bodyC = postedBodies.single { it.contains(c) }
+        assertTrue(!bodyC.contains("\\"effort\\":"))
     }
 
     @Test
