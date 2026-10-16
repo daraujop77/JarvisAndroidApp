@@ -81,6 +81,18 @@ class WritingCopilotIndependentRecoveryWiringTest {
         assertTrue(body.contains("generatedPreviewAttachmentId = staged.attachmentId"))
         assertTrue(body.contains("historicalImageError = null"))
         assertTrue(body.contains("No se pudo recuperar esta imagen verificada. Puedes reintentar."))
+        assertTrue(body.contains("retryUnreadableCopy: Boolean = false"))
+        assertTrue(body.contains("retryUnreadableCopy &&"))
+        assertTrue(body.contains("source.generatedPreviewAttachmentId"))
+        assertTrue(body.contains("it != staged.attachmentId"))
+        val screen = listOf(
+            File("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt"),
+            File("../app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt"),
+        ).first { it.isFile }.readText()
+        assertTrue(screen.contains("Redescargar original verificado"))
+        assertTrue(screen.contains("retryUnreadableCopy = true"))
+        assertTrue(screen.contains("decodedCandidate.first == turn.generatedPreviewAttachmentId"))
+        assertTrue(screen.contains("withContext(Dispatchers.IO)"))
         assertTrue(body.contains("copilotRecoveredPortraits = now.copilotRecoveredPortraits.filterNot"))
         assertTrue(!body.contains("editVisualAssetImage("))
         assertTrue(!body.contains("generateImage("))
