@@ -90,6 +90,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -115,6 +116,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.jarvis.android.transport.live.WritingChapter
 import com.jarvis.android.transport.live.WritingEngineReviewEnvelope
 import com.jarvis.android.transport.live.WritingExplorerEntry
@@ -2030,10 +2033,26 @@ private fun CopilotAssistantMessage(
                 // An attachment identifier is not proof that the image is visible.
                 // Keep the approval gate tied to the preview actually decoded
                 // from the authenticated, hash-verified cached attachment.
-                val candidatePreviewBitmap = remember(turn.generatedPreviewAttachmentId) {
-                    turn.generatedPreviewAttachmentId?.let { attachmentId ->
-                        vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
-                    }
+                val decodedCandidate by produceState(
+                    initialValue = Pair<String?, android.graphics.Bitmap?>(null, null),
+                    key1 = turn.generatedPreviewAttachmentId,
+                ) {
+                    val attachmentId = turn.generatedPreviewAttachmentId
+                    // The original is already SHA verified by the staging
+                    // path. Decode out of Compose's UI thread so historical
+                    // image recovery cannot freeze scrolling/gestures.
+                    value = attachmentId to (
+                        attachmentId?.let { id ->
+                            withContext(Dispatchers.IO) {
+                                vm.attachmentStore.decodeThumbnail(id, maxSize = 768)
+                            }
+                        }
+                    )
+                }
+                // While a new ID is decoding, never display the bitmap from
+                // the previous message or consider it valid for approval.
+                val candidatePreviewBitmap = decodedCandidate.second.takeIf {
+                    decodedCandidate.first == turn.generatedPreviewAttachmentId
                 }
                 turn.generatedPreviewAttachmentId?.let { attachmentId ->
                     val image = candidatePreviewBitmap
