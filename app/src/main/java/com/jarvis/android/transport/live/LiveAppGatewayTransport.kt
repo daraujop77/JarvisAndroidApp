@@ -620,6 +620,11 @@ class LiveAppGatewayTransport(
         return buildJsonObject {
             put("mode", "auto")
             put("profile", session.chatProfileFor(req.conversationId))
+            // Never send forced effort unless the user selected one. Legacy
+            // deployments continue to use the provider's native defaults.
+            session.chatEffortFor(req.conversationId).takeIf { it != "auto" }?.let {
+                put("effort", it)
+            }
             put("session_id", sessionId)
             put("conversation_id", req.conversationId)
             put("device_id", deviceId)
