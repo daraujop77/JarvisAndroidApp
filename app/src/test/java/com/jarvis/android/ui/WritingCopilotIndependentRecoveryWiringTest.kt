@@ -79,6 +79,8 @@ class WritingCopilotIndependentRecoveryWiringTest {
         assertTrue(body.contains("unpublishedAttachmentId?.let"))
         assertTrue(body.contains("deleteVisualStudioAttachments(listOf(it))"))
         assertTrue(body.contains("generatedPreviewAttachmentId = staged.attachmentId"))
+        assertTrue(body.contains("historicalImageError = null"))
+        assertTrue(body.contains("No se pudo recuperar esta imagen verificada. Puedes reintentar."))
         assertTrue(body.contains("copilotRecoveredPortraits = now.copilotRecoveredPortraits.filterNot"))
         assertTrue(!body.contains("editVisualAssetImage("))
         assertTrue(!body.contains("generateImage("))
