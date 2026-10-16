@@ -1839,33 +1839,56 @@ private fun CopilotAssistantMessage(
     var expandedVisual by remember { mutableStateOf<String?>(null) }
     var expandedSource by remember { mutableStateOf<Pair<String, String>?>(null) }
     expandedVisual?.let { imageId ->
-        val fullImage = remember(imageId) {
-            vm.attachmentStore.decodeThumbnail(imageId, maxSize = 1600)
+        val decodedDialog by produceState(
+            initialValue = Triple<String?, android.graphics.Bitmap?, Boolean>(
+                null, null, false,
+            ),
+            key1 = imageId,
+        ) {
+            val bitmap = withContext(Dispatchers.IO) {
+                vm.attachmentStore.decodeThumbnail(imageId, maxSize = 1600)
+            }
+            value = Triple(imageId, bitmap, true)
         }
-        if (fullImage != null) {
-            AlertDialog(
-                onDismissRequest = {
-                    expandedVisual = null
-                    expandedSource = null
-                },
-                title = { Text("Referencia visual del chat") },
-                text = {
-                    Image(
+        val dialogFinished = decodedDialog.first == imageId && decodedDialog.third
+        val fullImage = decodedDialog.second.takeIf { dialogFinished }
+        AlertDialog(
+            onDismissRequest = {
+                expandedVisual = null
+                expandedSource = null
+            },
+            title = { Text("Referencia visual del chat") },
+            text = {
+                when {
+                    fullImage != null -> Image(
                         bitmap = fullImage.asImageBitmap(),
                         contentDescription = "Imagen ampliada",
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxWidth().height(450.dp),
                     )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        expandedVisual = null
-                        expandedSource = null
-                    }) {
-                        Text("Cerrar")
+                    dialogFinished -> Text(
+                        "No se pudo abrir esta copia. Regresa al mensaje y recupera el original.",
+                        color = JarvisAmber,
+                    )
+                    else -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Abriendo imagen…")
                     }
-                },
-                dismissButton = {
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    expandedVisual = null
+                    expandedSource = null
+                }) {
+                    Text("Cerrar")
+                }
+            },
+            dismissButton = {
+                if (fullImage != null) {
                     expandedSource?.let { (assetId, sha) ->
                         TextButton(onClick = {
                             expandedVisual = null
@@ -1875,9 +1898,9 @@ private fun CopilotAssistantMessage(
                             Text("Editar en Copilot")
                         }
                     }
-                },
-            )
-        }
+                }
+            },
+        )
     }
 
     Row(
