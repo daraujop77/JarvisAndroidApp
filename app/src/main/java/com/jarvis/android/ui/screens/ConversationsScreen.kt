@@ -784,8 +784,9 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 )
             }
 
-            ProfileChipRow(vm, locked = chatStreaming)
-            EffortChipRow(vm, locked = chatStreaming)
+            // The backend continues to own model routing. Only the compact
+            // per-conversation effort control belongs in this chat surface.
+            EffortMenuButton(vm, locked = busy)
 
             if (chatStreaming) {
                 ScanLine(active = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp))
@@ -1098,94 +1099,78 @@ private fun GeneratedImagePreviewDialog(
 }
 
 /**
- * PCB-LIVE-4: owner chat-profile chips. The catalog is **server-driven** —
- * entries come from PC-A's `/api/app/status` (`chat.models[]`) and the row is
- * hidden unless that same response grants `owner_model_selection`. The client
- * never hardcodes models.
+ * Compact, server-driven effort menu. The selected model/profile and existing
+ * Gateway routing stay unchanged. No model selection is presented in Chat.
+ * During any in-flight response the button and options are non-interactive.
  */
 @Composable
-private fun ProfileChipRow(vm: JarvisViewModel, locked: Boolean = false) {
+private fun EffortMenuButton(vm: JarvisViewModel, locked: Boolean) {
     val access = vm.chatAccess.collectAsStateWithLifecycle().value ?: return
-    val selected by vm.chatProfile.collectAsStateWithLifecycle()
-    val accents = LocalJarvisAccents.current
-    val entries = access.entries
-    if (!access.ownerModelSelection || entries.size < 2) return
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(entries, key = { it.profile }) { entry ->
-            val active = entry.profile == selected
-            Surface(
-                onClick = { if (!locked) vm.setChatProfile(entry.profile) },
-                enabled = !locked,
-                shape = RoundedCornerShape(50),
-                color = if (active) accents.orbGlow.copy(alpha = 0.22f)
-                else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
-                border = BorderStroke(
-                    1.dp,
-                    if (active) accents.orbGlow.copy(alpha = 0.55f)
-                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                ),
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) {
-                Text(
-                    entry.label.ifBlank { entry.profile },
-                    style = HudTextStyle,
-                    color = if (active) accents.orbGlow else Color(0xFFB7C7DC),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-            }
-        }
-    }
-}
-
-/**
- * Effort is separate from model selection, hidden unless server advertises
- * supported profiles and choices. Auto is the default and sends no override.
- */
-@Composable
-private fun EffortChipRow(vm: JarvisViewModel, locked: Boolean = false) {
-    val access = vm.chatAccess.collectAsStateWithLifecycle().value ?: return
-    val options = access.effort ?: return
+    val effort = access.effort ?: return
     val profile by vm.chatProfile.collectAsStateWithLifecycle()
     val selected by vm.chatEffort.collectAsStateWithLifecycle()
-    if (!access.isOwner || profile !in options.supportedProfiles || options.options.size < 2) return
+    if (!access.isOwner || profile !in effort.supportedProfiles ||
+        effort.options.size < 2) return
+
     val accents = LocalJarvisAccents.current
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            "Esfuerzo · " + (options.options.firstOrNull { it.id == selected }?.label
-                ?: "Automático"),
-            style = HudTextStyle,
-            color = Color(0xFFB7C7DC),
-            modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 4.dp),
-        )
-        LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            items(options.options, key = { it.id }) { entry ->
-                val active = entry.id == selected
-                Surface(
-                    onClick = { if (!locked) vm.setChatEffort(entry.id) },
-                    enabled = !locked,
-                    shape = RoundedCornerShape(50),
-                    color = if (active) accents.orbGlow.copy(alpha = 0.22f)
-                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
-                    border = BorderStroke(
-                        1.dp,
-                        if (active) accents.orbGlow.copy(alpha = 0.55f)
-                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                    ),
-                    modifier = Modifier.heightIn(min = 44.dp),
+    var expanded by remember { mutableStateOf(false) }
+    LaunchedEffect(locked) {
+        if (locked) expanded = false
+    }
+    val selection = effort.options.firstOrNull { it.id == selected }
+        ?: effort.options.firstOrNull { it.id == "auto" }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box {
+            Surface(
+                onClick = { expanded = true },
+                enabled = !locked,
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                border = BorderStroke(
+                    1.dp, accents.orbGlow.copy(alpha = if (locked) 0.20f else 0.42f),
+                ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    Icon(
+                        Icons.Filled.AutoAwesome,
+                        contentDescription = null,
+                        tint = if (locked) MaterialTheme.colorScheme.onSurfaceVariant
+                               else accents.orbGlow,
+                        modifier = Modifier.size(16.dp),
+                    )
                     Text(
-                        entry.label,
+                        "Esfuerzo: " + (selection?.label ?: "Automático"),
                         style = HudTextStyle,
-                        color = if (active) accents.orbGlow else Color(0xFFB7C7DC),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        color = if (locked) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = expanded && !locked,
+                onDismissRequest = { expanded = false },
+            ) {
+                effort.options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        leadingIcon = {
+                            if (option.id == selected) {
+                                Icon(Icons.Filled.Check, contentDescription = null)
+                            }
+                        },
+                        enabled = !locked,
+                        onClick = {
+                            if (!locked) vm.setChatEffort(option.id)
+                            expanded = false
+                        },
                     )
                 }
             }
