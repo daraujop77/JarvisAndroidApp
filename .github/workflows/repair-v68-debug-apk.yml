@@ -1,7 +1,7 @@
 name: JARVIS v68 isolated debug APK smoke build
 
-# Build-only checkpoint for PR #80. This workflow cannot sign or publish the
-# official package; its debug suffix allows a separate test installation.
+# Build-only checkpoint for the integrated v68 feature test. No publishing or signing.
+# A separate debug package can be installed alongside the official application.
 on:
   pull_request:
     types: [opened, reopened, synchronize]
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   isolated-apk:
-    if: github.repository == 'daraujop77/JarvisAndroidApp' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 80)
+    if: github.repository == 'daraujop77/JarvisAndroidApp' && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.ref == 'integration/preapk-all-features-20261015' && github.event.pull_request.base.ref == 'repair/writing-room-image-stability-20261015'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
