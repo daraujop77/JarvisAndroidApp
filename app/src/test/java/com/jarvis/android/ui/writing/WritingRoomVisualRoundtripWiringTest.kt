@@ -43,6 +43,10 @@ class WritingRoomVisualRoundtripWiringTest {
         assertTrue(characters.contains("VisualAssetPreview("))
         assertTrue(vm.contains("matchesListedVisualAssetReceipt(projectId, listedAsset, content)"))
         assertTrue(vm.contains("verifiedCharacterEditParent("))
+        val edit = vm.substring(vm.indexOf("fun editCharacterVisualInStudio("))
+        assertTrue(edit.contains("!settings.value.isOwner"))
+        assertTrue(edit.indexOf("verifiedCharacterEditParent(") <
+            edit.indexOf("container.liveSession.editVisualAssetImage("))
         assertTrue(vm.contains("recoverWritingCopilotPortraits(projectId)"))
     }
 }
