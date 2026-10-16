@@ -701,13 +701,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
      */
     fun recoverCopilotHistoricalImage(
         projectId: String, requestId: String, assetId: String,
+        retryUnreadableCopy: Boolean = false,
     ) {
         val current = _writingWorkspace.value
         if (current.chatProjectId != projectId) return
         val source = current.chatHistory.singleOrNull {
             it.historicalRequestId == requestId && it.candidateAssetId == assetId &&
                 it.candidateStorageState == "stored" &&
-                it.generatedPreviewAttachmentId == null &&
+                (retryUnreadableCopy || it.generatedPreviewAttachmentId == null) &&
                 Regex("^[a-fA-F0-9]{64}$").matches(it.candidateSha256.orEmpty())
         } ?: return
         val key = "$projectId:$requestId:$assetId"
@@ -735,7 +736,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.historicalRequestId == requestId &&
                         it.candidateAssetId == assetId &&
                         it.candidateSha256.equals(fetched.sha256, ignoreCase = true) &&
-                        it.generatedPreviewAttachmentId == null
+                        (it.generatedPreviewAttachmentId == null ||
+                            retryUnreadableCopy &&
+                            it.generatedPreviewAttachmentId == source.generatedPreviewAttachmentId)
                 }
                 if (copilotRecoveryEpoch != epoch || now.chatProjectId != projectId ||
                     index < 0 || staged.mimeType != fetched.mime_type) {
@@ -764,9 +767,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     it.generatedPreviewAttachmentId
                 }.toSet() + now.approvedVisualAttachments.values +
                     now.copilotViewPreviews.values
-                deleteVisualStudioAttachments(duplicate.mapNotNull {
+                val oldUnreadableCopy = source.generatedPreviewAttachmentId
+                    ?.takeIf { retryUnreadableCopy && it != staged.attachmentId }
+                val staleCopies = duplicate.mapNotNull {
                     it.previewAttachmentId
-                }.filterNot { it in otherReferences })
+                } + listOfNotNull(oldUnreadableCopy)
+                deleteVisualStudioAttachments(staleCopies.filterNot {
+                    it in otherReferences
+                })
             } finally {
                 // Network cancellation, a project switch or an exception must
                 // not leave unpublished private thumbnails on the shared PC.
@@ -779,7 +787,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     val failedIndex = state.chatHistory.indexOfFirst {
                         it.historicalRequestId == requestId &&
                             it.candidateAssetId == assetId &&
-                            it.generatedPreviewAttachmentId == null
+                            (it.generatedPreviewAttachmentId == null || retryUnreadableCopy)
                     }
                     if (failedIndex >= 0) {
                         val history = state.chatHistory.toMutableList()
