@@ -143,6 +143,14 @@ internal fun VisualAssetPreview(
                         OutlinedButton(onClick = onRetry, enabled = !loading) { Text("Reintentar") }
                     }
                     !stored -> Text("Pendiente de Drive", color = Color(0xFF94A3B8))
+                    attachmentId.isNullOrBlank() && !loading -> {
+                        Text(
+                            "La imagen está registrada, pero falta recuperar la copia verificada.",
+                            color = Color(0xFF94A3B8),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        OutlinedButton(onClick = onRetry) { Text("Recuperar imagen") }
+                    }
                     else -> {
                         CircularProgressIndicator()
                         Text("Cargando imagen…", color = Color(0xFF94A3B8))
