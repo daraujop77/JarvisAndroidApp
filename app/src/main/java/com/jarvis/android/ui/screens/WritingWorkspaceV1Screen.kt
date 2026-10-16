@@ -2080,6 +2080,7 @@ private fun CopilotAssistantMessage(
                     // decodes. For old turns, offer a fresh authenticated
                     // download of the SAME SHA-pinned asset, never generation.
                     if (turn.historicalRequestId != null &&
+                        turn.candidateStorageState == "stored" &&
                         turn.generatedPreviewAttachmentId != null &&
                         decodedCandidate.first == turn.generatedPreviewAttachmentId &&
                         candidatePreviewBitmap == null
