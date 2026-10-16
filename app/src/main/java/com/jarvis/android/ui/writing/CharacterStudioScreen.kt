@@ -84,11 +84,26 @@ fun CharacterStudioScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val accents = LocalJarvisAccents.current
 
-    val characterOptions = remember(characters) {
-        characters
+    val characterOptions = remember(characters, state.externalCharacters) {
+        val wikiCharacters = characters
             .filter { it.id.isNotBlank() && it.type.equals("character", ignoreCase = true) }
+        val wikiIds = wikiCharacters.map { it.id }.toSet()
+        val externalOnly = state.externalCharacters
+            .filter { it.character_id.isNotBlank() && it.character_id !in wikiIds }
+            .map { external ->
+                WritingWikiEntity(
+                    id = external.character_id,
+                    type = "character",
+                    name = external.display_name,
+                    canonical_name = external.display_name,
+                    authority = "REFERENCE",
+                    role = "Referencia visual externa · " + external.franchise,
+                    summary = "Disponible para Visual Studio sin modificar el canon narrativo.",
+                )
+            }
+        (wikiCharacters + externalOnly)
             .distinctBy { it.id }
-            .sortedBy { it.name.lowercase() }
+            .sortedBy { (it.canonical_name.ifBlank { it.name }).lowercase() }
     }
     var selectedCharacterId by rememberSaveable(projectId) {
         mutableStateOf(characterOptions.firstOrNull()?.id.orEmpty())
@@ -639,6 +654,56 @@ fun CharacterStudioScreen(
                             "No existe un visual canon bloqueado suficiente para este personaje. Define y guarda su apariencia antes de generar un master.",
                             style = MaterialTheme.typography.bodySmall,
                             color = JarvisAmber,
+                        )
+                    }
+                    if (state.characterVariants.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "VARIANTE CANÓNICA EXTERNA",
+                            style = HudTextStyle,
+                            color = JarvisViolet,
+                        )
+                        if (characterDirectionDraft.franchise.isNotBlank()) {
+                            Text(
+                                characterDirectionDraft.franchise +
+                                    if (characterDirectionDraft.seed_era.isNotBlank()) {
+                                        " · " + characterDirectionDraft.seed_era
+                                    } else {
+                                        ""
+                                    },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF94A3B8),
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            state.characterVariants.forEach { variant ->
+                                val selected = characterDirectionDraft.seed_variant == variant.variant_id
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        if (!selected && settings.isOwner) {
+                                            vm.applyExternalCharacterVariant(
+                                                projectId,
+                                                selectedCharacterId,
+                                                variant.variant_id,
+                                                characterDirectionDraft.revision,
+                                            )
+                                        }
+                                    },
+                                    label = { Text(variant.display_name) },
+                                )
+                            }
+                        }
+                        Text(
+                            "Estas variantes sólo controlan la referencia visual; no añaden ni cambian hechos de la historia.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF8BA2BE),
                         )
                     }
                     Spacer(Modifier.height(8.dp))
