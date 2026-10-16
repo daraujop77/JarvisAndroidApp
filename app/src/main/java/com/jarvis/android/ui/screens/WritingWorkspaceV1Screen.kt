@@ -2076,6 +2076,36 @@ private fun CopilotAssistantMessage(
                     }
                 }
                 turn.candidateAssetId?.let { assetId ->
+                    // An attachment ID is not proof that a cached Bitmap
+                    // decodes. For old turns, offer a fresh authenticated
+                    // download of the SAME SHA-pinned asset, never generation.
+                    if (turn.historicalRequestId != null &&
+                        turn.generatedPreviewAttachmentId != null &&
+                        decodedCandidate.first == turn.generatedPreviewAttachmentId &&
+                        candidatePreviewBitmap == null
+                    ) {
+                        Text(
+                            "La copia local de esta imagen no se puede abrir.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisAmber,
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                vm.recoverCopilotHistoricalImage(
+                                    projectId, turn.historicalRequestId, assetId,
+                                    retryUnreadableCopy = true,
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Redescargar original verificado") }
+                        turn.historicalImageError?.let { message ->
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisAmber,
+                            )
+                        }
+                    }
                     if (turn.historicalRequestId != null &&
                         turn.candidateStorageState == "stored" &&
                         turn.generatedPreviewAttachmentId == null
