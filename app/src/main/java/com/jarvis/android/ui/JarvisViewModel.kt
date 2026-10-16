@@ -388,6 +388,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     private var copilotTaskPollId: String? = null
     private var copilotRecoveryEpoch = 0L
     private var copilotHistoryEpoch = 0L
+    private val copilotHistoricalImageInFlight = mutableSetOf<String>()
     private var copilotRecoveryActiveProject: String? = null
     private var copilotViewPollJob: Job? = null
     private var copilotAppearanceEpoch = 0L
@@ -671,6 +672,73 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     projectId, history, current.chatHistory,
                 ),
             )
+            // Only the newest historical previews download automatically.
+            // Earlier retained turns remain individually recoverable on tap.
+            _writingWorkspace.value.chatHistory.takeLast(20).forEach { turn ->
+                if (turn.historicalRequestId != null &&
+                    turn.candidateAssetId != null &&
+                    turn.generatedPreviewAttachmentId == null) {
+                    recoverCopilotHistoricalImage(
+                        projectId, turn.historicalRequestId, turn.candidateAssetId,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Download the exact archived candidate into its ORIGINAL message.
+     * Only the authenticated Visual Registry can supply bytes, and staging
+     * requires its archived per-request SHA. No paid operation is dispatched.
+     */
+    fun recoverCopilotHistoricalImage(
+        projectId: String, requestId: String, assetId: String,
+    ) {
+        val current = _writingWorkspace.value
+        if (current.chatProjectId != projectId) return
+        val source = current.chatHistory.singleOrNull {
+            it.historicalRequestId == requestId && it.candidateAssetId == assetId &&
+                it.candidateStorageState == "stored" &&
+                it.generatedPreviewAttachmentId == null &&
+                Regex("^[a-fA-F0-9]{64}$").matches(it.candidateSha256.orEmpty())
+        } ?: return
+        val key = "$projectId:$requestId:$assetId"
+        if (!copilotHistoricalImageInFlight.add(key)) return
+        val epoch = copilotRecoveryEpoch
+        viewModelScope.launch {
+            try {
+                val fetched = container.liveSession.writingRoomVisualAssetFetch(
+                    projectId, assetId,
+                ).getOrNull() ?: return@launch
+                if (fetched.asset_id != assetId ||
+                    !fetched.sha256.equals(source.candidateSha256, ignoreCase = true) ||
+                    fetched.mime_type !in setOf("image/jpeg", "image/png", "image/webp")
+                ) return@launch
+                val staged = withContext(Dispatchers.IO) {
+                    container.attachmentStore.stageVisualAssetBase64(
+                        fetched.image_base64, source.candidateSha256.orEmpty(),
+                    )
+                } ?: return@launch
+                val now = _writingWorkspace.value
+                val index = now.chatHistory.indexOfFirst {
+                    it.historicalRequestId == requestId &&
+                        it.candidateAssetId == assetId &&
+                        it.candidateSha256.equals(fetched.sha256, ignoreCase = true) &&
+                        it.generatedPreviewAttachmentId == null
+                }
+                if (copilotRecoveryEpoch != epoch || now.chatProjectId != projectId ||
+                    index < 0 || staged.mimeType != fetched.mime_type) {
+                    deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                    return@launch
+                }
+                val turns = now.chatHistory.toMutableList()
+                turns[index] = turns[index].copy(
+                    generatedPreviewAttachmentId = staged.attachmentId,
+                )
+                _writingWorkspace.value = now.copy(chatHistory = turns)
+            } finally {
+                copilotHistoricalImageInFlight.remove(key)
+            }
         }
     }
 
