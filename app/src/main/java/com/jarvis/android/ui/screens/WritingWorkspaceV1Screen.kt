@@ -2057,6 +2057,19 @@ private fun CopilotAssistantMessage(
                     }
                 }
                 turn.candidateAssetId?.let { assetId ->
+                    if (turn.historicalRequestId != null &&
+                        turn.candidateStorageState == "stored" &&
+                        turn.generatedPreviewAttachmentId == null
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                vm.recoverCopilotHistoricalImage(
+                                    projectId, turn.historicalRequestId, assetId,
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Recuperar imagen de este mensaje") }
+                    }
                     Spacer(Modifier.height(7.dp))
                     Text(
                         "Referencia ${turn.candidateStatus ?: "CANDIDATE"} · ID ${assetId}",
