@@ -81,6 +81,7 @@ import com.jarvis.android.ui.theme.jarvisTextFieldColors
 internal fun mergeCharacterStudioOptions(
     characters: List<WritingWikiEntity>,
     externalCharacters: List<com.jarvis.android.transport.live.VisualExternalCharacter>,
+    recoveredCharacterId: String = "",
 ): List<WritingWikiEntity> {
     val wikiCharacters = characters.filter {
         it.id.isNotBlank() && it.type.equals("character", ignoreCase = true)
@@ -99,7 +100,23 @@ internal fun mergeCharacterStudioOptions(
                 summary = "Disponible para Visual Studio sin modificar el canon narrativo.",
             )
         }
-    return (wikiCharacters + externalOnly)
+    // Copilot can possess an approved, verified master while a Wiki request
+    // is down. Permit navigation to its exact character ID without inventing
+    // OFFICIAL_CANON or inserting anything into the Wiki.
+    val pendingWiki = recoveredCharacterId.takeIf {
+        it.matches(Regex("^character:[A-Za-z0-9_-]{1,120}$")) &&
+            it !in wikiIds && externalOnly.none { option -> option.id == it }
+    }?.let { id ->
+        WritingWikiEntity(
+            id = id,
+            type = "character",
+            name = id.substringAfter(':').replace('-', ' '),
+            authority = "REFERENCE",
+            role = "Retrato recuperado · Wiki pendiente de verificar",
+            summary = "Solo acceso visual al asset existente, sin promoverlo a canon.",
+        )
+    }
+    return (wikiCharacters + externalOnly + listOfNotNull(pendingWiki))
         .distinctBy { it.id }
         .sortedBy { (it.canonical_name.ifBlank { it.name }).lowercase() }
 }
@@ -125,8 +142,10 @@ fun CharacterStudioScreen(
         vm.loadCharacterStudioCatalog(projectId)
     }
 
-    val characterOptions = remember(characters, state.externalCharacters) {
-        mergeCharacterStudioOptions(characters, state.externalCharacters)
+    val characterOptions = remember(characters, state.externalCharacters, requestedCharacterId) {
+        mergeCharacterStudioOptions(
+            characters, state.externalCharacters, recoveredCharacterId = requestedCharacterId,
+        )
     }
     var selectedCharacterId by rememberSaveable(projectId) {
         mutableStateOf(characterOptions.firstOrNull()?.id.orEmpty())
