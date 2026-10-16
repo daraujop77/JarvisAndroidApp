@@ -30,6 +30,20 @@ class WritingRoomVisualRoundtripWiringTest {
         assertTrue(visual.contains("vm.editCharacterVisualInStudio("))
     }
 
+    @Test fun historicalChatImagesDecodeOnIoAndNeverShowPreviousAssetForApproval() {
+        val writing = source("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
+        val visualStart = writing.indexOf("val decodedCandidate by produceState(")
+        val approval = writing.indexOf("candidatePreviewBitmap != null", visualStart)
+        assertTrue(visualStart >= 0 && approval > visualStart)
+        val block = writing.substring(visualStart, approval)
+        assertTrue(block.contains("key1 = turn.generatedPreviewAttachmentId"))
+        assertTrue(block.contains("withContext(Dispatchers.IO)"))
+        assertTrue(block.contains("vm.attachmentStore.decodeThumbnail(id, maxSize = 768)"))
+        assertTrue(block.contains("decodedCandidate.first == turn.generatedPreviewAttachmentId"))
+        // A synchronous BitmapFactory decode in composition freezes the chat.
+        assertTrue(!block.contains("remember(turn.generatedPreviewAttachmentId) {"))
+    }
+
     @Test fun gallerySupportsZoomAndReadOnlyRecoveryWithoutGeneratingAgain() {
         val writing = source("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
         val characters = source("app/src/main/java/com/jarvis/android/ui/writing/CharacterStudioScreen.kt")
