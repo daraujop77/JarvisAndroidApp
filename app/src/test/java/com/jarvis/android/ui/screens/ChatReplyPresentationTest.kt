@@ -32,8 +32,10 @@ class ChatReplyPresentationTest {
     @Test fun naturalSpanishReferenceFooterIsCompactLikeRealDeviceReport() {
         val raw = "Victor von Doom es un personaje Marvel.\n\nReferencias confiables\n" +
             "• Marvel, ficha oficial\nhttps://www.marvel.com/characters/doctor-doom-victor-von-doom"
-        // Not a supported footer marker: leave prose untouched rather than lose links.
-        assertEquals(raw, splitChatSources(raw).body)
+        val phone = splitChatSources(raw)
+        assertEquals("Victor von Doom es un personaje Marvel.", phone.body)
+        assertEquals(1, phone.sources.size)
+        assertEquals("Marvel, ficha oficial", phone.sources.single().title)
         val bullets = "Victor von Doom es un personaje Marvel.\n\nReferencias confiables\n" +
             "- Marvel, ficha oficial:\nhttps://www.marvel.com/characters/doctor-doom-victor-von-doom\n" +
             "- Alexander History, capítulos 31–35:\nhttps://docs.google.com/document/d/example/edit"
