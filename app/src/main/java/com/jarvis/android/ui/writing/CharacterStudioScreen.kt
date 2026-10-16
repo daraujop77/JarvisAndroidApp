@@ -227,7 +227,7 @@ fun CharacterStudioScreen(
                 Text(
                     (if (isMaster) "Se solicitará un master frontal de cuerpo completo"
                         else "Se solicitará una vista ${prettyPerspective(selectedPerspective)}") +
-                        " de ${selectedCharacterName.ifBlank { "este personaje" }} con GPT Image 2 Medium. " +
+                        " de ${selectedCharacterName.ifBlank { "este personaje" }} con el modelo de imagen configurado en Writing Room. " +
                         "La imagen puede tener costo y se guardará como candidata, sin aprobación automática."
                 )
             },
@@ -278,7 +278,7 @@ fun CharacterStudioScreen(
             text = {
                 Text(
                     "JARVIS solicitará las perspectivas faltantes usando el master aprobado " +
-                        "de ${selectedCharacterName.ifBlank { "este personaje" }} y GPT Image 2 Medium. " +
+                        "de ${selectedCharacterName.ifBlank { "este personaje" }} y el modelo de imagen configurado en Writing Room. " +
                         "Puede efectuar varias generaciones de pago y hasta dos correcciones " +
                         "automáticas. Las imágenes nuevas serán candidatas y necesitarán aprobación."
                 )
@@ -314,7 +314,7 @@ fun CharacterStudioScreen(
             title = { Text("Confirmar generación de masters") },
             text = {
                 Text(
-                    "Se solicitarán $count imágenes de pago con GPT Image 2 Medium. " +
+                    "Se solicitarán $count imágenes de pago con el modelo de imagen configurado en Writing Room. " +
                         "Cada master será una referencia frontal de cuerpo completo; " +
                         "el estilo visual del proyecto será el mismo para todos. " +
                         "Las imágenes se guardan como candidatas y requieren aprobación."
