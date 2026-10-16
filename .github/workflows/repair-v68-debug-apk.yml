@@ -28,13 +28,18 @@ jobs:
       - name: Assemble debug package only
         run: |
           chmod +x gradlew
-          # This isolated package MUST bootstrap into the localhost SSH
-          # tunnel, never silently into the production Gateway.
-          ./gradlew :app:assembleDebug \
-            -PjarvisBootstrapGateway=http://127.0.0.1:18789 --stacktrace
-          grep -R -F 'http://127.0.0.1:18789' \
+          # Preserve the existing Android Gateway configuration. The app
+          # already uses an HTTPS endpoint and the owner's saved URL takes
+          # precedence. No SSH tunnel, new port or private-stage redirect.
+          ./gradlew :app:assembleDebug --stacktrace
+          grep -R -F 'https://40-160-143-245.sslip.io:8443' \
             app/build/generated/source/buildConfig/debug/ >/dev/null
-          echo PREAPK_DEBUG_BOOTSTRAP_LOCAL_ONLY=PASS
+          if grep -R -F 'http://127.0.0.1:18789' \
+              app/build/generated/source/buildConfig/debug/; then
+            echo 'Unexpected private-stage Gateway in Android debug build' >&2
+            exit 1
+          fi
+          echo PREAPK_DEBUG_EXISTING_GATEWAY=PASS
       - name: Validate actual APK identity and integrity
         shell: bash
         run: |
@@ -62,7 +67,7 @@ jobs:
       - name: Upload isolated debug APK (never a production update)
         uses: actions/upload-artifact@v4
         with:
-          name: JARVIS-v68-private-stage-debug-test-only
+          name: JARVIS-v68-existing-gateway-debug-test-only
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
