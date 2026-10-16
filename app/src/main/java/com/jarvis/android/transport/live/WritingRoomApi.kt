@@ -1576,8 +1576,8 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     val stableConversationId = writingRoomConversationId(projectId)
     var usingAdaptive = true
     // Only an accepted adaptive SSE stream may need exact-request recovery.
-    // A pre-execution HTTP rejection (503/429/400) never triggers another
-    // request or falls back to the legacy stream.
+    // A pre-execution HTTP rejection (including 404) never triggers another
+    // request or silently falls back to the legacy stream.
     var adaptiveStreamAccepted = false
     val body = buildJsonObject {
         put("project_id", projectId)
@@ -1644,15 +1644,20 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 }
             }
         }
-        // Prefer the adaptive model loop. A disabled/old backend answers
-        // 404 BEFORE accepting any task: then retain the v64 legacy route.
+        // Require the adaptive model loop. A disabled/old backend must be
+        // diagnosed instead of silently sending the task to legacy models.
         var endpoint = "/api/app/writing-room/agent/stream"
         var status = postSse(baseUrl, endpoint, body, auth, onEvent)
         if (status in 200..299) adaptiveStreamAccepted = true
-        if (status == 404 && attachedImageBase64 == null) {
-            usingAdaptive = false
-            endpoint = "/api/app/writing-room/chat/stream"
-            status = postSse(baseUrl, endpoint, body, auth, onEvent)
+        if (status == 404) {
+            // A backend that lacks the agent MUST NOT silently route Copilot
+            // into the legacy DeepSeek chat and appear to use configured Haiku.
+            // The APK remains usable for other sections, but this turn is
+            // rejected before any model/provider dispatch.
+            throw TransportException(
+                "Copilot requiere un backend AdaptiveAgent compatible. " +
+                    "No se ha enviado esta solicitud al modelo heredado.",
+            )
         }
         if (status == 401) {
             // HTTP 401 means the stream was rejected before execution.
@@ -1664,13 +1669,11 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
             auth = authHeader() ?: throw TransportException("no live session")
             status = postSse(baseUrl, endpoint, body, auth, onEvent)
             if (usingAdaptive && status in 200..299) adaptiveStreamAccepted = true
-            if (status == 404 && attachedImageBase64 == null &&
-                endpoint == "/api/app/writing-room/agent/stream") {
-                // A refreshed bearer against an older VPS is not evidence of
-                // accepted work; keep the original idempotency key and fallback.
-                usingAdaptive = false
-                endpoint = "/api/app/writing-room/chat/stream"
-                status = postSse(baseUrl, endpoint, body, auth, onEvent)
+            if (status == 404 && endpoint == "/api/app/writing-room/agent/stream") {
+                throw TransportException(
+                    "Copilot requiere backend AdaptiveAgent. " +
+                        "No se ha utilizado DeepSeek por una ruta heredada.",
+                )
             }
             if (status == 401) {
                 if (authHeader() == auth) clearAccess()
