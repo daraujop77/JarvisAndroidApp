@@ -42,6 +42,16 @@ class WritingRoomVisualRoundtripWiringTest {
         assertTrue(block.contains("decodedCandidate.first == turn.generatedPreviewAttachmentId"))
         // A synchronous BitmapFactory decode in composition freezes the chat.
         assertTrue(!block.contains("remember(turn.generatedPreviewAttachmentId) {"))
+
+        val dialog = writing.substringAfter("expandedVisual?.let { imageId ->")
+            .substringBefore("    Row(\n        modifier = Modifier.fillMaxWidth(),")
+        assertTrue(dialog.contains("val decodedDialog by produceState("))
+        assertTrue(dialog.contains("key1 = imageId"))
+        assertTrue(dialog.contains("withContext(Dispatchers.IO)"))
+        assertTrue(dialog.contains("decodeThumbnail(imageId, maxSize = 1600)"))
+        assertTrue(dialog.contains("decodedDialog.first == imageId"))
+        assertTrue(dialog.contains("if (fullImage != null)"))
+        assertTrue(!dialog.contains("remember(imageId) {"))
     }
 
     @Test fun gallerySupportsZoomAndReadOnlyRecoveryWithoutGeneratingAgain() {
