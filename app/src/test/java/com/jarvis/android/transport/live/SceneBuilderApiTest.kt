@@ -990,7 +990,7 @@ class SceneBuilderApiTest {
             File("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
             File("../app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
         ).first { it.isFile }.readText()
-        val stagedWithSha = Regex("stageVisualAssetBase64\\(\\s*reply\\.data_base64,\\s*asset\\.sha256,?\\s*\\)")
+        val stagedWithSha = Regex("""stageVisualAssetBase64\(\s*reply\.data_base64,\s*asset(?:!!)?\.sha256,?\s*\)""")
         val sites = listOf(
             "fun editCharacterVisualInStudio(" to "fun createCharacterReferencePack(",
             "private suspend fun applySceneDirectorResult(" to "fun previewSceneVisualContext(",
@@ -999,6 +999,9 @@ class SceneBuilderApiTest {
         )
         for ((start, end) in sites) {
             val body = vm.substringAfter(start).substringBefore(end)
+            if (start == "fun editCharacterVisualInStudio(") {
+                assertTrue(body.contains("verifiedCharacterEditChild(parentAsset, asset, reply.mime_type)"))
+            }
             assertTrue("$start must stage with the server SHA", stagedWithSha.containsMatchIn(body))
             assertFalse("$start must not recompress via stageGeneratedBase64", body.contains("stageGeneratedBase64("))
         }
