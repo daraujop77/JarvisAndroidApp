@@ -39,7 +39,12 @@ class CopilotConversationHistoryApiTest {
                     "conversation_id":"$conversation",
                     "turns":[
                     {"request_id":"r1","task_id":"ar_01","user_text":"Hola",
-                    "assistant_text":"Hola desde Copilot","state":"SUCCEEDED"},
+                    "assistant_text":"Hola desde Copilot","state":"SUCCEEDED",
+                    "visual_asset":{"asset_id":"va_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                     "sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                     "status":"CANDIDATE","storage_state":"stored",
+                     "kind":"PRIMARY_REFERENCE","character_id":"character:alexander",
+                     "perspective":"front"}},
                     {"request_id":"r2","task_id":"ar_02","user_text":"Sigue",
                     "assistant_text":"Continuación","state":"SUCCEEDED"}]}""",
                 )
@@ -68,6 +73,11 @@ class CopilotConversationHistoryApiTest {
         val originalId = first.writingRoomConversationId("story")
         val history = first.writingRoomCopilotHistory("story").getOrThrow()
         assertEquals(listOf("Hola", "Sigue"), history.turns.map { it.user_text })
+        assertEquals("r1", history.turns.first().request_id)
+        assertEquals("va_" + "a".repeat(32),
+            history.turns.first().visual_asset?.asset_id)
+        assertEquals("b".repeat(64), history.turns.first().visual_asset?.sha256)
+        assertEquals(null, history.turns.last().visual_asset)
         val reopened = session(durablePrefs)
         assertEquals(originalId, reopened.writingRoomConversationId("story"))
         val afterRestart = reopened.writingRoomCopilotHistory("story").getOrThrow()
