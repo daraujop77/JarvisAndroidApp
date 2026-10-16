@@ -1725,12 +1725,24 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
 
 /** Durable server transcript: scoped to this authenticated project/conversation. */
 @Serializable
+data class WritingCopilotHistoryVisual(
+    val asset_id: String = "",
+    val sha256: String = "",
+    val status: String = "",
+    val storage_state: String = "",
+    val kind: String = "",
+    val character_id: String = "",
+    val perspective: String = "",
+)
+
+@Serializable
 data class WritingCopilotHistoryTurn(
     val request_id: String = "",
     val task_id: String = "",
     val user_text: String = "",
     val assistant_text: String = "",
     val state: String = "",
+    val visual_asset: WritingCopilotHistoryVisual? = null,
 )
 
 @Serializable
