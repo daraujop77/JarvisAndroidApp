@@ -784,8 +784,8 @@ private fun ChatScreen(vm: JarvisViewModel, onBack: () -> Unit) {
                 )
             }
 
-            ProfileChipRow(vm)
-            EffortChipRow(vm)
+            ProfileChipRow(vm, locked = chatStreaming)
+            EffortChipRow(vm, locked = chatStreaming)
 
             if (chatStreaming) {
                 ScanLine(active = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp))
@@ -1104,7 +1104,7 @@ private fun GeneratedImagePreviewDialog(
  * never hardcodes models.
  */
 @Composable
-private fun ProfileChipRow(vm: JarvisViewModel) {
+private fun ProfileChipRow(vm: JarvisViewModel, locked: Boolean = false) {
     val access = vm.chatAccess.collectAsStateWithLifecycle().value ?: return
     val selected by vm.chatProfile.collectAsStateWithLifecycle()
     val accents = LocalJarvisAccents.current
@@ -1118,7 +1118,8 @@ private fun ProfileChipRow(vm: JarvisViewModel) {
         items(entries, key = { it.profile }) { entry ->
             val active = entry.profile == selected
             Surface(
-                onClick = { vm.setChatProfile(entry.profile) },
+                onClick = { if (!locked) vm.setChatProfile(entry.profile) },
+                enabled = !locked,
                 shape = RoundedCornerShape(50),
                 color = if (active) accents.orbGlow.copy(alpha = 0.22f)
                 else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
@@ -1145,7 +1146,7 @@ private fun ProfileChipRow(vm: JarvisViewModel) {
  * supported profiles and choices. Auto is the default and sends no override.
  */
 @Composable
-private fun EffortChipRow(vm: JarvisViewModel) {
+private fun EffortChipRow(vm: JarvisViewModel, locked: Boolean = false) {
     val access = vm.chatAccess.collectAsStateWithLifecycle().value ?: return
     val options = access.effort ?: return
     val profile by vm.chatProfile.collectAsStateWithLifecycle()
@@ -1168,7 +1169,8 @@ private fun EffortChipRow(vm: JarvisViewModel) {
             items(options.options, key = { it.id }) { entry ->
                 val active = entry.id == selected
                 Surface(
-                    onClick = { vm.setChatEffort(entry.id) },
+                    onClick = { if (!locked) vm.setChatEffort(entry.id) },
+                    enabled = !locked,
                     shape = RoundedCornerShape(50),
                     color = if (active) accents.orbGlow.copy(alpha = 0.22f)
                         else MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
