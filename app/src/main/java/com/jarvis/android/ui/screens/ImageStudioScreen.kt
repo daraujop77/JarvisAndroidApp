@@ -135,6 +135,11 @@ fun ImageStudioScreen(
 
     val editAccess = access?.imageEdit
     val editReady = access?.capabilityStates?.get("image_edit") == "ready"
+    // Character Studio pins a verified APPROVED parent. A generated child is
+    // CANDIDATE until the owner explicitly approves it in Character Studio.
+    // Never silently use its bytes with the original parent's receipt.
+    val characterCandidateSelected =
+        onEditRequest != null && currentAttachmentId != initialAttachmentId
 
     LaunchedEffect(Unit) {
         vm.resetImageEditState()
@@ -297,10 +302,21 @@ fun ImageStudioScreen(
                         }
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            "Cada resultado nuevo se convierte automáticamente en la referencia de la siguiente edición. Puedes volver a cualquier versión de abajo.",
+                            if (onEditRequest != null) {
+                                "El master aprobado sigue intacto. Las ediciones nuevas son candidatas: revísalas y apruébalas en Character Studio antes de reutilizarlas."
+                            } else {
+                                "Cada resultado nuevo se convierte automáticamente en la referencia de la siguiente edición. Puedes volver a cualquier versión de abajo."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFB7C7DC),
                         )
+                        if (characterCandidateSelected) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { currentAttachmentId = initialAttachmentId },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Volver al master aprobado para editar") }
+                        }
                     }
                 }
             }
@@ -637,7 +653,8 @@ fun ImageStudioScreen(
                             )
                         }
                     },
-                    enabled = editReady && instruction.isNotBlank() && !busy && exactReady,
+                    enabled = editReady && instruction.isNotBlank() && !busy &&
+                        exactReady && !characterCandidateSelected,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accents.orbGlow,
                         contentColor = Color(0xFF02101F),
@@ -657,6 +674,13 @@ fun ImageStudioScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("GENERAR EDICIÓN", fontWeight = FontWeight.Bold)
                     }
+                }
+                if (characterCandidateSelected) {
+                    Text(
+                        "Esta versión todavía no está aprobada. Regresa a Character Studio para revisarla; puedes editar nuevamente desde el master original.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisAmber,
+                    )
                 }
             }
 
