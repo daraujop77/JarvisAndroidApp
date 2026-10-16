@@ -73,7 +73,7 @@ internal fun splitChatSources(reply: String): ChatReplyPresentation {
             }
         }
         if (url == null) return ChatReplyPresentation(reply, emptyList())
-        sources += verifiedCitation(title, url)
+        sources += verifiedCitation(title.trim().trimEnd(':'), url)
             ?: return ChatReplyPresentation(reply, emptyList())
         if (sources.size > 12) return ChatReplyPresentation(reply, emptyList())
         index++
