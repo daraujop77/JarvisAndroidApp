@@ -59,4 +59,34 @@ class WritingCopilotIndependentRecoveryWiringTest {
         assertTrue(code.contains("staged.mimeType == content.mime_type"))
         assertTrue(code.contains("content.mime_type in setOf(\"image/png\", \"image/jpeg\", \"image/webp\")"))
     }
+
+    @Test
+    fun archivedVisualDownloadsAreScopedToTheirOriginalMessageAndCleanedOnProjectSwitch() {
+        val source = listOf(
+            File("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
+            File("../app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt"),
+        ).first { it.isFile }.readText()
+        val start = source.indexOf("fun recoverCopilotHistoricalImage(")
+        val end = source.indexOf("fun recoverWritingCopilotPortraits(", start)
+        assertTrue(start > 0 && end > start)
+        val body = source.substring(start, end)
+        assertTrue(body.contains("it.historicalRequestId == requestId"))
+        assertTrue(body.contains("it.candidateAssetId == assetId"))
+        assertTrue(body.contains("fetched.sha256.equals(source.candidateSha256"))
+        assertTrue(body.contains("stageVisualAssetBase64("))
+        assertTrue(body.contains("deleteVisualStudioAttachments(listOf(staged.attachmentId))"))
+        assertTrue(body.contains("generatedPreviewAttachmentId = staged.attachmentId"))
+        assertTrue(body.contains("copilotRecoveredPortraits = now.copilotRecoveredPortraits.filterNot"))
+        assertTrue(!body.contains("editVisualAssetImage("))
+        assertTrue(!body.contains("generateImage("))
+        val refresh = source.substring(
+            source.indexOf("fun refreshWritingWorkspace(projectId: String)"),
+            source.indexOf("fun recoverCopilotHistoricalImage("),
+        )
+        assertTrue(refresh.contains(
+            "_writingWorkspace.value.chatHistory.mapNotNull"
+        ))
+        assertTrue(refresh.indexOf("_writingWorkspace.value.chatHistory.mapNotNull")
+            < refresh.indexOf("WritingWorkspaceState(chatProjectId = projectId)"))
+    }
 }
