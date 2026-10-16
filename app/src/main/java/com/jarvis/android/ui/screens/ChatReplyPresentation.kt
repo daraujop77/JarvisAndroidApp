@@ -10,9 +10,9 @@ private val SOURCES_HEADING = Regex(
     """^\s*(?:#{1,4}\s*)?(?:\*\*)?(?:Fuentes consultadas|Referencias confiables|Fuentes|Referencias)(?:\*\*)?\s*:?\s*$""",
     RegexOption.IGNORE_CASE,
 )
-private val MARKDOWN_SOURCE = Regex("""^\s*[-*]\s+\[([^\]\r\n]{1,140})\]\((https://[^\s)]+)\)\s*$""")
+private val MARKDOWN_SOURCE = Regex("""^\s*[-*•]\s+\[([^\]\r\n]{1,140})\]\((https://[^\s)]+)\)\s*$""")
 private val HTTPS_URL = Regex("""https://[^\s<>)]+""")
-private val LIST_MARKER = Regex("""^\s*[-*]\s+""")
+private val LIST_MARKER = Regex("""^\s*[-*•]\s+""")
 
 private fun verifiedCitation(title: String, rawUrl: String): ChatSource? {
     val url = rawUrl.trim().trimEnd('.', ',', ';')
