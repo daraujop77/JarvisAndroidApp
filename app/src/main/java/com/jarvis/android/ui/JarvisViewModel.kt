@@ -5250,9 +5250,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 onSuccess = { reply ->
                     if (!scopeIsCurrent()) return@fold
                     val asset = reply.visual_asset
+                    if (!verifiedCharacterEditChild(parentAsset, asset, reply.mime_type)) {
+                        _imageEditState.value = ImageEditState.Error(
+                            "La edición no coincide con el master y personaje originales. " +
+                                "No se enviará otra generación automáticamente. Revisa el candidato en Character Studio.",
+                        )
+                        return@fold
+                    }
                     val staged = withContext(Dispatchers.IO) {
-                        if (asset == null || asset.sha256.isBlank()) null
-                        else container.attachmentStore.stageVisualAssetBase64(reply.data_base64, asset.sha256)
+                        container.attachmentStore.stageVisualAssetBase64(
+                            reply.data_base64, asset!!.sha256,
+                        )
                     }
                     if (!scopeIsCurrent()) {
                         staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
