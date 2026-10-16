@@ -3991,12 +3991,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             _imageEditState.value = ImageEditState.Idle
             _lastImageEditDetails.value = null
             val oldIds = current.attachmentIds.values
-            _characterStudio.value = CharacterStudioState(
+            // A character switch must not discard this project's external
+            // reference catalog. Otherwise an empty Wiki makes Character
+            // Studio lose its only characters until a full navigation reload.
+            // Do NOT carry media, detail, variants, directions or approvals
+            // across characters, and never share catalog data across projects.
+            _characterStudio.value = newCharacterStudioSelection(
+                current = current,
                 projectId = cleanProject,
                 characterId = cleanCharacter,
-                masterRoster = current.masterRoster.takeIf {
-                    current.projectId == cleanProject
-                },
             )
             deleteVisualStudioAttachments(oldIds)
         }
