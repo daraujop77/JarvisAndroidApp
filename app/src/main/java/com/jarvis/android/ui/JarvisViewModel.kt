@@ -4163,6 +4163,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun loadCharacterStudioAsset(projectId: String, assetId: String, retry: Boolean = false) {
         val clean = assetId.trim()
         val state = _characterStudio.value
+        // Never accept a download for an asset outside the selected character,
+        // even when the returned bytes contain a valid (but unrelated) SHA.
+        val listedAsset = state.assets.firstOrNull {
+            it.asset_id == clean && it.project_id == projectId &&
+                state.characterId in it.character_ids
+        } ?: return
         if (clean.isBlank() || state.projectId != projectId ||
             clean in state.loadingAssetIds ||
             (!retry && (state.attachmentIds.containsKey(clean) || state.assetErrors.containsKey(clean)))
@@ -4183,8 +4189,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 fetch = { container.liveSession.writingRoomVisualAssetFetch(projectId, clean) },
                 stage = { content ->
                     withContext(Dispatchers.IO) {
+                        check(matchesListedVisualAssetReceipt(projectId, listedAsset, content)) {
+                            "La imagen recibida no coincide con el asset aprobado o candidato."
+                        }
                         container.attachmentStore.stageVisualAssetBase64(
-                            content.image_base64, content.sha256,
+                            content.image_base64, listedAsset.sha256,
                         )
                     }
                 },
