@@ -94,6 +94,26 @@ class WritingRoomSessionRecoveryTest {
         assertTrue(session.hasRefreshCredential)
     }
     @Test
+    fun oldBackend404NeverSilentlyDispatchesCopilotToLegacyDeepSeek() = runBlocking(Dispatchers.IO) {
+        val base = server.url("/").toString().trimEnd('/')
+        val session = JarvisAppSession(JarvisAppSession.MemoryStore())
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"authenticated":true,"token":"access-test","expires_utc":"2099-01-01T00:00:00Z","user":{"id":"owner","username":"owner","role":"owner"}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(404).setBody("{}"))
+        assertTrue(session.login(base, "owner", "secret").isSuccess)
+        val result = session.writingRoomAutoChatStream(
+            projectId = "prj_story", projectTitle = "Synthetic story",
+            prompt = "Identifica los personajes", onDelta = {},
+        )
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("AdaptiveAgent") == true)
+        assertEquals("/api/app/login", server.takeRequest().path)
+        assertEquals("/api/app/writing-room/agent/stream", server.takeRequest().path)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
     fun streaming401RefreshesOnceAndKeepsRequestIdAndPairing() = runBlocking(Dispatchers.IO) {
         val base = server.url("/").toString().trimEnd('/')
         val refreshStore = MemoryRefreshCredentialStore()
