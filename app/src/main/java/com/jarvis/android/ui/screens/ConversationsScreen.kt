@@ -1441,42 +1441,71 @@ private fun CodeBlockView(code: String, language: String?) {
  * styling. Streaming replies never reach here — their markers are incomplete.
  */
 @Composable
-private fun MarkdownBody(text: String, verifiedSources: List<ChatCitation> = emptyList()) {
-    val uriHandler = LocalUriHandler.current
-    // Server-verified citations are authoritative. The legacy text splitter
-    // remains a compatibility path for older servers without typed content.
+private fun MarkdownBody(text: String) {
+    // The reading bubble owns only prose. Citations belong to the small,
+    // independent footer BELOW the bubble, not long URLs in the message.
     val presentation = remember(text) { splitChatSources(text) }
-    val sources = if (verifiedSources.isNotEmpty()) verifiedSources
-                  else presentation.sources.map {
-                      ChatCitation(ref = "", title = it.title, url = it.url)
-                  }
-    var sourcesExpanded by remember(text, sources) { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SharedChatMarkdown(presentation.body)
-        if (sources.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Fuentes", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                sources.take(4).forEachIndexed { index, source ->
-                    TextButton(onClick = { uriHandler.openUri(source.url) },
-                        modifier = Modifier.heightIn(min = 32.dp)) {
-                        Text("[${index + 1}]", style = MaterialTheme.typography.labelSmall)
+    SharedChatMarkdown(presentation.body)
+}
+
+/** Compact user-clicked sources; provider/model URLs are never loaded automatically. */
+@Composable
+private fun ChatSourcesBelowBubble(text: String, verifiedSources: List<ChatCitation>) {
+    val uriHandler = LocalUriHandler.current
+    val parsed = remember(text) { splitChatSources(text) }
+    val candidates = if (verifiedSources.isNotEmpty()) {
+        verifiedSources.map { ChatSource(it.title, it.url) }
+    } else parsed.sources
+    val safe = remember(candidates) {
+        candidates.filter { source ->
+            runCatching {
+                val uri = java.net.URI(source.url)
+                uri.scheme == "https" && !uri.host.isNullOrBlank() &&
+                    uri.userInfo == null && source.url.length <= 2048
+            }.getOrDefault(false)
+        }.distinctBy { it.url }.take(12)
+    }
+    var expanded by remember(text, safe) { mutableStateOf(false) }
+    if (safe.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp, start = 6.dp, end = 6.dp)) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text("Fuentes", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            safe.take(4).forEach { source ->
+                val host = runCatching { java.net.URI(source.url).host.removePrefix("www.") }
+                    .getOrDefault("web")
+                Surface(
+                    onClick = { uriHandler.openUri(source.url) },
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(host.take(1).uppercase(), style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text(host.take(19), style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1)
                     }
-                }
-                TextButton(onClick = { sourcesExpanded = !sourcesExpanded },
-                    modifier = Modifier.heightIn(min = 32.dp)) {
-                    Text(if (sourcesExpanded) "Ocultar" else "Ver", style = MaterialTheme.typography.labelSmall)
                 }
             }
-            if (sourcesExpanded) {
-                sources.forEachIndexed { index, source ->
-                    TextButton(onClick = { uriHandler.openUri(source.url) },
-                        modifier = Modifier.fillMaxWidth()) {
-                        Text("${index + 1}. ${source.title}",
-                            style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                    }
+            if (safe.size > 4) {
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "Menos" else "+" + (safe.size - 4),
+                        style = MaterialTheme.typography.labelSmall)
                 }
+            }
+        }
+        if (expanded) safe.drop(4).forEach { source ->
+            TextButton(onClick = { uriHandler.openUri(source.url) }) {
+                Text(source.title, style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1)
             }
         }
     }
@@ -1632,10 +1661,15 @@ private fun MessageBubble(
                                 streamingText(msg.text, streaming = true),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            msg.text.isNotBlank() -> MarkdownBody(msg.text, msg.sources)
+                            msg.text.isNotBlank() -> MarkdownBody(msg.text)
                         }
                     }
                 }
+            }
+
+            if (!isUser && !isStreaming && !awaiting && msg.text.isNotBlank() &&
+                msg.status !is RequestStatus.Failed) {
+                ChatSourcesBelowBubble(msg.text, msg.sources)
             }
 
             if (showRouteDetails && !isUser && !isStreaming && !awaiting && msg.status !is RequestStatus.Failed) {
