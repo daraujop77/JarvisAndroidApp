@@ -1262,8 +1262,8 @@ class WritingRoomWorkspaceApiTest {
             "image/webp" to "UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoBAAEAAUAmJaACdLoB+AADsAD+8ut//NgVzXPv9//S4P0uD9Lg/9KQAAA=",
         )
         samples.forEach { (mime, original) ->
-            // The mock has no adaptive agent enabled (HTTP 404), so this
-            // deliberately validates the outbound wire without generation.
+            // The mock returns a synthetic authenticated adaptive-agent SSE.
+            // Inspect original bytes/MIME without invoking any image provider.
             val result = client.writingRoomAutoChatStream(
                 projectId = "prj_story",
                 projectTitle = "Synthetic Story",
@@ -1271,7 +1271,7 @@ class WritingRoomWorkspaceApiTest {
                 attachedImageBase64 = original,
                 onDelta = {},
             )
-            assertTrue(result.isFailure)
+            assertTrue(result.isSuccess)
             val request = server.takeRequest()
             assertEquals("/api/app/writing-room/agent/stream", request.path)
             val image = Json.parseToJsonElement(request.body.readUtf8()).jsonObject[
