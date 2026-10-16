@@ -195,6 +195,9 @@ fun VisualStudioScreen(
         }
     }
     Column(modifier.fillMaxSize()) {
+        // Keep section navigation visible while the active Studio scrolls.
+        // The previous in-list header disappeared during character editing.
+        navigation()
         when (section) {
             VisualStudioSection.CHARACTERS -> CharacterStudioScreen(
                 vm = vm,
@@ -205,7 +208,6 @@ fun VisualStudioScreen(
                     characterEditorCharacterId = selectedCharacterId
                     characterEditorParent = asset
                 },
-                headerContent = navigation,
                 modifier = Modifier.weight(1f),
             )
 
@@ -213,7 +215,6 @@ fun VisualStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 locations = locations,
-                headerContent = navigation,
                 modifier = Modifier.weight(1f),
             )
 
@@ -227,7 +228,6 @@ fun VisualStudioScreen(
                     sceneEditorAttachmentId = attachmentId
                     sceneEditorParent = asset
                 },
-                headerContent = navigation,
                 modifier = Modifier.weight(1f),
             )
 
@@ -236,7 +236,6 @@ fun VisualStudioScreen(
                 projectId = projectId,
                 locations = locations,
                 characters = characters,
-                headerContent = navigation,
                 modifier = Modifier.weight(1f),
             )
         }
