@@ -3935,6 +3935,50 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         deleteVisualStudioAttachments(ids)
     }
 
+    /**
+     * Populate external character references before a character is selected.
+     *
+     * Previously Character Studio only requested the catalog from
+     * reloadCharacterStudio, which itself required a selected character.
+     * Projects with no loaded Wiki characters could therefore never display
+     * the external references. The project/epoch guards prevent cross-project
+     * catalog leakage and never touch paid image generation.
+     */
+    fun loadCharacterStudioCatalog(projectId: String) {
+        val clean = projectId.trim()
+        if (clean.isBlank() || _writingWorkspace.value.chatProjectId != clean) return
+        val previous = _characterStudio.value
+        if (previous.projectId != clean) {
+            characterBatchPollJob?.cancel()
+            characterBatchPollJob = null
+            characterStudioScopeVersion++
+            deleteVisualStudioAttachments(previous.attachmentIds.values)
+            _characterStudio.value = CharacterStudioState(projectId = clean)
+        } else if (previous.externalCharacters.isNotEmpty()) {
+            return
+        }
+        val epoch = characterStudioScopeVersion
+        viewModelScope.launch {
+            val catalog = container.liveSession.visualExternalCharacterCatalog(clean)
+            if (_writingWorkspace.value.chatProjectId != clean ||
+                characterStudioScopeVersion != epoch ||
+                _characterStudio.value.projectId != clean) return@launch
+            val incoming = catalog.getOrNull()?.characters
+            if (incoming != null) {
+                _characterStudio.update { existing ->
+                    if (existing.projectId != clean) existing
+                    else existing.copy(externalCharacters = incoming)
+                }
+            } else if (_characterStudio.value.characterId.isBlank()) {
+                _characterStudio.update { existing ->
+                    if (existing.projectId != clean) existing
+                    else existing.copy(error = catalog.exceptionOrNull()?.message
+                        ?: "No se pudo cargar el catálogo externo.")
+                }
+            }
+        }
+    }
+
     fun openCharacterStudio(projectId: String, characterId: String) {
         val cleanProject = projectId.trim()
         val cleanCharacter = characterId.trim()
