@@ -6944,9 +6944,10 @@ private enum class WorkspaceTab(val icon: ImageVector) {
     OVERVIEW(Icons.Filled.Dashboard),
     WRITE(Icons.Filled.EditNote),
     CHAT(Icons.AutoMirrored.Filled.Chat),
+    // Keep Visual / Character Studio close to Copilot on narrow Android screens.
+    VISUAL(Icons.Filled.AddPhotoAlternate),
     PLAN(Icons.Filled.AccountTree),
     CANON(Icons.Filled.AutoStories),
-    VISUAL(Icons.Filled.AddPhotoAlternate),
     WIKI(Icons.Filled.AutoStories),
     LIBRARY(Icons.Filled.LocalLibrary);
 
