@@ -43,6 +43,8 @@ fun VisualStudioScreen(
     characters: List<WritingWikiEntity>,
     locations: List<WritingWikiEntity>,
     openScenesRequest: Int = 0,
+    requestedCharacterId: String = "",
+    openCharacterRequest: Int = 0,
     onUseSceneInChapter: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -69,6 +71,11 @@ fun VisualStudioScreen(
     LaunchedEffect(projectId, openScenesRequest) {
         if (openScenesRequest > 0) {
             section = VisualStudioSection.SCENES
+        }
+    }
+    LaunchedEffect(projectId, openCharacterRequest) {
+        if (openCharacterRequest > 0 && requestedCharacterId.isNotBlank()) {
+            section = VisualStudioSection.CHARACTERS
         }
     }
 
@@ -203,6 +210,8 @@ fun VisualStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 characters = characters,
+                requestedCharacterId = requestedCharacterId,
+                openCharacterRequest = openCharacterRequest,
                 onEditInImageStudio = { attachmentId, selectedCharacterId, asset ->
                     characterEditorAttachmentId = attachmentId
                     characterEditorCharacterId = selectedCharacterId
