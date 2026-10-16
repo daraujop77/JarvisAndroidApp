@@ -113,4 +113,29 @@ class VisualAssetLoadingTest {
             "prj_story", "character:alexander", parent.copy(status = "CANDIDATE"), valid,
         ))
     }
+
+    @Test fun editedChildMustBeAnImmutableUnapprovedDescendantOfExactParent() {
+        val parent = com.jarvis.android.transport.live.VisualStudioAsset(
+            asset_id = "va_master", project_id = "prj_story",
+            kind = "PRIMARY_REFERENCE", perspective = "front",
+            status = "APPROVED", character_ids = listOf("character:alexander"),
+            sha256 = "a".repeat(64), mime_type = "image/png",
+        )
+        val child = parent.copy(
+            asset_id = "va_candidate_02", status = "CANDIDATE",
+            sha256 = "b".repeat(64), parent_asset_id = parent.asset_id,
+            parent_sha256 = parent.sha256, derivation = "EDIT",
+        )
+        assertTrue(verifiedCharacterEditChild(parent, child, "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, null, "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(status = "APPROVED"), "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(project_id = "prj_other"), "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(character_ids = listOf("character:doom")), "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(parent_asset_id = "va_other"), "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(parent_sha256 = "c".repeat(64)), "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(derivation = "REGENERATION"), "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(asset_id = parent.asset_id), "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(mime_type = "image/jpeg"), "image/png"))
+        assertFalse(verifiedCharacterEditChild(parent, child.copy(sha256 = "bad"), "image/png"))
+    }
 }
