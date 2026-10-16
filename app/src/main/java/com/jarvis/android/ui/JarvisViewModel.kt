@@ -7132,6 +7132,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     // whenever the open conversation changes.
     private val _chatProfile = MutableStateFlow(container.liveSession.chatProfileFor(_conversationId.value ?: ""))
     val chatProfile: StateFlow<String> = _chatProfile
+    private val _chatEffort = MutableStateFlow(container.liveSession.chatEffortFor(_conversationId.value ?: ""))
+    val chatEffort: StateFlow<String> = _chatEffort
 
     init {
         container.liveSession.onAgentImageReady = { conversationId, requestId, attachmentId ->
@@ -7146,6 +7148,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         viewModelScope.launch {
             _conversationId.collect { id ->
                 _chatProfile.value = container.liveSession.chatProfileFor(id ?: "")
+                _chatEffort.value = container.liveSession.chatEffortFor(id ?: "")
             }
         }
     }
@@ -7168,6 +7171,16 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 container.liveSession.setChatProfileFor(convId, fallback)
                 _chatProfile.value = fallback
             }
+            // Old backend, changed model catalog or removed effort access:
+            // invalidate any stored override, without affecting other chats.
+            val currentProfile = container.liveSession.chatProfileFor(convId)
+            val currentEffort = container.liveSession.chatEffortFor(convId)
+            if (currentEffort != "auto" && (access?.effort == null ||
+                    currentProfile !in access.effort.supportedProfiles ||
+                    access.effort.options.none { it.id == currentEffort })) {
+                container.liveSession.setChatEffortFor(convId, "auto")
+                _chatEffort.value = "auto"
+            }
         }
     }
 
@@ -7175,6 +7188,22 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val convId = _conversationId.value ?: return
         container.liveSession.setChatProfileFor(convId, profile)
         _chatProfile.value = profile
+        // Never carry a forced effort to a different model that may not
+        // support it. The server is authoritative about capability.
+        val effortProfiles = _chatAccess.value?.effort?.supportedProfiles.orEmpty()
+        if (profile !in effortProfiles) {
+            container.liveSession.setChatEffortFor(convId, "auto")
+            _chatEffort.value = "auto"
+        }
+    }
+
+    fun setChatEffort(effort: String) {
+        val convId = _conversationId.value ?: return
+        val profile = _chatProfile.value
+        val access = _chatAccess.value?.effort ?: return
+        if (profile !in access.supportedProfiles || access.options.none { it.id == effort }) return
+        container.liveSession.setChatEffortFor(convId, effort)
+        _chatEffort.value = effort
     }
 
     sealed interface ProviderUsageState {
