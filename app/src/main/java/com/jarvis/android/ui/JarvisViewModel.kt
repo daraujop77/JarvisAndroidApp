@@ -659,6 +659,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             copilotRecovering = true, copilotRecoveryError = null,
         )
         viewModelScope.launch {
+            // These are new local copies created by this invocation only. If
+            // the task is canceled, changes project or fails half-way through,
+            // dispose of every unpublished copy instead of leaking protected
+            // portrait files on the shared Android device.
+            val stagedThisRecovery = mutableSetOf<String>()
+            var published = false
             try {
                 val response = container.liveSession.writingRoomCopilotListPortraits(projectId)
                     .getOrThrow()
@@ -677,14 +683,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         ).getOrNull()
                         if (content != null && content.asset_id == asset.asset_id &&
                             content.sha256.equals(asset.sha256, ignoreCase = true) &&
-                            content.mime_type.startsWith("image/")
+                            content.mime_type in setOf("image/png", "image/jpeg", "image/webp") &&
+                            (asset.mime_type.isBlank() || asset.mime_type == content.mime_type)
                         ) {
                             val staged = withContext(Dispatchers.IO) {
                                 container.attachmentStore.stageVisualAssetBase64(
                                     content.image_base64, asset.sha256,
                                 )
                             }
-                            previewId = staged?.attachmentId
+                            if (staged != null && staged.mimeType == content.mime_type) {
+                                previewId = staged.attachmentId
+                                stagedThisRecovery += staged.attachmentId
+                            } else if (staged != null) {
+                                deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                            }
                         }
                     }
                     recovered += CopilotRecoveredPortrait(
@@ -700,10 +712,28 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val current = _writingWorkspace.value
                 if (copilotRecoveryEpoch == epoch && current.chatProjectId == projectId) {
                     val inChat = current.chatHistory.mapNotNull { it.candidateAssetId }.toSet()
+                    val visible = recovered.filterNot { it.assetId in inChat }
+                    val retainedIds = visible.mapNotNull { it.previewAttachmentId }.toSet()
+                    // The same image can become visible in its originating
+                    // Copilot chat while this gallery is still downloading.
+                    // Those extra copies must be discarded, not silently
+                    // accumulated on every refresh.
+                    val redundantNewIds = stagedThisRecovery - retainedIds
+                    val referencedInChat = current.chatHistory.mapNotNull {
+                        it.generatedPreviewAttachmentId
+                    }.toSet()
+                    val otherProtectedIds =
+                        current.approvedVisualAttachments.values.toSet() +
+                        current.copilotViewPreviews.values.toSet() + referencedInChat
+                    val replacedOldIds = current.copilotRecoveredPortraits
+                        .mapNotNull { it.previewAttachmentId }
+                        .toSet() - retainedIds - otherProtectedIds
                     _writingWorkspace.value = current.copy(
-                        copilotRecoveredPortraits = recovered.filterNot { it.assetId in inChat },
+                        copilotRecoveredPortraits = visible,
                         copilotRecoveryError = null,
                     )
+                    published = true
+                    deleteVisualStudioAttachments(redundantNewIds + replacedOldIds)
                 }
             } catch (error: Exception) {
                 val current = _writingWorkspace.value
@@ -714,6 +744,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     )
                 }
             } finally {
+                if (!published) {
+                    deleteVisualStudioAttachments(stagedThisRecovery)
+                }
                 if (copilotRecoveryEpoch == epoch) {
                     copilotRecoveryActiveProject = null
                     _writingWorkspace.value = _writingWorkspace.value.copy(copilotRecovering = false)
