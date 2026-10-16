@@ -75,4 +75,40 @@ class CharacterStudioScopeTest {
         assertNull(switched.projectStyle)
         assertEquals("project-b", switched.projectId)
     }
+
+    @Test fun copilotSelectionWaitsForExactCharacterButOnlyHandlesRequestOnce() {
+        val external = listOf("character:naruto", "character:sasuke")
+        assertNull(pendingCopilotCharacterSelection(
+            requestNumber = 2, lastHandledRequest = 1,
+            requestedCharacterId = "character:alexander", availableCharacterIds = external,
+        ))
+        assertEquals("character:alexander", pendingCopilotCharacterSelection(
+            requestNumber = 2, lastHandledRequest = 1,
+            requestedCharacterId = "character:alexander",
+            availableCharacterIds = external + "character:alexander",
+        ))
+        // After the first selection the owner may manually select Sasuke.
+        // A later refresh of the same catalog must not select Alexander again.
+        assertNull(pendingCopilotCharacterSelection(
+            requestNumber = 2, lastHandledRequest = 2,
+            requestedCharacterId = "character:alexander",
+            availableCharacterIds = external + "character:alexander",
+        ))
+        assertEquals("character:naruto", pendingCopilotCharacterSelection(
+            requestNumber = 3, lastHandledRequest = 2,
+            requestedCharacterId = "character:naruto", availableCharacterIds = external,
+        ))
+    }
+
+    @Test fun unknownOrStaleCopilotRequestsCannotSelectAnUnrelatedCharacter() {
+        val available = listOf("character:alexander")
+        assertNull(pendingCopilotCharacterSelection(
+            0, 0, "character:alexander", available))
+        assertNull(pendingCopilotCharacterSelection(
+            5, 5, "character:alexander", available))
+        assertNull(pendingCopilotCharacterSelection(
+            5, 4, "character:impostor", available))
+        assertNull(pendingCopilotCharacterSelection(
+            5, 4, "", available))
+    }
 }
