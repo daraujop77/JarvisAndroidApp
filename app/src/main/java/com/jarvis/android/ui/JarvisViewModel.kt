@@ -5188,6 +5188,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             referenceAttachmentId.isBlank() ||
             _imageEditState.value is ImageEditState.Busy ||
             state.busy ||
+            !settings.value.isOwner ||
             parentAsset.project_id != state.projectId ||
             characterId != state.characterId ||
             characterId !in parentAsset.character_ids ||
