@@ -38,3 +38,23 @@ internal fun matchesListedVisualAssetReceipt(
         fetched.sha256.equals(listed.sha256, ignoreCase = true) &&
         listed.mime_type.startsWith("image/") &&
         fetched.mime_type.equals(listed.mime_type, ignoreCase = true)
+
+
+/** Editing may incur cost: verify the *current* parent and the local original. */
+internal fun verifiedCharacterEditParent(
+    projectId: String,
+    characterId: String,
+    asset: com.jarvis.android.transport.live.VisualStudioAsset,
+    bytes: ByteArray,
+): Boolean {
+    if (projectId.isBlank() || characterId.isBlank() ||
+        asset.project_id != projectId || characterId !in asset.character_ids ||
+        asset.status != "APPROVED" ||
+        asset.mime_type !in setOf("image/png", "image/jpeg", "image/webp") ||
+        !Regex("^[a-fA-F0-9]{64}$").matches(asset.sha256) ||
+        bytes.isEmpty() || bytes.size > 12 * 1024 * 1024
+    ) return false
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(bytes).joinToString("") { "%02x".format(it) }
+    return digest.equals(asset.sha256, ignoreCase = true)
+}
