@@ -54,4 +54,34 @@ class VisualAssetLoadingTest {
             assertEquals(cancellation.message, actual.message)
         }
     }
+
+    @Test fun visualReceiptMustMatchSelectedAssetNotOnlyBeValidImage() {
+        val listed = com.jarvis.android.transport.live.VisualStudioAsset(
+            asset_id = "va_master",
+            project_id = "prj_story",
+            kind = "PRIMARY_REFERENCE",
+            status = "APPROVED",
+            character_ids = listOf("character:alexander"),
+            sha256 = "a".repeat(64),
+            mime_type = "image/png",
+        )
+        val fetched = com.jarvis.android.transport.live.WritingVisualAssetContent(
+            asset_id = "va_master", sha256 = "A".repeat(64),
+            mime_type = "image/png", image_base64 = "fixture",
+        )
+        assertTrue(matchesListedVisualAssetReceipt("prj_story", listed, fetched))
+        assertFalse(matchesListedVisualAssetReceipt("prj_other", listed, fetched))
+        assertFalse(matchesListedVisualAssetReceipt(
+            "prj_story", listed, fetched.copy(asset_id = "va_unrelated"),
+        ))
+        assertFalse(matchesListedVisualAssetReceipt(
+            "prj_story", listed, fetched.copy(sha256 = "b".repeat(64)),
+        ))
+        assertFalse(matchesListedVisualAssetReceipt(
+            "prj_story", listed, fetched.copy(mime_type = "image/jpeg"),
+        ))
+        assertFalse(matchesListedVisualAssetReceipt(
+            "prj_story", listed.copy(sha256 = "not-a-digest"), fetched,
+        ))
+    }
 }
