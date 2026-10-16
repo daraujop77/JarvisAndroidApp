@@ -58,3 +58,33 @@ internal fun verifiedCharacterEditParent(
         .digest(bytes).joinToString("") { "%02x".format(it) }
     return digest.equals(asset.sha256, ignoreCase = true)
 }
+
+
+/**
+ * A paid edit's returned child must be durably attached to the exact approved
+ * parent that was sent to the provider. A valid image hash on an unrelated
+ * character/project is insufficient, and a child must never arrive APPROVED.
+ */
+internal fun verifiedCharacterEditChild(
+    parent: com.jarvis.android.transport.live.VisualStudioAsset,
+    child: com.jarvis.android.transport.live.VisualStudioAsset?,
+    responseMimeType: String,
+): Boolean {
+    if (child == null) return false
+    return parent.asset_id.isNotBlank() &&
+        parent.project_id.isNotBlank() &&
+        parent.status == "APPROVED" &&
+        child.asset_id.isNotBlank() &&
+        child.asset_id != parent.asset_id &&
+        child.project_id == parent.project_id &&
+        child.character_ids == parent.character_ids &&
+        child.kind == parent.kind &&
+        child.perspective == parent.perspective &&
+        child.status == "CANDIDATE" &&
+        child.parent_asset_id == parent.asset_id &&
+        child.parent_sha256.equals(parent.sha256, ignoreCase = true) &&
+        child.derivation == "EDIT" &&
+        Regex("^[a-fA-F0-9]{64}$").matches(child.sha256) &&
+        child.mime_type in setOf("image/png", "image/jpeg", "image/webp") &&
+        child.mime_type == responseMimeType
+}
