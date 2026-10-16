@@ -70,6 +70,13 @@ import com.jarvis.android.ui.theme.JarvisGreen
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
+/** Editing a Visual Registry master is allowed only while showing that exact approved local original. */
+internal fun canEditCharacterVisualVersion(
+    selectedAttachmentId: String,
+    approvedOriginalAttachmentId: String,
+    pinnedCharacterParent: Boolean,
+): Boolean = !pinnedCharacterParent || selectedAttachmentId == approvedOriginalAttachmentId
+
 /**
  * Dedicated image-editing workspace.
  *
@@ -138,8 +145,9 @@ fun ImageStudioScreen(
     // Character Studio pins a verified APPROVED parent. A generated child is
     // CANDIDATE until the owner explicitly approves it in Character Studio.
     // Never silently use its bytes with the original parent's receipt.
-    val characterCandidateSelected =
-        onEditRequest != null && currentAttachmentId != initialAttachmentId
+    val characterCandidateSelected = !canEditCharacterVisualVersion(
+        currentAttachmentId, initialAttachmentId, pinnedCharacterParent = onEditRequest != null,
+    )
 
     LaunchedEffect(Unit) {
         vm.resetImageEditState()
