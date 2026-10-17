@@ -864,6 +864,28 @@ class LiveAppGatewayTransport(
                     if (obj["schema"]?.jsonPrimitive?.content != "jarvis.chat.turn.v1") {
                         return@use CachedTurn.Unavailable
                     }
+                    // The recovery GET is authenticated and scoped, but a stale
+                    // proxy/cache or backend regression must not cross-wire a
+                    // turn that *does* echo its immutable request identity.
+                    // Legacy replies without an echo remain supported.
+                    val echoed = obj["request"]
+                    if (echoed != null) {
+                        val fields = runCatching { echoed.jsonObject }.getOrNull()
+                            ?: return@use CachedTurn.Unavailable
+                        val identity = listOf(
+                            "request_id" to clientRequestId,
+                            "conversation_id" to stored.conversationId,
+                            "trace_id" to stored.traceId,
+                            "device_id" to stored.deviceId,
+                            "session_id" to stored.sessionId,
+                        )
+                        if (identity.any { (key, original) ->
+                                val actual = fields[key] ?: return@any false
+                                runCatching { actual.jsonPrimitive.content }.getOrNull() != original
+                            }) {
+                            return@use CachedTurn.Unavailable
+                        }
+                    }
                     when (obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content) {
                         "completed" -> parseCompletedTurn(body)?.let { CachedTurn.Completed(it) } ?: CachedTurn.Unavailable
                         "active", "queued", "running" -> CachedTurn.InFlight

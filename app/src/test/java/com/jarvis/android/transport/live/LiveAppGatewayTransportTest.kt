@@ -47,6 +47,7 @@ class LiveAppGatewayTransportTest {
     private var advertiseGeneralAgent = false
     private var rejectProjectAgentTurn = false
     private var tamperProjectAgentReplyScope = false
+    private var tamperCachedTurnScope = false
     private val cancelCalls = AtomicInteger(0)
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
@@ -133,9 +134,12 @@ class LiveAppGatewayTransportTest {
                             } else if (rid in setOf("req-media", "req-content")) {
                                 ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sha256":"$receiptSha","mime_type":"image/png"}],"sources":[]}"""
                             } else ""
+                            val echoed = if (tamperCachedTurnScope && rid == "req-lost") {
+                                ""","request":{"request_id":"req-lost","conversation_id":"foreign-conversation"}"""
+                            } else ""
                             MockResponse().setBody(
                                 """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
-                                    """"response":{"text":"Recovered answer"}""" + media + content + "}",
+                                    """"response":{"text":"Recovered answer"}""" + media + content + echoed + "}",
                             )
                         } else {
                             MockResponse().setResponseCode(404)
@@ -513,6 +517,24 @@ class LiveAppGatewayTransportTest {
         assertTrue(frames.any { it.contains("message.completed") && it.contains("req-lost") })
         assertEquals(0, streamCalls.get())
         assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-lost"))
+    }
+
+    @Test
+    fun cachedTurnWithForeignConversationEchoIsRejectedWithoutRerunningInference() {
+        tamperCachedTurnScope = true
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.rememberTurn(
+            "req-lost", "c1", "trace-lost", ANDROID_DEVICE, APP_SESSION,
+        )
+        val transport = LiveAppGatewayTransport(session, scope)
+        assertFalse(runBlocking(Dispatchers.IO) {
+            transport.recoverCompletedTurn("req-lost", "c1")
+        })
+        // A rejected cache cannot settle or silently erase the saved turn.
+        assertTrue(session.loadTurn("req-lost") != null)
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
     }
 
     @Test
