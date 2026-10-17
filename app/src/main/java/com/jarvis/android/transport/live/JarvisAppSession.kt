@@ -447,6 +447,19 @@ class JarvisAppSession(
         store.put(mapOf(KEY_PROFILE_CONV + conversationId to profile))
     }
 
+    /** Independent effort preference. Isolated per conversation; the server
+     * owns which profile supports it and always validates the chosen value.
+     */
+    fun chatEffortFor(conversationId: String): String =
+        store.get(KEY_EFFORT_CONV + conversationId)?.takeIf {
+            it in setOf("auto", "low", "medium", "high")
+        } ?: "auto"
+
+    fun setChatEffortFor(conversationId: String, effort: String) {
+        require(effort in setOf("auto", "low", "medium", "high"))
+        store.put(mapOf(KEY_EFFORT_CONV + conversationId to effort))
+    }
+
     /** Persist the exact original account/project/transport scope before POST.
      * A process-death retry MUST reuse this immutable receipt. Never turn a
      * formerly project-scoped request into unscoped Chat Global merely because
@@ -545,10 +558,18 @@ class JarvisAppSession(
         val models: List<ImageGenerationModel>,
     )
 
+    data class EffortEntry(val id: String, val label: String)
+    data class ChatEffortAccess(
+        val default: String,
+        val options: List<EffortEntry>,
+        val supportedProfiles: List<String>,
+    )
+
     data class ChatAccess(
         val isOwner: Boolean,
         val ownerModelSelection: Boolean,
         val entries: List<ProfileEntry>,
+        val effort: ChatEffortAccess? = null,
         val capabilityStates: Map<String, String> = emptyMap(),
         val imageGeneration: ImageGenerationAccess? = null,
         val imageEdit: ImageGenerationAccess? = null,
@@ -615,10 +636,25 @@ class JarvisAppSession(
                 }
             val imageGeneration = parseImageAccess(capabilities?.get("image_generation"), "speed")
             val imageEdit = parseImageAccess(capabilities?.get("image_edit"), "quality")
+            val effortAccess = chat["effort"]?.let { element ->
+                runCatching {
+                    val obj = element.jsonObject
+                    val options = (obj["options"] as? JsonArray).orEmpty().mapNotNull { item ->
+                        val option = item as? JsonObject ?: return@mapNotNull null
+                        val id = option["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        if (id !in setOf("auto", "low", "medium", "high")) return@mapNotNull null
+                        EffortEntry(id, option["label"]?.jsonPrimitive?.contentOrNull ?: id)
+                    }.distinctBy { it.id }
+                    val profiles = (obj["profiles"] as? JsonArray).orEmpty()
+                        .mapNotNull { item -> item.jsonPrimitive.contentOrNull }
+                    ChatEffortAccess("auto", options, profiles)
+                }.getOrNull()
+            }
             ChatAccess(
                 isOwner = isOwner,
                 ownerModelSelection = ownerSel,
                 entries = models,
+                effort = effortAccess,
                 capabilityStates = capabilityStates,
                 imageGeneration = imageGeneration,
                 imageEdit = imageEdit,
@@ -1591,6 +1627,7 @@ class JarvisAppSession(
         const val KEY_TURN_PREFIX = "turn_"
         const val KEY_PROFILE = "chat_profile"
         const val KEY_PROFILE_CONV = "chat_profile_"
+        const val KEY_EFFORT_CONV = "chat_effort_"
 
         internal val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 

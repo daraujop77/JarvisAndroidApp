@@ -60,7 +60,12 @@ class VisualDirectionEditorWiringTest {
         assertTrue(viewModel.contains("mode = \"quality\",\n                    aspectRatio = \"portrait\""))
         assertTrue(viewModel.contains("mode = \"quality\",\n                aspectRatio = \"portrait\""))
         assertTrue(!viewModel.contains("gpt-image-2-medium"))
-        assertTrue(viewModel.contains("generationMode = loadedBatch.mode"))
+        // A READY batch must never resume a paid job merely because someone
+        // reopened Character Studio; owner consent is required each time.
+        assertTrue(!viewModel.contains("generationMode = loadedBatch.mode"))
+        assertTrue(screen.contains("resumeBatchId = existing?.batch_id.orEmpty()"))
+        assertTrue(screen.contains("generationMode = existing?.mode"))
+        assertTrue(screen.contains("if (pendingTurnaroundGeneration)"))
         assertTrue(viewModel.contains("mode = previous.mode"))
         assertTrue(viewModel.contains("_characterStudio.value.projectId != cleanProject"))
     }

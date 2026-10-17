@@ -239,6 +239,38 @@ class VisualStudioApiTest {
                             MockResponse().setBody(response.toString())
                         }
                     }
+                    "/api/app/writing-room/visual-assets/list" -> {
+                        val project = body?.get("project_id")?.jsonPrimitive?.contentOrNull
+                        val character = body?.get("character_id")?.jsonPrimitive?.contentOrNull
+                        val includeMaster = project == "prj_story" && character == "character:alexander"
+                        val items = if (includeMaster) """
+                          [{
+                            "asset_id":"va_master","project_id":"prj_story",
+                            "kind":"PRIMARY_REFERENCE","status":"APPROVED",
+                            "sha256":"$fixtureSha256","mime_type":"image/png",
+                            "character_ids":["character:alexander"],
+                            "perspective":"front","visual_revision":1,
+                            "storage":{"backend":"google_drive","state":"stored"}
+                          }]
+                        """.trimIndent() else "[]"
+                        MockResponse().setBody(
+                            """{"schema":"jarvis.visual.assets.v1",
+                                 "project_id": "$project", "assets": $items}"""
+                        )
+                    }
+                    "/api/app/writing-room/visual-assets/fetch" -> {
+                        val project = body?.get("project_id")?.jsonPrimitive?.contentOrNull
+                        val asset = body?.get("asset_id")?.jsonPrimitive?.contentOrNull
+                        if (project != "prj_story" || asset != "va_master") {
+                            MockResponse().setResponseCode(404)
+                                .setBody("""{"error":"visual_asset_not_found"}""")
+                        } else MockResponse().setBody(
+                            """{"schema":"jarvis.visual.asset.content.v1",
+                                 "asset_id":"va_master","mime_type":"image/png",
+                                 "sha256":"$fixtureSha256",
+                                 "image_base64":"$fixturePng"}"""
+                        )
+                    }
                     "/api/app/writing-room/v2/visual/assets/approve-exact" -> {
                         val assetId = body?.get("asset_id")?.jsonPrimitive?.contentOrNull.orEmpty()
                         val digest = body?.get("asset_sha256")?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -1609,5 +1641,56 @@ class VisualStudioApiTest {
         assertTrue(result.isFailure)
         assertFalse(result.isSuccess)
         assertNotNull(result.exceptionOrNull())
+    }
+
+    @Test
+    fun characterStudioReopenRedownloadsExactMasterWithoutNewGeneration() = runBlocking {
+        val store = JarvisAppSession.MemoryStore()
+        val originalSession = session(store)
+        val initial = originalSession.visualAssetList(
+            "prj_story", "character:alexander", status = "APPROVED",
+        ).orThrowStage("initial character listing")
+        assertEquals("jarvis.visual.assets.v1", initial.schema)
+        val master = initial.assets.single()
+        assertEquals("va_master", master.asset_id)
+        assertEquals("APPROVED", master.status)
+        assertEquals("front", master.perspective)
+        assertEquals("stored", master.storage.state)
+        assertEquals(fixtureSha256, master.sha256)
+
+        val first = originalSession.writingRoomVisualAssetFetch(
+            "prj_story", master.asset_id,
+        ).orThrowStage("first approved master download")
+        val expectedBytes = java.util.Base64.getDecoder().decode(first.image_base64)
+        val computed = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(expectedBytes).joinToString("") { "%02x".format(it) }
+        assertEquals(master.sha256, computed)
+
+        // Fresh JarvisAppSession mimics a restarted client without keeping
+        // any Compose bitmap in memory. No paid request or asset mutation.
+        val reopenedSession = session(store)
+        val reopened = reopenedSession.visualAssetList(
+            "prj_story", "character:alexander", status = "APPROVED",
+        ).orThrowStage("reopened character listing")
+        assertEquals(master.asset_id, reopened.assets.single().asset_id)
+        val copied = reopenedSession.writingRoomVisualAssetFetch(
+            "prj_story", master.asset_id,
+        ).orThrowStage("recovery download")
+        org.junit.Assert.assertArrayEquals(
+            expectedBytes, java.util.Base64.getDecoder().decode(copied.image_base64),
+        )
+
+        val otherCharacter = reopenedSession.visualAssetList(
+            "prj_story", "character:naruto",
+        ).orThrowStage("other character listing")
+        assertTrue(otherCharacter.assets.isEmpty())
+        assertTrue(reopenedSession.writingRoomVisualAssetFetch(
+            "prj_other", master.asset_id,
+        ).isFailure)
+        val paths = (0 until server.requestCount).map { server.takeRequest().path.orEmpty() }
+        assertEquals(6, paths.size)
+        assertTrue(paths.none {
+            it.contains("/images/generations") || it.contains("/approve")
+        })
     }
 }

@@ -240,6 +240,40 @@ data class WritingRoomAutoChat(
     val recovered_from_interruption: Boolean = false,
 )
 
+/** A 200/complete SSE frame only proves transport completion, not task success.
+ * Ignore-unknown JSON defaults can otherwise turn an old {reply,task_state}
+ * envelope (with no turn) into an apparently successful empty chat.
+ */
+internal fun validatedAdaptiveCopilotCompletion(
+    response: WritingRoomAutoChat,
+    projectId: String,
+): WritingRoomAutoChat {
+    val reply = response.turn.response.text
+    if (response.schema != "jarvis.writing-room.chat.v1" ||
+        reply.isBlank() ||
+        (response.turn.project_id.isNotBlank() && response.turn.project_id != projectId)
+    ) {
+        throw TransportException("Copilot devolvió una respuesta incompleta o de otro proyecto.")
+    }
+    val terminalFailure = setOf("FAILED", "CANCELED", "OUTCOME_UNKNOWN", "PARTIAL")
+    val state = response.copilot_task?.agent_run_state?.uppercase()
+    if (state in terminalFailure) {
+        throw TransportException(
+            "Copilot terminó con estado $state. Consulta el estado de la tarea antes de reintentar.",
+        )
+    }
+    // Compatibility for older VPS builds that omitted copilot_task entirely
+    // when the model/router failed before invoking its first tool.
+    if (response.copilot_task == null &&
+        terminalFailure.any { reply == "JARVIS terminó con estado $it." }
+    ) {
+        throw TransportException(
+            "Copilot no pudo completar esta solicitud. Consulta el estado antes de reintentar.",
+        )
+    }
+    return response
+}
+
 @Serializable
 data class WritingRoomRagSource(
     val chunk_id: String? = null,
@@ -1576,8 +1610,8 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     val stableConversationId = writingRoomConversationId(projectId)
     var usingAdaptive = true
     // Only an accepted adaptive SSE stream may need exact-request recovery.
-    // A pre-execution HTTP rejection (503/429/400) never triggers another
-    // request or falls back to the legacy stream.
+    // A pre-execution HTTP rejection (including 404) never triggers another
+    // request or silently falls back to the legacy stream.
     var adaptiveStreamAccepted = false
     val body = buildJsonObject {
         put("project_id", projectId)
@@ -1615,6 +1649,9 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         put("mode", "auto")
     }.toString()
 
+    // A received terminal frame is authoritative. Invalid or failed complete
+    // envelopes must not be converted into success by read-only recovery.
+    var receivedCompletionFrame = false
     val streamResult = runCatching {
         var completed: WritingRoomAutoChat? = null
         var streamError: String? = null
@@ -1634,6 +1671,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                     obj["delta"]?.jsonPrimitive?.contentOrNull?.let(onDelta)
                 }
                 "complete" -> {
+                    receivedCompletionFrame = true
                     completed = writingRoomJson.decodeFromString<WritingRoomAutoChat>(data)
                 }
                 "error" -> {
@@ -1644,15 +1682,20 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                 }
             }
         }
-        // Prefer the adaptive model loop. A disabled/old backend answers
-        // 404 BEFORE accepting any task: then retain the v64 legacy route.
+        // Require the adaptive model loop. A disabled/old backend must be
+        // diagnosed instead of silently sending the task to legacy models.
         var endpoint = "/api/app/writing-room/agent/stream"
         var status = postSse(baseUrl, endpoint, body, auth, onEvent)
         if (status in 200..299) adaptiveStreamAccepted = true
-        if (status == 404 && attachedImageBase64 == null) {
-            usingAdaptive = false
-            endpoint = "/api/app/writing-room/chat/stream"
-            status = postSse(baseUrl, endpoint, body, auth, onEvent)
+        if (status == 404) {
+            // A backend that lacks the agent MUST NOT silently route Copilot
+            // into the legacy DeepSeek chat and appear to use configured Haiku.
+            // The APK remains usable for other sections, but this turn is
+            // rejected before any model/provider dispatch.
+            throw TransportException(
+                "Copilot requiere un backend AdaptiveAgent compatible. " +
+                    "No se ha enviado esta solicitud al modelo heredado.",
+            )
         }
         if (status == 401) {
             // HTTP 401 means the stream was rejected before execution.
@@ -1664,13 +1707,11 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
             auth = authHeader() ?: throw TransportException("no live session")
             status = postSse(baseUrl, endpoint, body, auth, onEvent)
             if (usingAdaptive && status in 200..299) adaptiveStreamAccepted = true
-            if (status == 404 && attachedImageBase64 == null &&
-                endpoint == "/api/app/writing-room/agent/stream") {
-                // A refreshed bearer against an older VPS is not evidence of
-                // accepted work; keep the original idempotency key and fallback.
-                usingAdaptive = false
-                endpoint = "/api/app/writing-room/chat/stream"
-                status = postSse(baseUrl, endpoint, body, auth, onEvent)
+            if (status == 404 && endpoint == "/api/app/writing-room/agent/stream") {
+                throw TransportException(
+                    "Copilot requiere backend AdaptiveAgent. " +
+                        "No se ha utilizado DeepSeek por una ruta heredada.",
+                )
             }
             if (status == 401) {
                 if (authHeader() == auth) clearAccess()
@@ -1679,8 +1720,10 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         }
         if (status !in 200..299) throw TransportException("HTTP $status")
         streamError?.let { throw TransportException(it) }
-        val response = completed
-            ?: throw TransportException("Writing Room stream ended without completion")
+        val response = validatedAdaptiveCopilotCompletion(
+            completed ?: throw TransportException("Writing Room stream ended without completion"),
+            projectId,
+        )
         // Ordinary successful agent streams also need their stable request
         // ID: after a user confirms a proposed action, Android must recover
         // the final text by request ID instead of showing a stale proposal.
@@ -1705,7 +1748,8 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     ) {
         adaptiveStreamAccepted = true
     }
-    if (streamResult.isSuccess || !usingAdaptive || !adaptiveStreamAccepted) {
+    if (streamResult.isSuccess || receivedCompletionFrame ||
+        !usingAdaptive || !adaptiveStreamAccepted) {
         return@withContext streamResult
     }
 
@@ -1718,6 +1762,61 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         recoveredCopilotChat(projectId, stableConversationId, stableRequestId, task)
     }
     recovered?.let { Result.success(it) } ?: streamResult
+}
+
+/** Durable server transcript: scoped to this authenticated project/conversation. */
+@Serializable
+data class WritingCopilotHistoryVisual(
+    val asset_id: String = "",
+    val sha256: String = "",
+    val status: String = "",
+    val storage_state: String = "",
+    val kind: String = "",
+    val character_id: String = "",
+    val perspective: String = "",
+)
+
+@Serializable
+data class WritingCopilotHistoryTurn(
+    val request_id: String = "",
+    val task_id: String = "",
+    val user_text: String = "",
+    val assistant_text: String = "",
+    val state: String = "",
+    val visual_asset: WritingCopilotHistoryVisual? = null,
+)
+
+@Serializable
+data class WritingCopilotHistory(
+    val schema: String = "",
+    val project_id: String = "",
+    val conversation_id: String = "",
+    val turns: List<WritingCopilotHistoryTurn> = emptyList(),
+)
+
+/** Restores historical chat text without replaying an action, model or provider.
+ * Unsupported older backend returns a failure; callers must preserve the
+ * existing latest-task and Visual Registry recovery instead.
+ */
+suspend fun JarvisAppSession.writingRoomCopilotHistory(
+    projectId: String,
+): Result<WritingCopilotHistory> {
+    val conversationId = runCatching { writingRoomConversationId(projectId) }.getOrNull()
+        ?: return Result.failure(TransportException("Missing Writing Room conversation scope"))
+    return writingPost<WritingCopilotHistory>(
+        "/api/app/writing-room/agent/history",
+        buildJsonObject {
+            put("project_id", projectId)
+            put("conversation_id", conversationId)
+        },
+    ).mapCatching { result: WritingCopilotHistory ->
+        if (result.schema != "jarvis.writing-room.agent.history.v1" ||
+            result.project_id != projectId ||
+            result.conversation_id != conversationId ||
+            result.turns.size > 80
+        ) throw TransportException("Writing Room history scope mismatch")
+        result
+    }
 }
 
 /** Read the status of one exact interrupted agent request; never re-executes. */

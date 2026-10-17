@@ -43,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,6 +62,7 @@ import com.jarvis.android.transport.live.VisualStudioAsset
 import com.jarvis.android.transport.live.VisualStudioReferencePack
 import com.jarvis.android.transport.live.WritingWikiEntity
 import com.jarvis.android.ui.JarvisViewModel
+import com.jarvis.android.ui.pendingCopilotCharacterSelection
 import com.jarvis.android.ui.shared.rememberAttachmentThumb
 import com.jarvis.android.ui.theme.HudTextStyle
 import com.jarvis.android.ui.theme.JarvisAmber
@@ -71,11 +73,61 @@ import com.jarvis.android.ui.theme.JarvisViolet
 import com.jarvis.android.ui.theme.LocalJarvisAccents
 import com.jarvis.android.ui.theme.jarvisTextFieldColors
 
+/**
+ * Reference-only catalog is independently discoverable, even with an empty
+ * Wiki. A matching Wiki id always wins so outside characters cannot replace
+ * project canon or turn a reference into OFFICIAL_CANON.
+ */
+internal fun mergeCharacterStudioOptions(
+    characters: List<WritingWikiEntity>,
+    externalCharacters: List<com.jarvis.android.transport.live.VisualExternalCharacter>,
+    recoveredCharacterId: String = "",
+): List<WritingWikiEntity> {
+    val wikiCharacters = characters.filter {
+        it.id.isNotBlank() && it.type.equals("character", ignoreCase = true)
+    }
+    val wikiIds = wikiCharacters.map { it.id }.toSet()
+    val externalOnly = externalCharacters
+        .filter { it.character_id.isNotBlank() && it.character_id !in wikiIds }
+        .map { external ->
+            WritingWikiEntity(
+                id = external.character_id,
+                type = "character",
+                name = external.display_name,
+                canonical_name = external.display_name,
+                authority = "REFERENCE",
+                role = "Referencia visual externa · " + external.franchise,
+                summary = "Disponible para Visual Studio sin modificar el canon narrativo.",
+            )
+        }
+    // Copilot can possess an approved, verified master while a Wiki request
+    // is down. Permit navigation to its exact character ID without inventing
+    // OFFICIAL_CANON or inserting anything into the Wiki.
+    val pendingWiki = recoveredCharacterId.takeIf {
+        it.matches(Regex("^character:[A-Za-z0-9_-]{1,120}$")) &&
+            it !in wikiIds && externalOnly.none { option -> option.id == it }
+    }?.let { id ->
+        WritingWikiEntity(
+            id = id,
+            type = "character",
+            name = id.substringAfter(':').replace('-', ' '),
+            authority = "REFERENCE",
+            role = "Retrato recuperado · Wiki pendiente de verificar",
+            summary = "Solo acceso visual al asset existente, sin promoverlo a canon.",
+        )
+    }
+    return (wikiCharacters + externalOnly + listOfNotNull(pendingWiki))
+        .distinctBy { it.id }
+        .sortedBy { (it.canonical_name.ifBlank { it.name }).lowercase() }
+}
+
 @Composable
 fun CharacterStudioScreen(
     vm: JarvisViewModel,
     projectId: String,
     characters: List<WritingWikiEntity>,
+    requestedCharacterId: String = "",
+    openCharacterRequest: Int = 0,
     onEditInImageStudio: (String, String, VisualStudioAsset) -> Unit = { _, _, _ -> },
     headerContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -84,14 +136,22 @@ fun CharacterStudioScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val accents = LocalJarvisAccents.current
 
-    val characterOptions = remember(characters) {
-        characters
-            .filter { it.id.isNotBlank() && it.type.equals("character", ignoreCase = true) }
-            .distinctBy { it.id }
-            .sortedBy { it.name.lowercase() }
+    // Fetch reference-only character catalog even when Wiki is empty.
+    // This unlocks the first selection and its normal Character Studio data.
+    LaunchedEffect(projectId) {
+        vm.loadCharacterStudioCatalog(projectId)
+    }
+
+    val characterOptions = remember(characters, state.externalCharacters, requestedCharacterId) {
+        mergeCharacterStudioOptions(
+            characters, state.externalCharacters, recoveredCharacterId = requestedCharacterId,
+        )
     }
     var selectedCharacterId by rememberSaveable(projectId) {
         mutableStateOf(characterOptions.firstOrNull()?.id.orEmpty())
+    }
+    var handledCopilotOpenRequest by rememberSaveable(projectId) {
+        mutableIntStateOf(0)
     }
     var masterPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
     var turnaroundPrompt by rememberSaveable(projectId, selectedCharacterId) { mutableStateOf("") }
@@ -129,6 +189,21 @@ fun CharacterStudioScreen(
     LaunchedEffect(characterOptions) {
         if (selectedCharacterId.isBlank() || characterOptions.none { it.id == selectedCharacterId }) {
             selectedCharacterId = characterOptions.firstOrNull()?.id.orEmpty()
+        }
+    }
+    // An approved portrait opened from Copilot selects that exact character,
+    // including when the external reference catalog arrives asynchronously.
+    // This does not promote an external reference into the project Wiki.
+    LaunchedEffect(projectId, openCharacterRequest, characterOptions) {
+        val target = pendingCopilotCharacterSelection(
+            requestNumber = openCharacterRequest,
+            lastHandledRequest = handledCopilotOpenRequest,
+            requestedCharacterId = requestedCharacterId,
+            availableCharacterIds = characterOptions.map { it.id },
+        )
+        if (target != null) {
+            handledCopilotOpenRequest = openCharacterRequest
+            selectedCharacterId = target
         }
     }
     LaunchedEffect(projectId, selectedCharacterId) {
@@ -212,7 +287,7 @@ fun CharacterStudioScreen(
                 Text(
                     (if (isMaster) "Se solicitará un master frontal de cuerpo completo"
                         else "Se solicitará una vista ${prettyPerspective(selectedPerspective)}") +
-                        " de ${selectedCharacterName.ifBlank { "este personaje" }} con GPT Image 2 Medium. " +
+                        " de ${selectedCharacterName.ifBlank { "este personaje" }} con el modelo de imagen configurado en Writing Room. " +
                         "La imagen puede tener costo y se guardará como candidata, sin aprobación automática."
                 )
             },
@@ -262,10 +337,16 @@ fun CharacterStudioScreen(
             title = { Text("Confirmar generación de vistas") },
             text = {
                 Text(
-                    "JARVIS solicitará las perspectivas faltantes usando el master aprobado " +
-                        "de ${selectedCharacterName.ifBlank { "este personaje" }} y GPT Image 2 Medium. " +
-                        "Puede efectuar varias generaciones de pago y hasta dos correcciones " +
-                        "automáticas. Las imágenes nuevas serán candidatas y necesitarán aprobación."
+                    (if (state.batch?.status == "READY" && state.batch?.batch_id?.isNotBlank() == true) {
+                        "Se reanudará el lote existente " + state.batch?.batch_id +
+                            " sin crear uno nuevo. "
+                    } else {
+                        "Se preparará un lote de perspectivas faltantes. "
+                    }) +
+                        "Se utilizará el master aprobado de " +
+                        selectedCharacterName.ifBlank { "este personaje" } +
+                        ". Puede efectuar generaciones de pago y correcciones automáticas. " +
+                        "Las imágenes nuevas seguirán siendo candidatas hasta tu aprobación."
                 )
             },
             confirmButton = {
@@ -275,14 +356,20 @@ fun CharacterStudioScreen(
                         state.batch?.status != "RUNNING",
                     onClick = {
                         pendingTurnaroundGeneration = false
+                        val existing = state.batch?.takeIf {
+                            it.status == "READY" && it.batch_id.isNotBlank()
+                        }
                         vm.completeCharacterViews(
                             projectId = projectId,
                             characterId = selectedCharacterId,
-                            perspectives = TURNAROUND_PERSPECTIVES,
-                            adjustment = turnaroundPrompt,
+                            perspectives = existing?.requested_perspectives
+                                ?.takeIf { it.isNotEmpty() } ?: TURNAROUND_PERSPECTIVES,
+                            adjustment = existing?.adjustment ?: turnaroundPrompt,
+                            resumeBatchId = existing?.batch_id.orEmpty(),
+                            generationMode = existing?.mode ?: "model_select",
                         )
                     },
-                ) { Text("Iniciar vistas de pago") }
+                ) { Text(if (state.batch?.status == "READY") "Reanudar lote existente" else "Iniciar vistas de pago") }
             },
             dismissButton = {
                 TextButton(onClick = { pendingTurnaroundGeneration = false }) { Text("Cancelar") }
@@ -299,7 +386,7 @@ fun CharacterStudioScreen(
             title = { Text("Confirmar generación de masters") },
             text = {
                 Text(
-                    "Se solicitarán $count imágenes de pago con GPT Image 2 Medium. " +
+                    "Se solicitarán $count imágenes de pago con el modelo de imagen configurado en Writing Room. " +
                         "Cada master será una referencia frontal de cuerpo completo; " +
                         "el estilo visual del proyecto será el mismo para todos. " +
                         "Las imágenes se guardan como candidatas y requieren aprobación."
@@ -413,9 +500,14 @@ fun CharacterStudioScreen(
 
                 if (characterOptions.isEmpty()) {
                     Text(
-                        "No hay personajes disponibles en la Wiki de este proyecto.",
+                        "No se encontraron personajes de Wiki ni referencias externas.",
                         color = JarvisAmber,
                     )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { vm.loadCharacterStudioCatalog(projectId) },
+                        enabled = !state.busy,
+                    ) { Text("Reintentar catálogo de personajes") }
                 } else {
                     Row(
                         Modifier
@@ -639,6 +731,56 @@ fun CharacterStudioScreen(
                             "No existe un visual canon bloqueado suficiente para este personaje. Define y guarda su apariencia antes de generar un master.",
                             style = MaterialTheme.typography.bodySmall,
                             color = JarvisAmber,
+                        )
+                    }
+                    if (state.characterVariants.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "VARIANTE CANÓNICA EXTERNA",
+                            style = HudTextStyle,
+                            color = JarvisViolet,
+                        )
+                        if (characterDirectionDraft.franchise.isNotBlank()) {
+                            Text(
+                                characterDirectionDraft.franchise +
+                                    if (characterDirectionDraft.seed_era.isNotBlank()) {
+                                        " · " + characterDirectionDraft.seed_era
+                                    } else {
+                                        ""
+                                    },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF94A3B8),
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            state.characterVariants.forEach { variant ->
+                                val selected = characterDirectionDraft.seed_variant == variant.variant_id
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        if (!selected && settings.isOwner) {
+                                            vm.applyExternalCharacterVariant(
+                                                projectId,
+                                                selectedCharacterId,
+                                                variant.variant_id,
+                                                characterDirectionDraft.revision,
+                                            )
+                                        }
+                                    },
+                                    label = { Text(variant.display_name) },
+                                )
+                            }
+                        }
+                        Text(
+                            "Estas variantes sólo controlan la referencia visual; no añaden ni cambian hechos de la historia.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF8BA2BE),
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -1401,7 +1543,10 @@ private fun CharacterAssetCard(
                                 val id = attachmentId
                                 if (!id.isNullOrBlank()) onEditInImageStudio(id, asset)
                             },
-                            enabled = !state.busy && !attachmentId.isNullOrBlank(),
+                            // A local attachment receipt is not sufficient:
+                            // decode must succeed before offering the paid edit UI.
+                            enabled = !state.busy && previewDecoded &&
+                                !attachmentId.isNullOrBlank(),
                             modifier = Modifier.weight(1f),
                         ) {
                             Icon(Icons.Filled.Edit, contentDescription = null)
@@ -1424,7 +1569,10 @@ private fun AssetPreview(
     onDecodedChange: (Boolean) -> Unit = {},
 ) {
     val state by vm.characterStudio.collectAsStateWithLifecycle()
-    LaunchedEffect(projectId, state.characterId, asset.asset_id, asset.storage.state) {
+    LaunchedEffect(
+        projectId, state.characterId, asset.asset_id, asset.storage.state,
+        attachmentId,
+    ) {
         if (attachmentId.isNullOrBlank() && asset.storage.state == "stored") {
             vm.loadCharacterStudioAsset(projectId, asset.asset_id)
         }

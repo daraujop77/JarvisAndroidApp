@@ -185,7 +185,8 @@ class WritingRoomIntegrityWiringTest {
         assertTrue(screen.contains("vm.runWritingRoomAutoChat("))
         assertTrue(screen.contains("referenceAttachmentId = state.copilotPendingReferenceId"))
         assertTrue(api.contains("/api/app/writing-room/agent/stream"))
-        assertTrue(api.contains("if (status == 404 && attachedImageBase64 == null)"))
+        assertTrue(api.contains("Copilot requiere un backend AdaptiveAgent compatible"))
+        assertFalse(api.contains("endpoint = \"/api/app/writing-room/chat/stream\""))
         assertTrue(api.contains("stableRequestId"))
         // Explicit visual-studio confirmation buttons remain available for
         // existing saved drafts and older flows; they are not text routers.

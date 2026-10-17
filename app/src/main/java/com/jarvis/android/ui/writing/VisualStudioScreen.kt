@@ -43,6 +43,8 @@ fun VisualStudioScreen(
     characters: List<WritingWikiEntity>,
     locations: List<WritingWikiEntity>,
     openScenesRequest: Int = 0,
+    requestedCharacterId: String = "",
+    openCharacterRequest: Int = 0,
     onUseSceneInChapter: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -69,6 +71,11 @@ fun VisualStudioScreen(
     LaunchedEffect(projectId, openScenesRequest) {
         if (openScenesRequest > 0) {
             section = VisualStudioSection.SCENES
+        }
+    }
+    LaunchedEffect(projectId, openCharacterRequest) {
+        if (openCharacterRequest > 0 && requestedCharacterId.isNotBlank()) {
+            section = VisualStudioSection.CHARACTERS
         }
     }
 
@@ -168,7 +175,7 @@ fun VisualStudioScreen(
                     onClick = {
                         section = VisualStudioSection.CHARACTERS
                     },
-                    label = { Text(strings.visualCharacters, maxLines = 1) },
+                    label = { Text("Character Studio", maxLines = 1) },
                 )
                 FilterChip(
                     selected = section == VisualStudioSection.LOCATIONS,
@@ -195,17 +202,21 @@ fun VisualStudioScreen(
         }
     }
     Column(modifier.fillMaxSize()) {
+        // Keep section navigation visible while the active Studio scrolls.
+        // The previous in-list header disappeared during character editing.
+        navigation()
         when (section) {
             VisualStudioSection.CHARACTERS -> CharacterStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 characters = characters,
+                requestedCharacterId = requestedCharacterId,
+                openCharacterRequest = openCharacterRequest,
                 onEditInImageStudio = { attachmentId, selectedCharacterId, asset ->
                     characterEditorAttachmentId = attachmentId
                     characterEditorCharacterId = selectedCharacterId
                     characterEditorParent = asset
                 },
-                headerContent = navigation,
                 modifier = Modifier.weight(1f),
             )
 
@@ -213,7 +224,6 @@ fun VisualStudioScreen(
                 vm = vm,
                 projectId = projectId,
                 locations = locations,
-                headerContent = navigation,
                 modifier = Modifier.weight(1f),
             )
 
@@ -227,7 +237,6 @@ fun VisualStudioScreen(
                     sceneEditorAttachmentId = attachmentId
                     sceneEditorParent = asset
                 },
-                headerContent = navigation,
                 modifier = Modifier.weight(1f),
             )
 
@@ -236,7 +245,6 @@ fun VisualStudioScreen(
                 projectId = projectId,
                 locations = locations,
                 characters = characters,
-                headerContent = navigation,
                 modifier = Modifier.weight(1f),
             )
         }
