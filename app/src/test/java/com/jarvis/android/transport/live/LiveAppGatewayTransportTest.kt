@@ -172,6 +172,7 @@ class LiveAppGatewayTransportTest {
                     }
                     request.path == "/api/app/chat" && request.method == "POST" -> {
                         jsonChatCalls.incrementAndGet()
+                        postedBodies += "POST /api/app/chat\n" + request.body.readUtf8()
                         MockResponse().setBody(
                             """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
                                 """"response":{"text":"JSON fallback answer"}}""",
