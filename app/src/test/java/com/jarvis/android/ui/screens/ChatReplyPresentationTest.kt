@@ -65,12 +65,12 @@ class ChatReplyPresentationTest {
             "https://0x7f000001/private",
         )
         blocked.forEach { url ->
-            val raw = "Respuesta\\n\\nFuentes consultadas:\\n- [Ref]($url)"
+            val raw = "Respuesta\n\nFuentes consultadas:\n- [Ref]($url)"
             val rendered = splitChatSources(raw)
             assertEquals(raw, rendered.body)
             assertTrue(rendered.sources.isEmpty())
         }
-        val valid = "Respuesta\\n\\nFuentes consultadas:\\n" +
+        val valid = "Respuesta\n\nFuentes consultadas:\n" +
             "- [Ref](https://www.marvel.com/characters/doctor-doom-victor-von-doom)"
         assertEquals(1, splitChatSources(valid).sources.size)
     }
