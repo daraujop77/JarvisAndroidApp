@@ -344,6 +344,20 @@ class CopilotStreamRequestRecoveryTest {
             results = listOf(ready.copy(status = "UNAVAILABLE")))).isEmpty())
     }
 
+    @Test fun failedRecoveredAgentDoesNotBecomeSuccessfulChat() {
+        val failed = CopilotTaskState(
+            project_id = "prj_story", conversation_id = "chat-a",
+            request_id = "req-a", task_id = "ar_0123456789abcdef01234567",
+            state = "BLOCKED", agent_run_state = "FAILED",
+            reply_text = "JARVIS terminó con estado FAILED.",
+        )
+        assertNull(recoveredCopilotChat("prj_story", "chat-a", "req-a", failed))
+        assertNull(recoveredCopilotChat(
+            "prj_story", "chat-a", "req-a",
+            failed.copy(agent_run_state = "OUTCOME_UNKNOWN"),
+        ))
+    }
+
     @Test fun mismatchedRecoveredScopeIsNeverPresentedAsSuccessfulReply() {
         val card = CopilotTaskState(
             project_id = "prj_private", conversation_id = "chat-a",

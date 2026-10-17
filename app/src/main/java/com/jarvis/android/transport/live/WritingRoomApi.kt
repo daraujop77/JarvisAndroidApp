@@ -1649,6 +1649,9 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         put("mode", "auto")
     }.toString()
 
+    // A received terminal frame is authoritative. Invalid or failed complete
+    // envelopes must not be converted into success by read-only recovery.
+    var receivedCompletionFrame = false
     val streamResult = runCatching {
         var completed: WritingRoomAutoChat? = null
         var streamError: String? = null
@@ -1668,6 +1671,7 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
                     obj["delta"]?.jsonPrimitive?.contentOrNull?.let(onDelta)
                 }
                 "complete" -> {
+                    receivedCompletionFrame = true
                     completed = writingRoomJson.decodeFromString<WritingRoomAutoChat>(data)
                 }
                 "error" -> {
@@ -1744,7 +1748,8 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
     ) {
         adaptiveStreamAccepted = true
     }
-    if (streamResult.isSuccess || !usingAdaptive || !adaptiveStreamAccepted) {
+    if (streamResult.isSuccess || receivedCompletionFrame ||
+        !usingAdaptive || !adaptiveStreamAccepted) {
         return@withContext streamResult
     }
 

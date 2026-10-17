@@ -47,6 +47,14 @@ internal fun recoveredCopilotChat(
         !task.task_id.startsWith("ar_")
     ) return null
     if (task.state == "NONE") return null
+    // A persisted FAILED/PARTIAL/UNKNOWN task is a real terminal outcome,
+    // not a successful reconstructed chat bubble. The original action must
+    // never be replayed automatically to replace that failed result.
+    if (task.agent_run_state.uppercase() in
+        setOf("FAILED", "PARTIAL", "CANCELED", "OUTCOME_UNKNOWN") ||
+        task.state.uppercase() == "BLOCKED" &&
+            task.agent_run_state.uppercase() != "WAITING_CLARIFICATION"
+    ) return null
 
     val pending = task.agent_run_state in setOf("RUNNING", "DISPATCHING") ||
         task.state in setOf("RUNNING", "DISPATCHING")
