@@ -53,6 +53,28 @@ class ChatReplyPresentationTest {
         assertTrue(parsed.sources.isEmpty())
     }
 
+    @Test fun privateOrUnusualPortReferencesAreNeverMadeClickable() {
+        val blocked = listOf(
+            "https://localhost/admin",
+            "https://127.0.0.1/secret",
+            "https://[::1]/secret",
+            "https://metadata.internal/credentials",
+            "https://example.local/private",
+            "https://example.org:8443/private",
+            "https://user:password@example.org/private",
+            "https://0x7f000001/private",
+        )
+        blocked.forEach { url ->
+            val raw = "Respuesta\\n\\nFuentes consultadas:\\n- [Ref]($url)"
+            val rendered = splitChatSources(raw)
+            assertEquals(raw, rendered.body)
+            assertTrue(rendered.sources.isEmpty())
+        }
+        val valid = "Respuesta\\n\\nFuentes consultadas:\\n" +
+            "- [Ref](https://www.marvel.com/characters/doctor-doom-victor-von-doom)"
+        assertEquals(1, splitChatSources(valid).sources.size)
+    }
+
     @Test fun invalidSchemeAndCredentialedSourcesAreNotMadeClickable() {
         val raw = "Respuesta\n\nFuentes\n- Sitio: https://user:secret@example.com/private"
         val parsed = splitChatSources(raw)
