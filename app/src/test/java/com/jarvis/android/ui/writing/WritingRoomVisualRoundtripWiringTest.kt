@@ -63,7 +63,11 @@ class WritingRoomVisualRoundtripWiringTest {
         assertTrue(writing.contains("onDecodedChange = { previewDecoded = it }"))
         assertTrue(preview.contains("Dialog("))
         assertTrue(preview.contains("onRetry =") || preview.contains("onClick = onRetry"))
-        assertTrue(preview.contains("store.decodeThumbnail(attachmentId, 2048)"))
+        // Re-download of the same immutable asset restarts decoding once loading
+        // completes; source no longer uses the old local variable name.
+        assertTrue(preview.contains("produceState(VisualBitmapState(), attachmentId, loading)"))
+        assertTrue(preview.contains("shouldDecodeVisualPreview(attachmentId, loading)"))
+        assertTrue(preview.contains("store.decodeThumbnail(id, 2048)"))
         assertTrue(characters.contains("VisualAssetPreview("))
         assertTrue(vm.contains("matchesListedVisualAssetReceipt(projectId, listedAsset, content)"))
         assertTrue(vm.contains("verifiedCharacterEditParent("))
