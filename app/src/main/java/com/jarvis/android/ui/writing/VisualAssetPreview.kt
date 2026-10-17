@@ -47,6 +47,14 @@ private data class VisualBitmapState(
     val attachmentId: String? = null,
 )
 
+/**
+ * Re-downloads can replace the bytes behind the *same* attachment ID.
+ * Never decode while that copy is still being written; a loading-to-idle
+ * transition must invalidate the previous thumbnail (including a failed one).
+ */
+internal fun shouldDecodeVisualPreview(attachmentId: String?, loading: Boolean): Boolean =
+    !loading && !attachmentId.isNullOrBlank()
+
 /** Download and decode failures are visible; retry only fetches existing bytes. */
 @Composable
 internal fun VisualAssetPreview(
@@ -60,15 +68,18 @@ internal fun VisualAssetPreview(
     onRetry: () -> Unit,
     onDecodedChange: (Boolean) -> Unit = {},
 ) {
-    val decoded by produceState(VisualBitmapState(), attachmentId) {
+    // Key by download state as well as identity: retrying a failed decode may
+    // update the local file while keeping the same immutable receipt ID.
+    val decoded by produceState(VisualBitmapState(), attachmentId, loading) {
         value = VisualBitmapState()
-        if (!attachmentId.isNullOrBlank()) {
-            val bitmap = withContext(Dispatchers.IO) { store.decodeThumbnail(attachmentId, 2048) }
-            value = VisualBitmapState(bitmap, finished = true, attachmentId = attachmentId)
+        if (shouldDecodeVisualPreview(attachmentId, loading)) {
+            val id = requireNotNull(attachmentId)
+            val bitmap = withContext(Dispatchers.IO) { store.decodeThumbnail(id, 2048) }
+            value = VisualBitmapState(bitmap, finished = true, attachmentId = id)
         }
     }
-    // produceState can keep the previous attachment's bitmap for a frame; it must never count as this one.
-    val isDecoded = decoded.attachmentId == attachmentId && decoded.bitmap != null
+    // Do not show the previous attachment or a stale bitmap during re-download.
+    val isDecoded = !loading && decoded.attachmentId == attachmentId && decoded.bitmap != null
     var expanded by remember(attachmentId) { mutableStateOf(false) }
     LaunchedEffect(attachmentId, isDecoded) { onDecodedChange(isDecoded) }
 
@@ -127,7 +138,7 @@ internal fun VisualAssetPreview(
                 contentScale = ContentScale.Fit,
             )
         } else {
-            val decodeFailed = !attachmentId.isNullOrBlank() && decoded.finished
+            val decodeFailed = !loading && !attachmentId.isNullOrBlank() && decoded.finished
             Column(
                 Modifier.padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
