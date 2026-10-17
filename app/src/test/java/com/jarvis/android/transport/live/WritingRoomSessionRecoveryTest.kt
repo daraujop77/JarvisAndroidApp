@@ -133,7 +133,7 @@ class WritingRoomSessionRecoveryTest {
                 data: {"delta":"hola"}
 
                 event: complete
-                data: {"schema":"jarvis.writing-room.autochat.v1"}
+                data: {"schema":"jarvis.writing-room.chat.v1","turn":{"project_id":"prj_story","response":{"text":"hola"}}}
 
                 """.trimIndent() + "\n\n"
             ))
