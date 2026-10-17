@@ -240,6 +240,40 @@ data class WritingRoomAutoChat(
     val recovered_from_interruption: Boolean = false,
 )
 
+/** A 200/complete SSE frame only proves transport completion, not task success.
+ * Ignore-unknown JSON defaults can otherwise turn an old {reply,task_state}
+ * envelope (with no turn) into an apparently successful empty chat.
+ */
+internal fun validatedAdaptiveCopilotCompletion(
+    response: WritingRoomAutoChat,
+    projectId: String,
+): WritingRoomAutoChat {
+    val reply = response.turn.response.text
+    if (response.schema != "jarvis.writing-room.chat.v1" ||
+        reply.isBlank() ||
+        (response.turn.project_id.isNotBlank() && response.turn.project_id != projectId)
+    ) {
+        throw TransportException("Copilot devolvió una respuesta incompleta o de otro proyecto.")
+    }
+    val terminalFailure = setOf("FAILED", "CANCELED", "OUTCOME_UNKNOWN", "PARTIAL")
+    val state = response.copilot_task?.agent_run_state?.uppercase()
+    if (state in terminalFailure) {
+        throw TransportException(
+            "Copilot terminó con estado $state. Consulta el estado de la tarea antes de reintentar.",
+        )
+    }
+    // Compatibility for older VPS builds that omitted copilot_task entirely
+    // when the model/router failed before invoking its first tool.
+    if (response.copilot_task == null &&
+        terminalFailure.any { reply == "JARVIS terminó con estado $it." }
+    ) {
+        throw TransportException(
+            "Copilot no pudo completar esta solicitud. Consulta el estado antes de reintentar.",
+        )
+    }
+    return response
+}
+
 @Serializable
 data class WritingRoomRagSource(
     val chunk_id: String? = null,
@@ -1682,8 +1716,10 @@ suspend fun JarvisAppSession.writingRoomAutoChatStream(
         }
         if (status !in 200..299) throw TransportException("HTTP $status")
         streamError?.let { throw TransportException(it) }
-        val response = completed
-            ?: throw TransportException("Writing Room stream ended without completion")
+        val response = validatedAdaptiveCopilotCompletion(
+            completed ?: throw TransportException("Writing Room stream ended without completion"),
+            projectId,
+        )
         // Ordinary successful agent streams also need their stable request
         // ID: after a user confirms a proposed action, Android must recover
         // the final text by request ID instead of showing a stale proposal.

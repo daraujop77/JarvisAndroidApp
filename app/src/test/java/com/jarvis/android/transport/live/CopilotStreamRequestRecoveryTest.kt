@@ -72,6 +72,60 @@ class CopilotStreamRequestRecoveryTest {
             assertEquals(1, server.requestCount)
         }
 
+    @Test fun completeWithoutTurnIsNotMistakenForSuccessfulCopilotChat() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "reply":"JARVIS terminó con estado FAILED.","task_state":""}""",
+            ))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Prueba de fallo", onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun typedFailedCopilotTaskCannotPassAsSuccess() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "turn":{"project_id":"prj_story","response":{"text":"No pude responder."}},
+                   "copilot_task":{"state":"BLOCKED","agent_run_state":"FAILED"}}""",
+            ))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Prueba de error", onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun oldFailedTextWithoutTypedTaskIsRejected() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "turn":{"project_id":"prj_story",
+                           "response":{"text":"JARVIS terminó con estado FAILED."}}}""",
+            ))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Comprueba el estado", onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun completedTurnFromAnotherProjectCannotBeShown() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "turn":{"project_id":"prj_other","response":{"text":"Dato privado"}}}""",
+            ))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Consulta", onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            assertEquals(1, server.requestCount)
+        }
+
     @Test fun oldVpsWithoutAdaptiveAgentCannotSilentlyIgnoreAttachedImage() =
         runBlocking(Dispatchers.IO) {
             val pixels = java.util.Base64.getEncoder()
