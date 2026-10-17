@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -234,7 +235,8 @@ class LiveAppGatewayTransport(
         val originalTraceId = original.traceId
         val originalDeviceId = original.deviceId
         val originalSessionId = original.sessionId
-        val job = scope.launch(Dispatchers.IO) {
+        // Register the request before the worker can emit a frame or complete.
+        val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             try {
                 emit(GatewayEvent.MessageAccepted(turnId, req.conversationId, "msg_$turnId"))
                 streamChat(
@@ -258,7 +260,7 @@ class LiveAppGatewayTransport(
                     // when the SSE route is absent (404/405 before any frame).
                     t is StreamUnavailable -> {
                         val completed = runCatching {
-                            postJsonTurn(req, traceId, deviceId, sessionId)
+                            postJsonTurn(req, originalTraceId, originalDeviceId, originalSessionId)
                         }.getOrNull()
                         if (completed != null) {
                             emitCompletedWithMedia(completed, turnId, req.conversationId)
@@ -314,10 +316,18 @@ class LiveAppGatewayTransport(
                 active.remove(turnId)
             }
         }
-        active[turnId] = ActiveTurn(
+        val registered = ActiveTurn(
             turnId, req.conversationId, originalTraceId, originalDeviceId,
             originalSessionId, job, ctl,
         )
+        if (active.putIfAbsent(turnId, registered) != null) {
+            job.cancel()
+            throw TransportException("Request is already active")
+        }
+        if (!job.start()) {
+            active.remove(turnId, registered)
+            throw TransportException("Chat transport is unavailable")
+        }
     }
 
     /** SSE route missing on this PC-A build; caller falls back to JSON chat. */

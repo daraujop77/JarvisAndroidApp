@@ -1,6 +1,7 @@
 package com.jarvis.android.transport.live
 
 import com.jarvis.android.contract.TaskStatus
+import com.jarvis.android.contract.MobileRequest
 import com.jarvis.android.data.repo.JarvisSessionRepository
 import com.jarvis.android.data.repo.SessionPhase
 import com.jarvis.android.transport.TransportException
@@ -32,6 +33,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -832,6 +834,56 @@ class LiveAppGatewayTransportTest {
             transport.recoverCompletedTurn("req-never-ran", "c1")
         }
         assertFalse(recovered)
+    }
+
+    @Test
+    fun missingSseRouteReusesOriginalPersistedRequestIdentityOnJsonFallback() {
+        streamResponder = { MockResponse().setResponseCode(404) }
+        val session = JarvisAppSession(seededStore())
+        session.rememberTurn(
+            "frozen-json-request", "c1", "frozen-trace",
+            "frozen-device", "frozen-session",
+        )
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+
+        repo.sendWithId("frozen-json-request", "c1", "hello")
+        await { repo.snapshot.value.session.requests["frozen-json-request"]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+            repo.snapshot.value.session.requests["frozen-json-request"]?.status)
+        val sent = postedBodies.single { it.startsWith("POST /api/app/chat\n") }
+        val body = Json.parseToJsonElement(sent.substringAfter('\n')).jsonObject
+        assertEquals("frozen-json-request", body["request_id"]?.jsonPrimitive?.content)
+        assertEquals("frozen-trace", body["trace_id"]?.jsonPrimitive?.content)
+        assertEquals("frozen-device", body["device_id"]?.jsonPrimitive?.content)
+        assertEquals("frozen-session", body["session_id"]?.jsonPrimitive?.content)
+        assertEquals(1, jsonChatCalls.get())
+    }
+
+    @Test
+    fun duplicateActiveRequestCannotDispatchAnotherHttpCall() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        streamResponder = {
+            entered.countDown()
+            release.await(4, TimeUnit.SECONDS)
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody())
+        }
+        val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
+        val request = MobileRequest.SendMessage("same-active-request", "c1", "hello")
+        try {
+            runBlocking { transport.connect(); transport.send(request) }
+            assertTrue("first HTTP request was not dispatched", entered.await(2, TimeUnit.SECONDS))
+            val duplicate = runBlocking { runCatching { transport.send(request) } }
+            assertTrue(duplicate.exceptionOrNull() is TransportException)
+            assertEquals(1, streamCalls.get())
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test
