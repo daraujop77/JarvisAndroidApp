@@ -14,13 +14,33 @@ private val MARKDOWN_SOURCE = Regex("""^\s*[-*•]\s+\[([^\]\r\n]{1,140})\]\((ht
 private val HTTPS_URL = Regex("""https://[^\s<>)]+""")
 private val LIST_MARKER = Regex("""^\s*[-*•]\s+""")
 
+private fun isPublicCitationHost(hostname: String): Boolean {
+    val host = hostname.lowercase()
+    if (host.length > 253 || host.endsWith(".")) return false
+    if (listOf("localhost", "local", "internal", "test", "invalid",
+               "lan", "localdomain", "home.arpa")
+            .any { host == it || host.endsWith(".$it") }) return false
+    // Reject address literals, private host aliases and malformed DNS names.
+    // This is link presentation validation, never a replacement for the web
+    // subprocess's network/redirect egress restrictions.
+    val labels = host.split(".")
+    if (labels.size < 2 || labels.any {
+            it.length !in 1..63 || it.startsWith("-") || it.endsWith("-") ||
+                !it.matches(Regex("[a-z0-9-]+"))
+        }) return false
+    if (!labels.last().contains(Regex("[a-z]"))) return false
+    if (host.matches(Regex("[0-9a-fx.]+"))) return false
+    return true
+}
+
 private fun verifiedCitation(title: String, rawUrl: String): ChatSource? {
     val url = rawUrl.trim().trimEnd('.', ',', ';')
     val safe = runCatching {
         val uri = URI(url)
-        uri.scheme == "https" && !uri.host.isNullOrBlank() &&
-            uri.userInfo == null && uri.port in -1..65535 &&
-            url.length <= 2048 && !url.any(Char::isISOControl)
+        uri.scheme == "https" &&
+            uri.host?.let(::isPublicCitationHost) == true &&
+            uri.userInfo == null && uri.port in listOf(-1, 443) &&
+            url.length <= 1800 && !url.any(Char::isISOControl)
     }.getOrDefault(false)
     if (!safe) return null
     return ChatSource(title.trim().take(140).ifBlank {
