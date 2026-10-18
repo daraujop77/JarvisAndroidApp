@@ -31,7 +31,7 @@ internal fun friendlyVisualAssetError(raw: String?): String {
     // The VPS storage bridge uses private OAuth credentials separate from the
     // Android login. Do not mislabel a Drive 403 as an app-session 403.
     val driveFailure = Regex(
-        """\\b(drive_http|oauth_http)_(400|401|403|404|429|500|502|503|504)\\b""",
+        """\b(drive_http|oauth_http)_(400|401|403|404|429|500|502|503|504)\b""",
         RegexOption.IGNORE_CASE,
     ).find(raw)
     if (driveFailure != null) {
