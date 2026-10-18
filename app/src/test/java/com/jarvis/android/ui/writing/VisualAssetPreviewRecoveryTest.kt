@@ -10,6 +10,40 @@ import org.junit.Test
  * again after a read or download failure without generating another image.
  */
 class VisualAssetPreviewRecoveryTest {
+    @Test fun remoteDrivePermissionErrorIsNotBlamedOnAndroidLogin() {
+        val reply = friendlyVisualAssetError(
+            "visual_drive_bridge_error:drive_http_403"
+        )
+        assertTrue(reply.contains("JARVIS no pudo acceder"))
+        assertTrue(reply.contains("permisos actuales"))
+        assertFalse(reply.contains("Tu sesión"))
+    }
+
+    @Test fun OAuthAndRateLimitFailuresPreserveOriginalAndDoNotAutoRegenerate() {
+        val oauth = friendlyVisualAssetError(
+            "visual_drive_bridge_error:oauth_http_400"
+        )
+        assertTrue(oauth.contains("autorización del servicio"))
+        assertTrue(oauth.contains("sigue intacta"))
+        val retry = friendlyVisualAssetError(
+            "visual_drive_bridge_error:drive_http_429"
+        )
+        assertTrue(retry.contains("sin regenerarla"))
+    }
+
+    @Test fun sanitizedUnknownBridgeErrorHasActionableFallback() {
+        val display = friendlyVisualAssetError(
+            "visual_drive_bridge_error:bridge_unavailable"
+        )
+        assertTrue(display.contains("servicio de Drive"))
+        assertFalse(display.contains("secret"))
+    }
+
+    @Test fun appSession403StillHasDifferentGuidance() {
+        assertTrue(friendlyVisualAssetError("HTTP 403")
+            .contains("Tu sesión no tiene acceso"))
+    }
+
     @Test fun cannotDecodeWhileReDownloadingOriginal() {
         assertFalse(shouldDecodeVisualPreview("same-approved-receipt", true))
     }

@@ -28,6 +28,35 @@ import kotlinx.coroutines.withContext
 /** Do not render internal server JSON, URLs or storage diagnostics inside a visual card. */
 internal fun friendlyVisualAssetError(raw: String?): String {
     if (raw.isNullOrBlank()) return "La copia descargada no se pudo leer."
+    // The VPS storage bridge uses private OAuth credentials separate from the
+    // Android login. Do not mislabel a Drive 403 as an app-session 403.
+    val driveFailure = Regex(
+        """\\b(drive_http|oauth_http)_(400|401|403|404|429|500|502|503|504)\\b""",
+        RegexOption.IGNORE_CASE,
+    ).find(raw)
+    if (driveFailure != null) {
+        val service = driveFailure.groupValues[1].lowercase()
+        val status = driveFailure.groupValues[2]
+        return when {
+            service == "oauth_http" ->
+                "La autorización del servicio de Drive necesita revisión. " +
+                    "Tu imagen original aprobada sigue intacta."
+            status == "401" || status == "403" || status == "404" ->
+                "JARVIS no pudo acceder al original en Drive con los permisos actuales. " +
+                    "No se ha borrado ni reemplazado la imagen aprobada."
+            status == "429" ->
+                "Drive limitó temporalmente el acceso. Puedes volver a intentar " +
+                    "recuperar la misma imagen sin regenerarla."
+            else ->
+                "Drive no pudo entregar la imagen (HTTP $status). " +
+                    "El original aprobado no se ha modificado."
+        }
+    }
+    if (raw.contains("visual_drive_bridge_error:bridge_unavailable",
+                     ignoreCase = true)) {
+        return "El servicio de Drive no está disponible. Puedes recuperar " +
+            "la misma imagen cuando vuelva a responder, sin regenerarla."
+    }
     val code = Regex("""\b(?:HTTP\s*)?(500|502|503|504|401|403|404)\b""", RegexOption.IGNORE_CASE)
         .find(raw)?.groupValues?.get(1)
     return when (code) {
