@@ -107,8 +107,17 @@ class AgentStreamFallbackTest {
             "prj_story", "Alexander", "Haz una imagen", onDelta = {},
         )
         assertTrue(answer.isFailure)
-        assertEquals(1, server.requestCount)
-        assertEquals("/api/app/writing-room/agent/stream", server.takeRequest().path)
+        assertEquals(2, server.requestCount)
+        val requests = (1..2).map { server.takeRequest() }
+        assertEquals(listOf("POST", "POST"), requests.map { it.method })
+        assertEquals(
+            listOf(
+                "/api/app/writing-room/agent/stream",
+                "/api/app/writing-room/agent/request-status",
+            ),
+            requests.map { it.path },
+        )
+        assertTrue(session.pendingWritingRoomRequest("prj_story").getOrThrow() != null)
     }
 
     @Test fun capabilityProbeNeverRunsModelAndReturnsTrueOnlyWhenEnabled() =
