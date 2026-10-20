@@ -387,6 +387,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private var copilotTaskPollJob: Job? = null
     private var copilotTaskPollId: String? = null
+    private val copilotPendingRecoveryInFlight = mutableSetOf<String>()
     private var copilotRecoveryEpoch = 0L
     private var copilotHistoryEpoch = 0L
     private val copilotHistoricalImageInFlight = mutableSetOf<String>()
@@ -2350,11 +2351,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val snapshot = container.liveSession.writingRoomAgentRequestStatus(
             projectId, task.conversation_id, task.request_id,
         ).getOrNull() ?: return
+        if (snapshot.project_id != projectId ||
+            snapshot.conversation_id != task.conversation_id ||
+            snapshot.request_id != task.request_id || snapshot.task_id != task.task_id
+        ) return
+        if (writingRoomRequestIsSettled(snapshot)) {
+            container.liveSession.forgetWritingRoomRequest(
+                projectId, task.conversation_id, task.request_id,
+            )
+        }
         val recovered = recoveredCopilotChat(
             projectId, task.conversation_id, task.request_id, snapshot,
         ) ?: return
-        if (snapshot.task_id != task.task_id ||
-            (snapshot.reply_text.isBlank() &&
+        if ((snapshot.reply_text.isBlank() &&
                 !hasRecoverableCopilotVisualReceipt(projectId, snapshot)) ||
             snapshot.agent_run_state in setOf("RUNNING", "DISPATCHING", "NEW") ||
             copilotRecoveryEpoch != epoch ||
@@ -2394,24 +2403,79 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     /** Backend owns orchestration and authorization; this only retrieves visible state. */
     fun recoverWritingCopilotTask(projectId: String) {
         if (_writingWorkspace.value.chatProjectId != projectId) return
+        val pendingResult = container.liveSession.pendingWritingRoomRequest(projectId)
+        if (pendingResult.isFailure) {
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                copilotAgentError = "No se puede verificar la identidad de la solicitud anterior. " +
+                    "No se enviará otra solicitud hasta recuperar su estado.",
+            )
+            return
+        }
+        val pending = pendingResult.getOrNull()
+        val pendingKey = pending?.let { "$projectId:${it.requestId}" }
+        if (pendingKey != null && !copilotPendingRecoveryInFlight.add(pendingKey)) return
         val epoch = copilotRecoveryEpoch
+        if (pending != null) {
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                copilotAgentBusy = true,
+                copilotAgentError = null,
+            )
+        }
         viewModelScope.launch {
-            val response = container.liveSession.writingRoomCopilotTaskLatest(projectId).getOrNull()
-            if (response != null && response.project_id == projectId &&
-                response.task_id.isNotBlank() && copilotRecoveryEpoch == epoch &&
-                _writingWorkspace.value.chatProjectId == projectId
-            ) {
-                _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = response)
-                val approved = response.results.flatMap { it.visual_assets }
-                if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
-                followCopilotTaskProgress(projectId, response)
-                // A terminal latest run may have no legacy progress row. Still
-                // restore its transcript/media from the exact request once.
-                if (response.request_id.isNotBlank() &&
-                    response.conversation_id.isNotBlank() &&
-                    !copilotTaskHasActiveRemoteWork(response)
+            try {
+                val response = if (pending != null) {
+                    container.liveSession.writingRoomAgentRequestStatus(
+                        projectId, pending.conversationId, pending.requestId,
+                    ).getOrNull()?.takeIf {
+                        it.project_id == projectId &&
+                            it.conversation_id == pending.conversationId &&
+                            it.request_id == pending.requestId &&
+                            it.task_id.startsWith("ar_")
+                    }
+                } else {
+                    container.liveSession.writingRoomCopilotTaskLatest(projectId).getOrNull()
+                }
+                if (pending != null && response == null) {
+                    if (copilotRecoveryEpoch == epoch &&
+                        _writingWorkspace.value.chatProjectId == projectId
+                    ) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            copilotAgentError = "El resultado de la solicitud anterior sigue sin confirmar. " +
+                                "Actualiza su estado antes de enviar otra.",
+                        )
+                    }
+                    return@launch
+                }
+                if (response != null && response.project_id == projectId &&
+                    response.task_id.isNotBlank() && copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
                 ) {
-                    restoreInterruptedCopilotReply(projectId, response, epoch)
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = response)
+                    if (pending != null && writingRoomRequestIsSettled(response)) {
+                        container.liveSession.forgetWritingRoomRequest(
+                            projectId, pending.conversationId, pending.requestId,
+                        )
+                    }
+                    val approved = response.results.flatMap { it.visual_assets }
+                    if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
+                    followCopilotTaskProgress(projectId, response)
+                    // A terminal request may have no legacy progress row. Still
+                    // restore its transcript/media from the exact request once.
+                    if (response.request_id.isNotBlank() &&
+                        response.conversation_id.isNotBlank() &&
+                        !copilotTaskHasActiveRemoteWork(response)
+                    ) {
+                        restoreInterruptedCopilotReply(projectId, response, epoch)
+                    }
+                }
+            } finally {
+                if (pendingKey != null) copilotPendingRecoveryInFlight.remove(pendingKey)
+                if (pending != null && copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
+                ) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAgentBusy = false,
+                    )
                 }
             }
         }
@@ -2611,19 +2675,29 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         room: String = "chat",
         toolMode: Boolean = false,
         referenceAttachmentId: String? = null,
-    ) {
+    ): Boolean {
         val clean = prompt.trim().ifEmpty {
             if (referenceAttachmentId != null) "¿Qué muestra esta imagen?" else ""
         }
-        if (clean.isEmpty()) return
+        if (clean.isEmpty()) return false
         // All conversational intent goes to the shared model-first AdaptiveAgent.
         // The transport probes the authenticated agent stream itself and uses
         // legacy chat only on an explicit pre-execution 404. Android must not
         // guess intent with keyword/regex handlers or add a preflight roundtrip.
         val current = _writingWorkspace.value
         if (current.busy || current.chatProjectId != projectId ||
+            current.copilotAgentBusy ||
             (referenceAttachmentId != null &&
-                current.copilotPendingReferenceId != referenceAttachmentId)) return
+                current.copilotPendingReferenceId != referenceAttachmentId)) return false
+        val pendingResult = container.liveSession.pendingWritingRoomRequest(projectId)
+        if (pendingResult.isFailure || pendingResult.getOrNull() != null) {
+            _writingWorkspace.value = current.copy(
+                copilotAgentError = "Hay una solicitud anterior sin confirmar. " +
+                    "Se consultará su request_id antes de aceptar otro envío.",
+            )
+            if (pendingResult.getOrNull() != null) recoverWritingCopilotTask(projectId)
+            return false
+        }
         val existingHistory = current.chatHistory
         val recent = existingHistory.takeLast(6).flatMap { previous ->
             buildList {
@@ -2758,6 +2832,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 },
             )
         }
+        return true
     }
 
     fun searchWritingWiki(projectId: String, query: String) {

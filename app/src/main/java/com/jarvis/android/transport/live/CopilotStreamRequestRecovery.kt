@@ -6,6 +6,15 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 
+/** A scoped terminal state means the old POST is settled and must not be replayed. */
+internal fun writingRoomRequestIsSettled(task: CopilotTaskState): Boolean {
+    val runState = task.agent_run_state.uppercase()
+    if (runState == "OUTCOME_UNKNOWN") return false
+    val state = runState.ifBlank { task.state.uppercase() }
+    return state in setOf("SUCCEEDED", "FAILED", "PARTIAL", "CANCELED") ||
+        runState.isBlank() && task.state.uppercase() == "DONE"
+}
+
 /**
  * Request-status returns durable tool receipts, not the original rich SSE
  * envelope. Reconstruct only public citations from a successful, typed

@@ -680,11 +680,11 @@ private fun ChatSection(
             !state.busy && !state.copilotAppearanceBusy && !state.copilotAgentBusy) {
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
-            vm.runWritingRoomAutoChat(
+            val accepted = vm.runWritingRoomAutoChat(
                 projectId, title, clean,
                 referenceAttachmentId = state.copilotPendingReferenceId,
             )
-            prompt = ""
+            if (accepted) prompt = ""
         }
     }
 
@@ -1750,12 +1750,13 @@ private fun ChatSection(
                 IconButton(
                     onClick = sendPrompt,
                     enabled = (prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
-                        !state.busy && !state.copilotAppearanceBusy,
+                        !state.busy && !state.copilotAppearanceBusy && !state.copilotAgentBusy,
                     modifier = Modifier
                         .size(42.dp)
                         .background(
                             if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
-                                !state.busy && !state.copilotAppearanceBusy) JarvisCyan else Color(0x3310233D),
+                                !state.busy && !state.copilotAppearanceBusy &&
+                                !state.copilotAgentBusy) JarvisCyan else Color(0x3310233D),
                             CircleShape,
                         ),
                 ) {
@@ -1763,7 +1764,8 @@ private fun ChatSection(
                         Icons.AutoMirrored.Filled.Send,
                         contentDescription = "Enviar mensaje",
                         tint = if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
-                            !state.busy && !state.copilotAppearanceBusy) Color(0xFF02101F) else Color(0xFF64748B),
+                            !state.busy && !state.copilotAppearanceBusy &&
+                            !state.copilotAgentBusy) Color(0xFF02101F) else Color(0xFF64748B),
                         modifier = Modifier.size(18.dp),
                     )
                 }
