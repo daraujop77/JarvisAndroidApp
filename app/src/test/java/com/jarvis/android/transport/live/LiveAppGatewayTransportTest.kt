@@ -1,6 +1,7 @@
 package com.jarvis.android.transport.live
 
 import com.jarvis.android.contract.TaskStatus
+import com.jarvis.android.contract.MobileRequest
 import com.jarvis.android.data.repo.JarvisSessionRepository
 import com.jarvis.android.data.repo.SessionPhase
 import com.jarvis.android.transport.TransportException
@@ -32,6 +33,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -47,6 +49,7 @@ class LiveAppGatewayTransportTest {
     private var advertiseGeneralAgent = false
     private var rejectProjectAgentTurn = false
     private var tamperProjectAgentReplyScope = false
+    private var tamperCachedTurnScope = false
     private val cancelCalls = AtomicInteger(0)
     private val loginCalls = AtomicInteger(0)
     private val streamCalls = AtomicInteger(0)
@@ -133,9 +136,12 @@ class LiveAppGatewayTransportTest {
                             } else if (rid in setOf("req-media", "req-content")) {
                                 ""","content":{"schema":"jarvis.chat.content.v1","blocks":[{"type":"image","asset_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sha256":"$receiptSha","mime_type":"image/png"}],"sources":[]}"""
                             } else ""
+                            val echoed = if (tamperCachedTurnScope && rid == "req-lost") {
+                                ""","request":{"request_id":"req-lost","conversation_id":"foreign-conversation"}"""
+                            } else ""
                             MockResponse().setBody(
                                 """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
-                                    """"response":{"text":"Recovered answer"}""" + media + content + "}",
+                                    """"response":{"text":"Recovered answer"}""" + media + content + echoed + "}",
                             )
                         } else {
                             MockResponse().setResponseCode(404)
@@ -166,6 +172,7 @@ class LiveAppGatewayTransportTest {
                     }
                     request.path == "/api/app/chat" && request.method == "POST" -> {
                         jsonChatCalls.incrementAndGet()
+                        postedBodies += "POST /api/app/chat\n" + request.body.readUtf8()
                         MockResponse().setBody(
                             """{"schema":"jarvis.chat.turn.v1","result":{"status":"completed"},""" +
                                 """"response":{"text":"JSON fallback answer"}}""",
@@ -220,6 +227,7 @@ class LiveAppGatewayTransportTest {
                             "mode": "local",
                             "general_agent": {"enabled": $advertiseGeneralAgent},
                             "access": {"owner_model_selection": true},
+                            "effort": {"default":"auto","options":[{"id":"auto","label":"Automático"},{"id":"low","label":"Bajo"},{"id":"medium","label":"Medio"},{"id":"high","label":"Alto"}],"profiles":["normal","fast"]},
                             "models": [
                               {"profile":"fast","label":"Fast","model":"qwen3.5:4b","state":"installed"},
                               {"profile":"normal","label":"Normal","model":"gemma4:12b-it-qat","state":"active"},
@@ -512,6 +520,24 @@ class LiveAppGatewayTransportTest {
         assertTrue(frames.any { it.contains("message.completed") && it.contains("req-lost") })
         assertEquals(0, streamCalls.get())
         assertEquals(null, store.get(JarvisAppSession.KEY_TURN_PREFIX + "req-lost"))
+    }
+
+    @Test
+    fun cachedTurnWithForeignConversationEchoIsRejectedWithoutRerunningInference() {
+        tamperCachedTurnScope = true
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        session.rememberTurn(
+            "req-lost", "c1", "trace-lost", ANDROID_DEVICE, APP_SESSION,
+        )
+        val transport = LiveAppGatewayTransport(session, scope)
+        assertFalse(runBlocking(Dispatchers.IO) {
+            transport.recoverCompletedTurn("req-lost", "c1")
+        })
+        // A rejected cache cannot settle or silently erase the saved turn.
+        assertTrue(session.loadTurn("req-lost") != null)
+        assertEquals(0, streamCalls.get())
+        assertEquals(0, jsonChatCalls.get())
     }
 
     @Test
@@ -812,6 +838,56 @@ class LiveAppGatewayTransportTest {
     }
 
     @Test
+    fun missingSseRouteReusesOriginalPersistedRequestIdentityOnJsonFallback() {
+        streamResponder = { MockResponse().setResponseCode(404) }
+        val session = JarvisAppSession(seededStore())
+        session.rememberTurn(
+            "frozen-json-request", "c1", "frozen-trace",
+            "frozen-device", "frozen-session",
+        )
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+
+        repo.sendWithId("frozen-json-request", "c1", "hello")
+        await { repo.snapshot.value.session.requests["frozen-json-request"]?.status?.isTerminal == true }
+        assertEquals(RequestStatus.Completed,
+            repo.snapshot.value.session.requests["frozen-json-request"]?.status)
+        val sent = postedBodies.single { it.startsWith("POST /api/app/chat\n") }
+        val body = Json.parseToJsonElement(sent.substringAfter('\n')).jsonObject
+        assertEquals("frozen-json-request", body["request_id"]?.jsonPrimitive?.content)
+        assertEquals("frozen-trace", body["trace_id"]?.jsonPrimitive?.content)
+        assertEquals("frozen-device", body["device_id"]?.jsonPrimitive?.content)
+        assertEquals("frozen-session", body["session_id"]?.jsonPrimitive?.content)
+        assertEquals(1, jsonChatCalls.get())
+    }
+
+    @Test
+    fun duplicateActiveRequestCannotDispatchAnotherHttpCall() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        streamResponder = {
+            entered.countDown()
+            release.await(4, TimeUnit.SECONDS)
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody())
+        }
+        val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
+        val request = MobileRequest.SendMessage("same-active-request", "c1", "hello")
+        try {
+            runBlocking { transport.connect(); transport.send(request) }
+            assertTrue("first HTTP request was not dispatched", entered.await(2, TimeUnit.SECONDS))
+            val duplicate = runBlocking { runCatching { transport.send(request) } }
+            assertTrue(duplicate.exceptionOrNull() is TransportException)
+            assertEquals(1, streamCalls.get())
+        } finally {
+            release.countDown()
+        }
+    }
+
+    @Test
     fun missingSseRouteFallsBackToJsonChat() {
         streamResponder = { MockResponse().setResponseCode(404) }
         val transport = LiveAppGatewayTransport(JarvisAppSession(seededStore()), scope)
@@ -958,6 +1034,9 @@ class LiveAppGatewayTransportTest {
         assertTrue("server confirms owner role", access?.isOwner == true)
         assertTrue("server grants owner selection", access?.ownerModelSelection == true)
         assertEquals(listOf("fast", "normal", "deep"), access?.entries?.map { it.profile })
+        assertEquals("auto", access?.effort?.default)
+        assertEquals(listOf("auto", "low", "medium", "high"), access?.effort?.options?.map { it.id })
+        assertEquals(listOf("normal", "fast"), access?.effort?.supportedProfiles)
         assertEquals("speed", access?.imageGeneration?.defaultMode)
         assertTrue(access?.imageGeneration?.ownerModelSelection == true)
         assertEquals(listOf("speed", "quality", "model_select"), access?.imageGeneration?.modes?.map { it.id })
@@ -1097,6 +1176,34 @@ class LiveAppGatewayTransportTest {
         // Same store after a restart still shows A's choice, B's default.
         assertEquals("fast", JarvisAppSession(store).chatProfileFor("cA"))
         assertEquals("normal", JarvisAppSession(store).chatProfileFor("cB"))
+    }
+
+    @Test
+    fun effortSelectionIsConversationLocalAndSentOnlyWhenForced() {
+        val store = seededStore()
+        val session = JarvisAppSession(store)
+        assertEquals("auto", session.chatEffortFor("cA"))
+        session.setChatEffortFor("cA", "high")
+        session.setChatEffortFor("cB", "low")
+        assertEquals("high", JarvisAppSession(store).chatEffortFor("cA"))
+        assertEquals("low", session.chatEffortFor("cB"))
+        val transport = LiveAppGatewayTransport(session, scope)
+        val repo = JarvisSessionRepository(transport, scope)
+        repo.start()
+        await { repo.snapshot.value.phase == SessionPhase.READY }
+        val a = repo.send("cA", "hard question")
+        val b = repo.send("cB", "simple question")
+        await { repo.snapshot.value.session.requests[a]?.status?.isTerminal == true }
+        await { repo.snapshot.value.session.requests[b]?.status?.isTerminal == true }
+        val bodyA = postedBodies.single { it.contains(a) }
+        val bodyB = postedBodies.single { it.contains(b) }
+        assertTrue(bodyA.contains("\"effort\":\"high\""))
+        assertTrue(bodyB.contains("\"effort\":\"low\""))
+        session.setChatEffortFor("cB", "auto")
+        val c = repo.send("cB", "no effort override")
+        await { repo.snapshot.value.session.requests[c]?.status?.isTerminal == true }
+        val bodyC = postedBodies.single { it.contains(c) }
+        assertTrue(!bodyC.contains("\"effort\":"))
     }
 
     @Test

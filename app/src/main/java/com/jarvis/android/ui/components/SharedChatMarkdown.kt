@@ -94,22 +94,54 @@ fun SharedChatMarkdown(text: String, modifier: Modifier = Modifier) {
                     renderInlineMarkdown(block.text, accent),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                is MarkdownBlock.Table -> Column(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(
-                            alpha = 0.25f), RoundedCornerShape(8.dp))
-                        .padding(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    val entries = listOf(block.headers) + block.rows
-                    entries.forEachIndexed { index, cells ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            cells.forEach { cell ->
-                                Text(renderInlineMarkdown(cell, accent),
-                                     style = MaterialTheme.typography.bodySmall,
-                                     fontWeight = if (index == 0)
-                                         FontWeight.SemiBold else FontWeight.Normal,
-                                     modifier = Modifier.width(146.dp).padding(5.dp))
+                is MarkdownBlock.Table -> {
+                    if (block.headers.size == 2) {
+                        // A two-column comparison becomes stacked cards on a
+                        // narrow phone: do not squeeze paragraphs into 146dp cells.
+                        Column(Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            block.rows.forEach { cells ->
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                                            RoundedCornerShape(10.dp))
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    cells.take(2).forEachIndexed { index, cell ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(block.headers[index],
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = accent, fontWeight = FontWeight.SemiBold)
+                                            Text(renderInlineMarkdown(cell, accent),
+                                                style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Wide tables remain scrollable, with fixed readable
+                        // cell widths rather than compressed nested columns.
+                        Box(Modifier.fillMaxWidth()) {
+                            Column(
+                                Modifier.horizontalScroll(rememberScrollState())
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(
+                                        alpha = 0.25f), RoundedCornerShape(8.dp))
+                                    .padding(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                (listOf(block.headers) + block.rows).forEachIndexed { index, cells ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        cells.forEach { cell ->
+                                            Text(renderInlineMarkdown(cell, accent),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = if (index == 0)
+                                                    FontWeight.SemiBold else FontWeight.Normal,
+                                                modifier = Modifier.width(184.dp).padding(6.dp))
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

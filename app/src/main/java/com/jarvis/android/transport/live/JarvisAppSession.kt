@@ -86,11 +86,13 @@ class JarvisAppSession(
             }.commit()
 
         override fun clear() {
-            // Logout removes bearer/user state, but not an unresolved paid
-            // request's opaque ID+digest. On re-login the same account must
-            // recover that attempt rather than sending a second charge.
-            val pending = prefs.all
-                .filterKeys { it.startsWith("jarvis.paid.visual.") }
+            // Logout removes bearer/user state, but retains opaque recovery
+            // identities for unresolved paid visual and model requests. On
+            // re-login the same account must reconcile them before dispatch.
+            val pending = prefs.all.filterKeys {
+                it.startsWith("jarvis.paid.visual.") ||
+                    it.startsWith(KEY_WRITING_ROOM_PENDING_PREFIX)
+            }
                 .mapNotNull { (key, value) ->
                     (value as? String)?.let { key to it }
                 }
@@ -113,7 +115,10 @@ class JarvisAppSession(
             values.forEach { (k, v) -> if (v == null) map.remove(k) else map[k] = v }
         }
         override fun clear() {
-            val pending = map.filterKeys { it.startsWith("jarvis.paid.visual.") }
+            val pending = map.filterKeys {
+                it.startsWith("jarvis.paid.visual.") ||
+                    it.startsWith(KEY_WRITING_ROOM_PENDING_PREFIX)
+            }
             map.clear()
             map.putAll(pending)
         }
@@ -428,6 +433,66 @@ class JarvisAppSession(
         }
     }
 
+    /**
+     * One unresolved Writing Room model request per account/project. The
+     * request and conversation IDs are committed before the paid POST and
+     * survive app/session recreation, so an interrupted call can only be
+     * reconciled by its original identity.
+     */
+    data class PendingWritingRoomRequest(
+        val conversationId: String,
+        val requestId: String,
+    )
+
+    fun pendingWritingRoomRequest(projectId: String): Result<PendingWritingRoomRequest?> = runCatching {
+        val key = writingRoomPendingKey(projectId)
+        synchronized(store) {
+            val raw = store.get(key) ?: return@synchronized null
+            val parts = raw.split("\u001f")
+            if (parts.size != 2 ||
+                !parts[0].matches(Regex("wrc_[a-f0-9-]{36}")) ||
+                parts[1].isBlank() || parts[1].length > 160
+            ) throw TransportException("Stored Writing Room recovery identity is invalid")
+            PendingWritingRoomRequest(parts[0], parts[1])
+        }
+    }
+
+    /** Returns false if another unresolved request already owns this project. */
+    fun rememberWritingRoomRequest(
+        projectId: String,
+        conversationId: String,
+        requestId: String,
+    ): Boolean {
+        if (!conversationId.matches(Regex("wrc_[a-f0-9-]{36}")) ||
+            requestId.isBlank() || requestId.length > 160
+        ) return false
+        val key = runCatching { writingRoomPendingKey(projectId) }.getOrNull() ?: return false
+        synchronized(store) {
+            if (store.get(key) != null) return false
+            return store.putDurable(mapOf(key to "$conversationId\u001f$requestId"))
+        }
+    }
+
+    /** Clear only the exact request whose authoritative result was recovered. */
+    fun forgetWritingRoomRequest(
+        projectId: String,
+        conversationId: String,
+        requestId: String,
+    ): Boolean {
+        val key = runCatching { writingRoomPendingKey(projectId) }.getOrNull() ?: return false
+        synchronized(store) {
+            if (store.get(key) != "$conversationId\u001f$requestId") return false
+            return store.putDurable(mapOf(key to null))
+        }
+    }
+
+    private fun writingRoomPendingKey(projectId: String): String {
+        val principal = userId.trim()
+        require(principal.isNotBlank() && principal.length <= 160)
+        require(projectId.isNotBlank() && projectId.length <= 160)
+        return KEY_WRITING_ROOM_PENDING_PREFIX + principal + ":" + projectId
+    }
+
 
     /**
      * Conversation-local chat profile chosen by the OWNER (PCB-LIVE-4/5).
@@ -445,6 +510,19 @@ class JarvisAppSession(
 
     fun setChatProfileFor(conversationId: String, profile: String) {
         store.put(mapOf(KEY_PROFILE_CONV + conversationId to profile))
+    }
+
+    /** Independent effort preference. Isolated per conversation; the server
+     * owns which profile supports it and always validates the chosen value.
+     */
+    fun chatEffortFor(conversationId: String): String =
+        store.get(KEY_EFFORT_CONV + conversationId)?.takeIf {
+            it in setOf("auto", "low", "medium", "high")
+        } ?: "auto"
+
+    fun setChatEffortFor(conversationId: String, effort: String) {
+        require(effort in setOf("auto", "low", "medium", "high"))
+        store.put(mapOf(KEY_EFFORT_CONV + conversationId to effort))
     }
 
     /** Persist the exact original account/project/transport scope before POST.
@@ -545,10 +623,18 @@ class JarvisAppSession(
         val models: List<ImageGenerationModel>,
     )
 
+    data class EffortEntry(val id: String, val label: String)
+    data class ChatEffortAccess(
+        val default: String,
+        val options: List<EffortEntry>,
+        val supportedProfiles: List<String>,
+    )
+
     data class ChatAccess(
         val isOwner: Boolean,
         val ownerModelSelection: Boolean,
         val entries: List<ProfileEntry>,
+        val effort: ChatEffortAccess? = null,
         val capabilityStates: Map<String, String> = emptyMap(),
         val imageGeneration: ImageGenerationAccess? = null,
         val imageEdit: ImageGenerationAccess? = null,
@@ -615,10 +701,25 @@ class JarvisAppSession(
                 }
             val imageGeneration = parseImageAccess(capabilities?.get("image_generation"), "speed")
             val imageEdit = parseImageAccess(capabilities?.get("image_edit"), "quality")
+            val effortAccess = chat["effort"]?.let { element ->
+                runCatching {
+                    val obj = element.jsonObject
+                    val options = (obj["options"] as? JsonArray).orEmpty().mapNotNull { item ->
+                        val option = item as? JsonObject ?: return@mapNotNull null
+                        val id = option["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        if (id !in setOf("auto", "low", "medium", "high")) return@mapNotNull null
+                        EffortEntry(id, option["label"]?.jsonPrimitive?.contentOrNull ?: id)
+                    }.distinctBy { it.id }
+                    val profiles = (obj["profiles"] as? JsonArray).orEmpty()
+                        .mapNotNull { item -> item.jsonPrimitive.contentOrNull }
+                    ChatEffortAccess("auto", options, profiles)
+                }.getOrNull()
+            }
             ChatAccess(
                 isOwner = isOwner,
                 ownerModelSelection = ownerSel,
                 entries = models,
+                effort = effortAccess,
                 capabilityStates = capabilityStates,
                 imageGeneration = imageGeneration,
                 imageEdit = imageEdit,
@@ -1589,8 +1690,10 @@ class JarvisAppSession(
         const val KEY_DEVICE = "app_device_id"
         const val KEY_TURN_IDS = "turn_ids"
         const val KEY_TURN_PREFIX = "turn_"
+        const val KEY_WRITING_ROOM_PENDING_PREFIX = "jarvis.writing-room.pending."
         const val KEY_PROFILE = "chat_profile"
         const val KEY_PROFILE_CONV = "chat_profile_"
+        const val KEY_EFFORT_CONV = "chat_effort_"
 
         internal val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 

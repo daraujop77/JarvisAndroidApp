@@ -19,11 +19,12 @@ import org.junit.Test
 class CopilotStreamRequestRecoveryTest {
     private lateinit var server: MockWebServer
     private lateinit var session: JarvisAppSession
+    private lateinit var store: JarvisAppSession.MemoryStore
 
     @Before fun setUp() {
         server = MockWebServer()
         server.start()
-        val store = JarvisAppSession.MemoryStore()
+        store = JarvisAppSession.MemoryStore()
         store.put(mapOf(
             JarvisAppSession.KEY_TOKEN to "test-token",
             JarvisAppSession.KEY_BASE to server.url("/").toString().trimEnd('/'),
@@ -64,11 +65,66 @@ class CopilotStreamRequestRecoveryTest {
                 attachedImageBase64 = pixels, onDelta = {},
             ).getOrThrow()
             assertEquals("He recibido la imagen", answer.turn.response.text)
+            assertNull(session.pendingWritingRoomRequest("prj_story").getOrThrow())
             val request = server.takeRequest(5, TimeUnit.SECONDS)!!
             assertEquals("/api/app/writing-room/agent/stream", request.path)
             val images = json(request)["images"]!!.toString()
             assertTrue(images.contains(pixels))
             assertTrue(images.contains("image/jpeg"))
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun completeWithoutTurnIsNotMistakenForSuccessfulCopilotChat() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "reply":"JARVIS terminó con estado FAILED.","task_state":""}""",
+            ))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Prueba de fallo", onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun typedFailedCopilotTaskCannotPassAsSuccess() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "turn":{"project_id":"prj_story","response":{"text":"No pude responder."}},
+                   "copilot_task":{"state":"BLOCKED","agent_run_state":"FAILED"}}""",
+            ))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Prueba de error", onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun oldFailedTextWithoutTypedTaskIsRejected() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "turn":{"project_id":"prj_story",
+                           "response":{"text":"JARVIS terminó con estado FAILED."}}}""",
+            ))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Comprueba el estado", onDelta = {},
+            )
+            assertTrue(result.isFailure)
+            assertEquals(1, server.requestCount)
+        }
+
+    @Test fun completedTurnFromAnotherProjectCannotBeShown() =
+        runBlocking(Dispatchers.IO) {
+            server.enqueue(completedSse(
+                """{"schema":"jarvis.writing-room.chat.v1",
+                   "turn":{"project_id":"prj_other","response":{"text":"Dato privado"}}}""",
+            ))
+            val result = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Consulta", onDelta = {},
+            )
+            assertTrue(result.isFailure)
             assertEquals(1, server.requestCount)
         }
 
@@ -223,19 +279,103 @@ class CopilotStreamRequestRecoveryTest {
             assertEquals(2, server.requestCount)
         }
 
+    @Test fun lostRequestIdSurvivesSessionRecreationAndNeverDispatchesAnotherPost() =
+        runBlocking(Dispatchers.IO) {
+            var originalId = ""
+            val conversationId = session.writingRoomConversationId("prj_story")
+            assertTrue(conversationId.matches(Regex("wrc_[a-f0-9-]{36}")))
+            val statusCalls = java.util.concurrent.atomic.AtomicInteger(0)
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val body = json(request)
+                    return when (request.path) {
+                        "/api/app/writing-room/agent/stream" -> {
+                            originalId = body["request_id"]!!.jsonPrimitive.content
+                            MockResponse().setHeader("Content-Type", "text/event-stream")
+                                .setBody("event: ready\ndata: {}\n\n")
+                        }
+                        "/api/app/writing-room/agent/request-status" -> {
+                            assertEquals(originalId, body["request_id"]!!.jsonPrimitive.content)
+                            assertEquals(conversationId, body["conversation_id"]!!.jsonPrimitive.content)
+                            if (statusCalls.incrementAndGet() == 1) {
+                                MockResponse().setResponseCode(503)
+                            } else {
+                                MockResponse().setBody(
+                                    """{"schema":"jarvis.writing-room.copilot.task.v1",
+                                       "task_id":"ar_0123456789abcdef01234567",
+                                       "request_id":"$originalId",
+                                       "project_id":"prj_story","conversation_id":"$conversationId",
+                                       "state":"RUNNING","agent_run_state":"RUNNING",
+                                       "reply_text":"","results":[],"steps":[]}""",
+                                )
+                            }
+                        }
+                        else -> MockResponse().setResponseCode(500)
+                    }
+                }
+            }
+
+            val first = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Genera un retrato", onDelta = {},
+            )
+            assertTrue(first.isFailure)
+            assertTrue(originalId.isNotBlank())
+            assertEquals(
+                JarvisAppSession.PendingWritingRoomRequest(conversationId, originalId),
+                session.pendingWritingRoomRequest("prj_story").getOrThrow(),
+            )
+
+            // A new session object over the same durable store represents app
+            // process death/recreation. A different prompt still only probes
+            // the old request; the model stream is never POSTed a second time.
+            val restarted = JarvisAppSession(store)
+            assertEquals(conversationId, restarted.writingRoomConversationId("prj_story"))
+            val recovered = restarted.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Crea una escena distinta", onDelta = {},
+            ).getOrThrow()
+            assertTrue(recovered.recovered_from_interruption)
+            assertEquals(originalId, recovered.copilot_task!!.request_id)
+            assertEquals("RUNNING", recovered.copilot_task!!.agent_run_state)
+            assertTrue(recovered.turn.response.text.contains("sigue trabajando"))
+            assertEquals(3, server.requestCount)
+            assertEquals(
+                listOf(
+                    "/api/app/writing-room/agent/stream",
+                    "/api/app/writing-room/agent/request-status",
+                    "/api/app/writing-room/agent/request-status",
+                ),
+                (1..3).map { server.takeRequest(5, TimeUnit.SECONDS)!!.path },
+            )
+            assertEquals(2, statusCalls.get())
+            assertEquals(originalId,
+                restarted.pendingWritingRoomRequest("prj_story").getOrThrow()?.requestId)
+        }
+
     @Test fun unavailableRecoveryFailsWithoutSecondAgentDispatch() =
         runBlocking(Dispatchers.IO) {
             server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream")
                 .setBody("event: ready\ndata: {}\n\n"))
             server.enqueue(MockResponse().setResponseCode(404))
             server.enqueue(MockResponse().setResponseCode(503))
-            val outcome = session.writingRoomAutoChatStream(
+            val first = session.writingRoomAutoChatStream(
                 "prj_story", "Alexander", "Crea una escena", onDelta = {},
             )
-            assertTrue(outcome.isFailure)
+            assertTrue(first.isFailure)
+            val pending = session.pendingWritingRoomRequest("prj_story").getOrThrow()
+            assertNotNull(pending)
+
+            // A later attempt must first probe the same request again. A
+            // status endpoint 404/503 remains unknown and cannot free the
+            // durable gate or dispatch a new paid model POST.
+            val second = session.writingRoomAutoChatStream(
+                "prj_story", "Alexander", "Crea otra escena", onDelta = {},
+            )
+            assertTrue(second.isFailure)
+            assertEquals(pending, session.pendingWritingRoomRequest("prj_story").getOrThrow())
             assertEquals("/api/app/writing-room/agent/stream", server.takeRequest(5, TimeUnit.SECONDS)?.path)
             assertEquals("/api/app/writing-room/agent/request-status", server.takeRequest(5, TimeUnit.SECONDS)?.path)
-            assertEquals(2, server.requestCount)
+            assertEquals("/api/app/writing-room/agent/request-status", server.takeRequest(5, TimeUnit.SECONDS)?.path)
+            assertEquals(3, server.requestCount)
         }
 
     @Test fun preExecutionHttp429DoesNotQueryRecoveryOrLegacyStream() =
@@ -288,6 +428,37 @@ class CopilotStreamRequestRecoveryTest {
         assertNull(recoveredCopilotChat("prj_story", "other-chat", "req-a", task))
         assertTrue(recoveredCopilotPublicSources(task.copy(
             results = listOf(ready.copy(status = "UNAVAILABLE")))).isEmpty())
+    }
+
+    @Test fun failedRecoveredAgentDoesNotBecomeSuccessfulChat() {
+        val failed = CopilotTaskState(
+            project_id = "prj_story", conversation_id = "chat-a",
+            request_id = "req-a", task_id = "ar_0123456789abcdef01234567",
+            state = "BLOCKED", agent_run_state = "FAILED",
+            reply_text = "JARVIS terminó con estado FAILED.",
+        )
+        assertNull(recoveredCopilotChat("prj_story", "chat-a", "req-a", failed))
+        assertNull(recoveredCopilotChat(
+            "prj_story", "chat-a", "req-a",
+            failed.copy(agent_run_state = "OUTCOME_UNKNOWN"),
+        ))
+        assertNull(recoveredCopilotChat(
+            "prj_story", "chat-a", "req-a",
+            failed.copy(agent_run_state = "PARTIAL"),
+        ))
+    }
+
+    @Test fun onlyKnownTerminalRequestStatesReleaseTheDurableRecoveryGate() {
+        fun task(runState: String) = CopilotTaskState(
+            project_id = "prj_story", conversation_id = "chat-a",
+            request_id = "req-a", task_id = "ar_0123456789abcdef01234567",
+            state = runState, agent_run_state = runState,
+        )
+        assertTrue(!writingRoomRequestIsSettled(task("RUNNING")))
+        assertTrue(writingRoomRequestIsSettled(task("SUCCEEDED")))
+        assertTrue(writingRoomRequestIsSettled(task("PARTIAL")))
+        assertTrue(writingRoomRequestIsSettled(task("FAILED")))
+        assertTrue(!writingRoomRequestIsSettled(task("OUTCOME_UNKNOWN")))
     }
 
     @Test fun mismatchedRecoveredScopeIsNeverPresentedAsSuccessfulReply() {

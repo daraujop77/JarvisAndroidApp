@@ -30,7 +30,10 @@ class CopilotApprovedVisualRevisionWiringTest {
     @Test fun candidateApprovalRequiresDecodedVisiblePreview() {
         val screen = code("app/src/main/java/com/jarvis/android/ui/screens/WritingWorkspaceV1Screen.kt")
         // An attachment ID alone is not evidence that an image loaded.
-        assertTrue(screen.contains("val candidatePreviewBitmap = remember(turn.generatedPreviewAttachmentId)"))
+        assertTrue(screen.contains("val decodedCandidate by produceState("))
+        assertTrue(screen.contains("key1 = turn.generatedPreviewAttachmentId"))
+        assertTrue(screen.contains("withContext(Dispatchers.IO)"))
+        assertTrue(screen.contains("decodedCandidate.first == turn.generatedPreviewAttachmentId"))
         assertTrue(screen.contains("val image = candidatePreviewBitmap"))
         assertTrue(screen.contains("turn.candidatePerspective == \"front\""))
         assertTrue(screen.contains("candidatePreviewBitmap != null"))
@@ -46,10 +49,17 @@ class CopilotApprovedVisualRevisionWiringTest {
         val studio = code("app/src/main/java/com/jarvis/android/ui/writing/CharacterStudioScreen.kt")
         val preview = code("app/src/main/java/com/jarvis/android/ui/writing/VisualAssetPreview.kt")
         val vm = code("app/src/main/java/com/jarvis/android/ui/JarvisViewModel.kt")
-        assertTrue(writing.contains("previewDecoded = previewImage != null"))
-        assertTrue(writing.contains("\"No se puede mostrar la imagen\""))
-        assertTrue(writing.contains("decodedViewIds += view.candidate_asset_id"))
-        assertTrue(writing.contains("vm.approveCopilotCharacterViews(projectId, decodedIds)"))
+        // Recovered portraits now decode off the main thread through the
+        // shared, zoomable SHA-verified viewer. An attachment ID alone never
+        // allows approval; only the completed decode callback does.
+        assertTrue(writing.contains("com.jarvis.android.ui.writing.VisualAssetPreview("))
+        assertTrue(writing.contains("onDecodedChange = { previewDecoded = it }"))
+        assertTrue(writing.contains("previewDecoded = previewDecoded,"))
+        // Per-view states are keyed to the batch and the exact asset ID.
+        assertTrue(writing.contains("decodedViewIds[assetId] = it"))
+        assertTrue(writing.contains("decodedViewIds.filterValues { it }.keys.toSet()"))
+        assertTrue(writing.contains("copilotApprovableViewIds("))
+        assertTrue(writing.contains("vm.approveCopilotCharacterViews(projectId, ready.toSet())"))
         assertTrue(writing.contains("previewDecoded = bitmap != null"))
         assertTrue(vm.contains("fun approveCopilotCharacterViews(projectId: String, decodedAssetIds: Set<String>)"))
         assertTrue(scene.contains("previewDecoded = previewBitmap != null"))

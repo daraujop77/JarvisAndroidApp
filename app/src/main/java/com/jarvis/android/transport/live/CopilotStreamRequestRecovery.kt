@@ -6,6 +6,15 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 
+/** A scoped terminal state means the old POST is settled and must not be replayed. */
+internal fun writingRoomRequestIsSettled(task: CopilotTaskState): Boolean {
+    val runState = task.agent_run_state.uppercase()
+    if (runState == "OUTCOME_UNKNOWN") return false
+    val state = runState.ifBlank { task.state.uppercase() }
+    return state in setOf("SUCCEEDED", "FAILED", "PARTIAL", "CANCELED") ||
+        runState.isBlank() && task.state.uppercase() == "DONE"
+}
+
 /**
  * Request-status returns durable tool receipts, not the original rich SSE
  * envelope. Reconstruct only public citations from a successful, typed
@@ -47,6 +56,14 @@ internal fun recoveredCopilotChat(
         !task.task_id.startsWith("ar_")
     ) return null
     if (task.state == "NONE") return null
+    // A persisted FAILED/PARTIAL/UNKNOWN task is a real terminal outcome,
+    // not a successful reconstructed chat bubble. The original action must
+    // never be replayed automatically to replace that failed result.
+    if (task.agent_run_state.uppercase() in
+        setOf("FAILED", "PARTIAL", "CANCELED", "OUTCOME_UNKNOWN") ||
+        task.state.uppercase() == "BLOCKED" &&
+            task.agent_run_state.uppercase() != "WAITING_CLARIFICATION"
+    ) return null
 
     val pending = task.agent_run_state in setOf("RUNNING", "DISPATCHING") ||
         task.state in setOf("RUNNING", "DISPATCHING")

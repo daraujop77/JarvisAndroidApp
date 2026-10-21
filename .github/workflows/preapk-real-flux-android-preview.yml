@@ -1,0 +1,64 @@
+name: PREAPK Real FLUX Android Preview Emulator
+
+# Debug-only instrumented screenshot/bitmap acceptance. Never publishes,
+# signs a release, connects to production, or calls a paid model/provider.
+on:
+  pull_request:
+    paths:
+      - app/src/androidTest/java/com/jarvis/android/ui/writing/RealFluxPreviewInstrumentedTest.kt
+      - .github/workflows/preapk-real-flux-android-preview.yml
+
+permissions:
+  contents: read
+
+jobs:
+  android-emulator-preview:
+    if: github.repository == 'daraujop77/JarvisAndroidApp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # GitHub hosted Ubuntu already supplies Android cmdline-tools and sdkmanager.
+      # setup-android@v3 attempts to install the retired `tools` package and fails.
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM for instrumented emulator
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Real FLUX thumbnail in actual Compose preview (debug only)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          force-avd-creation: false
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: chmod +x ./gradlew && ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.jarvis.android.ui.writing.RealFluxPreviewInstrumentedTest --no-daemon --stacktrace
+      - name: Upload ONLY instrumented test results; no APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preapk-real-flux-android-ui-results
+          path: |
+            app/build/outputs/androidTest-results/connected/**
+            app/build/reports/androidTests/connected/**
+          if-no-files-found: warn
+          retention-days: 3
+      - name: No release or provider calls
+        if: always()
+        run: |
+          echo PREAPK_REAL_FLUX_ANDROID_EMULATOR_DEBUG_ONLY=true
+          echo PREAPK_REAL_FLUX_PROVIDER_REQUESTS=0
+          echo PREAPK_REAL_FLUX_SIGNED_RELEASE_PUBLISHED=false

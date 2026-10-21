@@ -25,6 +25,8 @@ import com.jarvis.android.ui.writing.copilotTaskHasActiveRemoteWork
 import com.jarvis.android.ui.writing.canRebuildCopilotTurn
 import com.jarvis.android.transport.live.recoveredCopilotChat
 import com.jarvis.android.ui.writing.recoverableCopilotPortraitAssets
+import com.jarvis.android.ui.writing.replacedCopilotPortraitCopies
+import com.jarvis.android.ui.writing.mergeCopilotConversationHistory
 import com.jarvis.android.ui.writing.COPILOT_TURNAROUND_PERSPECTIVES
 import com.jarvis.android.ui.writing.selectCopilotSceneReviewAsset
 import com.jarvis.android.ui.writing.copilotApprovableViewIds
@@ -274,6 +276,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val candidatePerspective: String? = null,
         val candidateStatus: String? = null,
         val candidateStorageState: String? = null,
+        val historicalRequestId: String? = null,
+        val historicalImageError: String? = null,
     )
 
     data class CopilotRecoveredPortrait(
@@ -383,7 +387,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     private var copilotTaskPollJob: Job? = null
     private var copilotTaskPollId: String? = null
+    private val copilotPendingRecoveryInFlight = mutableSetOf<String>()
     private var copilotRecoveryEpoch = 0L
+    private var copilotHistoryEpoch = 0L
+    private val copilotHistoricalImageInFlight = mutableSetOf<String>()
     private var copilotRecoveryActiveProject: String? = null
     private var copilotViewPollJob: Job? = null
     private var copilotAppearanceEpoch = 0L
@@ -560,6 +567,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val loadEpoch = ++writingWorkspaceLoadEpoch
         if (_writingWorkspace.value.chatProjectId != projectId) {
             copilotRecoveryEpoch++
+            copilotHistoryEpoch++
             copilotAppearanceEpoch++
             copilotRecoveryActiveProject = null
             copilotViewPollJob?.cancel()
@@ -568,6 +576,18 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             copilotTaskPollJob = null
             copilotTaskPollId = null
             deleteVisualStudioAttachments(_writingWorkspace.value.copilotViewPreviews.values)
+            // Archive-derived thumbnails live in the originating chat turns.
+            // They are protected project media, just like Character Studio.
+            deleteVisualStudioAttachments(
+                _writingWorkspace.value.chatHistory.mapNotNull {
+                    it.generatedPreviewAttachmentId
+                },
+            )
+            deleteVisualStudioAttachments(
+                _writingWorkspace.value.copilotRecoveredPortraits.mapNotNull {
+                    it.previewAttachmentId
+                },
+            )
             deleteVisualStudioAttachments(_writingWorkspace.value.approvedVisualAttachments.values)
             _writingWorkspace.value.copilotSceneCandidate?.let {
                 deleteVisualStudioAttachments(listOf(it.previewAttachmentId))
@@ -579,9 +599,13 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             resetVisualStudioProtectedMedia()
             _writingWorkspace.value = WritingWorkspaceState(chatProjectId = projectId)
         }
-        // Task restoration must work even when an unrelated Wiki/Drive refresh fails.
+        // Task and previously generated image recovery must not depend on
+        // Wiki, timeline or Drive metadata reads succeeding. In particular,
+        // a failed public Wiki request must not make saved portraits disappear.
         recoverWritingCopilotTask(projectId)
+        recoverWritingCopilotHistory(projectId)
         writingWorkspaceBusy("Loading workspace")
+        recoverWritingCopilotPortraits(projectId)
         viewModelScope.launch {
             val overview = container.liveSession.writingRoomOverview(projectId)
             val wikiHome = container.liveSession.writingRoomWikiHome(projectId)
@@ -634,7 +658,149 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 error = privateFailure?.exceptionOrNull()?.message,
             )
             refreshKnowledgeAtlas(projectId = projectId, refreshSnapshot = true)
-            recoverWritingCopilotPortraits(projectId)
+        }
+    }
+
+    /**
+     * Reconstruct older Copilot text turns from the owner-authorized server
+     * conversation. This is read-only; it never resubmits a model or tool.
+     * Concurrent task/image recovery may already have restored a richer final
+     * turn, so merge instead of replacing the live history.
+     */
+    private fun recoverWritingCopilotHistory(projectId: String) {
+        if (_writingWorkspace.value.chatProjectId != projectId) return
+        val epoch = ++copilotHistoryEpoch
+        viewModelScope.launch {
+            val history = container.liveSession.writingRoomCopilotHistory(projectId)
+                .getOrNull() ?: return@launch // older backend: keep task recovery
+            if (copilotHistoryEpoch != epoch ||
+                _writingWorkspace.value.chatProjectId != projectId) return@launch
+            val current = _writingWorkspace.value
+            _writingWorkspace.value = current.copy(
+                chatHistory = mergeCopilotConversationHistory(
+                    projectId, history, current.chatHistory,
+                ),
+            )
+            // Only the newest historical previews download automatically.
+            // Earlier retained turns remain individually recoverable on tap.
+            _writingWorkspace.value.chatHistory.takeLast(20).forEach { turn ->
+                if (turn.historicalRequestId != null &&
+                    turn.candidateAssetId != null &&
+                    turn.generatedPreviewAttachmentId == null) {
+                    recoverCopilotHistoricalImage(
+                        projectId, turn.historicalRequestId, turn.candidateAssetId,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Download the exact archived candidate into its ORIGINAL message.
+     * Only the authenticated Visual Registry can supply bytes, and staging
+     * requires its archived per-request SHA. No paid operation is dispatched.
+     */
+    fun recoverCopilotHistoricalImage(
+        projectId: String, requestId: String, assetId: String,
+        retryUnreadableCopy: Boolean = false,
+    ) {
+        val current = _writingWorkspace.value
+        if (current.chatProjectId != projectId) return
+        val source = current.chatHistory.singleOrNull {
+            it.historicalRequestId == requestId && it.candidateAssetId == assetId &&
+                it.candidateStorageState == "stored" &&
+                (retryUnreadableCopy || it.generatedPreviewAttachmentId == null) &&
+                Regex("^[a-fA-F0-9]{64}$").matches(it.candidateSha256.orEmpty())
+        } ?: return
+        val key = "$projectId:$requestId:$assetId"
+        if (!copilotHistoricalImageInFlight.add(key)) return
+        val epoch = copilotRecoveryEpoch
+        viewModelScope.launch {
+            var unpublishedAttachmentId: String? = null
+            var published = false
+            try {
+                val fetched = container.liveSession.writingRoomVisualAssetFetch(
+                    projectId, assetId,
+                ).getOrNull() ?: return@launch
+                if (fetched.asset_id != assetId ||
+                    !fetched.sha256.equals(source.candidateSha256, ignoreCase = true) ||
+                    fetched.mime_type !in setOf("image/jpeg", "image/png", "image/webp")
+                ) return@launch
+                val staged = withContext(Dispatchers.IO) {
+                    container.attachmentStore.stageVisualAssetBase64(
+                        fetched.image_base64, source.candidateSha256.orEmpty(),
+                    )
+                } ?: return@launch
+                unpublishedAttachmentId = staged.attachmentId
+                val now = _writingWorkspace.value
+                val index = now.chatHistory.indexOfFirst {
+                    it.historicalRequestId == requestId &&
+                        it.candidateAssetId == assetId &&
+                        it.candidateSha256.equals(fetched.sha256, ignoreCase = true) &&
+                        (it.generatedPreviewAttachmentId == null ||
+                            retryUnreadableCopy &&
+                            it.generatedPreviewAttachmentId == source.generatedPreviewAttachmentId)
+                }
+                if (copilotRecoveryEpoch != epoch || now.chatProjectId != projectId ||
+                    index < 0 || staged.mimeType != fetched.mime_type) {
+                    return@launch
+                }
+                val turns = now.chatHistory.toMutableList()
+                turns[index] = turns[index].copy(
+                    generatedPreviewAttachmentId = staged.attachmentId,
+                    historicalImageError = null,
+                )
+                // A late restored image belongs inside its originating chat
+                // message. Remove the redundant gallery entry, but never
+                // discard its file if both consumers share the same ID.
+                val duplicate = now.copilotRecoveredPortraits.filter {
+                    it.assetId == assetId
+                }
+                _writingWorkspace.value = now.copy(
+                    chatHistory = turns,
+                    copilotRecoveredPortraits = now.copilotRecoveredPortraits.filterNot {
+                        it.assetId == assetId
+                    },
+                )
+                published = true
+                unpublishedAttachmentId = null // published in the original chat
+                val otherReferences = turns.mapNotNull {
+                    it.generatedPreviewAttachmentId
+                }.toSet() + now.approvedVisualAttachments.values +
+                    now.copilotViewPreviews.values
+                val oldUnreadableCopy = source.generatedPreviewAttachmentId
+                    ?.takeIf { retryUnreadableCopy && it != staged.attachmentId }
+                val staleCopies = duplicate.mapNotNull {
+                    it.previewAttachmentId
+                } + listOfNotNull(oldUnreadableCopy)
+                deleteVisualStudioAttachments(staleCopies.filterNot {
+                    it in otherReferences
+                })
+            } finally {
+                // Network cancellation, a project switch or an exception must
+                // not leave unpublished private thumbnails on the shared PC.
+                unpublishedAttachmentId?.let {
+                    deleteVisualStudioAttachments(listOf(it))
+                }
+                if (!published && copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId) {
+                    val state = _writingWorkspace.value
+                    val failedIndex = state.chatHistory.indexOfFirst {
+                        it.historicalRequestId == requestId &&
+                            it.candidateAssetId == assetId &&
+                            (it.generatedPreviewAttachmentId == null || retryUnreadableCopy)
+                    }
+                    if (failedIndex >= 0) {
+                        val history = state.chatHistory.toMutableList()
+                        history[failedIndex] = history[failedIndex].copy(
+                            historicalImageError =
+                                "No se pudo recuperar esta imagen verificada. Puedes reintentar.",
+                        )
+                        _writingWorkspace.value = state.copy(chatHistory = history)
+                    }
+                }
+                copilotHistoricalImageInFlight.remove(key)
+            }
         }
     }
 
@@ -652,6 +818,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             copilotRecovering = true, copilotRecoveryError = null,
         )
         viewModelScope.launch {
+            // These are new local copies created by this invocation only. If
+            // the task is canceled, changes project or fails half-way through,
+            // dispose of every unpublished copy instead of leaking protected
+            // portrait files on the shared Android device.
+            val stagedThisRecovery = mutableSetOf<String>()
+            var published = false
             try {
                 val response = container.liveSession.writingRoomCopilotListPortraits(projectId)
                     .getOrThrow()
@@ -670,14 +842,20 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         ).getOrNull()
                         if (content != null && content.asset_id == asset.asset_id &&
                             content.sha256.equals(asset.sha256, ignoreCase = true) &&
-                            content.mime_type.startsWith("image/")
+                            content.mime_type in setOf("image/png", "image/jpeg", "image/webp") &&
+                            (asset.mime_type.isBlank() || asset.mime_type == content.mime_type)
                         ) {
                             val staged = withContext(Dispatchers.IO) {
                                 container.attachmentStore.stageVisualAssetBase64(
                                     content.image_base64, asset.sha256,
                                 )
                             }
-                            previewId = staged?.attachmentId
+                            if (staged != null && staged.mimeType == content.mime_type) {
+                                previewId = staged.attachmentId
+                                stagedThisRecovery += staged.attachmentId
+                            } else if (staged != null) {
+                                deleteVisualStudioAttachments(listOf(staged.attachmentId))
+                            }
                         }
                     }
                     recovered += CopilotRecoveredPortrait(
@@ -693,10 +871,31 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 val current = _writingWorkspace.value
                 if (copilotRecoveryEpoch == epoch && current.chatProjectId == projectId) {
                     val inChat = current.chatHistory.mapNotNull { it.candidateAssetId }.toSet()
+                    val visible = recovered.filterNot { it.assetId in inChat }
+                    val retainedIds = visible.mapNotNull { it.previewAttachmentId }.toSet()
+                    // The same image can become visible in its originating
+                    // Copilot chat while this gallery is still downloading.
+                    // Those extra copies must be discarded, not silently
+                    // accumulated on every refresh.
+                    val referencedInChat = current.chatHistory.mapNotNull {
+                        it.generatedPreviewAttachmentId
+                    }.toSet()
+                    val otherProtectedIds =
+                        current.approvedVisualAttachments.values.toSet() +
+                        current.copilotViewPreviews.values.toSet() + referencedInChat
+                    val disposableIds = replacedCopilotPortraitCopies(
+                        previousIds = current.copilotRecoveredPortraits
+                            .mapNotNull { it.previewAttachmentId }.toSet(),
+                        newlyStagedIds = stagedThisRecovery,
+                        visibleIds = retainedIds,
+                        otherReferencedIds = otherProtectedIds,
+                    )
                     _writingWorkspace.value = current.copy(
-                        copilotRecoveredPortraits = recovered.filterNot { it.assetId in inChat },
+                        copilotRecoveredPortraits = visible,
                         copilotRecoveryError = null,
                     )
+                    published = true
+                    deleteVisualStudioAttachments(disposableIds)
                 }
             } catch (error: Exception) {
                 val current = _writingWorkspace.value
@@ -707,6 +906,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     )
                 }
             } finally {
+                if (!published) {
+                    deleteVisualStudioAttachments(stagedThisRecovery)
+                }
                 if (copilotRecoveryEpoch == epoch) {
                     copilotRecoveryActiveProject = null
                     _writingWorkspace.value = _writingWorkspace.value.copy(copilotRecovering = false)
@@ -1258,6 +1460,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val selected = current.chatHistory.firstOrNull {
             it.candidateAssetId == assetId && it.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
                 it.candidateStatus == "CANDIDATE" && it.candidateStorageState == "stored" &&
+                it.candidateKind == "PRIMARY_REFERENCE" && it.candidatePerspective == "front" &&
                 !it.generatedPreviewAttachmentId.isNullOrBlank()
         }
         val recovered = current.copilotRecoveredPortraits.firstOrNull {
@@ -1282,11 +1485,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             ) return@launch
             response.fold(
                 onSuccess = { confirmed ->
-                    val asset = confirmed.asset
-                    if (asset.asset_id != assetId || !asset.sha256.equals(expectedSha256, ignoreCase = true) ||
-                        asset.status != "APPROVED" ||
-                        confirmed.character_id != characterId ||
-                        confirmed.wiki_link?.entry_id != characterId
+                    if (!com.jarvis.android.ui.writing.isMatchingCopilotPortraitApprovalReceipt(
+                            projectId, characterId, assetId, expectedSha256, confirmed,
+                        )
                     ) {
                         _writingWorkspace.value = _writingWorkspace.value.copy(
                             busy = false, busyLabel = "",
@@ -1299,11 +1500,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         busy = false,
                         busyLabel = "",
                         chatHistory = refreshed.chatHistory.map { turn ->
-                            if (turn.candidateAssetId == assetId) turn.copy(candidateStatus = "APPROVED")
+                            if (turn.candidateAssetId == assetId &&
+                                turn.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
+                                turn.candidateCharacterId == characterId
+                            ) turn.copy(candidateStatus = "APPROVED")
                             else turn
                         },
                         copilotRecoveredPortraits = refreshed.copilotRecoveredPortraits.map { item ->
-                            if (item.assetId == assetId) item.copy(status = "APPROVED")
+                            if (item.assetId == assetId &&
+                                item.sha256.equals(expectedSha256, ignoreCase = true) &&
+                                item.characterId == characterId
+                            ) item.copy(status = "APPROVED")
                             else item
                         },
                         error = null,
@@ -2149,11 +2356,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val snapshot = container.liveSession.writingRoomAgentRequestStatus(
             projectId, task.conversation_id, task.request_id,
         ).getOrNull() ?: return
+        if (snapshot.project_id != projectId ||
+            snapshot.conversation_id != task.conversation_id ||
+            snapshot.request_id != task.request_id || snapshot.task_id != task.task_id
+        ) return
+        if (writingRoomRequestIsSettled(snapshot)) {
+            container.liveSession.forgetWritingRoomRequest(
+                projectId, task.conversation_id, task.request_id,
+            )
+        }
         val recovered = recoveredCopilotChat(
             projectId, task.conversation_id, task.request_id, snapshot,
         ) ?: return
-        if (snapshot.task_id != task.task_id ||
-            (snapshot.reply_text.isBlank() &&
+        if ((snapshot.reply_text.isBlank() &&
                 !hasRecoverableCopilotVisualReceipt(projectId, snapshot)) ||
             snapshot.agent_run_state in setOf("RUNNING", "DISPATCHING", "NEW") ||
             copilotRecoveryEpoch != epoch ||
@@ -2161,7 +2376,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         ) return
         val state = _writingWorkspace.value
         val index = state.chatHistory.indexOfLast {
-            it.response?.copilot_task?.task_id == task.task_id
+            it.response?.copilot_task?.task_id == task.task_id ||
+                it.historicalRequestId == task.request_id
         }
         // A process death can discard the in-memory question and its bubble.
         // Reconstruct ONLY the original, server-scoped request, not another
@@ -2192,24 +2408,79 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     /** Backend owns orchestration and authorization; this only retrieves visible state. */
     fun recoverWritingCopilotTask(projectId: String) {
         if (_writingWorkspace.value.chatProjectId != projectId) return
+        val pendingResult = container.liveSession.pendingWritingRoomRequest(projectId)
+        if (pendingResult.isFailure) {
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                copilotAgentError = "No se puede verificar la identidad de la solicitud anterior. " +
+                    "No se enviará otra solicitud hasta recuperar su estado.",
+            )
+            return
+        }
+        val pending = pendingResult.getOrNull()
+        val pendingKey = pending?.let { "$projectId:${it.requestId}" }
+        if (pendingKey != null && !copilotPendingRecoveryInFlight.add(pendingKey)) return
         val epoch = copilotRecoveryEpoch
+        if (pending != null) {
+            _writingWorkspace.value = _writingWorkspace.value.copy(
+                copilotAgentBusy = true,
+                copilotAgentError = null,
+            )
+        }
         viewModelScope.launch {
-            val response = container.liveSession.writingRoomCopilotTaskLatest(projectId).getOrNull()
-            if (response != null && response.project_id == projectId &&
-                response.task_id.isNotBlank() && copilotRecoveryEpoch == epoch &&
-                _writingWorkspace.value.chatProjectId == projectId
-            ) {
-                _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = response)
-                val approved = response.results.flatMap { it.visual_assets }
-                if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
-                followCopilotTaskProgress(projectId, response)
-                // A terminal latest run may have no legacy progress row. Still
-                // restore its transcript/media from the exact request once.
-                if (response.request_id.isNotBlank() &&
-                    response.conversation_id.isNotBlank() &&
-                    !copilotTaskHasActiveRemoteWork(response)
+            try {
+                val response = if (pending != null) {
+                    container.liveSession.writingRoomAgentRequestStatus(
+                        projectId, pending.conversationId, pending.requestId,
+                    ).getOrNull()?.takeIf {
+                        it.project_id == projectId &&
+                            it.conversation_id == pending.conversationId &&
+                            it.request_id == pending.requestId &&
+                            it.task_id.startsWith("ar_")
+                    }
+                } else {
+                    container.liveSession.writingRoomCopilotTaskLatest(projectId).getOrNull()
+                }
+                if (pending != null && response == null) {
+                    if (copilotRecoveryEpoch == epoch &&
+                        _writingWorkspace.value.chatProjectId == projectId
+                    ) {
+                        _writingWorkspace.value = _writingWorkspace.value.copy(
+                            copilotAgentError = "El resultado de la solicitud anterior sigue sin confirmar. " +
+                                "Actualiza su estado antes de enviar otra.",
+                        )
+                    }
+                    return@launch
+                }
+                if (response != null && response.project_id == projectId &&
+                    response.task_id.isNotBlank() && copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
                 ) {
-                    restoreInterruptedCopilotReply(projectId, response, epoch)
+                    _writingWorkspace.value = _writingWorkspace.value.copy(copilotAgentTask = response)
+                    if (pending != null && writingRoomRequestIsSettled(response)) {
+                        container.liveSession.forgetWritingRoomRequest(
+                            projectId, pending.conversationId, pending.requestId,
+                        )
+                    }
+                    val approved = response.results.flatMap { it.visual_assets }
+                    if (approved.isNotEmpty()) loadApprovedCopilotVisuals(projectId, approved)
+                    followCopilotTaskProgress(projectId, response)
+                    // A terminal request may have no legacy progress row. Still
+                    // restore its transcript/media from the exact request once.
+                    if (response.request_id.isNotBlank() &&
+                        response.conversation_id.isNotBlank() &&
+                        !copilotTaskHasActiveRemoteWork(response)
+                    ) {
+                        restoreInterruptedCopilotReply(projectId, response, epoch)
+                    }
+                }
+            } finally {
+                if (pendingKey != null) copilotPendingRecoveryInFlight.remove(pendingKey)
+                if (pending != null && copilotRecoveryEpoch == epoch &&
+                    _writingWorkspace.value.chatProjectId == projectId
+                ) {
+                    _writingWorkspace.value = _writingWorkspace.value.copy(
+                        copilotAgentBusy = false,
+                    )
                 }
             }
         }
@@ -2409,19 +2680,29 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         room: String = "chat",
         toolMode: Boolean = false,
         referenceAttachmentId: String? = null,
-    ) {
+    ): Boolean {
         val clean = prompt.trim().ifEmpty {
             if (referenceAttachmentId != null) "¿Qué muestra esta imagen?" else ""
         }
-        if (clean.isEmpty()) return
+        if (clean.isEmpty()) return false
         // All conversational intent goes to the shared model-first AdaptiveAgent.
         // The transport probes the authenticated agent stream itself and uses
         // legacy chat only on an explicit pre-execution 404. Android must not
         // guess intent with keyword/regex handlers or add a preflight roundtrip.
         val current = _writingWorkspace.value
         if (current.busy || current.chatProjectId != projectId ||
+            current.copilotAgentBusy ||
             (referenceAttachmentId != null &&
-                current.copilotPendingReferenceId != referenceAttachmentId)) return
+                current.copilotPendingReferenceId != referenceAttachmentId)) return false
+        val pendingResult = container.liveSession.pendingWritingRoomRequest(projectId)
+        if (pendingResult.isFailure || pendingResult.getOrNull() != null) {
+            _writingWorkspace.value = current.copy(
+                copilotAgentError = "Hay una solicitud anterior sin confirmar. " +
+                    "Se consultará su request_id antes de aceptar otro envío.",
+            )
+            if (pendingResult.getOrNull() != null) recoverWritingCopilotTask(projectId)
+            return false
+        }
         val existingHistory = current.chatHistory
         val recent = existingHistory.takeLast(6).flatMap { previous ->
             buildList {
@@ -2556,6 +2837,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 },
             )
         }
+        return true
     }
 
     fun searchWritingWiki(projectId: String, query: String) {
@@ -3820,6 +4102,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val detail: VisualStudioCharacterDetail? = null,
         val projectStyle: VisualProjectStyleProfile? = null,
         val characterDirection: VisualCharacterDirectionProfile? = null,
+        val externalCharacters: List<VisualExternalCharacter> = emptyList(),
+        val characterVariants: List<VisualExternalCharacterVariant> = emptyList(),
         val batch: VisualCharacterBatch? = null,
         val masterRoster: VisualCharacterMasterRoster? = null,
         val assets: List<VisualStudioAsset> = emptyList(),
@@ -3933,6 +4217,50 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         deleteVisualStudioAttachments(ids)
     }
 
+    /**
+     * Populate external character references before a character is selected.
+     *
+     * Previously Character Studio only requested the catalog from
+     * reloadCharacterStudio, which itself required a selected character.
+     * Projects with no loaded Wiki characters could therefore never display
+     * the external references. The project/epoch guards prevent cross-project
+     * catalog leakage and never touch paid image generation.
+     */
+    fun loadCharacterStudioCatalog(projectId: String) {
+        val clean = projectId.trim()
+        if (clean.isBlank() || _writingWorkspace.value.chatProjectId != clean) return
+        val previous = _characterStudio.value
+        if (previous.projectId != clean) {
+            characterBatchPollJob?.cancel()
+            characterBatchPollJob = null
+            characterStudioScopeVersion++
+            deleteVisualStudioAttachments(previous.attachmentIds.values)
+            _characterStudio.value = CharacterStudioState(projectId = clean)
+        } else if (previous.externalCharacters.isNotEmpty()) {
+            return
+        }
+        val epoch = characterStudioScopeVersion
+        viewModelScope.launch {
+            val catalog = container.liveSession.visualExternalCharacterCatalog(clean)
+            if (_writingWorkspace.value.chatProjectId != clean ||
+                characterStudioScopeVersion != epoch ||
+                _characterStudio.value.projectId != clean) return@launch
+            val incoming = catalog.getOrNull()?.characters
+            if (incoming != null) {
+                _characterStudio.update { existing ->
+                    if (existing.projectId != clean) existing
+                    else existing.copy(externalCharacters = incoming)
+                }
+            } else if (_characterStudio.value.characterId.isBlank()) {
+                _characterStudio.update { existing ->
+                    if (existing.projectId != clean) existing
+                    else existing.copy(error = catalog.exceptionOrNull()?.message
+                        ?: "No se pudo cargar el catálogo externo.")
+                }
+            }
+        }
+    }
+
     fun openCharacterStudio(projectId: String, characterId: String) {
         val cleanProject = projectId.trim()
         val cleanCharacter = characterId.trim()
@@ -3945,12 +4273,15 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             _imageEditState.value = ImageEditState.Idle
             _lastImageEditDetails.value = null
             val oldIds = current.attachmentIds.values
-            _characterStudio.value = CharacterStudioState(
+            // A character switch must not discard this project's external
+            // reference catalog. Otherwise an empty Wiki makes Character
+            // Studio lose its only characters until a full navigation reload.
+            // Do NOT carry media, detail, variants, directions or approvals
+            // across characters, and never share catalog data across projects.
+            _characterStudio.value = newCharacterStudioSelection(
+                current = current,
                 projectId = cleanProject,
                 characterId = cleanCharacter,
-                masterRoster = current.masterRoster.takeIf {
-                    current.projectId == cleanProject
-                },
             )
             deleteVisualStudioAttachments(oldIds)
         }
@@ -3992,6 +4323,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             projectId,
             characterId,
         )
+        // These reference-only endpoints may be absent on an older deployed VPS;
+        // do not block the rest of Character Studio when unavailable.
+        val externalCatalogResult = container.liveSession.visualExternalCharacterCatalog(projectId)
+        val variantsResult = container.liveSession.visualCharacterVariants(projectId, characterId)
         val assets = container.liveSession.visualAssetList(projectId, characterId)
         val batchResult = container.liveSession.visualCharacterBatchStatus(projectId, characterId)
         val rosterResult = container.liveSession.visualCharacterMasterRosterStatus(projectId)
@@ -4014,25 +4349,19 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 ?: _characterStudio.value.projectStyle,
             characterDirection = characterDirectionResult.getOrNull()?.profile
                 ?: _characterStudio.value.characterDirection,
+            externalCharacters = externalCatalogResult.getOrNull()?.characters
+                ?: _characterStudio.value.externalCharacters,
+            characterVariants = variantsResult.getOrNull()?.variants
+                ?: _characterStudio.value.characterVariants,
             batch = if (batchResult.isSuccess) loadedBatch else _characterStudio.value.batch,
             masterRoster = rosterResult.getOrNull() ?: _characterStudio.value.masterRoster,
             assets = assets.getOrNull()?.assets ?: _characterStudio.value.assets,
             error = failure?.message,
         )
-        if (
-            loadedBatch != null &&
-            loadedBatch.pending_count > 0 &&
-            loadedBatch.status == "READY"
-        ) {
-            completeCharacterViews(
-                projectId = projectId,
-                characterId = characterId,
-                perspectives = loadedBatch.requested_perspectives,
-                adjustment = loadedBatch.adjustment,
-                resumeBatchId = loadedBatch.batch_id,
-                generationMode = loadedBatch.mode,
-            )
-        } else if (loadedBatch?.status == "RUNNING") {
+        // Reading the character must NEVER start or resume paid generations.
+        // A READY durable batch is visible for review in the UI and can only
+        // resume after an explicit owner confirmation.
+        if (loadedBatch?.status == "RUNNING") {
             startCharacterBatchPolling(
                 projectId,
                 characterId,
@@ -4104,6 +4433,12 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     fun loadCharacterStudioAsset(projectId: String, assetId: String, retry: Boolean = false) {
         val clean = assetId.trim()
         val state = _characterStudio.value
+        // Never accept a download for an asset outside the selected character,
+        // even when the returned bytes contain a valid (but unrelated) SHA.
+        val listedAsset = state.assets.firstOrNull {
+            it.asset_id == clean && it.project_id == projectId &&
+                state.characterId in it.character_ids
+        } ?: return
         if (clean.isBlank() || state.projectId != projectId ||
             clean in state.loadingAssetIds ||
             (!retry && (state.attachmentIds.containsKey(clean) || state.assetErrors.containsKey(clean)))
@@ -4124,8 +4459,11 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 fetch = { container.liveSession.writingRoomVisualAssetFetch(projectId, clean) },
                 stage = { content ->
                     withContext(Dispatchers.IO) {
+                        check(matchesListedVisualAssetReceipt(projectId, listedAsset, content)) {
+                            "La imagen recibida no coincide con el asset aprobado o candidato."
+                        }
                         container.attachmentStore.stageVisualAssetBase64(
-                            content.image_base64, content.sha256,
+                            content.image_base64, listedAsset.sha256,
                         )
                     }
                 },
@@ -4571,6 +4909,50 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         }
     }
 
+    fun applyExternalCharacterVariant(
+        projectId: String,
+        characterId: String,
+        variantId: String,
+        expectedRevision: Int,
+    ) {
+        val current = _characterStudio.value
+        if (current.busy || !settings.value.isOwner ||
+            current.projectId != projectId || current.characterId != characterId ||
+            variantId.isBlank()
+        ) return
+        val scopeVersion = characterStudioScopeVersion
+        _characterStudio.update {
+            it.copy(busy = true, busyLabel = "Aplicando variante externa", notice = null, error = null)
+        }
+        viewModelScope.launch {
+            val result = container.liveSession.visualApplyCharacterVariant(
+                projectId, characterId, variantId, expectedRevision,
+            )
+            if (characterStudioScopeVersion != scopeVersion ||
+                _characterStudio.value.projectId != projectId ||
+                _characterStudio.value.characterId != characterId
+            ) return@launch
+            result.fold(
+                onSuccess = { response ->
+                    _characterStudio.update {
+                        it.copy(
+                            busy = false, busyLabel = "", characterDirection = response.profile,
+                            notice = "Variante visual externa aplicada; no modifica el canon narrativo.",
+                            error = null,
+                        )
+                    }
+                    reloadCharacterStudio(projectId, characterId)
+                },
+                onFailure = { error ->
+                    _characterStudio.update {
+                        it.copy(busy = false, busyLabel = "",
+                            error = error.message ?: "No se pudo aplicar la variante visual.")
+                    }
+                },
+            )
+        }
+    }
+
     fun restoreCharacterVisualDirection(
         projectId: String,
         characterId: String,
@@ -4882,7 +5264,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun approveCharacterVisual(asset: VisualStudioAsset) {
         val state = _characterStudio.value
-        if (state.busy || asset.status != "CANDIDATE" || asset.sha256.isBlank()) return
+        if (state.busy || !com.jarvis.android.ui.writing.canSubmitCharacterVisualApproval(
+                state.projectId, state.characterId, asset, state.assets,
+                state.attachmentIds[asset.asset_id],
+            )
+        ) return
+        val scopeVersion = characterStudioScopeVersion
+        val projectId = state.projectId
+        val characterId = state.characterId
         val nextRevision = state.assets
             .filter {
                 it.status == "APPROVED" &&
@@ -4907,18 +5296,40 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 assetSha256 = asset.sha256,
                 visualRevision = nextRevision,
             ).fold(
-                onSuccess = {
-                    _characterStudio.update {
-                        it.copy(notice = "Imagen aprobada. El asset quedó ligado a su SHA-256 exacto.")
+                onSuccess = { confirmed ->
+                    if (characterStudioScopeVersion != scopeVersion ||
+                        _characterStudio.value.projectId != projectId ||
+                        _characterStudio.value.characterId != characterId
+                    ) return@fold
+                    if (!com.jarvis.android.ui.writing.isMatchingCharacterVisualApprovalReceipt(
+                            projectId, characterId, asset, nextRevision, confirmed.asset,
+                        )
+                    ) {
+                        _characterStudio.update {
+                            it.copy(
+                                busy = false, busyLabel = "",
+                                error = "La aprobación recibida no coincide con el proyecto, " +
+                                    "personaje, revisión o SHA. Consulta Visual Studio antes de reintentar.",
+                            )
+                        }
+                    } else {
+                        _characterStudio.update {
+                            it.copy(notice = "Imagen aprobada. El asset quedó ligado a su SHA-256 exacto.")
+                        }
+                        reloadCharacterStudio(projectId, characterId)
                     }
-                    reloadCharacterStudio(asset.project_id, state.characterId)
                 },
                 onFailure = { error ->
+                    if (characterStudioScopeVersion != scopeVersion ||
+                        _characterStudio.value.projectId != projectId ||
+                        _characterStudio.value.characterId != characterId
+                    ) return@fold
                     _characterStudio.update {
                         it.copy(
                             busy = false,
                             busyLabel = "",
-                            error = error.message ?: "No se pudo aprobar la imagen.",
+                            error = error.message ?: "No se pudo aprobar la imagen. " +
+                                "Consulta Visual Studio antes de reintentar.",
                         )
                     }
                 },
@@ -5081,8 +5492,16 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             referenceAttachmentId.isBlank() ||
             _imageEditState.value is ImageEditState.Busy ||
             state.busy ||
+            !settings.value.isOwner ||
             parentAsset.project_id != state.projectId ||
             characterId != state.characterId ||
+            characterId !in parentAsset.character_ids ||
+            !state.assets.any {
+                it.asset_id == parentAsset.asset_id &&
+                    it.sha256.equals(parentAsset.sha256, ignoreCase = true) &&
+                    it.project_id == state.projectId &&
+                    it.status == "APPROVED"
+            } ||
             parentAsset.status != "APPROVED"
         ) {
             if (parentAsset.status != "APPROVED") {
@@ -5100,8 +5519,10 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                     val file = container.attachmentStore.resolve(referenceAttachmentId)
                         ?: error("La imagen base ya no está disponible en el dispositivo.")
                     val bytes = file.readBytes()
-                    require(bytes.isNotEmpty() && bytes.size <= 12 * 1024 * 1024) {
-                        "La imagen base es demasiado grande."
+                    check(verifiedCharacterEditParent(
+                        state.projectId, characterId, parentAsset, bytes,
+                    )) {
+                        "La copia local no coincide con el master aprobado. Vuelve a descargarla antes de editar."
                     }
                     Base64.encodeToString(bytes, Base64.NO_WRAP)
                 }
@@ -5133,9 +5554,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 onSuccess = { reply ->
                     if (!scopeIsCurrent()) return@fold
                     val asset = reply.visual_asset
+                    if (!verifiedCharacterEditChild(parentAsset, asset, reply.mime_type)) {
+                        _imageEditState.value = ImageEditState.Error(
+                            "La edición no coincide con el master y personaje originales. " +
+                                "No se enviará otra generación automáticamente. Revisa el candidato en Character Studio.",
+                        )
+                        return@fold
+                    }
                     val staged = withContext(Dispatchers.IO) {
-                        if (asset == null || asset.sha256.isBlank()) null
-                        else container.attachmentStore.stageVisualAssetBase64(reply.data_base64, asset.sha256)
+                        container.attachmentStore.stageVisualAssetBase64(
+                            reply.data_base64, asset!!.sha256,
+                        )
                     }
                     if (!scopeIsCurrent()) {
                         staged?.let { deleteVisualStudioAttachments(listOf(it.attachmentId)) }
@@ -7078,6 +7507,8 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
     // whenever the open conversation changes.
     private val _chatProfile = MutableStateFlow(container.liveSession.chatProfileFor(_conversationId.value ?: ""))
     val chatProfile: StateFlow<String> = _chatProfile
+    private val _chatEffort = MutableStateFlow(container.liveSession.chatEffortFor(_conversationId.value ?: ""))
+    val chatEffort: StateFlow<String> = _chatEffort
 
     init {
         container.liveSession.onAgentImageReady = { conversationId, requestId, attachmentId ->
@@ -7092,6 +7523,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         viewModelScope.launch {
             _conversationId.collect { id ->
                 _chatProfile.value = container.liveSession.chatProfileFor(id ?: "")
+                _chatEffort.value = container.liveSession.chatEffortFor(id ?: "")
             }
         }
     }
@@ -7114,6 +7546,16 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 container.liveSession.setChatProfileFor(convId, fallback)
                 _chatProfile.value = fallback
             }
+            // Old backend, changed model catalog or removed effort access:
+            // invalidate any stored override, without affecting other chats.
+            val currentProfile = container.liveSession.chatProfileFor(convId)
+            val currentEffort = container.liveSession.chatEffortFor(convId)
+            if (currentEffort != "auto" && (access?.effort == null ||
+                    currentProfile !in access.effort.supportedProfiles ||
+                    access.effort.options.none { it.id == currentEffort })) {
+                container.liveSession.setChatEffortFor(convId, "auto")
+                _chatEffort.value = "auto"
+            }
         }
     }
 
@@ -7121,6 +7563,22 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val convId = _conversationId.value ?: return
         container.liveSession.setChatProfileFor(convId, profile)
         _chatProfile.value = profile
+        // Never carry a forced effort to a different model that may not
+        // support it. The server is authoritative about capability.
+        val effortProfiles = _chatAccess.value?.effort?.supportedProfiles.orEmpty()
+        if (profile !in effortProfiles) {
+            container.liveSession.setChatEffortFor(convId, "auto")
+            _chatEffort.value = "auto"
+        }
+    }
+
+    fun setChatEffort(effort: String) {
+        val convId = _conversationId.value ?: return
+        val profile = _chatProfile.value
+        val access = _chatAccess.value?.effort ?: return
+        if (profile !in access.supportedProfiles || access.options.none { it.id == effort }) return
+        container.liveSession.setChatEffortFor(convId, effort)
+        _chatEffort.value = effort
     }
 
     sealed interface ProviderUsageState {

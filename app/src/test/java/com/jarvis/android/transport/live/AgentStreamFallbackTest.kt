@@ -80,26 +80,22 @@ class AgentStreamFallbackTest {
         assertTrue(json.containsKey("request_id"))
     }
 
-    @Test fun disabledAgentFallsBackToLegacyOnlyOn404() = runBlocking(Dispatchers.IO) {
+    @Test fun disabledAgentReportsIncompatibleBackendWithoutLegacyDeepSeek() = runBlocking(Dispatchers.IO) {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
                 "/api/app/writing-room/agent/stream" -> MockResponse().setResponseCode(404)
-                "/api/app/writing-room/chat/stream" -> sse("Legacy")
+                "/api/app/writing-room/chat/stream" -> sse("UNEXPECTED_LEGACY_DISPATCH")
                 else -> MockResponse().setResponseCode(500)
             }
         }
         val answer = session.writingRoomAutoChatStream(
             "prj_story", "Alexander", "Hola", onDelta = {},
-        ).getOrThrow()
-        assertEquals("Respuesta del agente", answer.turn.response.text)
-        assertEquals(2, server.requestCount)
+        )
+        assertTrue(answer.isFailure)
+        assertTrue(answer.exceptionOrNull()?.message?.contains("AdaptiveAgent") == true)
+        assertEquals(1, server.requestCount)
         val first = server.takeRequest()
-        val second = server.takeRequest()
         assertEquals("/api/app/writing-room/agent/stream", first.path)
-        assertEquals("/api/app/writing-room/chat/stream", second.path)
-        val json1 = kotlinx.serialization.json.Json.parseToJsonElement(first.body.readUtf8())
-        val json2 = kotlinx.serialization.json.Json.parseToJsonElement(second.body.readUtf8())
-        assertEquals(json1, json2) // Same request ID; no duplicate dispatch.
     }
 
     @Test fun serverErrorNeverTriggersUnsafeLegacyRetry() = runBlocking(Dispatchers.IO) {
@@ -111,8 +107,17 @@ class AgentStreamFallbackTest {
             "prj_story", "Alexander", "Haz una imagen", onDelta = {},
         )
         assertTrue(answer.isFailure)
-        assertEquals(1, server.requestCount)
-        assertEquals("/api/app/writing-room/agent/stream", server.takeRequest().path)
+        assertEquals(2, server.requestCount)
+        val requests = (1..2).map { server.takeRequest() }
+        assertEquals(listOf("POST", "POST"), requests.map { it.method })
+        assertEquals(
+            listOf(
+                "/api/app/writing-room/agent/stream",
+                "/api/app/writing-room/agent/request-status",
+            ),
+            requests.map { it.path },
+        )
+        assertTrue(session.pendingWritingRoomRequest("prj_story").getOrThrow() != null)
     }
 
     @Test fun capabilityProbeNeverRunsModelAndReturnsTrueOnlyWhenEnabled() =

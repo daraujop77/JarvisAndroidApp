@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -234,7 +235,8 @@ class LiveAppGatewayTransport(
         val originalTraceId = original.traceId
         val originalDeviceId = original.deviceId
         val originalSessionId = original.sessionId
-        val job = scope.launch(Dispatchers.IO) {
+        // Register the request before the worker can emit a frame or complete.
+        val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             try {
                 emit(GatewayEvent.MessageAccepted(turnId, req.conversationId, "msg_$turnId"))
                 streamChat(
@@ -258,7 +260,7 @@ class LiveAppGatewayTransport(
                     // when the SSE route is absent (404/405 before any frame).
                     t is StreamUnavailable -> {
                         val completed = runCatching {
-                            postJsonTurn(req, traceId, deviceId, sessionId)
+                            postJsonTurn(req, originalTraceId, originalDeviceId, originalSessionId)
                         }.getOrNull()
                         if (completed != null) {
                             emitCompletedWithMedia(completed, turnId, req.conversationId)
@@ -314,10 +316,18 @@ class LiveAppGatewayTransport(
                 active.remove(turnId)
             }
         }
-        active[turnId] = ActiveTurn(
+        val registered = ActiveTurn(
             turnId, req.conversationId, originalTraceId, originalDeviceId,
             originalSessionId, job, ctl,
         )
+        if (active.putIfAbsent(turnId, registered) != null) {
+            job.cancel()
+            throw TransportException("Request is already active")
+        }
+        if (!job.start()) {
+            active.remove(turnId, registered)
+            throw TransportException("Chat transport is unavailable")
+        }
     }
 
     /** SSE route missing on this PC-A build; caller falls back to JSON chat. */
@@ -620,6 +630,11 @@ class LiveAppGatewayTransport(
         return buildJsonObject {
             put("mode", "auto")
             put("profile", session.chatProfileFor(req.conversationId))
+            // Never send forced effort unless the user selected one. Legacy
+            // deployments continue to use the provider's native defaults.
+            session.chatEffortFor(req.conversationId).takeIf { it != "auto" }?.let {
+                put("effort", it)
+            }
             put("session_id", sessionId)
             put("conversation_id", req.conversationId)
             put("device_id", deviceId)
@@ -858,6 +873,28 @@ class LiveAppGatewayTransport(
                     val obj = json.parseToJsonElement(body).jsonObject
                     if (obj["schema"]?.jsonPrimitive?.content != "jarvis.chat.turn.v1") {
                         return@use CachedTurn.Unavailable
+                    }
+                    // The recovery GET is authenticated and scoped, but a stale
+                    // proxy/cache or backend regression must not cross-wire a
+                    // turn that *does* echo its immutable request identity.
+                    // Legacy replies without an echo remain supported.
+                    val echoed = obj["request"]
+                    if (echoed != null) {
+                        val fields = runCatching { echoed.jsonObject }.getOrNull()
+                            ?: return@use CachedTurn.Unavailable
+                        val identity = listOf(
+                            "request_id" to clientRequestId,
+                            "conversation_id" to stored.conversationId,
+                            "trace_id" to stored.traceId,
+                            "device_id" to stored.deviceId,
+                            "session_id" to stored.sessionId,
+                        )
+                        if (identity.any { (key, original) ->
+                                val actual = fields[key] ?: return@any false
+                                runCatching { actual.jsonPrimitive.content }.getOrNull() != original
+                            }) {
+                            return@use CachedTurn.Unavailable
+                        }
                     }
                     when (obj["result"]?.jsonObject?.get("status")?.jsonPrimitive?.content) {
                         "completed" -> parseCompletedTurn(body)?.let { CachedTurn.Completed(it) } ?: CachedTurn.Unavailable

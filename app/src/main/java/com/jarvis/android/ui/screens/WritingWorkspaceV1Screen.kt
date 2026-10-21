@@ -88,7 +88,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -114,6 +116,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.jarvis.android.transport.live.WritingChapter
 import com.jarvis.android.transport.live.WritingEngineReviewEnvelope
 import com.jarvis.android.transport.live.WritingExplorerEntry
@@ -169,6 +173,8 @@ fun WritingWorkspaceV1Screen(
     val state by vm.writingWorkspace.collectAsStateWithLifecycle()
     var tab by rememberSaveable(projectId) { mutableStateOf(WorkspaceTab.CHAT) }
     var visualSceneOpenRequest by rememberSaveable(projectId) { mutableStateOf(0) }
+    var visualCharacterOpenRequest by rememberSaveable(projectId) { mutableStateOf(0) }
+    var visualCharacterOpenId by rememberSaveable(projectId) { mutableStateOf("") }
 
     LaunchedEffect(projectId) {
         vm.refreshWritingWorkspace(projectId)
@@ -330,7 +336,16 @@ fun WritingWorkspaceV1Screen(
                     tab = WorkspaceTab.VISUAL
                 },
             )
-            WorkspaceTab.CHAT -> ChatSection(state, projectId, title, vm)
+            WorkspaceTab.CHAT -> ChatSection(
+                state, projectId, title, vm,
+                onOpenCharacterStudio = { characterId ->
+                    if (characterId.isNotBlank()) {
+                        visualCharacterOpenId = characterId
+                        visualCharacterOpenRequest += 1
+                        tab = WorkspaceTab.VISUAL
+                    }
+                },
+            )
             WorkspaceTab.PLAN -> PlanSection(state, projectId, vm)
             WorkspaceTab.CANON -> CanonSection(
                 state = state,
@@ -345,6 +360,8 @@ fun WritingWorkspaceV1Screen(
                 characters = state.wikiCharacters,
                 locations = state.wikiLocations,
                 openScenesRequest = visualSceneOpenRequest,
+                requestedCharacterId = visualCharacterOpenId,
+                openCharacterRequest = visualCharacterOpenRequest,
                 onUseSceneInChapter = { chapterId ->
                     vm.openWritingChapter(projectId, chapterId)
                     tab = WorkspaceTab.WRITE
@@ -615,6 +632,7 @@ private fun ChatSection(
     projectId: String,
     title: String,
     vm: JarvisViewModel,
+    onOpenCharacterStudio: (String) -> Unit = {},
 ) {
     val strings = LocalAppStrings.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -662,11 +680,11 @@ private fun ChatSection(
             !state.busy && !state.copilotAppearanceBusy && !state.copilotAgentBusy) {
             keyboardController?.hide()
             focusManager.clearFocus(force = true)
-            vm.runWritingRoomAutoChat(
+            val accepted = vm.runWritingRoomAutoChat(
                 projectId, title, clean,
                 referenceAttachmentId = state.copilotPendingReferenceId,
             )
-            prompt = ""
+            if (accepted) prompt = ""
         }
     }
 
@@ -813,11 +831,9 @@ private fun ChatSection(
 
             state.copilotRecoveredPortraits.forEach { portrait ->
                 item(key = "recovered-" + portrait.assetId) {
-                    val previewImage = portrait.previewAttachmentId?.let { attachmentId ->
-                        remember(attachmentId) {
-                            vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
-                        }
-                    }
+                    var previewDecoded by remember(
+                        portrait.assetId, portrait.previewAttachmentId,
+                    ) { mutableStateOf(false) }
                     Surface(
                         shape = RoundedCornerShape(18.dp),
                         color = Color(0xEE0E182A),
@@ -836,16 +852,18 @@ private fun ChatSection(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFFE2E8F0),
                             )
-                            if (previewImage != null) {
-                                Spacer(Modifier.height(8.dp))
-                                Image(
-                                    bitmap = previewImage.asImageBitmap(),
-                                    contentDescription = "Retrato candidato recuperado del VPS",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxWidth().height(260.dp)
-                                        .clip(RoundedCornerShape(14.dp)),
-                                )
-                            }
+                            Spacer(Modifier.height(8.dp))
+                            com.jarvis.android.ui.writing.VisualAssetPreview(
+                                attachmentId = portrait.previewAttachmentId,
+                                store = vm.attachmentStore,
+                                stored = portrait.storageState == "stored",
+                                loading = state.copilotRecovering,
+                                error = state.copilotRecoveryError,
+                                description = "Retrato recuperado de " + portrait.alt,
+                                height = 310.dp,
+                                onRetry = { vm.recoverWritingCopilotPortraits(projectId) },
+                                onDecodedChange = { previewDecoded = it },
+                            )
                             Spacer(Modifier.height(6.dp))
                             Text(
                                 "Estado: " + portrait.status + " · " + portrait.assetId,
@@ -858,7 +876,7 @@ private fun ChatSection(
                             ) {
                                 if (com.jarvis.android.ui.writing.canApproveVisualPreview(
                                         portrait.storageState,
-                                        previewDecoded = previewImage != null,
+                                        previewDecoded = previewDecoded,
                                     )
                                 ) {
                                     OutlinedButton(
@@ -900,6 +918,16 @@ private fun ChatSection(
                                     Text("Completar vistas desde el master aprobado")
                                 }
                             }
+                            if (portrait.status == "APPROVED" &&
+                                previewDecoded && portrait.characterId.isNotBlank()) {
+                                Spacer(Modifier.height(6.dp))
+                                OutlinedButton(
+                                    onClick = { onOpenCharacterStudio(portrait.characterId) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Abrir y editar en Character Studio")
+                                }
+                            }
                         }
                     }
                 }
@@ -930,32 +958,36 @@ private fun ChatSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF94A3B8),
                             )
-                            val decodedViewIds = mutableSetOf<String>()
+                            // Decode off the UI thread and make each view
+                            // tappable/zoomable using the shared verified viewer.
+                            // Approved candidates are selected only after
+                            // successful decoding of these exact local bytes.
+                            val decodedViewIds = remember(batch.batch_id) {
+                                mutableStateMapOf<String, Boolean>()
+                            }
                             batch.items.forEach { view ->
                                 Spacer(Modifier.height(8.dp))
                                 Text(view.perspective.replace('_', ' ') + " · " + view.status,
                                     style = MaterialTheme.typography.bodySmall, color = JarvisCyan)
-                                val attachmentId = state.copilotViewPreviews[view.candidate_asset_id]
-                                if (!attachmentId.isNullOrBlank()) {
-                                    val preview = remember(attachmentId) {
-                                        vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
-                                    }
-                                    if (preview != null) {
-                                        decodedViewIds += view.candidate_asset_id
-                                        Image(
-                                            bitmap = preview.asImageBitmap(),
-                                            contentDescription = "Vista " + view.perspective,
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier.fillMaxWidth().height(230.dp)
-                                                .clip(RoundedCornerShape(12.dp)),
-                                        )
-                                    } else {
-                                        Text(
-                                            "No se puede mostrar la imagen",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = JarvisAmber,
-                                        )
-                                    }
+                                val assetId = view.candidate_asset_id
+                                val attachmentId = state.copilotViewPreviews[assetId]
+                                if (assetId.isNotBlank() && !attachmentId.isNullOrBlank()) {
+                                    com.jarvis.android.ui.writing.VisualAssetPreview(
+                                        attachmentId = attachmentId,
+                                        store = vm.attachmentStore,
+                                        stored = true,
+                                        loading = state.copilotViewLoading,
+                                        error = state.copilotViewError,
+                                        description = "Vista " + view.perspective,
+                                        height = 260.dp,
+                                        onRetry = {
+                                            vm.refreshCopilotCharacterViews(
+                                                projectId, batch.character_id)
+                                        },
+                                        onDecodedChange = {
+                                            decodedViewIds[assetId] = it
+                                        },
+                                    )
                                 } else if (view.status == "CANDIDATE" ||
                                     view.status == "CANDIDATE_EXISTING"
                                 ) {
@@ -966,7 +998,7 @@ private fun ChatSection(
                                 }
                             }
                             Spacer(Modifier.height(10.dp))
-                            val decodedIds = decodedViewIds.toSet()
+                            val decodedIds = decodedViewIds.filterValues { it }.keys.toSet()
                             Column {
                                 TextButton(
                                     onClick = {
@@ -979,7 +1011,7 @@ private fun ChatSection(
                                 )
                                 if (ready.isNotEmpty()) {
                                     OutlinedButton(
-                                        onClick = { vm.approveCopilotCharacterViews(projectId, decodedIds) },
+                                        onClick = { vm.approveCopilotCharacterViews(projectId, ready.toSet()) },
                                         enabled = !state.copilotViewLoading && !state.busy,
                                     ) { Text("Aprobar ${ready.size} vistas verificadas") }
                                 }
@@ -1718,12 +1750,13 @@ private fun ChatSection(
                 IconButton(
                     onClick = sendPrompt,
                     enabled = (prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
-                        !state.busy && !state.copilotAppearanceBusy,
+                        !state.busy && !state.copilotAppearanceBusy && !state.copilotAgentBusy,
                     modifier = Modifier
                         .size(42.dp)
                         .background(
                             if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
-                                !state.busy && !state.copilotAppearanceBusy) JarvisCyan else Color(0x3310233D),
+                                !state.busy && !state.copilotAppearanceBusy &&
+                                !state.copilotAgentBusy) JarvisCyan else Color(0x3310233D),
                             CircleShape,
                         ),
                 ) {
@@ -1731,7 +1764,8 @@ private fun ChatSection(
                         Icons.AutoMirrored.Filled.Send,
                         contentDescription = "Enviar mensaje",
                         tint = if ((prompt.isNotBlank() || state.copilotPendingReferenceId != null) &&
-                            !state.busy && !state.copilotAppearanceBusy) Color(0xFF02101F) else Color(0xFF64748B),
+                            !state.busy && !state.copilotAppearanceBusy &&
+                            !state.copilotAgentBusy) Color(0xFF02101F) else Color(0xFF64748B),
                         modifier = Modifier.size(18.dp),
                     )
                 }
@@ -1807,33 +1841,56 @@ private fun CopilotAssistantMessage(
     var expandedVisual by remember { mutableStateOf<String?>(null) }
     var expandedSource by remember { mutableStateOf<Pair<String, String>?>(null) }
     expandedVisual?.let { imageId ->
-        val fullImage = remember(imageId) {
-            vm.attachmentStore.decodeThumbnail(imageId, maxSize = 1600)
+        val decodedDialog by produceState(
+            initialValue = Triple<String?, android.graphics.Bitmap?, Boolean>(
+                null, null, false,
+            ),
+            key1 = imageId,
+        ) {
+            val bitmap = withContext(Dispatchers.IO) {
+                vm.attachmentStore.decodeThumbnail(imageId, maxSize = 1600)
+            }
+            value = Triple(imageId, bitmap, true)
         }
-        if (fullImage != null) {
-            AlertDialog(
-                onDismissRequest = {
-                    expandedVisual = null
-                    expandedSource = null
-                },
-                title = { Text("Referencia visual del chat") },
-                text = {
-                    Image(
+        val dialogFinished = decodedDialog.first == imageId && decodedDialog.third
+        val fullImage = decodedDialog.second.takeIf { dialogFinished }
+        AlertDialog(
+            onDismissRequest = {
+                expandedVisual = null
+                expandedSource = null
+            },
+            title = { Text("Referencia visual del chat") },
+            text = {
+                when {
+                    fullImage != null -> Image(
                         bitmap = fullImage.asImageBitmap(),
                         contentDescription = "Imagen ampliada",
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxWidth().height(450.dp),
                     )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        expandedVisual = null
-                        expandedSource = null
-                    }) {
-                        Text("Cerrar")
+                    dialogFinished -> Text(
+                        "No se pudo abrir esta copia. Regresa al mensaje y recupera el original.",
+                        color = JarvisAmber,
+                    )
+                    else -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Abriendo imagen…")
                     }
-                },
-                dismissButton = {
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    expandedVisual = null
+                    expandedSource = null
+                }) {
+                    Text("Cerrar")
+                }
+            },
+            dismissButton = {
+                if (fullImage != null) {
                     expandedSource?.let { (assetId, sha) ->
                         TextButton(onClick = {
                             expandedVisual = null
@@ -1843,9 +1900,9 @@ private fun CopilotAssistantMessage(
                             Text("Editar en Copilot")
                         }
                     }
-                },
-            )
-        }
+                }
+            },
+        )
     }
 
     Row(
@@ -2001,10 +2058,26 @@ private fun CopilotAssistantMessage(
                 // An attachment identifier is not proof that the image is visible.
                 // Keep the approval gate tied to the preview actually decoded
                 // from the authenticated, hash-verified cached attachment.
-                val candidatePreviewBitmap = remember(turn.generatedPreviewAttachmentId) {
-                    turn.generatedPreviewAttachmentId?.let { attachmentId ->
-                        vm.attachmentStore.decodeThumbnail(attachmentId, maxSize = 768)
-                    }
+                val decodedCandidate by produceState(
+                    initialValue = Pair<String?, android.graphics.Bitmap?>(null, null),
+                    key1 = turn.generatedPreviewAttachmentId,
+                ) {
+                    val attachmentId = turn.generatedPreviewAttachmentId
+                    // The original is already SHA verified by the staging
+                    // path. Decode out of Compose's UI thread so historical
+                    // image recovery cannot freeze scrolling/gestures.
+                    value = attachmentId to (
+                        attachmentId?.let { id ->
+                            withContext(Dispatchers.IO) {
+                                vm.attachmentStore.decodeThumbnail(id, maxSize = 768)
+                            }
+                        }
+                    )
+                }
+                // While a new ID is decoding, never display the bitmap from
+                // the previous message or consider it valid for approval.
+                val candidatePreviewBitmap = decodedCandidate.second.takeIf {
+                    decodedCandidate.first == turn.generatedPreviewAttachmentId
                 }
                 turn.generatedPreviewAttachmentId?.let { attachmentId ->
                     val image = candidatePreviewBitmap
@@ -2028,6 +2101,57 @@ private fun CopilotAssistantMessage(
                     }
                 }
                 turn.candidateAssetId?.let { assetId ->
+                    // An attachment ID is not proof that a cached Bitmap
+                    // decodes. For old turns, offer a fresh authenticated
+                    // download of the SAME SHA-pinned asset, never generation.
+                    if (turn.historicalRequestId != null &&
+                        turn.candidateStorageState == "stored" &&
+                        turn.generatedPreviewAttachmentId != null &&
+                        decodedCandidate.first == turn.generatedPreviewAttachmentId &&
+                        candidatePreviewBitmap == null
+                    ) {
+                        Text(
+                            "La copia local de esta imagen no se puede abrir.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisAmber,
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                vm.recoverCopilotHistoricalImage(
+                                    projectId, turn.historicalRequestId, assetId,
+                                    retryUnreadableCopy = true,
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Redescargar original verificado") }
+                        turn.historicalImageError?.let { message ->
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisAmber,
+                            )
+                        }
+                    }
+                    if (turn.historicalRequestId != null &&
+                        turn.candidateStorageState == "stored" &&
+                        turn.generatedPreviewAttachmentId == null
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                vm.recoverCopilotHistoricalImage(
+                                    projectId, turn.historicalRequestId, assetId,
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Recuperar imagen de este mensaje") }
+                        turn.historicalImageError?.let { message ->
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisAmber,
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(7.dp))
                     Text(
                         "Referencia ${turn.candidateStatus ?: "CANDIDATE"} · ID ${assetId}",
@@ -6944,9 +7068,10 @@ private enum class WorkspaceTab(val icon: ImageVector) {
     OVERVIEW(Icons.Filled.Dashboard),
     WRITE(Icons.Filled.EditNote),
     CHAT(Icons.AutoMirrored.Filled.Chat),
+    // Keep Visual / Character Studio close to Copilot on narrow Android screens.
+    VISUAL(Icons.Filled.AddPhotoAlternate),
     PLAN(Icons.Filled.AccountTree),
     CANON(Icons.Filled.AutoStories),
-    VISUAL(Icons.Filled.AddPhotoAlternate),
     WIKI(Icons.Filled.AutoStories),
     LIBRARY(Icons.Filled.LocalLibrary);
 
