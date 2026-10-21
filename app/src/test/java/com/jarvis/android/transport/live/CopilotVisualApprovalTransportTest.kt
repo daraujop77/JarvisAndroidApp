@@ -35,6 +35,7 @@ class CopilotVisualApprovalTransportTest {
           "project_id": "$projectId",
           "character_id": "$character",
           "asset": {
+            "project_id": "$projectId",
             "asset_id": "$id",
             "sha256": "$assetSha",
             "kind": "PRIMARY_REFERENCE",
