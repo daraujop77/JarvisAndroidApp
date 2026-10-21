@@ -1,5 +1,16 @@
 package com.jarvis.android.ui.writing
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -115,4 +126,115 @@ class RealFluxPreviewInstrumentedTest {
             .digest(requireNotNull(good).file.readBytes())
             .joinToString("") { "%02x".format(it) })
     }
+
+    @Test
+    fun recoveredRealFluxPreviewEnablesApprovalOnlyAfterDecodedAndStored() {
+        // Exercise the SAME rendering/approval gate used by Character Studio
+        // on a real emulator. No backend write, no approval POST or paid model.
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = AttachmentStore(context, "preapk-flux-approval-emulator")
+        val original = requireNotNull(store.stageVerifiedGeneratedBase64(
+            pngBase64, expectedSha, "image/png", "preapk-flux-approval-fixture",
+        ))
+        var downloading by mutableStateOf(true)
+        var stored by mutableStateOf(true)
+        val decodedObserved = AtomicBoolean(false)
+        val approvalClicks = AtomicInteger(0)
+
+        compose.setContent {
+            var decoded by remember(original.attachmentId) { mutableStateOf(false) }
+            MaterialTheme {
+                Column {
+                    VisualAssetPreview(
+                        attachmentId = original.attachmentId,
+                        store = store,
+                        stored = stored,
+                        loading = downloading,
+                        error = null,
+                        description = "Imagen candidata auténtica",
+                        height = 240.dp,
+                        onRetry = {
+                            throw AssertionError("Recovery must not generate a new image")
+                        },
+                        onDecodedChange = {
+                            decoded = it
+                            decodedObserved.set(it)
+                        },
+                    )
+                    Button(
+                        onClick = { approvalClicks.incrementAndGet() },
+                        enabled = !downloading && canApproveVisualPreview(
+                            if (stored) "stored" else "pending",
+                            decoded,
+                        ),
+                    ) {
+                        Text("Aprobar imagen")
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Aprobar imagen").assertIsNotEnabled()
+        compose.runOnIdle { downloading = false }
+        compose.waitUntil(15_000) { decodedObserved.get() }
+        compose.onNodeWithText("Aprobar imagen").assertIsEnabled().performClick()
+        assertEquals(1, approvalClicks.get())
+
+        // The same attachment is not a valid visible preview while recovery
+        // rewrites the cache: approval must be blocked until a new decode.
+        compose.runOnIdle { downloading = true }
+        compose.onNodeWithText("Aprobar imagen").assertIsNotEnabled()
+        compose.waitUntil(15_000) { !decodedObserved.get() }
+        compose.runOnIdle { downloading = false }
+        compose.waitUntil(15_000) { decodedObserved.get() }
+        compose.onNodeWithText("Aprobar imagen").assertIsEnabled()
+
+        compose.runOnIdle { stored = false }
+        compose.onNodeWithText("Aprobar imagen").assertIsNotEnabled()
+        assertEquals("Approval was never repeated during recovery", 1,
+            approvalClicks.get())
+    }
+
+    @Test
+    fun originalReceiptIsRecoverableFromPrivateStorageWithoutRegenerating() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val principal = "preapk-real-flux-restart-emulator"
+        val receipt = "preapk-flux-original-receipt-after-restart"
+        val first = AttachmentStore(context, principal)
+        val saved = requireNotNull(first.stageVerifiedGeneratedBase64(
+            pngBase64, expectedSha, "image/png", receipt,
+        ))
+        // A reconnected Android component creates a fresh AttachmentStore
+        // instance but reuses the exact verified attachment and original.
+        val reopened = AttachmentStore(context, principal)
+        val restored = requireNotNull(reopened.stageVerifiedGeneratedBase64(
+            pngBase64, expectedSha, "image/png", receipt,
+        ))
+        assertEquals(saved.attachmentId, restored.attachmentId)
+        assertArrayEquals(saved.file.readBytes(), restored.file.readBytes())
+        assertNotNull(reopened.decodeThumbnail(restored.attachmentId, 1024))
+
+        compose.setContent {
+            MaterialTheme {
+                VisualAssetPreview(
+                    attachmentId = restored.attachmentId,
+                    store = reopened,
+                    stored = true,
+                    loading = false,
+                    error = null,
+                    description = "Original recuperado",
+                    height = 240.dp,
+                    onRetry = { throw AssertionError("No provider request is permitted") },
+                )
+            }
+        }
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(
+                androidx.compose.ui.test.hasContentDescription(
+                    "Original recuperado. Toca para ampliar."),
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription(
+            "Original recuperado. Toca para ampliar.").assertExists()
+    }
+
 }
