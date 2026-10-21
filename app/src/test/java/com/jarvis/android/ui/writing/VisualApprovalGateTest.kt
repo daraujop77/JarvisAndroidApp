@@ -32,6 +32,7 @@ class VisualApprovalGateTest {
         project_id = project,
         character_id = character,
         asset = CopilotVisualCandidate(
+            project_id = project,
             asset_id = assetId, sha256 = sha, status = "APPROVED",
             kind = "PRIMARY_REFERENCE", perspective = "front",
             storage = CopilotVisualStorage(state = "stored"),
@@ -118,6 +119,7 @@ class VisualApprovalGateTest {
             valid.copy(character_id = "character:other"),
             valid.copy(wiki_link = CopilotPortraitWikiLink(entry_id = "character:other")),
             valid.copy(wiki_link = null),
+            valid.copy(asset = valid.asset.copy(project_id = "prj_other")),
             valid.copy(asset = valid.asset.copy(asset_id = "va_wrongasset")),
             valid.copy(asset = valid.asset.copy(sha256 = "b".repeat(64))),
             valid.copy(asset = valid.asset.copy(kind = "REFERENCE")),
