@@ -73,6 +73,7 @@ data class CopilotVisualStorage(
 
 @Serializable
 data class CopilotVisualCandidate(
+    val project_id: String = "",
     val asset_id: String = "",
     val sha256: String = "",
     val status: String = "",
@@ -112,6 +113,7 @@ data class CopilotPortraitWikiLink(
 @Serializable
 data class CopilotVisualApproval(
     val schema: String = "",
+    val project_id: String = "",
     val asset: CopilotVisualCandidate = CopilotVisualCandidate(),
     val character_id: String = "",
     val wiki_link: CopilotPortraitWikiLink? = null,

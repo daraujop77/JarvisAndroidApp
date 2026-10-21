@@ -1460,6 +1460,7 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
         val selected = current.chatHistory.firstOrNull {
             it.candidateAssetId == assetId && it.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
                 it.candidateStatus == "CANDIDATE" && it.candidateStorageState == "stored" &&
+                it.candidateKind == "PRIMARY_REFERENCE" && it.candidatePerspective == "front" &&
                 !it.generatedPreviewAttachmentId.isNullOrBlank()
         }
         val recovered = current.copilotRecoveredPortraits.firstOrNull {
@@ -1484,11 +1485,9 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
             ) return@launch
             response.fold(
                 onSuccess = { confirmed ->
-                    val asset = confirmed.asset
-                    if (asset.asset_id != assetId || !asset.sha256.equals(expectedSha256, ignoreCase = true) ||
-                        asset.status != "APPROVED" ||
-                        confirmed.character_id != characterId ||
-                        confirmed.wiki_link?.entry_id != characterId
+                    if (!com.jarvis.android.ui.writing.isMatchingCopilotPortraitApprovalReceipt(
+                            projectId, characterId, assetId, expectedSha256, confirmed,
+                        )
                     ) {
                         _writingWorkspace.value = _writingWorkspace.value.copy(
                             busy = false, busyLabel = "",
@@ -1501,11 +1500,17 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                         busy = false,
                         busyLabel = "",
                         chatHistory = refreshed.chatHistory.map { turn ->
-                            if (turn.candidateAssetId == assetId) turn.copy(candidateStatus = "APPROVED")
+                            if (turn.candidateAssetId == assetId &&
+                                turn.candidateSha256.equals(expectedSha256, ignoreCase = true) &&
+                                turn.candidateCharacterId == characterId
+                            ) turn.copy(candidateStatus = "APPROVED")
                             else turn
                         },
                         copilotRecoveredPortraits = refreshed.copilotRecoveredPortraits.map { item ->
-                            if (item.assetId == assetId) item.copy(status = "APPROVED")
+                            if (item.assetId == assetId &&
+                                item.sha256.equals(expectedSha256, ignoreCase = true) &&
+                                item.characterId == characterId
+                            ) item.copy(status = "APPROVED")
                             else item
                         },
                         error = null,
@@ -5259,7 +5264,14 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
 
     fun approveCharacterVisual(asset: VisualStudioAsset) {
         val state = _characterStudio.value
-        if (state.busy || asset.status != "CANDIDATE" || asset.sha256.isBlank()) return
+        if (state.busy || !com.jarvis.android.ui.writing.canSubmitCharacterVisualApproval(
+                state.projectId, state.characterId, asset, state.assets,
+                state.attachmentIds[asset.asset_id],
+            )
+        ) return
+        val scopeVersion = characterStudioScopeVersion
+        val projectId = state.projectId
+        val characterId = state.characterId
         val nextRevision = state.assets
             .filter {
                 it.status == "APPROVED" &&
@@ -5284,18 +5296,40 @@ class JarvisViewModel(private val app: JarvisApp) : ViewModel() {
                 assetSha256 = asset.sha256,
                 visualRevision = nextRevision,
             ).fold(
-                onSuccess = {
-                    _characterStudio.update {
-                        it.copy(notice = "Imagen aprobada. El asset quedó ligado a su SHA-256 exacto.")
+                onSuccess = { confirmed ->
+                    if (characterStudioScopeVersion != scopeVersion ||
+                        _characterStudio.value.projectId != projectId ||
+                        _characterStudio.value.characterId != characterId
+                    ) return@fold
+                    if (!com.jarvis.android.ui.writing.isMatchingCharacterVisualApprovalReceipt(
+                            projectId, characterId, asset, nextRevision, confirmed.asset,
+                        )
+                    ) {
+                        _characterStudio.update {
+                            it.copy(
+                                busy = false, busyLabel = "",
+                                error = "La aprobación recibida no coincide con el proyecto, " +
+                                    "personaje, revisión o SHA. Consulta Visual Studio antes de reintentar.",
+                            )
+                        }
+                    } else {
+                        _characterStudio.update {
+                            it.copy(notice = "Imagen aprobada. El asset quedó ligado a su SHA-256 exacto.")
+                        }
+                        reloadCharacterStudio(projectId, characterId)
                     }
-                    reloadCharacterStudio(asset.project_id, state.characterId)
                 },
                 onFailure = { error ->
+                    if (characterStudioScopeVersion != scopeVersion ||
+                        _characterStudio.value.projectId != projectId ||
+                        _characterStudio.value.characterId != characterId
+                    ) return@fold
                     _characterStudio.update {
                         it.copy(
                             busy = false,
                             busyLabel = "",
-                            error = error.message ?: "No se pudo aprobar la imagen.",
+                            error = error.message ?: "No se pudo aprobar la imagen. " +
+                                "Consulta Visual Studio antes de reintentar.",
                         )
                     }
                 },
