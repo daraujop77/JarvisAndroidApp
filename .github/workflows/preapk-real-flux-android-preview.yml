@@ -45,11 +45,7 @@ jobs:
           force-avd-creation: false
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            chmod +x ./gradlew
-            ./gradlew :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=com.jarvis.android.ui.writing.RealFluxPreviewInstrumentedTest \
-              --no-daemon --stacktrace
+          script: chmod +x ./gradlew && ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.jarvis.android.ui.writing.RealFluxPreviewInstrumentedTest --no-daemon --stacktrace
       - name: Upload ONLY instrumented test results; no APK
         if: always()
         uses: actions/upload-artifact@v4
