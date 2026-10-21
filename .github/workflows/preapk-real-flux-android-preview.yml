@@ -24,7 +24,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      # GitHub hosted Ubuntu already supplies Android cmdline-tools and sdkmanager.
+      # setup-android@v3 attempts to install the retired `tools` package and fails.
       - uses: gradle/actions/setup-gradle@v4
       - name: Enable KVM for instrumented emulator
         shell: bash
