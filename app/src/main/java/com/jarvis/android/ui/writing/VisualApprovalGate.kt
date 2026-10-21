@@ -83,6 +83,7 @@ internal fun isMatchingCopilotPortraitApprovalReceipt(
         result.wiki_link?.entry_id == characterId &&
         exactVisualAssetPattern.matches(assetId) &&
         exactVisualShaPattern.matches(expectedSha256) &&
+        approved.project_id == projectId &&
         approved.asset_id == assetId &&
         approved.sha256.equals(expectedSha256, ignoreCase = true) &&
         approved.status == "APPROVED" &&
