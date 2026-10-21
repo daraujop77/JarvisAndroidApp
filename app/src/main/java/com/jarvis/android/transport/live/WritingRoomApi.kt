@@ -73,6 +73,7 @@ data class CopilotVisualStorage(
 
 @Serializable
 data class CopilotVisualCandidate(
+    val project_id: String = "",
     val asset_id: String = "",
     val sha256: String = "",
     val status: String = "",
