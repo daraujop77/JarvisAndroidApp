@@ -112,6 +112,7 @@ data class CopilotPortraitWikiLink(
 @Serializable
 data class CopilotVisualApproval(
     val schema: String = "",
+    val project_id: String = "",
     val asset: CopilotVisualCandidate = CopilotVisualCandidate(),
     val character_id: String = "",
     val wiki_link: CopilotPortraitWikiLink? = null,
