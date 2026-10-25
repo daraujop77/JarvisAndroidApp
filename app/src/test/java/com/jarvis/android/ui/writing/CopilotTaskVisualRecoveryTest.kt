@@ -506,4 +506,92 @@ class CopilotTaskVisualRecoveryTest {
                 buildJsonObject { put("asset_id", "not-valid") })))) == null)
     }
 
+    /**
+     * The actual pre-APK FLUX handoff used this immutable original SHA and
+     * candidate ID. Only metadata enters this wire fixture: image bytes were
+     * independently read from the real stage with SHA/PNG validation.
+     *
+     * An Android candidate must be recoverable in the source chat bubble,
+     * but NEVER appear as an APPROVED reference or bypass the image decode
+     * gate. No real Drive request, LLM call, regeneration or APK here.
+     */
+    @Test fun actualFluxCopilotCandidateWireParsesWithoutPromotingCanon() {
+        val project = "prj_preapk_flux_visual_fixture"
+        val sha = "bcbb45314e757aa2ada3364c5b8ece481b428784b94e437565baa4046005186f"
+        val asset = "va_ref_" + sha.take(32)
+        val wire = """
+            {
+              "schema":"jarvis.writing-room.chat.v1",
+              "selected_participant":"copilot",
+              "turn":{
+                "project_id":"$project",
+                "response":{"text":"Recuperé la imagen candidata existente. No la aprobé ni la convertí en canon."}
+              },
+              "copilot_task":{
+                "schema":"jarvis.writing-room.copilot.task.v1",
+                "task_id":"ar_flux_existing_readonly",
+                "project_id":"$project",
+                "conversation_id":"preapk-flux-copilot-preview",
+                "request_id":"preapk-flux-existing-image-readonce",
+                "agent_run_state":"SUCCEEDED",
+                "state":"DONE",
+                "requires_confirmation":false,
+                "results":[{
+                  "tool":"get_visual_asset_for_chat",
+                  "status":"SUCCEEDED",
+                  "effect":"READ_ONLY",
+                  "result":{
+                    "asset_id":"$asset","sha256":"$sha",
+                    "status":"CANDIDATE","storage_state":"stored",
+                    "kind":"SCENE_ART","perspective":"scene",
+                    "character_id":"","mime_type":"image/png",
+                    "human_approval_required":true,"auto_canon":false
+                  },
+                  "visual_assets":[{
+                    "asset_id":"$asset","sha256":"$sha",
+                    "status":"CANDIDATE","storage_state":"stored",
+                    "kind":"SCENE_ART","mime_type":"image/png"
+                  }]
+                }]
+              },
+              "visual_assets":[],
+              "content":{
+                "schema":"jarvis.chat.content.v1",
+                "blocks":[
+                  {"type":"text","text":"Recuperé la imagen candidata existente."},
+                  {"type":"image","asset_id":"$asset","sha256":"$sha",
+                   "mime_type":"image/png","status":"CANDIDATE",
+                   "storage_state":"stored"}
+                ],
+                "sources":[]
+              }
+            }
+        """.trimIndent()
+
+        val parsed = Json { ignoreUnknownKeys = true }
+            .decodeFromString<WritingRoomAutoChat>(wire)
+        assertEquals("jarvis.writing-room.chat.v1", parsed.schema)
+        assertEquals("copilot", parsed.selected_participant)
+        assertEquals("CANDIDATE", parsed.content?.blocks?.get(1)?.status)
+        assertEquals(asset, parsed.content?.blocks?.get(1)?.asset_id)
+        assertEquals(sha, parsed.content?.blocks?.get(1)?.sha256)
+        assertTrue(parsed.visual_assets.isEmpty())
+        val task = requireNotNull(parsed.copilot_task)
+        assertEquals("DONE", task.state)
+        assertEquals("READ_ONLY", task.results.single().effect)
+        val recovered = completedCopilotGeneratedMaster(project, task)
+        assertEquals(asset, recovered?.assetId)
+        assertEquals(sha, recovered?.sha256)
+        assertEquals("CANDIDATE", recovered?.status)
+        assertEquals("stored", recovered?.storageState)
+        assertEquals("SCENE_ART", recovered?.kind)
+        assertEquals("", recovered?.characterId)
+        assertEquals(null, completedCopilotGeneratedMaster("prj_other", task))
+        assertTrue(!isApprovableProjectReference(
+            asset, sha, "SCENE_ART", "CANDIDATE", "stored", "",
+            verifiedPreviewPresent = true,
+        ))
+        assertEquals("CANDIDATE", task.results.single().visual_assets.single().status)
+    }
+
 }
